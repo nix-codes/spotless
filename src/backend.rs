@@ -138,6 +138,7 @@ impl Worker {
                     EngineEvent::Followed(entry) => Event::Followed(entry),
                     EngineEvent::Ended => Event::Ended,
                     EngineEvent::Unavailable => Event::Unavailable,
+                    EngineEvent::OutputError(message) => Event::Error(message),
                 })
             }),
         ) {

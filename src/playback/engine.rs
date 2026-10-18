@@ -16,11 +16,11 @@ use anyhow::{Context, Result, anyhow};
 use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
 use librespot_metadata::audio::{AudioItem, UniqueFields};
-use librespot_playback::audio_backend;
-use librespot_playback::config::{AudioFormat, Bitrate, PlayerConfig, VolumeCtrl};
+use librespot_playback::config::{Bitrate, PlayerConfig, VolumeCtrl};
 use librespot_playback::mixer::{self, Mixer, MixerConfig};
 use librespot_playback::player::{Player, PlayerEvent};
 
+use super::sink::RodioSink;
 use crate::model::EntryId;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -76,6 +76,8 @@ pub enum EngineEvent {
     Ended,
     /// The loaded song can't be played.
     Unavailable,
+    /// The audio output is missing or failed; the player paused.
+    OutputError(String),
 }
 
 pub type Notify = Arc<dyn Fn(EngineEvent) + Send + Sync>;
@@ -102,7 +104,13 @@ impl Engine {
         .context("unable to create the mixer")?;
         mixer.set_volume(volume);
 
-        let backend = audio_backend::find(None).ok_or_else(|| anyhow!("no audio backend"))?;
+        // A device by name, for testing without one: any name that doesn't
+        // exist acts as a missing output.
+        let device = std::env::var("SPOTLESS_AUDIO_DEVICE").ok();
+        let on_error = {
+            let notify = Arc::clone(&notify);
+            Box::new(move |message| notify(EngineEvent::OutputError(message)))
+        };
         let config = PlayerConfig {
             bitrate: Bitrate::Bitrate320,
             gapless: true,
@@ -113,7 +121,7 @@ impl Engine {
             config,
             session.clone(),
             mixer.get_soft_volume(),
-            move || backend(None, AudioFormat::default()),
+            move || Box::new(RodioSink::new(device, on_error)),
         );
 
         let follow: Follow = Arc::default();

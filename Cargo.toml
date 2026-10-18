@@ -27,16 +27,19 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "glow", "default_fonts", "wayland", "x11"] }
 egui = "0.36"
+rodio = { version = "0.21", default-features = false, features = ["playback"] }
+cpal = "0.16"
+thiserror = "2"
 # librespot from the fork spotifast pins (crmne/librespot spotifast-dev):
 # librespot's dev branch plus fixes not yet released, among them recovery
 # after a session drop and a distinct error when Spotify refuses an audio
 # key. rustls everywhere, so there is one TLS stack and no OpenSSL.
 #
-# M0 plays through librespot's own rodio backend. spotifast replaced it with
-# its own sink because rodio's panics if no output device exists; spotless
-# will do the same in M1 (docs/PLAN.md, section 4).
+# Audio goes through our own rodio sink (src/playback/sink.rs), not
+# librespot's, which panics when there is no output device. Same rodio and
+# cpal versions as librespot's backend.
 librespot-core = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
-librespot-playback = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots", "rodio-backend"] }
+librespot-playback = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-metadata = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-oauth = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
 
