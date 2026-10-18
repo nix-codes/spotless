@@ -283,17 +283,21 @@ impl Worker {
                 let approval = Arc::clone(&self.search_approval);
                 let emit = Arc::clone(&self.emit);
                 tokio::spawn(async move {
-                    let results = match approve_search(&web, &approval, &emit).await {
-                        Ok(()) => {
-                            let mut web = web.lock().await;
-                            let results = web.search(&query).await.map_err(|e| format!("{e:#}"));
-                            if !web.signed_in() {
-                                emit(Event::Search(SearchState::SignedOut));
-                            }
-                            results
+                    // A saved approval Spotify no longer takes is dropped by
+                    // the search; approve again and retry once.
+                    let mut results = Err(String::new());
+                    for _ in 0..2 {
+                        if let Err(error) = approve_search(&web, &approval, &emit).await {
+                            results = Err(error);
+                            break;
                         }
-                        Err(error) => Err(error),
-                    };
+                        let mut web = web.lock().await;
+                        results = web.search(&query).await.map_err(|e| format!("{e:#}"));
+                        if results.is_ok() || web.signed_in() {
+                            break;
+                        }
+                        emit(Event::Search(SearchState::SignedOut));
+                    }
                     emit(Event::SearchResults { query, results });
                 });
             }

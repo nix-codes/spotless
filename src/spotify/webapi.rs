@@ -40,7 +40,8 @@ impl WebApi {
         let refresh_token = std::fs::read(&path)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .and_then(|saved| saved["refresh_token"].as_str().map(String::from));
+            .and_then(|saved| saved["refresh_token"].as_str().map(String::from))
+            .filter(|token| !token.is_empty());
         Self {
             client_id,
             path,
@@ -128,8 +129,10 @@ impl WebApi {
             }
             Err(error) => {
                 log::warn!("search token refresh failed: {error}");
-                // A revoked or rotated-away token: approve again.
-                if error.to_string().contains("invalid_grant") {
+                // A revoked, rotated-away or missing token: approve again
+                // on the next search.
+                let message = error.to_string();
+                if message.contains("invalid_grant") || message.contains("invalid_request") {
                     self.sign_out();
                 }
                 bail!("search sign-in expired: {error}")
@@ -148,6 +151,11 @@ impl WebApi {
 
     pub fn keep(&mut self, token: OAuthToken) -> Result<()> {
         self.access = Some((token.access_token, token.expires_at));
+        // A refresh may not rotate the refresh token: Spotify then sends
+        // none, which librespot reports as empty. The old one stays valid.
+        if token.refresh_token.is_empty() {
+            return Ok(());
+        }
         if self.refresh_token.as_deref() != Some(token.refresh_token.as_str()) {
             self.refresh_token = Some(token.refresh_token.clone());
             save_private(
@@ -248,6 +256,38 @@ fn track_ref(item: &Value) -> Option<TrackRef> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn token(refresh: &str) -> OAuthToken {
+        OAuthToken {
+            access_token: "access".into(),
+            refresh_token: refresh.into(),
+            expires_at: Instant::now() + Duration::from_secs(3600),
+            token_type: "Bearer".into(),
+            scopes: vec![],
+        }
+    }
+
+    #[test]
+    fn a_refresh_without_a_new_refresh_token_keeps_the_old_one() {
+        let dir = std::env::temp_dir().join(format!("spotless-webapi-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("search-credentials.json");
+        let mut web = WebApi::new("id".into(), path.clone());
+        web.keep(token("first")).unwrap();
+        web.keep(token("")).unwrap();
+        let again = WebApi::new("id".into(), path.clone());
+        assert_eq!(again.refresh_token.as_deref(), Some("first"));
+        web.keep(token("second")).unwrap();
+        assert_eq!(
+            WebApi::new("id".into(), path.clone())
+                .refresh_token
+                .as_deref(),
+            Some("second")
+        );
+        // A file saved empty by the old bug counts as not approved.
+        std::fs::write(&path, br#"{"refresh_token":""}"#).unwrap();
+        assert!(!WebApi::new("id".into(), path).signed_in());
+    }
 
     #[test]
     fn search_results_parse_into_three_sections() {
