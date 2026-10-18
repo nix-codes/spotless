@@ -32,7 +32,6 @@ pub enum Action {
     ToggleBrowse,
     CloseBrowse,
     Back,
-    ConnectSearch,
     Search(String),
     OpenArtist(ArtistRef),
     /// Shows or hides an album's songs, reading them if needed.

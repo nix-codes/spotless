@@ -230,7 +230,6 @@ impl App {
             }
             Action::CloseBrowse => self.browse.open = false,
             Action::Back => self.browse.back(),
-            Action::ConnectSearch => self.send(Command::ConnectSearch),
             Action::Search(query) => {
                 let query = query.trim().to_string();
                 if query.is_empty() {
@@ -238,7 +237,8 @@ impl App {
                 }
                 self.browse.go(Page::Search(query.clone()));
                 let cached = matches!(self.browse.searches.get(&query), Some(Loadable::Ready(_)));
-                if !cached && self.search == SearchState::Ready {
+                // Unapproved search asks for its approval first, by itself.
+                if !cached && self.search != SearchState::NoApp {
                     self.browse
                         .searches
                         .insert(query.clone(), Loadable::Loading);

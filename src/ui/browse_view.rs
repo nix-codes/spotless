@@ -111,7 +111,7 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<A
 }
 
 fn home(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
-    if !search_prompt(ui, view, actions) {
+    if !search_prompt(ui, view) {
         note(ui, view, "Type an artist, album or song and press Enter.");
     }
     if !view.browse.recent.is_empty() {
@@ -131,40 +131,28 @@ fn home(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
     }
 }
 
-/// Explains what search still needs. False when it is ready.
-fn search_prompt(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) -> bool {
+/// Explains what stands in the way of search. False when nothing does.
+fn search_prompt(ui: &mut Ui, view: &View) -> bool {
     match view.search {
-        SearchState::Ready => return false,
+        SearchState::Ready | SearchState::SignedOut => return false,
         SearchState::NoApp => note(
             ui,
             view,
             "Search needs your personal Spotify app. Add \"web_client_id\": \"<its Client ID>\" \
              to ~/.config/spotless/settings.json and restart Spotless.",
         ),
-        SearchState::SignedOut => {
-            note(
-                ui,
-                view,
-                "Search goes through your personal Spotify app. Approve it once in your \
-                 browser (close spotifast first: both use the same sign-in port).",
-            );
-            ui.add_space(6.0);
-            if text_button(ui, &view.palette, "CONNECT SEARCH", false, true).clicked() {
-                actions.push(Action::ConnectSearch);
-            }
-            ui.add_space(6.0);
-        }
         SearchState::SigningIn => note(
             ui,
             view,
-            "Approve Spotless in the Spotify page that opened, then come back here.",
+            "Spotify is confirming search in your browser. If it asks, approve Spotless \
+             (with spotifast closed: both use the same sign-in port).",
         ),
     }
     true
 }
 
 fn search_page(ui: &mut Ui, view: &View, query: &str, actions: &mut Vec<Action>) {
-    if search_prompt(ui, view, actions) {
+    if search_prompt(ui, view) {
         return;
     }
     let results = match view.browse.searches.get(query) {

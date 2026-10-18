@@ -34,8 +34,6 @@ pub enum Command {
     Player(Request),
     Seek(u32),
     Volume(u16),
-    /// Opens the browser to approve search for the personal app.
-    ConnectSearch,
     Search(String),
     /// An artist's discography, by artist URI.
     Discography(String),
@@ -128,6 +126,38 @@ impl Backend {
 
 type Emit = Arc<dyn Fn(Event) + Send + Sync>;
 
+/// Search signs in with the personal app, a second approval besides
+/// playback's (docs/PLAN.md, section 6). It runs when Spotless signs in, or
+/// on the first search if search was never approved. The browser is already
+/// signed in to Spotify by then, so it usually passes without a question.
+/// One at a time: a second caller waits, then finds it done.
+async fn approve_search(
+    web: &tokio::sync::Mutex<WebApi>,
+    approval: &tokio::sync::Mutex<()>,
+    emit: &Emit,
+) -> Result<(), String> {
+    let _one = approval.lock().await;
+    if web.lock().await.signed_in() {
+        return Ok(());
+    }
+    emit(Event::Search(SearchState::SigningIn));
+    // Not holding the client: the approval waits as long as the user takes.
+    let client = web.lock().await.approval().map_err(|e| format!("{e:#}"));
+    let result = match client {
+        Ok(client) => match client.get_access_token_async().await {
+            Ok(token) => web.lock().await.keep(token).map_err(|e| format!("{e:#}")),
+            Err(error) => Err(format!("search sign-in failed: {error}")),
+        },
+        Err(error) => Err(error),
+    };
+    emit(Event::Search(if result.is_ok() {
+        SearchState::Ready
+    } else {
+        SearchState::SignedOut
+    }));
+    result
+}
+
 struct Worker {
     paths: Paths,
     volume: u16,
@@ -136,6 +166,8 @@ struct Worker {
     engine: Option<Engine>,
     /// Shared with the searches running in the background.
     web: Option<Arc<tokio::sync::Mutex<WebApi>>>,
+    /// Held while search's browser approval runs, so it runs once.
+    search_approval: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl Worker {
@@ -147,6 +179,7 @@ impl Worker {
             session: None,
             engine: None,
             web: None,
+            search_approval: Arc::default(),
         }
     }
 
@@ -202,7 +235,19 @@ impl Worker {
             Command::SignIn => {
                 (self.emit)(Event::Session(SessionState::SigningIn));
                 match session::sign_in(&self.paths).await {
-                    Ok(session) => self.ready(session),
+                    Ok(session) => {
+                        self.ready(session);
+                        // Search's approval follows at once, as one sign-in.
+                        if let Some(web) = self.web.clone() {
+                            let approval = Arc::clone(&self.search_approval);
+                            let emit = Arc::clone(&self.emit);
+                            tokio::spawn(async move {
+                                if let Err(error) = approve_search(&web, &approval, &emit).await {
+                                    emit(Event::Error(error));
+                                }
+                            });
+                        }
+                    }
                     Err(error) => {
                         (self.emit)(Event::Session(SessionState::Failed(format!("{error:#}"))))
                     }
@@ -233,36 +278,22 @@ impl Worker {
                 });
             }
             Command::Player(request) => self.player(request),
-            Command::ConnectSearch => {
-                let Some(web) = self.web.clone() else { return };
-                let emit = Arc::clone(&self.emit);
-                emit(Event::Search(SearchState::SigningIn));
-                tokio::spawn(async move {
-                    let approval = web.lock().await.approval();
-                    let result = match approval {
-                        Ok(client) => match client.get_access_token_async().await {
-                            Ok(token) => web.lock().await.keep(token),
-                            Err(error) => Err(anyhow::anyhow!("search sign-in failed: {error}")),
-                        },
-                        Err(error) => Err(error),
-                    };
-                    if let Err(error) = result {
-                        emit(Event::Error(format!("{error:#}")));
-                        emit(Event::Search(SearchState::SignedOut));
-                    } else {
-                        emit(Event::Search(SearchState::Ready));
-                    }
-                });
-            }
             Command::Search(query) => {
                 let Some(web) = self.web.clone() else { return };
+                let approval = Arc::clone(&self.search_approval);
                 let emit = Arc::clone(&self.emit);
                 tokio::spawn(async move {
-                    let mut web = web.lock().await;
-                    let results = web.search(&query).await.map_err(|e| format!("{e:#}"));
-                    if !web.signed_in() {
-                        emit(Event::Search(SearchState::SignedOut));
-                    }
+                    let results = match approve_search(&web, &approval, &emit).await {
+                        Ok(()) => {
+                            let mut web = web.lock().await;
+                            let results = web.search(&query).await.map_err(|e| format!("{e:#}"));
+                            if !web.signed_in() {
+                                emit(Event::Search(SearchState::SignedOut));
+                            }
+                            results
+                        }
+                        Err(error) => Err(error),
+                    };
                     emit(Event::SearchResults { query, results });
                 });
             }
