@@ -2215,6 +2215,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -4576,6 +4578,7 @@ dependencies = [
  "egui",
  "env_logger",
  "fastrand",
+ "image",
  "librespot-core",
  "librespot-metadata",
  "librespot-oauth",

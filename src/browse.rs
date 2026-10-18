@@ -19,6 +19,14 @@ pub enum Page {
     Artist(String),
 }
 
+/// An album cover, by image URL.
+#[derive(Clone)]
+pub enum Cover {
+    Loading,
+    Ready(egui::TextureHandle),
+    Failed,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Loadable<T> {
     Loading,
@@ -26,7 +34,6 @@ pub enum Loadable<T> {
     Failed(String),
 }
 
-#[derive(Debug)]
 pub struct Browse {
     pub open: bool,
     /// The current page is the last.
@@ -44,10 +51,13 @@ pub struct Browse {
     pub target: PlaylistId,
     /// Entries just added, and when.
     pub flash: Vec<(EntryId, Instant)>,
+    /// Covers show next to albums.
+    pub show_covers: bool,
+    pub covers: HashMap<String, Cover>,
 }
 
 impl Browse {
-    pub fn new(target: PlaylistId) -> Self {
+    pub fn new(target: PlaylistId, show_covers: bool) -> Self {
         Self {
             open: false,
             history: vec![Page::Home],
@@ -60,6 +70,8 @@ impl Browse {
             recent: Vec::new(),
             target,
             flash: Vec::new(),
+            show_covers,
+            covers: HashMap::new(),
         }
     }
 
@@ -123,7 +135,7 @@ mod tests {
 
     #[test]
     fn history_goes_back_to_home_and_no_further() {
-        let mut browse = Browse::new(PlaylistId::DEFAULT);
+        let mut browse = Browse::new(PlaylistId::DEFAULT, false);
         browse.go(Page::Search("boc".into()));
         browse.go(Page::Artist("spotify:artist:a".into()));
         browse.go(Page::Artist("spotify:artist:a".into()));
@@ -136,7 +148,7 @@ mod tests {
 
     #[test]
     fn an_artist_page_starts_on_albums_oldest_first() {
-        let mut browse = Browse::new(PlaylistId::DEFAULT);
+        let mut browse = Browse::new(PlaylistId::DEFAULT, false);
         browse.tab = ReleaseTab::All;
         browse.newest_first = true;
         browse.go(Page::Artist("spotify:artist:a".into()));

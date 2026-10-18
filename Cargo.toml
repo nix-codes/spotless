@@ -23,13 +23,14 @@ dirs = "6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 fastrand = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "fs"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "glow", "default_fonts", "wayland", "x11"] }
 egui = "0.36"
 rodio = { version = "0.21", default-features = false, features = ["playback"] }
 cpal = "0.16"
 thiserror = "2"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 # librespot from the fork spotifast pins (crmne/librespot spotifast-dev):
 # librespot's dev branch plus fixes not yet released, among them recovery
 # after a session drop and a distinct error when Spotify refuses an audio

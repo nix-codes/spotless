@@ -85,6 +85,8 @@ pub struct Settings {
     pub volume: u8,
     pub repeat: bool,
     pub shuffle: bool,
+    /// Album covers in the catalog.
+    pub covers: bool,
     raw: Map<String, Value>,
 }
 
@@ -124,6 +126,7 @@ impl Settings {
                 .map_or(70, |v| v.min(100) as u8),
             repeat: flag("repeat"),
             shuffle: flag("shuffle"),
+            covers: flag("covers"),
             raw: raw.clone(),
         }
     }
@@ -133,6 +136,7 @@ impl Settings {
         raw.insert("volume".into(), self.volume.into());
         raw.insert("repeat".into(), self.repeat.into());
         raw.insert("shuffle".into(), self.shuffle.into());
+        raw.insert("covers".into(), self.covers.into());
         raw
     }
 

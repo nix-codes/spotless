@@ -50,6 +50,9 @@ pub enum Action {
     SetTab(ReleaseTab),
     ToggleSort,
     SetTarget(PlaylistId),
+    ToggleCovers,
+    /// Fetches a cover the catalog wants to show, unless it has it.
+    LoadCover(String),
     /// Appends songs to the target playlist.
     AddTracks(Vec<TrackRef>),
     /// Appends an album's songs to the target playlist.

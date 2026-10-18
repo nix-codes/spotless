@@ -39,6 +39,10 @@ impl Paths {
         self.config.join("settings.json")
     }
 
+    pub fn covers(&self) -> PathBuf {
+        self.cache.join("covers")
+    }
+
     /// Search's refresh token, for the personal app (private).
     pub fn search_credentials(&self) -> PathBuf {
         self.config.join("search-credentials.json")

@@ -39,6 +39,8 @@ pub enum Command {
     Discography(String),
     /// An album's songs, by album URI.
     Album(String),
+    /// An album cover, by image URL.
+    Cover(String),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -83,6 +85,10 @@ pub enum Event {
     Album {
         album: String,
         result: Result<Vec<TrackRef>, String>,
+    },
+    Cover {
+        url: String,
+        result: Result<egui::ColorImage, String>,
     },
     /// The songs of an `AddLink`.
     Tracks {
@@ -168,6 +174,9 @@ struct Worker {
     web: Option<Arc<tokio::sync::Mutex<WebApi>>>,
     /// Held while search's browser approval runs, so it runs once.
     search_approval: Arc<tokio::sync::Mutex<()>>,
+    http: reqwest::Client,
+    /// Limits cover downloads running at once.
+    cover_slots: Arc<tokio::sync::Semaphore>,
 }
 
 impl Worker {
@@ -180,6 +189,8 @@ impl Worker {
             engine: None,
             web: None,
             search_approval: Arc::default(),
+            http: reqwest::Client::new(),
+            cover_slots: Arc::new(tokio::sync::Semaphore::new(6)),
         }
     }
 
@@ -313,6 +324,22 @@ impl Worker {
                     };
                     let result = result.map_err(|e| format!("{e:#}"));
                     emit(Event::Discography { artist, result });
+                });
+            }
+            Command::Cover(url) => {
+                let http = self.http.clone();
+                let dir = self.paths.covers();
+                let slots = Arc::clone(&self.cover_slots);
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let _slot = slots.acquire().await;
+                    let result = crate::images::cover(&http, &dir, &url)
+                        .await
+                        .map_err(|e| format!("{e:#}"));
+                    if let Err(error) = &result {
+                        log::warn!("cover {url}: {error}");
+                    }
+                    emit(Event::Cover { url, result });
                 });
             }
             Command::Album(album) => {

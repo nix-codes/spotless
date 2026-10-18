@@ -22,6 +22,8 @@ pub struct Release {
     /// ALBUM, EP, SINGLE or COMPILATION.
     pub kind: String,
     pub tracks: usize,
+    /// The cover's image URL, about 300 px.
+    pub cover: Option<String>,
 }
 
 impl Release {
@@ -116,6 +118,7 @@ mod tests {
             group,
             kind: "ALBUM".into(),
             tracks: 10,
+            cover: None,
         }
     }
 

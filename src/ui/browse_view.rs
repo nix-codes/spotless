@@ -14,7 +14,7 @@ use super::widgets::{BUTTON_HEIGHT, SMALL_HEIGHT, small_button, small_button_wid
 use super::{Inputs, View};
 use crate::action::Action;
 use crate::backend::SearchState;
-use crate::browse::{Loadable, Page};
+use crate::browse::{Cover, Loadable, Page};
 use crate::model::catalog::{Release, ReleaseTab};
 use crate::model::{TrackRef, playlist::Playlist};
 
@@ -22,6 +22,11 @@ const SLIM_WIDTH: f32 = 250.0;
 const ROW_HEIGHT: f32 = 22.0;
 const TRACK_HEIGHT: f32 = 20.0;
 const PAD: f32 = 10.0;
+/// Album rows with covers shown, and their thumbnails.
+const COVER_ROW_HEIGHT: f32 = 34.0;
+const THUMB: f32 = 28.0;
+/// The cover beside an opened album's songs.
+const BIG_COVER: f32 = 140.0;
 
 /// Songs or an album dragged from the catalog to the slim column.
 enum CatalogDrag {
@@ -106,7 +111,7 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<A
         if text_button(ui, &palette, "BACK", false, view.browse.can_go_back()).clicked() {
             actions.push(Action::Back);
         }
-        let close_width = 128.0;
+        let close_width = 210.0;
         let field = ui.add(
             TextEdit::singleline(&mut inputs.query)
                 .id(Id::new("catalog-search"))
@@ -119,6 +124,12 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<A
         }
         if field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
             actions.push(Action::Search(inputs.query.clone()));
+        }
+        if text_button(ui, &palette, "COVERS", view.browse.show_covers, true)
+            .on_hover_text("Show album covers")
+            .clicked()
+        {
+            actions.push(Action::ToggleCovers);
         }
         if text_button(ui, &palette, "ESC · PLAYLISTS", false, true).clicked() {
             actions.push(Action::CloseBrowse);
@@ -315,14 +326,25 @@ fn album(ui: &mut Ui, view: &View, release: &Release, by: bool, actions: &mut Ve
         1 => "1 song".to_string(),
         n => format!("{n} songs"),
     };
-    let row = row(ui, &palette, ROW_HEIGHT, Some("+ ADD"), |painter, rect| {
+    let covers = view.browse.show_covers;
+    let height = if covers { COVER_ROW_HEIGHT } else { ROW_HEIGHT };
+    let row = row(ui, &palette, height, Some("+ ADD"), |painter, rect| {
         chevron(
             painter,
             pos2(rect.left() + 5.0, rect.center().y),
             expanded,
             palette.dim,
         );
-        let text = Rect::from_min_max(pos2(rect.left() + 16.0, rect.top()), rect.max);
+        let mut left = rect.left() + 16.0;
+        if covers {
+            let thumb = Rect::from_min_size(
+                pos2(left, rect.center().y - THUMB / 2.0),
+                vec2(THUMB, THUMB),
+            );
+            cover(painter, view, release, thumb, actions);
+            left = thumb.right() + 10.0;
+        }
+        let text = Rect::from_min_max(pos2(left, rect.top()), rect.max);
         let mut parts = vec![
             (year.as_str(), mono(), palette.dim),
             (release.title.as_str(), body(), palette.list_fg),
@@ -351,6 +373,22 @@ fn album(ui: &mut Ui, view: &View, release: &Release, by: bool, actions: &mut Ve
     match view.browse.albums.get(&release.uri) {
         None | Some(Loadable::Loading) => indented_note(ui, view, "Reading the songs…"),
         Some(Loadable::Failed(error)) => indented_note(ui, view, error),
+        Some(Loadable::Ready(tracks)) if covers => {
+            ui.add_space(4.0);
+            ui.horizontal_top(|ui| {
+                ui.add_space(16.0);
+                let (rect, _) = ui.allocate_exact_size(vec2(BIG_COVER, BIG_COVER), Sense::hover());
+                cover(ui.painter(), view, release, rect, actions);
+                ui.add_space(8.0);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    for (i, track) in tracks.iter().enumerate() {
+                        song(ui, view, i + 1, track, false, actions);
+                    }
+                });
+            });
+            ui.add_space(8.0);
+        }
         Some(Loadable::Ready(tracks)) => {
             for (i, track) in tracks.iter().enumerate() {
                 song(ui, view, i + 1, track, false, actions);
@@ -358,6 +396,39 @@ fn album(ui: &mut Ui, view: &View, release: &Release, by: bool, actions: &mut Ve
             ui.add_space(4.0);
         }
     }
+}
+
+/// Draws a release's cover in `rect`, asking for it when it comes into
+/// view; a framed square stands in until it arrives.
+fn cover(painter: &Painter, view: &View, release: &Release, rect: Rect, actions: &mut Vec<Action>) {
+    let palette = view.palette;
+    let texture = release
+        .cover
+        .as_ref()
+        .and_then(|url| match view.browse.covers.get(url) {
+            Some(Cover::Ready(texture)) => Some(texture.id()),
+            Some(_) => None,
+            None => {
+                if painter.clip_rect().intersects(rect) {
+                    actions.push(Action::LoadCover(url.clone()));
+                }
+                None
+            }
+        });
+    match texture {
+        Some(id) => {
+            painter.image(
+                id,
+                rect,
+                Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                Color32::WHITE,
+            );
+        }
+        None => {
+            painter.rect_filled(rect, 0.0, palette.frame);
+        }
+    }
+    painter.rect_stroke(rect, 0.0, Stroke::new(1.0, palette.lo), StrokeKind::Outside);
 }
 
 /// A song row: double-click plays it now, + adds it. `full` shows the

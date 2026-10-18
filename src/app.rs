@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState};
-use crate::browse::{Browse, Loadable, Page};
+use crate::browse::{Browse, Cover, Loadable, Page};
 use crate::model::{Library, Playback, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status};
@@ -45,6 +45,7 @@ impl App {
         palette.apply(&cc.egui_ctx);
         let settings = Settings::load(&paths);
         let (library, tabs) = store::load_library(&paths);
+        let covers = settings.covers;
         let viewed = tabs.viewed.or(tabs.playing).unwrap_or(PlaylistId::DEFAULT);
         let mut playback = Playback::new(seed());
         playback.repeat = settings.repeat;
@@ -71,14 +72,14 @@ impl App {
             viewed,
             settings,
             unsaved: None,
-            browse: Browse::new(viewed),
+            browse: Browse::new(viewed, covers),
             search: SearchState::SignedOut,
             pending_adds: Vec::new(),
             paths,
         }
     }
 
-    fn receive(&mut self) {
+    fn receive(&mut self, ctx: &egui::Context) {
         let Some(backend) = &self.backend else { return };
         let events: Vec<Event> = backend.events.try_iter().collect();
         for event in events {
@@ -112,6 +113,17 @@ impl App {
                 }
                 Event::Tracks { playlist, tracks } => self.insert_tracks(playlist, None, tracks),
                 Event::Search(state) => self.search = state,
+                Event::Cover { url, result } => {
+                    let cover = match result {
+                        Ok(image) => Cover::Ready(ctx.load_texture(
+                            &url,
+                            image,
+                            egui::TextureOptions::LINEAR,
+                        )),
+                        Err(_) => Cover::Failed,
+                    };
+                    self.browse.covers.insert(url, cover);
+                }
                 Event::SearchResults { query, results } => {
                     let loaded = match results {
                         Ok(results) => Loadable::Ready(results),
@@ -328,6 +340,17 @@ impl App {
             Action::SetTab(tab) => self.browse.tab = tab,
             Action::ToggleSort => self.browse.newest_first = !self.browse.newest_first,
             Action::SetTarget(list) => self.browse.target = list,
+            Action::ToggleCovers => {
+                self.browse.show_covers = !self.browse.show_covers;
+                self.settings.covers = self.browse.show_covers;
+                self.mark_unsaved();
+            }
+            Action::LoadCover(url) => {
+                if !self.browse.covers.contains_key(&url) {
+                    self.browse.covers.insert(url.clone(), Cover::Loading);
+                    self.send(Command::Cover(url));
+                }
+            }
             Action::AddTracks(tracks) => self.insert_tracks(self.browse.target, None, tracks),
             Action::DropTracks(tracks, at) => {
                 self.insert_tracks(self.browse.target, Some(at), tracks)
@@ -458,7 +481,7 @@ fn seed() -> u64 {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.receive();
+        self.receive(&ui.ctx().clone());
         let mut actions = Vec::new();
         let playlist = self
             .library

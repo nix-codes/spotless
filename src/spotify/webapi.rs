@@ -232,7 +232,18 @@ fn release(item: &Value) -> Option<Release> {
         },
         kind: Release::kind_label(album_type, tracks),
         tracks,
+        cover: cover_url(item),
     })
+}
+
+/// The image nearest 300 px wide.
+fn cover_url(item: &Value) -> Option<String> {
+    item["images"]
+        .as_array()?
+        .iter()
+        .filter_map(|image| Some((image["width"].as_i64().unwrap_or(0), image["url"].as_str()?)))
+        .min_by_key(|(width, _)| (width - 300).abs())
+        .map(|(_, url)| url.to_string())
 }
 
 fn track_ref(item: &Value) -> Option<TrackRef> {
@@ -296,6 +307,11 @@ mod tests {
             "albums": {"items": [{
                 "uri": "spotify:album:b", "name": "Twoism", "album_type": "single",
                 "total_tracks": 8, "release_date": "1995-11-01",
+                "images": [
+                    {"url": "https://i.scdn.co/image/big", "width": 640},
+                    {"url": "https://i.scdn.co/image/mid", "width": 300},
+                    {"url": "https://i.scdn.co/image/small", "width": 64}
+                ],
                 "artists": [{"uri": "spotify:artist:a", "name": "Boards of Canada"}]
             }]},
             "tracks": {"items": [{
@@ -309,6 +325,7 @@ mod tests {
         let album = &results.albums[0];
         assert_eq!((album.year, album.kind.as_str()), (1995, "EP"));
         assert_eq!(album.group, ReleaseGroup::Single);
+        assert_eq!(album.cover.as_deref(), Some("https://i.scdn.co/image/mid"));
         assert_eq!(results.songs.len(), 1);
         assert_eq!(
             results.songs[0].album.name,
