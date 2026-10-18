@@ -5,6 +5,7 @@ use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
 use librespot_metadata::{Album, Artist, Metadata, Track};
 
+use crate::model::catalog::{Discography, Release, ReleaseGroup, tidy};
 use crate::model::{AlbumRef, ArtistRef, TrackRef};
 
 /// Accepts `spotify:` URIs and `open.spotify.com` links.
@@ -106,31 +107,11 @@ async fn first_release(session: &Session, uri: &SpotifyUri) -> Result<SpotifyUri
         .context("the artist has no releases")
 }
 
-/// Which tab of an artist's discography a release belongs to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReleaseGroup {
-    Album,
-    Single,
-    Compilation,
-    AppearsOn,
-}
-
-#[derive(Clone, Debug)]
-pub struct Release {
-    pub uri: SpotifyUri,
-    pub title: String,
-    pub year: i32,
-    pub group: ReleaseGroup,
-    /// Spotify's own type for the release (album, single, EP, compilation).
-    pub kind: String,
-    pub tracks: usize,
-}
-
-/// An artist's releases, grouped as the session reports them, oldest first.
+/// An artist's releases, oldest first, read concurrently.
 ///
 /// Each group lists one entry per release; an entry may hold several
 /// editions of the same release, of which the first is used.
-pub async fn discography(session: &Session, artist: &SpotifyUri) -> Result<(String, Vec<Release>)> {
+pub async fn discography(session: &Session, artist: &SpotifyUri) -> Result<Discography> {
     let artist = Artist::get(session, artist)
         .await
         .context("artist not found")?;
@@ -140,25 +121,64 @@ pub async fn discography(session: &Session, artist: &SpotifyUri) -> Result<(Stri
         (ReleaseGroup::Compilation, &artist.compilations),
         (ReleaseGroup::AppearsOn, &artist.appears_on_albums),
     ];
-    let mut releases = Vec::new();
+    let mut reads = tokio::task::JoinSet::new();
+    let mut order = 0;
     for (group, entries) in groups {
         for entry in entries.iter() {
-            let Some(uri) = entry.first() else { continue };
-            match Album::get(session, uri).await {
-                Ok(album) => releases.push(Release {
-                    uri: uri.clone(),
-                    title: album.name.clone(),
-                    year: album.date.year(),
-                    group,
-                    kind: format!("{:?}", album.album_type),
-                    tracks: album.tracks().count(),
-                }),
-                Err(error) => log::warn!("release {uri} unavailable: {error}"),
-            }
+            let Some(uri) = entry.first().cloned() else {
+                continue;
+            };
+            let session = session.clone();
+            reads.spawn(async move {
+                let album = Album::get(&session, &uri)
+                    .await
+                    .map_err(|e| (uri.clone(), e));
+                (order, group, uri, album)
+            });
+            order += 1;
         }
     }
-    releases.sort_by_key(|release| release.year);
-    Ok((artist.name.clone(), releases))
+    let mut releases = Vec::new();
+    while let Some(read) = reads.join_next().await {
+        match read? {
+            (order, group, uri, Ok(album)) => {
+                let tracks = album.tracks().count();
+                releases.push((
+                    order,
+                    Release {
+                        uri: uri.to_uri(),
+                        title: album.name.clone(),
+                        artists: album
+                            .artists
+                            .iter()
+                            .map(|a| a.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        year: album.date.year(),
+                        group,
+                        kind: Release::kind_label(&format!("{:?}", album.album_type), tracks),
+                        tracks,
+                    },
+                ));
+            }
+            (_, _, _, Err((uri, error))) => log::warn!("release {uri} unavailable: {error}"),
+        }
+    }
+    // Spotify's order first, so tidy keeps it within a year.
+    releases.sort_by_key(|(order, _)| *order);
+    Ok(Discography {
+        artist: ArtistRef {
+            uri: artist.id.to_uri(),
+            name: artist.name.clone(),
+        },
+        releases: tidy(releases.into_iter().map(|(_, r)| r).collect()),
+    })
+}
+
+/// An album's songs, in order.
+pub async fn album(session: &Session, album: &str) -> Result<Vec<TrackRef>> {
+    let uri = parse_uri(album)?;
+    tracks(session, album_tracks(session, &uri).await?).await
 }
 
 #[cfg(test)]

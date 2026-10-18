@@ -30,6 +30,8 @@ impl Glyph {
 }
 
 pub const BUTTON_HEIGHT: f32 = 26.0;
+/// For buttons inside list rows.
+pub const SMALL_HEIGHT: f32 = 18.0;
 
 /// A bevelled text button. `on` draws it pressed in, as a toggle that is on.
 pub fn text_button(
@@ -39,13 +41,38 @@ pub fn text_button(
     on: bool,
     enabled: bool,
 ) -> Response {
-    let font = FontId::monospace(11.0);
-    let galley_width = ui
-        .painter()
-        .layout_no_wrap(label.to_string(), font.clone(), palette.chrome)
+    sized_button(ui, palette, label, on, enabled, BUTTON_HEIGHT)
+}
+
+/// A text button that fits in a list row.
+pub fn small_button(ui: &mut Ui, palette: &Palette, label: &str, on: bool) -> Response {
+    sized_button(ui, palette, label, on, true, SMALL_HEIGHT)
+}
+
+/// The width a small button with `label` takes.
+pub fn small_button_width(ui: &Ui, label: &str) -> f32 {
+    label_width(ui, label, &FontId::monospace(10.0)) + 14.0
+}
+
+fn label_width(ui: &Ui, label: &str, font: &FontId) -> f32 {
+    ui.painter()
+        .layout_no_wrap(label.to_string(), font.clone(), egui::Color32::WHITE)
         .size()
-        .x;
-    let size = vec2(galley_width + 20.0, BUTTON_HEIGHT);
+        .x
+}
+
+fn sized_button(
+    ui: &mut Ui,
+    palette: &Palette,
+    label: &str,
+    on: bool,
+    enabled: bool,
+    height: f32,
+) -> Response {
+    let small = height < BUTTON_HEIGHT;
+    let font = FontId::monospace(if small { 10.0 } else { 11.0 });
+    let padding = if small { 14.0 } else { 20.0 };
+    let size = vec2(label_width(ui, label, &font) + padding, height);
     let (rect, response) = button_frame(ui, palette, size, on, enabled);
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, label));
     let color = label_color(&response, palette, on, enabled);

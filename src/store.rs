@@ -90,6 +90,16 @@ impl Settings {
         Self::from_raw(raw)
     }
 
+    /// The personal Spotify app search signs in with.
+    pub fn web_client_id(&self) -> Option<String> {
+        self.raw
+            .get("web_client_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(String::from)
+    }
+
     fn from_raw(raw: Map<String, Value>) -> Self {
         let flag = |key: &str| raw.get(key).and_then(Value::as_bool).unwrap_or(false);
         Self {

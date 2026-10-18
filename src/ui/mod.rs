@@ -2,6 +2,7 @@
 //!
 //! Views read a [`View`] and push [`Action`]s; they never change state.
 
+mod browse_view;
 mod player_strip;
 mod playlist_view;
 pub mod theme;
@@ -10,8 +11,9 @@ pub mod widgets;
 use egui::{Align2, FontId, Rect, RichText, Ui, UiBuilder, vec2};
 
 use crate::action::Action;
-use crate::backend::SessionState;
-use crate::model::Playlist;
+use crate::backend::{SearchState, SessionState};
+use crate::browse::Browse;
+use crate::model::{Library, Playlist};
 use crate::playback::engine::PlayerSnapshot;
 use theme::Palette;
 use widgets::text_button;
@@ -29,6 +31,9 @@ pub struct View<'a> {
     pub playlist: &'a Playlist,
     pub shuffle: bool,
     pub repeat: bool,
+    pub library: &'a Library,
+    pub browse: &'a Browse,
+    pub search: &'a SearchState,
 }
 
 /// Values the views edit in place: text fields and sliders.
@@ -39,6 +44,10 @@ pub struct Inputs {
     /// The seek slider's position while it is being dragged, in seconds.
     pub seeking: Option<f32>,
     pub selection: playlist_view::Selection,
+    /// The catalog's search field.
+    pub query: String,
+    /// Put the keyboard in the search field next frame.
+    pub focus_search: bool,
 }
 
 const TITLE_HEIGHT: f32 = 20.0;
@@ -71,6 +80,12 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
         egui::pos2(full.left() + GUTTER, strip.bottom() + GUTTER),
         egui::pos2(full.right() - GUTTER, status.top() - 6.0),
     );
+    let ready = matches!(view.session, SessionState::Ready { .. });
+    if ready && view.browse.open {
+        browse_view::draw(ui, body, view, inputs, actions);
+        status_bar(ui, status, view);
+        return;
+    }
     theme::inset(ui.painter(), body, palette.list_bg, &palette);
     let padding = if matches!(view.session, SessionState::Ready { .. }) {
         8.0
@@ -187,7 +202,7 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View) {
     painter.text(
         inner.right_center(),
         Align2::RIGHT_CENTER,
-        "M1",
+        "M2",
         FontId::monospace(9.0),
         palette.chrome,
     );

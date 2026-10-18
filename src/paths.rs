@@ -39,6 +39,11 @@ impl Paths {
         self.config.join("settings.json")
     }
 
+    /// Search's refresh token, for the personal app (private).
+    pub fn search_credentials(&self) -> PathBuf {
+        self.config.join("search-credentials.json")
+    }
+
     /// librespot writes the reusable playback credential here.
     pub fn credentials(&self) -> PathBuf {
         self.config.join("credentials.json")

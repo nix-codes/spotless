@@ -88,13 +88,15 @@ async fn personal_search(paths: &Paths, query: &str) -> Result<()> {
 async fn discography(session: &Session, artist: &str) -> Result<()> {
     let uri = catalog::parse_uri(artist)?;
     let started = std::time::Instant::now();
-    let (name, releases) = catalog::discography(session, &uri).await?;
+    let discography = catalog::discography(session, &uri).await?;
+    let releases = &discography.releases;
     println!(
-        "== Discography of {name}: {} releases in {:.1}s",
+        "== Discography of {}: {} releases in {:.1}s",
+        discography.artist.name,
         releases.len(),
         started.elapsed().as_secs_f32()
     );
-    for release in &releases {
+    for release in releases {
         println!(
             "  {:<12} {}  {:<45} {:>3} tracks  ({})",
             format!("{:?}", release.group),

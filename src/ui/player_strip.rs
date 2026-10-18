@@ -150,6 +150,15 @@ fn controls_column(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut 
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let browsing = view.browse.open;
+            let label = if browsing { "PLAYLISTS" } else { "BROWSE" };
+            if text_button(ui, &palette, label, browsing, ready).clicked() {
+                actions.push(Action::ToggleBrowse);
+                if !browsing {
+                    inputs.focus_search = true;
+                }
+            }
+            ui.add_space(8.0);
             ui.spacing_mut().slider_width = 90.0;
             let mut volume = inputs.volume;
             let response = ui.add(Slider::new(&mut volume, 0..=100).show_value(false));

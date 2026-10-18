@@ -1,7 +1,8 @@
 //! What the interface asks for. Views only emit these; `App` applies them
 //! after the frame is drawn.
 
-use crate::model::EntryId;
+use crate::model::catalog::ReleaseTab;
+use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
@@ -26,4 +27,25 @@ pub enum Action {
     /// this index.
     Move(Vec<EntryId>, usize),
     ToggleMarks(Vec<EntryId>),
+
+    // The catalog
+    ToggleBrowse,
+    CloseBrowse,
+    Back,
+    ConnectSearch,
+    Search(String),
+    OpenArtist(ArtistRef),
+    /// Shows or hides an album's songs, reading them if needed.
+    ToggleAlbum(String),
+    /// Shows these albums' songs, or hides them all with an empty list.
+    ExpandAlbums(Vec<String>),
+    SetTab(ReleaseTab),
+    ToggleSort,
+    SetTarget(PlaylistId),
+    /// Appends songs to the target playlist.
+    AddTracks(Vec<TrackRef>),
+    /// Appends an album's songs to the target playlist.
+    AddAlbum(String),
+    /// Puts a song after the target playlist's current one and plays it.
+    PlayNow(TrackRef),
 }

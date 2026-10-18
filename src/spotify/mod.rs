@@ -2,3 +2,4 @@
 
 pub mod catalog;
 pub mod session;
+pub mod webapi;

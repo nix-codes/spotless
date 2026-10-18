@@ -5,6 +5,7 @@
 pub mod action;
 pub mod app;
 pub mod backend;
+pub mod browse;
 pub mod model;
 pub mod paths;
 pub mod playback;

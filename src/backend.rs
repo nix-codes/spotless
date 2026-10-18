@@ -13,11 +13,14 @@ use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
+use crate::model::catalog::{Discography, SearchResults};
 use crate::model::{EntryId, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
 use crate::playback::transport::Request;
+use crate::spotify::webapi::WebApi;
 use crate::spotify::{catalog, session};
+use crate::store::Settings;
 
 #[derive(Debug)]
 pub enum Command {
@@ -31,6 +34,22 @@ pub enum Command {
     Player(Request),
     Seek(u32),
     Volume(u16),
+    /// Opens the browser to approve search for the personal app.
+    ConnectSearch,
+    Search(String),
+    /// An artist's discography, by artist URI.
+    Discography(String),
+    /// An album's songs, by album URI.
+    Album(String),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SearchState {
+    /// No personal app is set in settings.json.
+    NoApp,
+    SignedOut,
+    SigningIn,
+    Ready,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -54,6 +73,19 @@ pub enum Event {
     /// The engine finished a song with nothing to follow, and stopped.
     Ended,
     Unavailable,
+    Search(SearchState),
+    SearchResults {
+        query: String,
+        results: Result<SearchResults, String>,
+    },
+    Discography {
+        artist: String,
+        result: Result<Discography, String>,
+    },
+    Album {
+        album: String,
+        result: Result<Vec<TrackRef>, String>,
+    },
     /// The songs of an `AddLink`.
     Tracks {
         playlist: PlaylistId,
@@ -102,6 +134,8 @@ struct Worker {
     emit: Emit,
     session: Option<Session>,
     engine: Option<Engine>,
+    /// Shared with the searches running in the background.
+    web: Option<Arc<tokio::sync::Mutex<WebApi>>>,
 }
 
 impl Worker {
@@ -112,10 +146,20 @@ impl Worker {
             emit,
             session: None,
             engine: None,
+            web: None,
         }
     }
 
     async fn run(mut self, mut commands: UnboundedReceiver<Command>) {
+        let web = Settings::load(&self.paths)
+            .web_client_id()
+            .map(|id| WebApi::new(id, self.paths.search_credentials()));
+        (self.emit)(Event::Search(match &web {
+            None => SearchState::NoApp,
+            Some(web) if web.signed_in() => SearchState::Ready,
+            Some(_) => SearchState::SignedOut,
+        }));
+        self.web = web.map(|web| Arc::new(tokio::sync::Mutex::new(web)));
         (self.emit)(Event::Session(SessionState::Connecting));
         match session::restore(&self.paths).await {
             Ok(Some(session)) => self.ready(session),
@@ -189,6 +233,65 @@ impl Worker {
                 });
             }
             Command::Player(request) => self.player(request),
+            Command::ConnectSearch => {
+                let Some(web) = self.web.clone() else { return };
+                let emit = Arc::clone(&self.emit);
+                emit(Event::Search(SearchState::SigningIn));
+                tokio::spawn(async move {
+                    let approval = web.lock().await.approval();
+                    let result = match approval {
+                        Ok(client) => match client.get_access_token_async().await {
+                            Ok(token) => web.lock().await.keep(token),
+                            Err(error) => Err(anyhow::anyhow!("search sign-in failed: {error}")),
+                        },
+                        Err(error) => Err(error),
+                    };
+                    if let Err(error) = result {
+                        emit(Event::Error(format!("{error:#}")));
+                        emit(Event::Search(SearchState::SignedOut));
+                    } else {
+                        emit(Event::Search(SearchState::Ready));
+                    }
+                });
+            }
+            Command::Search(query) => {
+                let Some(web) = self.web.clone() else { return };
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let mut web = web.lock().await;
+                    let results = web.search(&query).await.map_err(|e| format!("{e:#}"));
+                    if !web.signed_in() {
+                        emit(Event::Search(SearchState::SignedOut));
+                    }
+                    emit(Event::SearchResults { query, results });
+                });
+            }
+            Command::Discography(artist) => {
+                let Some(session) = self.session.clone() else {
+                    return;
+                };
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = match catalog::parse_uri(&artist) {
+                        Ok(uri) => catalog::discography(&session, &uri).await,
+                        Err(error) => Err(error),
+                    };
+                    let result = result.map_err(|e| format!("{e:#}"));
+                    emit(Event::Discography { artist, result });
+                });
+            }
+            Command::Album(album) => {
+                let Some(session) = self.session.clone() else {
+                    return;
+                };
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = catalog::album(&session, &album)
+                        .await
+                        .map_err(|e| format!("{e:#}"));
+                    emit(Event::Album { album, result });
+                });
+            }
             Command::Seek(position) => self.with_engine(|e| e.seek(position)),
             Command::Volume(volume) => {
                 self.volume = volume;
