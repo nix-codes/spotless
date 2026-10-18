@@ -4576,6 +4576,7 @@ dependencies = [
  "eframe",
  "egui",
  "env_logger",
+ "fastrand",
  "librespot-core",
  "librespot-metadata",
  "librespot-oauth",
