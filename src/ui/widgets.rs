@@ -15,6 +15,8 @@ pub enum Glyph {
     Pause,
     Stop,
     Next,
+    Up,
+    Down,
 }
 
 impl Glyph {
@@ -25,6 +27,8 @@ impl Glyph {
             Self::Pause => "Pause",
             Self::Stop => "Stop",
             Self::Next => "Next",
+            Self::Up => "Move up",
+            Self::Down => "Move down",
         }
     }
 }
@@ -47,6 +51,40 @@ pub fn text_button(
 /// A text button that fits in a list row.
 pub fn small_button(ui: &mut Ui, palette: &Palette, label: &str, on: bool) -> Response {
     sized_button(ui, palette, label, on, true, SMALL_HEIGHT)
+}
+
+/// A small button that can be disabled, for toolbars.
+pub fn small_action(ui: &mut Ui, palette: &Palette, label: &str, enabled: bool) -> Response {
+    sized_button(ui, palette, label, false, enabled, SMALL_HEIGHT)
+}
+
+/// A small square glyph button, for toolbars.
+pub fn small_glyph(ui: &mut Ui, palette: &Palette, glyph: Glyph, enabled: bool) -> Response {
+    let (rect, response) = button_frame(ui, palette, vec2(24.0, SMALL_HEIGHT), false, enabled);
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, glyph.name()));
+    let color = label_color(&response, palette, false, enabled);
+    paint_glyph(ui, rect.center(), glyph, color);
+    response
+}
+
+/// A label that follows the pointer while something is dragged.
+pub fn drag_ghost(ui: &Ui, palette: &Palette, text: &str) {
+    let Some(pointer) = ui.ctx().pointer_interact_pos() else {
+        return;
+    };
+    egui::Area::new(egui::Id::new("drag-ghost"))
+        .order(egui::Order::Tooltip)
+        .fixed_pos(pointer + vec2(14.0, 10.0))
+        .interactable(false)
+        .show(ui.ctx(), |ui| {
+            egui::Frame::new()
+                .fill(palette.selected_bg)
+                .stroke(egui::Stroke::new(1.0, palette.hi))
+                .inner_margin(egui::Margin::symmetric(6, 3))
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new(text).color(palette.current));
+                });
+        });
 }
 
 /// The width a small button with `label` takes.
@@ -157,6 +195,17 @@ pub fn paint_glyph(ui: &Ui, c: Pos2, glyph: Glyph, color: egui::Color32) {
         Glyph::Next => {
             painter.add(triangle(c.x - 6.0, c.x + 3.0, true));
             painter.rect_filled(bar(c.x + 4.0, 2.0), 0.0, color);
+        }
+        Glyph::Up | Glyph::Down => {
+            let (tip, base) = match glyph {
+                Glyph::Up => (c.y - 3.0, c.y + 3.0),
+                _ => (c.y + 3.0, c.y - 3.0),
+            };
+            painter.add(Shape::convex_polygon(
+                vec![pos2(c.x - 5.0, base), pos2(c.x + 5.0, base), pos2(c.x, tip)],
+                color,
+                egui::Stroke::NONE,
+            ));
         }
     }
 }

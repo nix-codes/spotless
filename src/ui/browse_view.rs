@@ -5,8 +5,8 @@
 //! page, Ctrl+F jumps to the search field.
 
 use egui::{
-    Align2, Color32, FontId, Id, Key, Painter, Rect, Response, RichText, ScrollArea, Sense,
-    TextEdit, Ui, UiBuilder, pos2, vec2,
+    Align2, Color32, FontId, Id, Key, Painter, Rect, Response, RichText, ScrollArea, Sense, Stroke,
+    StrokeKind, TextEdit, Ui, UiBuilder, pos2, vec2,
 };
 
 use super::theme::{self, Palette};
@@ -22,6 +22,22 @@ const SLIM_WIDTH: f32 = 250.0;
 const ROW_HEIGHT: f32 = 22.0;
 const TRACK_HEIGHT: f32 = 20.0;
 const PAD: f32 = 10.0;
+
+/// Songs or an album dragged from the catalog to the slim column.
+enum CatalogDrag {
+    Tracks(Vec<TrackRef>),
+    Album { uri: String, title: String },
+}
+
+impl CatalogDrag {
+    fn label(&self) -> String {
+        match self {
+            Self::Tracks(tracks) if tracks.len() == 1 => tracks[0].title.clone(),
+            Self::Tracks(tracks) => format!("{} songs", tracks.len()),
+            Self::Album { title, .. } => title.clone(),
+        }
+    }
+}
 
 pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
     let palette = view.palette;
@@ -318,6 +334,12 @@ fn album(ui: &mut Ui, view: &View, release: &Release, by: bool, actions: &mut Ve
         parts.push((count.as_str(), mono(), palette.dim));
         spans(painter, text, &parts);
     });
+    if row.response.drag_started() {
+        row.response.dnd_set_drag_payload(CatalogDrag::Album {
+            uri: release.uri.clone(),
+            title: release.title.clone(),
+        });
+    }
     if row.button {
         actions.push(Action::AddAlbum(release.uri.clone()));
     } else if row.response.clicked() {
@@ -382,6 +404,10 @@ fn song(
         }
         spans(painter, text, &parts);
     });
+    if row.response.drag_started() {
+        row.response
+            .dnd_set_drag_payload(CatalogDrag::Tracks(vec![track.clone()]));
+    }
     if row.button {
         actions.push(Action::AddTracks(vec![track.clone()]));
     } else if row.response.double_clicked() {
@@ -423,7 +449,7 @@ fn slim_column(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
         pos2(ui.max_rect().right(), ui.max_rect().bottom() - footer),
     );
     ui.scope_builder(UiBuilder::new().max_rect(rows), |ui| {
-        slim_rows(ui, view, target);
+        slim_rows(ui, view, target, actions);
     });
     ui.painter().text(
         pos2(ui.max_rect().left(), ui.max_rect().bottom()),
@@ -437,10 +463,31 @@ fn slim_column(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
     }
 }
 
-fn slim_rows(ui: &mut Ui, view: &View, list: &Playlist) {
+fn slim_rows(ui: &mut Ui, view: &View, list: &Playlist, actions: &mut Vec<Action>) {
     let palette = view.palette;
+    let dragging = egui::DragAndDrop::payload::<CatalogDrag>(ui.ctx());
+    if let Some(drag) = &dragging {
+        super::widgets::drag_ghost(ui, &palette, &drag.label());
+    }
+    let pointer = ui.ctx().pointer_interact_pos();
+    let area_rect = ui.max_rect();
+    let hovered = pointer.is_some_and(|p| area_rect.contains(p));
     if list.is_empty() {
-        ui.label(RichText::new("Empty. Use + ADD on the left.").color(palette.dim));
+        let text = if dragging.is_some() {
+            "Drop here to add."
+        } else {
+            "Empty. Use + ADD or drag songs here."
+        };
+        ui.label(RichText::new(text).color(palette.dim));
+        if dragging.is_some() && hovered {
+            ui.painter().rect_stroke(
+                area_rect,
+                0.0,
+                Stroke::new(1.0, palette.accent),
+                StrokeKind::Inside,
+            );
+        }
+        drop(ui, dragging.is_some() && hovered, 0, actions);
         return;
     }
     let height = 17.0;
@@ -455,12 +502,24 @@ fn slim_rows(ui: &mut Ui, view: &View, list: &Playlist) {
         area = area.vertical_scroll_offset(((last + 1) as f32 * height - view_height).max(0.0));
     }
     let current = list.cursor().filter(|_| !list.detached());
-    area.show_rows(ui, height, list.len(), |ui, range| {
+    let mut drop_at: Option<(usize, f32)> = None;
+    let output = area.show_rows(ui, height, list.len(), |ui, range| {
         ui.spacing_mut().item_spacing.y = 0.0;
         for index in range {
             let entry = &list.entries()[index];
             let (rect, _) =
                 ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
+            if dragging.is_some()
+                && let Some(p) = pointer
+                && hovered
+                && rect.y_range().contains(p.y)
+            {
+                drop_at = Some(if p.y < rect.center().y {
+                    (index, rect.top())
+                } else {
+                    (index + 1, rect.bottom())
+                });
+            }
             let painter = ui.painter_at(rect);
             let glow = view.browse.glow(entry.id);
             if glow > 0.0 {
@@ -494,6 +553,36 @@ fn slim_rows(ui: &mut Ui, view: &View, list: &Playlist) {
                 ],
             );
         }
+    });
+    if dragging.is_none() || !hovered {
+        return;
+    }
+    // Below the last row: the end.
+    let (index, y) = drop_at.unwrap_or((
+        list.len(),
+        (output.inner_rect.top() - output.state.offset.y + list.len() as f32 * height)
+            .min(output.inner_rect.bottom() - 1.0),
+    ));
+    ui.painter().with_clip_rect(output.inner_rect).hline(
+        output.inner_rect.x_range(),
+        y,
+        Stroke::new(2.0, palette.accent),
+    );
+    drop(ui, true, index, actions);
+}
+
+/// Takes a catalog drag released over the slim column, to add before the
+/// row at `index`.
+fn drop(ui: &Ui, over: bool, index: usize, actions: &mut Vec<Action>) {
+    if !over || !ui.input(|i| i.pointer.any_released()) {
+        return;
+    }
+    let Some(drag) = egui::DragAndDrop::take_payload::<CatalogDrag>(ui.ctx()) else {
+        return;
+    };
+    actions.push(match &*drag {
+        CatalogDrag::Tracks(tracks) => Action::DropTracks(tracks.clone(), index),
+        CatalogDrag::Album { uri, .. } => Action::DropAlbum(uri.clone(), index),
     });
 }
 
@@ -531,7 +620,7 @@ fn row(
     paint: impl FnOnce(&Painter, Rect),
 ) -> Row {
     let (rect, response) =
-        ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
+        ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click_and_drag());
     if response.hovered() {
         ui.painter()
             .rect_filled(rect, 0.0, palette.hi.gamma_multiply(0.35));

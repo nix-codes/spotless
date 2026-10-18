@@ -8,7 +8,7 @@ use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 pub enum Action {
     SignIn,
     SignOut,
-    /// Appends a track, album or artist link's songs to the viewed playlist.
+    /// Appends a track, album or artist link's songs to the target playlist.
     AddLink(String),
     Play,
     TogglePause,
@@ -28,6 +28,15 @@ pub enum Action {
     Move(Vec<EntryId>, usize),
     ToggleMarks(Vec<EntryId>),
 
+    // Playlists (tabs)
+    SelectPlaylist(PlaylistId),
+    NewPlaylist,
+    /// Deletes a playlist and its songs (never Default).
+    ClosePlaylist(PlaylistId),
+    RenamePlaylist(PlaylistId, String),
+    /// Moves a tab to this index, counted after it is taken out.
+    MovePlaylist(PlaylistId, usize),
+
     // The catalog
     ToggleBrowse,
     CloseBrowse,
@@ -45,6 +54,10 @@ pub enum Action {
     AddTracks(Vec<TrackRef>),
     /// Appends an album's songs to the target playlist.
     AddAlbum(String),
+    /// Songs dropped on the slim column, before the row at this index.
+    DropTracks(Vec<TrackRef>, usize),
+    /// An album dropped on the slim column, before the row at this index.
+    DropAlbum(String, usize),
     /// Puts a song after the target playlist's current one and plays it.
     PlayNow(TrackRef),
 }

@@ -98,6 +98,37 @@ impl Library {
         self.playlists.retain(|list| list.id != id);
         self.playlists.len() != before
     }
+
+    /// Renames a playlist. A blank name is refused.
+    pub fn rename(&mut self, id: PlaylistId, name: &str) -> bool {
+        let name = name.trim();
+        match self.get_mut(id) {
+            Some(list) if !name.is_empty() => {
+                list.name = name.to_string();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Moves a playlist's tab to `index` (clamped), counted after it is
+    /// taken out.
+    pub fn move_playlist(&mut self, id: PlaylistId, index: usize) {
+        let Some(from) = self.playlists.iter().position(|list| list.id == id) else {
+            return;
+        };
+        let list = self.playlists.remove(from);
+        let index = index.min(self.playlists.len());
+        self.playlists.insert(index, list);
+    }
+
+    /// A name no playlist has yet: "Playlist 2", "Playlist 3"…
+    pub fn fresh_name(&self) -> String {
+        (2..)
+            .map(|n| format!("Playlist {n}"))
+            .find(|name| self.playlists.iter().all(|list| list.name != *name))
+            .unwrap_or_default()
+    }
 }
 
 #[cfg(test)]
@@ -128,6 +159,22 @@ mod tests {
         assert_eq!(library.playlists()[0].id, PlaylistId::DEFAULT);
         assert_eq!(library.get(mix).unwrap().len(), 2);
         assert_eq!(library.entry(entry(0).track).id, EntryId(42));
+    }
+
+    #[test]
+    fn playlists_rename_and_move() {
+        let mut library = Library::new();
+        let a = library.create(library.fresh_name());
+        let b = library.create(library.fresh_name());
+        assert_eq!(library.get(b).unwrap().name, "Playlist 3");
+        assert!(!library.rename(a, "  "));
+        assert!(library.rename(a, " Mix "));
+        assert_eq!(library.get(a).unwrap().name, "Mix");
+        library.move_playlist(b, 0);
+        let order: Vec<_> = library.playlists().iter().map(|l| l.id).collect();
+        assert_eq!(order, [b, PlaylistId::DEFAULT, a]);
+        library.move_playlist(b, 99);
+        assert_eq!(library.playlists().last().unwrap().id, b);
     }
 
     #[test]

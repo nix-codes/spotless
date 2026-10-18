@@ -13,7 +13,7 @@ use egui::{Align2, FontId, Rect, RichText, Ui, UiBuilder, vec2};
 use crate::action::Action;
 use crate::backend::{SearchState, SessionState};
 use crate::browse::Browse;
-use crate::model::{Library, Playlist};
+use crate::model::{Library, Playlist, PlaylistId};
 use crate::playback::engine::PlayerSnapshot;
 use theme::Palette;
 use widgets::text_button;
@@ -32,6 +32,8 @@ pub struct View<'a> {
     pub shuffle: bool,
     pub repeat: bool,
     pub library: &'a Library,
+    /// The playlist a song of is loaded from.
+    pub playing_list: Option<PlaylistId>,
     pub browse: &'a Browse,
     pub search: &'a SearchState,
 }
@@ -39,7 +41,6 @@ pub struct View<'a> {
 /// Values the views edit in place: text fields and sliders.
 #[derive(Default)]
 pub struct Inputs {
-    pub link: String,
     pub volume: u8,
     /// The seek slider's position while it is being dragged, in seconds.
     pub seeking: Option<f32>,
@@ -48,6 +49,10 @@ pub struct Inputs {
     pub query: String,
     /// Put the keyboard in the search field next frame.
     pub focus_search: bool,
+    /// The tab being renamed, and the name typed so far.
+    pub renaming: Option<(PlaylistId, String)>,
+    /// The playlist waiting for Close to be confirmed.
+    pub closing: Option<PlaylistId>,
 }
 
 const TITLE_HEIGHT: f32 = 20.0;
@@ -83,7 +88,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     let ready = matches!(view.session, SessionState::Ready { .. });
     if ready && view.browse.open {
         browse_view::draw(ui, body, view, inputs, actions);
-        status_bar(ui, status, view);
+        status_bar(ui, status, view, actions);
         return;
     }
     theme::inset(ui.painter(), body, palette.list_bg, &palette);
@@ -96,7 +101,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
         body_contents(ui, view, inputs, actions);
     });
 
-    status_bar(ui, status, view);
+    status_bar(ui, status, view, actions);
 }
 
 fn title_bar(ui: &Ui, rect: Rect, palette: &Palette) {
@@ -167,7 +172,7 @@ fn body_contents(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Ve
     }
 }
 
-fn status_bar(ui: &mut Ui, rect: Rect, view: &View) {
+fn status_bar(ui: &mut Ui, rect: Rect, view: &View, actions: &mut Vec<Action>) {
     let palette = view.palette;
     let painter = ui.painter();
     painter.line_segment(
@@ -191,7 +196,7 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View) {
     };
     let inner = rect.shrink2(vec2(GUTTER, 0.0));
     painter
-        .with_clip_rect(inner.with_max_x(inner.right() - 30.0))
+        .with_clip_rect(inner.with_max_x(inner.right() - 80.0))
         .text(
             inner.left_center(),
             Align2::LEFT_CENTER,
@@ -199,11 +204,15 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View) {
             FontId::proportional(12.0),
             color,
         );
-    painter.text(
-        inner.right_center(),
-        Align2::RIGHT_CENTER,
-        "M2",
-        FontId::monospace(9.0),
-        palette.chrome,
-    );
+    if matches!(view.session, SessionState::Ready { .. }) {
+        let width = widgets::small_button_width(ui, "SIGN OUT");
+        let at = Rect::from_center_size(
+            egui::pos2(inner.right() - width / 2.0, inner.center().y),
+            vec2(width, widgets::SMALL_HEIGHT),
+        );
+        let mut child = ui.new_child(UiBuilder::new().max_rect(at));
+        if widgets::small_button(&mut child, &palette, "SIGN OUT", false).clicked() {
+            actions.push(Action::SignOut);
+        }
+    }
 }

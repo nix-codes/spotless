@@ -132,7 +132,7 @@ impl Transport {
 
     /// Stop: the cursor stays, and Play starts its song from the beginning.
     pub fn stop(&mut self, library: &mut Library) -> Vec<Request> {
-        if let Some(list) = self.playing_list(library) {
+        if let Some(list) = self.playing_mut(library) {
             list.resume_ms = 0;
         }
         self.halt()
@@ -189,7 +189,7 @@ impl Transport {
         if self.skips >= SKIP_LIMIT {
             return self.halt();
         }
-        let Some(list) = self.playing_list(library) else {
+        let Some(list) = self.playing_mut(library) else {
             return self.halt();
         };
         match self.playback.next(list) {
@@ -210,6 +210,20 @@ impl Transport {
         self.sync(library)
     }
 
+    /// Call before deleting playlist `list`: playing from it stops.
+    pub fn deleting(&mut self, list: PlaylistId) -> Vec<Request> {
+        if self.playback.playing() == Some(list) {
+            self.halt()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// The playlist a song of is loaded, if any.
+    pub fn playing_list(&self) -> Option<PlaylistId> {
+        self.playback.playing().filter(|_| self.active)
+    }
+
     pub fn set_shuffle(&mut self, library: &mut Library, on: bool) -> Vec<Request> {
         self.playback.set_shuffle(on);
         self.sync(library)
@@ -224,7 +238,7 @@ impl Transport {
     /// switch to another playlist, or a restart of the app).
     pub fn remember_position(&mut self, library: &mut Library, position_ms: u32) {
         if self.active
-            && let Some(list) = self.playing_list(library)
+            && let Some(list) = self.playing_mut(library)
         {
             list.resume_ms = position_ms;
         }
@@ -237,7 +251,7 @@ impl Transport {
         if !self.active {
             return Vec::new();
         }
-        let Some(list) = self.playing_list(library) else {
+        let Some(list) = self.playing_mut(library) else {
             return self.halt();
         };
         match self.playback.next(list) {
@@ -284,7 +298,7 @@ impl Transport {
 
     /// Hands the engine the song that now comes next, if it changed.
     fn sync(&mut self, library: &mut Library) -> Vec<Request> {
-        let next = match self.playing_list(library) {
+        let next = match self.playing_mut(library) {
             Some(list) if self.active => self.playback.peek_next(list),
             _ => None,
         };
@@ -296,7 +310,7 @@ impl Transport {
         vec![Request::Follow(follow)]
     }
 
-    fn playing_list<'a>(&self, library: &'a mut Library) -> Option<&'a mut Playlist> {
+    fn playing_mut<'a>(&self, library: &'a mut Library) -> Option<&'a mut Playlist> {
         library.get_mut(self.playback.playing()?)
     }
 
@@ -413,6 +427,18 @@ mod tests {
             transport.unavailable(&mut library);
         }
         assert_eq!(transport.unavailable(&mut library), [Request::Stop]);
+    }
+
+    #[test]
+    fn deleting_the_playing_playlist_stops() {
+        let (mut library, mut transport) = setup(3);
+        let mix = library.create("Mix");
+        transport.play(&mut library, DEFAULT, false, 0);
+        assert!(transport.deleting(mix).is_empty());
+        assert_eq!(transport.playing_list(), Some(DEFAULT));
+        library.get_mut(DEFAULT).unwrap();
+        assert_eq!(transport.deleting(DEFAULT), [Request::Stop]);
+        assert_eq!(transport.playing_list(), None);
     }
 
     #[test]

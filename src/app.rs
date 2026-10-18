@@ -10,7 +10,7 @@ use crate::model::{Library, Playback, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status};
 use crate::playback::transport::{Request, Transport};
-use crate::store::{self, Settings};
+use crate::store::{self, Settings, Tabs};
 use crate::ui::{self, Inputs, View, theme::Palette};
 
 /// Changes are saved this long after the last one.
@@ -34,8 +34,9 @@ pub struct App {
     unsaved: Option<Instant>,
     browse: Browse,
     search: SearchState,
-    /// Albums whose songs go to a playlist once they are read.
-    pending_adds: Vec<(String, PlaylistId)>,
+    /// Albums whose songs go to a playlist (at an index, or at the end)
+    /// once they are read.
+    pending_adds: Vec<(String, PlaylistId, Option<usize>)>,
 }
 
 impl App {
@@ -43,7 +44,8 @@ impl App {
         let palette = Palette::CLASSIC;
         palette.apply(&cc.egui_ctx);
         let settings = Settings::load(&paths);
-        let (library, playing) = store::load_library(&paths);
+        let (library, tabs) = store::load_library(&paths);
+        let viewed = tabs.viewed.or(tabs.playing).unwrap_or(PlaylistId::DEFAULT);
         let mut playback = Playback::new(seed());
         playback.repeat = settings.repeat;
         playback.set_shuffle(settings.shuffle);
@@ -66,10 +68,10 @@ impl App {
             },
             library,
             transport: Transport::new(playback),
-            viewed: playing.unwrap_or(PlaylistId::DEFAULT),
+            viewed,
             settings,
             unsaved: None,
-            browse: Browse::new(playing.unwrap_or(PlaylistId::DEFAULT)),
+            browse: Browse::new(viewed),
             search: SearchState::SignedOut,
             pending_adds: Vec::new(),
             paths,
@@ -108,7 +110,7 @@ impl App {
                     let requests = self.transport.unavailable(&mut self.library);
                     self.changed(requests);
                 }
-                Event::Tracks { playlist, tracks } => self.add_tracks(playlist, tracks),
+                Event::Tracks { playlist, tracks } => self.insert_tracks(playlist, None, tracks),
                 Event::Search(state) => self.search = state,
                 Event::SearchResults { query, results } => {
                     let loaded = match results {
@@ -128,17 +130,17 @@ impl App {
                     self.browse.artists.insert(artist, loaded);
                 }
                 Event::Album { album, result } => {
-                    let pending: Vec<PlaylistId> = self
+                    let pending: Vec<(PlaylistId, Option<usize>)> = self
                         .pending_adds
                         .iter()
-                        .filter(|(uri, _)| *uri == album)
-                        .map(|(_, list)| *list)
+                        .filter(|(uri, _, _)| *uri == album)
+                        .map(|(_, list, at)| (*list, *at))
                         .collect();
-                    self.pending_adds.retain(|(uri, _)| *uri != album);
+                    self.pending_adds.retain(|(uri, _, _)| *uri != album);
                     match result {
                         Ok(tracks) => {
-                            for list in pending {
-                                self.add_tracks(list, tracks.clone());
+                            for (list, at) in pending {
+                                self.insert_tracks(list, at, tracks.clone());
                             }
                             self.browse.albums.insert(album, Loadable::Ready(tracks));
                         }
@@ -166,10 +168,56 @@ impl App {
             Action::AddLink(text) => {
                 self.error = None;
                 self.notice = Some("Reading the link…".into());
-                return self.send(Command::AddLink {
-                    text,
-                    playlist: viewed,
-                });
+                let playlist = if self.browse.open {
+                    self.browse.target
+                } else {
+                    viewed
+                };
+                return self.send(Command::AddLink { text, playlist });
+            }
+            Action::SelectPlaylist(list) => {
+                if library.get(list).is_some() {
+                    self.viewed = list;
+                    self.mark_unsaved();
+                }
+                return;
+            }
+            Action::NewPlaylist => {
+                let name = library.fresh_name();
+                let list = library.create(name.clone());
+                self.viewed = list;
+                self.inputs.renaming = Some((list, name));
+                self.mark_unsaved();
+                return;
+            }
+            Action::ClosePlaylist(list) => {
+                let index = library.playlists().iter().position(|l| l.id == list);
+                let requests = self.transport.deleting(list);
+                if !self.library.delete(list) {
+                    return;
+                }
+                // The tab before it takes its place.
+                let neighbour = index
+                    .and_then(|i| self.library.playlists().get(i.saturating_sub(1)))
+                    .map_or(PlaylistId::DEFAULT, |l| l.id);
+                if self.viewed == list {
+                    self.viewed = neighbour;
+                }
+                if self.browse.target == list {
+                    self.browse.target = self.viewed;
+                }
+                self.pending_adds.retain(|(_, target, _)| *target != list);
+                requests
+            }
+            Action::RenamePlaylist(list, name) => {
+                library.rename(list, &name);
+                self.mark_unsaved();
+                return;
+            }
+            Action::MovePlaylist(list, index) => {
+                library.move_playlist(list, index);
+                self.mark_unsaved();
+                return;
             }
             Action::Seek(ms) => return self.send(Command::Seek(ms)),
             Action::Volume(volume) => {
@@ -235,6 +283,11 @@ impl App {
                 if query.is_empty() {
                     return;
                 }
+                // A pasted Spotify link adds its songs instead.
+                if crate::spotify::catalog::parse_uri(&query).is_ok() {
+                    self.inputs.query.clear();
+                    return self.apply(Action::AddLink(query));
+                }
                 self.browse.go(Page::Search(query.clone()));
                 let cached = matches!(self.browse.searches.get(&query), Some(Loadable::Ready(_)));
                 // Unapproved search asks for its approval first, by itself.
@@ -275,19 +328,28 @@ impl App {
             Action::SetTab(tab) => self.browse.tab = tab,
             Action::ToggleSort => self.browse.newest_first = !self.browse.newest_first,
             Action::SetTarget(list) => self.browse.target = list,
-            Action::AddTracks(tracks) => self.add_tracks(self.browse.target, tracks),
-            Action::AddAlbum(album) => match self.browse.albums.get(&album) {
-                Some(Loadable::Ready(tracks)) => {
-                    let tracks = tracks.clone();
-                    self.add_tracks(self.browse.target, tracks);
-                }
-                _ => {
-                    self.pending_adds.push((album.clone(), self.browse.target));
-                    self.notice = Some("Reading the album…".into());
-                    self.read_album(album);
-                }
-            },
+            Action::AddTracks(tracks) => self.insert_tracks(self.browse.target, None, tracks),
+            Action::DropTracks(tracks, at) => {
+                self.insert_tracks(self.browse.target, Some(at), tracks)
+            }
+            Action::AddAlbum(album) => self.add_album(album, None),
+            Action::DropAlbum(album, at) => self.add_album(album, Some(at)),
             _ => {}
+        }
+    }
+
+    fn add_album(&mut self, album: String, at: Option<usize>) {
+        let target = self.browse.target;
+        match self.browse.albums.get(&album) {
+            Some(Loadable::Ready(tracks)) => {
+                let tracks = tracks.clone();
+                self.insert_tracks(target, at, tracks);
+            }
+            _ => {
+                self.pending_adds.push((album.clone(), target, at));
+                self.notice = Some("Reading the album…".into());
+                self.read_album(album);
+            }
         }
     }
 
@@ -303,7 +365,8 @@ impl App {
         self.send(Command::Album(album));
     }
 
-    fn add_tracks(&mut self, playlist: PlaylistId, tracks: Vec<TrackRef>) {
+    /// Adds songs to a playlist before the row at `at`, or at the end.
+    fn insert_tracks(&mut self, playlist: PlaylistId, at: Option<usize>, tracks: Vec<TrackRef>) {
         let entries: Vec<_> = tracks
             .into_iter()
             .map(|track| self.library.entry(track))
@@ -312,7 +375,7 @@ impl App {
         let Some(list) = self.library.get_mut(playlist) else {
             return;
         };
-        list.append(entries);
+        list.insert(at.unwrap_or(usize::MAX), entries);
         self.notice = Some(match ids.len() {
             1 => format!("Added 1 song to {}", list.name),
             n => format!("Added {n} songs to {}", list.name),
@@ -367,8 +430,11 @@ impl App {
         self.unsaved = None;
         self.transport
             .remember_position(&mut self.library, self.player.position_now());
-        let playing = self.transport.playback.playing();
-        if let Err(error) = store::save_library(&self.paths, &self.library, playing) {
+        let tabs = Tabs {
+            playing: self.transport.playback.playing(),
+            viewed: Some(self.viewed),
+        };
+        if let Err(error) = store::save_library(&self.paths, &self.library, tabs) {
             log::error!("{error:#}");
             self.error = Some("Couldn't save the playlists.".into());
         }
@@ -409,6 +475,7 @@ impl eframe::App for App {
             shuffle: self.transport.playback.shuffle(),
             repeat: self.transport.playback.repeat,
             library: &self.library,
+            playing_list: self.transport.playing_list(),
             browse: &self.browse,
             search: &self.search,
         };

@@ -22,23 +22,33 @@ struct LibraryFile {
     library: Library,
     /// The playlist Next and Previous act on.
     playing: Option<PlaylistId>,
+    /// The tab shown.
+    #[serde(default)]
+    viewed: Option<PlaylistId>,
+}
+
+/// What `playlists.json` holds besides the playlists.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Tabs {
+    pub playing: Option<PlaylistId>,
+    pub viewed: Option<PlaylistId>,
 }
 
 /// The saved playlists, or a fresh library with only Default.
-pub fn load_library(paths: &Paths) -> (Library, Option<PlaylistId>) {
+pub fn load_library(paths: &Paths) -> (Library, Tabs) {
     let path = paths.playlists();
     match read_library(&path) {
-        Ok(Some((library, playing))) => (library, playing),
-        Ok(None) => (Library::new(), None),
+        Ok(Some(loaded)) => loaded,
+        Ok(None) => (Library::new(), Tabs::default()),
         Err(error) => {
             log::error!("unable to read {}: {error:#}", path.display());
             move_aside(&path);
-            (Library::new(), None)
+            (Library::new(), Tabs::default())
         }
     }
 }
 
-fn read_library(path: &Path) -> Result<Option<(Library, Option<PlaylistId>)>> {
+fn read_library(path: &Path) -> Result<Option<(Library, Tabs)>> {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -49,15 +59,20 @@ fn read_library(path: &Path) -> Result<Option<(Library, Option<PlaylistId>)>> {
         bail!("written by a newer Spotless (version {})", file.version);
     }
     file.library.repair();
-    let playing = file.playing.filter(|&id| file.library.get(id).is_some());
-    Ok(Some((file.library, playing)))
+    let exists = |id: &PlaylistId| file.library.get(*id).is_some();
+    let tabs = Tabs {
+        playing: file.playing.filter(exists),
+        viewed: file.viewed.filter(exists),
+    };
+    Ok(Some((file.library, tabs)))
 }
 
-pub fn save_library(paths: &Paths, library: &Library, playing: Option<PlaylistId>) -> Result<()> {
+pub fn save_library(paths: &Paths, library: &Library, tabs: Tabs) -> Result<()> {
     let file = LibraryFile {
         version: LIBRARY_VERSION,
         library: library.clone(),
-        playing,
+        playing: tabs.playing,
+        viewed: tabs.viewed,
     };
     write_atomically(&paths.playlists(), &serde_json::to_vec(&file)?)
 }
@@ -166,10 +181,14 @@ mod tests {
         list.set_cursor(crate::model::EntryId(2));
         list.resume_ms = 42_000;
         list.toggle_mark(crate::model::EntryId(3));
-        save_library(&paths, &library, Some(mix)).unwrap();
+        let tabs = Tabs {
+            playing: Some(mix),
+            viewed: Some(PlaylistId::DEFAULT),
+        };
+        save_library(&paths, &library, tabs).unwrap();
 
-        let (loaded, playing) = load_library(&paths);
-        assert_eq!(playing, Some(mix));
+        let (loaded, loaded_tabs) = load_library(&paths);
+        assert_eq!(loaded_tabs, tabs);
         let list = loaded.get(mix).unwrap();
         assert_eq!(list.name, "Mix");
         assert_eq!(list.entries(), library.get(mix).unwrap().entries());
