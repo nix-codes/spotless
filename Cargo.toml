@@ -27,6 +27,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "glow", "default_fonts", "wayland", "x11"] }
 egui = "0.36"
+# Media keys (MPRIS): the zbus egui already builds for accessibility.
+zbus = "5"
 rodio = { version = "0.21", default-features = false, features = ["playback"] }
 cpal = "0.16"
 thiserror = "2"

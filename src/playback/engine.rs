@@ -39,6 +39,8 @@ pub struct TrackInfo {
     pub artists: String,
     pub album: String,
     pub duration_ms: u32,
+    /// The album cover's URL, for the desktop's media controls.
+    pub cover_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -292,5 +294,11 @@ fn track_info(item: &AudioItem) -> TrackInfo {
         artists,
         album,
         duration_ms: item.duration_ms,
+        cover_url: item
+            .covers
+            .iter()
+            .find(|cover| cover.size == librespot_metadata::image::ImageSize::DEFAULT)
+            .or_else(|| item.covers.first())
+            .map(|cover| cover.url.clone()),
     }
 }

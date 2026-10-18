@@ -1,11 +1,13 @@
 //! The application: owns the state, draws the views, then applies their
 //! actions.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState};
 use crate::browse::{Browse, Cover, Loadable, Page};
+use crate::media::{MediaEvent, Mpris, NowPlaying};
 use crate::model::{Library, Playback, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status};
@@ -34,6 +36,8 @@ pub struct App {
     unsaved: Option<Instant>,
     browse: Browse,
     search: SearchState,
+    media: Mpris,
+    media_events: std::sync::mpsc::Receiver<MediaEvent>,
     /// Albums whose songs go to a playlist (at an index, or at the end)
     /// once they are read.
     pending_adds: Vec<(String, PlaylistId, Option<usize>)>,
@@ -50,6 +54,13 @@ impl App {
         let mut playback = Playback::new(seed());
         playback.repeat = settings.repeat;
         playback.set_shuffle(settings.shuffle);
+
+        let (media_sender, media_events) = std::sync::mpsc::channel();
+        let ctx = cc.egui_ctx.clone();
+        let media = Mpris::start(Arc::new(move |event| {
+            let _ = media_sender.send(event);
+            ctx.request_repaint();
+        }));
 
         let volume = volume_level(settings.volume);
         let (backend, session) = match Backend::start(paths.clone(), volume, cc.egui_ctx.clone()) {
@@ -75,6 +86,8 @@ impl App {
             browse: Browse::new(viewed, covers),
             search: SearchState::SignedOut,
             pending_adds: Vec::new(),
+            media,
+            media_events,
             paths,
         }
     }
@@ -431,6 +444,48 @@ impl App {
         requests
     }
 
+    /// The desktop's media keys and controls, as the buttons would do.
+    fn media_actions(&mut self, ctx: &egui::Context) -> Vec<Action> {
+        let status = self.player.status;
+        let position = i64::from(self.player.position_now());
+        let length = i64::from(self.player.track.as_ref().map_or(0, |t| t.duration_ms));
+        let mut actions = Vec::new();
+        for event in self.media_events.try_iter() {
+            match event {
+                MediaEvent::Play => match status {
+                    Status::Paused => actions.push(Action::TogglePause),
+                    Status::Stopped => actions.push(Action::Play),
+                    _ => {}
+                },
+                MediaEvent::Pause if status == Status::Playing => actions.push(Action::TogglePause),
+                MediaEvent::Pause => {}
+                MediaEvent::PlayPause if status == Status::Stopped => actions.push(Action::Play),
+                MediaEvent::PlayPause => actions.push(Action::TogglePause),
+                MediaEvent::Stop => actions.push(Action::Stop),
+                MediaEvent::Next => actions.push(Action::Next),
+                MediaEvent::Previous => actions.push(Action::Previous),
+                MediaEvent::SeekBy(us) => {
+                    let to = (position + us / 1000).clamp(0, length.max(0));
+                    actions.push(Action::Seek(to as u32));
+                }
+                MediaEvent::SeekTo(us) => {
+                    actions.push(Action::Seek((us / 1000).clamp(0, length.max(0)) as u32))
+                }
+                MediaEvent::Volume(level) => {
+                    let percent = (level * 100.0).round() as u8;
+                    self.inputs.volume = percent;
+                    actions.push(Action::Volume(percent));
+                }
+                MediaEvent::Raise => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+                MediaEvent::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            }
+        }
+        actions
+    }
+
     /// The model changed: send what the engine must do, and save soon.
     fn changed(&mut self, requests: Vec<Request>) {
         for request in requests {
@@ -503,9 +558,12 @@ impl eframe::App for App {
             search: &self.search,
         };
         ui::draw(ui, &view, &mut self.inputs, &mut actions);
+        actions.extend(self.media_actions(&ui.ctx().clone()));
         for action in actions {
             self.apply(action);
         }
+        self.media
+            .update(NowPlaying::from_player(&self.player, self.settings.volume));
         // The clock moves on its own while a song plays.
         if self.player.status == Status::Playing {
             ui.ctx().request_repaint_after(Duration::from_millis(250));
