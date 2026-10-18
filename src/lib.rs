@@ -9,4 +9,5 @@ pub mod model;
 pub mod paths;
 pub mod playback;
 pub mod spotify;
+pub mod store;
 pub mod ui;

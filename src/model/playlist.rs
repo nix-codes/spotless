@@ -6,12 +6,16 @@
 
 use std::collections::HashSet;
 
+use serde::{Deserialize, Serialize};
+
 /// Unique for the app's lifetime and persisted, so the same song added twice
 /// is two entries.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct EntryId(pub u64);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct PlaylistId(pub u64);
 
 impl PlaylistId {
@@ -19,20 +23,20 @@ impl PlaylistId {
     pub const DEFAULT: Self = Self(0);
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtistRef {
     pub uri: String,
     pub name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AlbumRef {
     pub uri: String,
     pub name: String,
 }
 
 /// Enough to draw a row without asking Spotify.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrackRef {
     pub uri: String,
     pub title: String,
@@ -41,7 +45,7 @@ pub struct TrackRef {
     pub duration_ms: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub id: EntryId,
     pub track: TrackRef,
@@ -49,7 +53,7 @@ pub struct Entry {
 
 /// Invariant: unless `detached`, the cursor is set exactly when the
 /// playlist has entries.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Playlist {
     pub id: PlaylistId,
     pub name: String,
@@ -57,11 +61,14 @@ pub struct Playlist {
     cursor: Option<EntryId>,
     /// The cursor's song was removed. The cursor already stands on the song
     /// that followed it (`None` if it was the last), so the next step plays
-    /// the cursor instead of moving past it.
+    /// the cursor instead of moving past it. Not saved: after a restart the
+    /// cursor is simply on that song.
+    #[serde(skip)]
     detached: bool,
     /// Where to resume the cursor's song, in ms.
     pub resume_ms: u32,
     /// The Q marks, in the order they play.
+    #[serde(default)]
     play_next: Vec<EntryId>,
 }
 
@@ -76,6 +83,20 @@ impl Playlist {
             resume_ms: 0,
             play_next: Vec::new(),
         }
+    }
+
+    /// Restores the invariants of a playlist read from disk: unique
+    /// entries, a cursor on one of them, marks only on its entries.
+    pub(super) fn repair(&mut self) {
+        let mut seen = HashSet::new();
+        self.entries.retain(|entry| seen.insert(entry.id));
+        self.detached = false;
+        if self.cursor.is_none_or(|cursor| !seen.contains(&cursor)) {
+            self.reset_cursor();
+        }
+        let mut marked = HashSet::new();
+        self.play_next
+            .retain(|id| seen.contains(id) && marked.insert(*id));
     }
 
     pub fn entries(&self) -> &[Entry] {

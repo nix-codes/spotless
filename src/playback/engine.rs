@@ -4,6 +4,10 @@
 //!
 //! Player events are folded into a [`PlayerSnapshot`] that is handed to the
 //! interface whenever it changes.
+//!
+//! Like Spirc, the engine holds the song to follow the playing one, preloads
+//! it when librespot asks, and starts it the moment the playing song ends,
+//! so songs follow each other without a gap (`super::transport`).
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -16,6 +20,8 @@ use librespot_playback::audio_backend;
 use librespot_playback::config::{AudioFormat, Bitrate, PlayerConfig, VolumeCtrl};
 use librespot_playback::mixer::{self, Mixer, MixerConfig};
 use librespot_playback::player::{Player, PlayerEvent};
+
+use crate::model::EntryId;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Status {
@@ -61,11 +67,25 @@ impl PlayerSnapshot {
     }
 }
 
-pub type Notify = Arc<dyn Fn(PlayerSnapshot) + Send + Sync>;
+#[derive(Debug)]
+pub enum EngineEvent {
+    Snapshot(PlayerSnapshot),
+    /// The playing song ended and the followed one started.
+    Followed(EntryId),
+    /// The playing song ended with nothing to follow it: stopped.
+    Ended,
+    /// The loaded song can't be played.
+    Unavailable,
+}
+
+pub type Notify = Arc<dyn Fn(EngineEvent) + Send + Sync>;
+
+type Follow = Arc<Mutex<Option<(EntryId, SpotifyUri)>>>;
 
 pub struct Engine {
     player: Arc<Player>,
     mixer: Arc<dyn Mixer>,
+    follow: Follow,
 }
 
 impl Engine {
@@ -96,25 +116,31 @@ impl Engine {
             move || backend(None, AudioFormat::default()),
         );
 
-        let mut events = player.get_player_event_channel();
-        let state = Arc::new(Mutex::new(PlayerSnapshot::default()));
-        tokio::spawn(async move {
-            while let Some(event) = events.recv().await {
-                let snapshot = {
-                    let mut current = state.lock().unwrap_or_else(|p| p.into_inner());
-                    if !apply(&mut current, event) {
-                        continue;
-                    }
-                    current.clone()
-                };
-                notify(snapshot);
-            }
-        });
-        Ok(Self { player, mixer })
+        let follow: Follow = Arc::default();
+        // Subscribed before the first load, so its events are seen.
+        let events = player.get_player_event_channel();
+        tokio::spawn(follow_songs(
+            Arc::clone(&player),
+            events,
+            Arc::clone(&follow),
+            notify,
+        ));
+        Ok(Self {
+            player,
+            mixer,
+            follow,
+        })
     }
 
-    pub fn load(&self, track: SpotifyUri) {
-        self.player.load(track, true, 0);
+    /// Plays `track` now, following it with nothing until told otherwise.
+    pub fn load(&self, track: SpotifyUri, position_ms: u32) {
+        *lock(&self.follow) = None;
+        self.player.load(track, true, position_ms);
+    }
+
+    /// The song to start when the playing one ends. None: playback stops.
+    pub fn follow(&self, next: Option<(EntryId, SpotifyUri)>) {
+        *lock(&self.follow) = next;
     }
 
     pub fn play(&self) {
@@ -126,6 +152,7 @@ impl Engine {
     }
 
     pub fn stop(&self) {
+        *lock(&self.follow) = None;
         self.player.stop();
     }
 
@@ -136,6 +163,54 @@ impl Engine {
     pub fn set_volume(&self, volume: u16) {
         self.mixer.set_volume(volume);
     }
+}
+
+/// Preloads the followed song when librespot asks, starts it as the playing
+/// one ends, and reports the player's state.
+async fn follow_songs(
+    player: Arc<Player>,
+    mut events: librespot_playback::player::PlayerEventChannel,
+    follow: Follow,
+    notify: Notify,
+) {
+    let mut state = PlayerSnapshot::default();
+    let mut current = None;
+    while let Some(event) = events.recv().await {
+        if let PlayerEvent::PlayRequestIdChanged { play_request_id } = event {
+            current = Some(play_request_id);
+            continue;
+        }
+        // A late event from a song already replaced.
+        if event.get_play_request_id().is_some() && event.get_play_request_id() != current {
+            continue;
+        }
+        match &event {
+            PlayerEvent::TimeToPreloadNextTrack { .. } => {
+                if let Some((_, next)) = lock(&follow).clone() {
+                    player.preload(next);
+                }
+            }
+            PlayerEvent::EndOfTrack { .. } => match lock(&follow).take() {
+                Some((entry, next)) => {
+                    player.load(next, true, 0);
+                    notify(EngineEvent::Followed(entry));
+                }
+                None => {
+                    player.stop();
+                    notify(EngineEvent::Ended);
+                }
+            },
+            PlayerEvent::Unavailable { .. } => notify(EngineEvent::Unavailable),
+            _ => {}
+        }
+        if apply(&mut state, event) {
+            notify(EngineEvent::Snapshot(state.clone()));
+        }
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 /// Folds one player event into the snapshot. Returns whether it changed.
@@ -165,8 +240,8 @@ fn apply(state: &mut PlayerSnapshot, event: PlayerEvent) -> bool {
             state.position_ms = position_ms;
             state.reported_at = now;
         }
-        // M0 has nothing to follow a song with, so its end stops playback.
-        PlayerEvent::Stopped { .. } | PlayerEvent::EndOfTrack { .. } => {
+        // The end of a song is followed by a load or a stop.
+        PlayerEvent::Stopped { .. } => {
             state.status = Status::Stopped;
             state.position_ms = 0;
             state.reported_at = now;

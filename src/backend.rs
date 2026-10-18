@@ -9,22 +9,26 @@ use std::sync::Arc;
 use std::sync::mpsc;
 
 use anyhow::Result;
+use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
+use crate::model::{EntryId, PlaylistId, TrackRef};
 use crate::paths::Paths;
-use crate::playback::engine::{Engine, PlayerSnapshot};
+use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
+use crate::playback::transport::Request;
 use crate::spotify::{catalog, session};
 
 #[derive(Debug)]
 pub enum Command {
     SignIn,
     SignOut,
-    /// A track, album or artist link; M0 plays its first track.
-    PlayLink(String),
-    Play,
-    Pause,
-    Stop,
+    /// Reads the songs of a track, album or artist link for a playlist.
+    AddLink {
+        text: String,
+        playlist: PlaylistId,
+    },
+    Player(Request),
     Seek(u32),
     Volume(u16),
 }
@@ -45,6 +49,16 @@ pub enum SessionState {
 pub enum Event {
     Session(SessionState),
     Player(PlayerSnapshot),
+    /// The engine started the followed song by itself.
+    Followed(EntryId),
+    /// The engine finished a song with nothing to follow, and stopped.
+    Ended,
+    Unavailable,
+    /// The songs of an `AddLink`.
+    Tracks {
+        playlist: PlaylistId,
+        tracks: Vec<TrackRef>,
+    },
     Error(String),
 }
 
@@ -118,7 +132,14 @@ impl Worker {
         match Engine::new(
             &session,
             self.volume,
-            Arc::new(move |s| emit(Event::Player(s))),
+            Arc::new(move |event| {
+                emit(match event {
+                    EngineEvent::Snapshot(snapshot) => Event::Player(snapshot),
+                    EngineEvent::Followed(entry) => Event::Followed(entry),
+                    EngineEvent::Ended => Event::Ended,
+                    EngineEvent::Unavailable => Event::Unavailable,
+                })
+            }),
         ) {
             Ok(engine) => {
                 (self.emit)(Event::Session(SessionState::Ready {
@@ -153,27 +174,51 @@ impl Worker {
                 (self.emit)(Event::Player(PlayerSnapshot::default()));
                 (self.emit)(Event::Session(SessionState::SignedOut));
             }
-            Command::PlayLink(text) => {
-                let (Some(session), Some(engine)) = (&self.session, &self.engine) else {
+            Command::AddLink { text, playlist } => {
+                let Some(session) = self.session.clone() else {
                     return;
                 };
-                let resolved = match catalog::parse_uri(&text) {
-                    Ok(uri) => catalog::first_track(session, uri).await,
-                    Err(error) => Err(error),
-                };
-                match resolved {
-                    Ok(track) => engine.load(track),
-                    Err(error) => (self.emit)(Event::Error(format!("{error:#}"))),
-                }
+                let emit = Arc::clone(&self.emit);
+                // Album reads take a moment; commands go on meanwhile.
+                tokio::spawn(async move {
+                    match catalog::link_tracks(&session, &text).await {
+                        Ok(tracks) => emit(Event::Tracks { playlist, tracks }),
+                        Err(error) => emit(Event::Error(format!("{error:#}"))),
+                    }
+                });
             }
-            Command::Play => self.with_engine(Engine::play),
-            Command::Pause => self.with_engine(Engine::pause),
-            Command::Stop => self.with_engine(Engine::stop),
+            Command::Player(request) => self.player(request),
             Command::Seek(position) => self.with_engine(|e| e.seek(position)),
             Command::Volume(volume) => {
                 self.volume = volume;
                 self.with_engine(|e| e.set_volume(volume));
             }
+        }
+    }
+
+    fn player(&self, request: Request) {
+        let Some(engine) = &self.engine else { return };
+        let uri = |text: &str| {
+            SpotifyUri::from_uri(text)
+                .map_err(|error| log::error!("not a Spotify URI {text:?}: {error}"))
+                .ok()
+        };
+        match request {
+            Request::Load {
+                uri: text,
+                position_ms,
+                ..
+            } => match uri(&text) {
+                Some(track) => engine.load(track, position_ms),
+                None => (self.emit)(Event::Unavailable),
+            },
+            Request::Follow(next) => {
+                engine.follow(next.and_then(|(entry, text)| Some((entry, uri(&text)?))));
+            }
+            Request::Resume => engine.play(),
+            Request::Pause => engine.pause(),
+            Request::Restart => engine.seek(0),
+            Request::Stop => engine.stop(),
         }
     }
 

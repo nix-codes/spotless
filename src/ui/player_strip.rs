@@ -2,7 +2,7 @@
 
 use egui::{Align2, Color32, FontId, Rect, Slider, Ui, UiBuilder, pos2, vec2};
 
-use super::widgets::{Glyph, glyph_button, paint_glyph};
+use super::widgets::{Glyph, glyph_button, paint_glyph, text_button};
 use super::{Inputs, View, theme};
 use crate::action::Action;
 use crate::backend::SessionState;
@@ -126,19 +126,28 @@ fn controls_column(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut 
 
     // Transport and volume
     ui.horizontal(|ui| {
-        let playing = player.status == Status::Playing;
-        // Previous and Next need a playlist (M1).
-        glyph_button(ui, &palette, Glyph::Previous, false);
+        if glyph_button(ui, &palette, Glyph::Previous, ready).clicked() {
+            actions.push(Action::Previous);
+        }
         if glyph_button(ui, &palette, Glyph::Play, ready).clicked() {
             actions.push(Action::Play);
         }
         if glyph_button(ui, &palette, Glyph::Pause, ready).clicked() {
-            actions.push(if playing { Action::Pause } else { Action::Play });
+            actions.push(Action::TogglePause);
         }
         if glyph_button(ui, &palette, Glyph::Stop, ready).clicked() {
             actions.push(Action::Stop);
         }
-        glyph_button(ui, &palette, Glyph::Next, false);
+        if glyph_button(ui, &palette, Glyph::Next, ready).clicked() {
+            actions.push(Action::Next);
+        }
+        ui.add_space(6.0);
+        if text_button(ui, &palette, "SHUF", view.shuffle, true).clicked() {
+            actions.push(Action::SetShuffle(!view.shuffle));
+        }
+        if text_button(ui, &palette, "REP", view.repeat, true).clicked() {
+            actions.push(Action::SetRepeat(!view.repeat));
+        }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().slider_width = 90.0;

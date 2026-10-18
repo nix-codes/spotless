@@ -3,7 +3,9 @@
 use anyhow::{Context, Result, anyhow, bail};
 use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
-use librespot_metadata::{Album, Artist, Metadata};
+use librespot_metadata::{Album, Artist, Metadata, Track};
+
+use crate::model::{AlbumRef, ArtistRef, TrackRef};
 
 /// Accepts `spotify:` URIs and `open.spotify.com` links.
 pub fn parse_uri(text: &str) -> Result<SpotifyUri> {
@@ -25,35 +27,83 @@ pub fn parse_uri(text: &str) -> Result<SpotifyUri> {
     SpotifyUri::from_uri(&uri).map_err(|e| anyhow!("not a Spotify link: {e}"))
 }
 
-/// The track a link stands for: the track itself, an album's first track,
-/// or the first track of an artist's first album.
-pub async fn first_track(session: &Session, uri: SpotifyUri) -> Result<SpotifyUri> {
-    match uri {
-        SpotifyUri::Track { .. } => Ok(uri),
-        SpotifyUri::Album { .. } => {
-            let album = Album::get(session, &uri).await.context("album not found")?;
-            album
-                .tracks()
-                .next()
-                .cloned()
-                .context("the album has no tracks")
+/// The songs a link stands for, in order: a track, an album's tracks, or
+/// the tracks of an artist's first album (until the artist page, M2).
+pub async fn link_tracks(session: &Session, text: &str) -> Result<Vec<TrackRef>> {
+    let uris = match parse_uri(text)? {
+        uri @ SpotifyUri::Track { .. } => vec![uri],
+        uri @ SpotifyUri::Album { .. } => album_tracks(session, &uri).await?,
+        uri @ SpotifyUri::Artist { .. } => {
+            let album = first_release(session, &uri).await?;
+            album_tracks(session, &album).await?
         }
-        SpotifyUri::Artist { .. } => {
-            let artist = Artist::get(session, &uri)
-                .await
-                .context("artist not found")?;
-            let album = artist
-                .albums
-                .iter()
-                .chain(artist.singles.iter())
-                .flat_map(|group| group.iter())
-                .next()
-                .cloned()
-                .context("the artist has no releases")?;
-            Box::pin(first_track(session, album)).await
-        }
-        _ => bail!("only tracks, albums and artists can be played"),
+        _ => bail!("only tracks, albums and artists can be added"),
+    };
+    tracks(session, uris).await
+}
+
+async fn album_tracks(session: &Session, album: &SpotifyUri) -> Result<Vec<SpotifyUri>> {
+    let album = Album::get(session, album)
+        .await
+        .context("album not found")?;
+    Ok(album.tracks().cloned().collect())
+}
+
+/// Reads the tracks' metadata concurrently, keeping their order. Tracks
+/// Spotify doesn't know are left out.
+pub async fn tracks(session: &Session, uris: Vec<SpotifyUri>) -> Result<Vec<TrackRef>> {
+    let mut reads = tokio::task::JoinSet::new();
+    for (i, uri) in uris.into_iter().enumerate() {
+        let session = session.clone();
+        reads.spawn(async move { (i, Track::get(&session, &uri).await.map_err(|e| (uri, e))) });
     }
+    let mut found = Vec::new();
+    while let Some(read) = reads.join_next().await {
+        match read? {
+            (i, Ok(track)) => found.push((i, track_ref(&track))),
+            (_, Err((uri, error))) => log::warn!("track {uri} unavailable: {error}"),
+        }
+    }
+    if found.is_empty() {
+        bail!("no playable songs found");
+    }
+    found.sort_by_key(|(i, _)| *i);
+    Ok(found.into_iter().map(|(_, track)| track).collect())
+}
+
+fn track_ref(track: &Track) -> TrackRef {
+    TrackRef {
+        uri: track.id.to_uri(),
+        title: track.name.clone(),
+        artists: track
+            .artists
+            .iter()
+            .map(|artist| ArtistRef {
+                uri: artist.id.to_uri(),
+                name: artist.name.clone(),
+            })
+            .collect(),
+        album: AlbumRef {
+            uri: track.album.id.to_uri(),
+            name: track.album.name.clone(),
+        },
+        duration_ms: track.duration.max(0) as u32,
+    }
+}
+
+/// An artist's first album, or first single if it has no albums.
+async fn first_release(session: &Session, uri: &SpotifyUri) -> Result<SpotifyUri> {
+    let artist = Artist::get(session, uri)
+        .await
+        .context("artist not found")?;
+    artist
+        .albums
+        .iter()
+        .chain(artist.singles.iter())
+        .flat_map(|group| group.iter())
+        .next()
+        .cloned()
+        .context("the artist has no releases")
 }
 
 /// Which tab of an artist's discography a release belongs to.

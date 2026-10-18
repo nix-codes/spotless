@@ -3,13 +3,15 @@
 //! Views read a [`View`] and push [`Action`]s; they never change state.
 
 mod player_strip;
+mod playlist_view;
 pub mod theme;
 pub mod widgets;
 
-use egui::{Align, Align2, FontId, Layout, Rect, RichText, TextEdit, Ui, UiBuilder, vec2};
+use egui::{Align2, FontId, Rect, RichText, Ui, UiBuilder, vec2};
 
 use crate::action::Action;
 use crate::backend::SessionState;
+use crate::model::Playlist;
 use crate::playback::engine::PlayerSnapshot;
 use theme::Palette;
 use widgets::text_button;
@@ -21,6 +23,12 @@ pub struct View<'a> {
     pub player: &'a PlayerSnapshot,
     /// The last error to show in the status bar.
     pub error: Option<&'a str>,
+    /// News for the status bar, shown when there is no error.
+    pub notice: Option<&'a str>,
+    /// The playlist in the editor.
+    pub playlist: &'a Playlist,
+    pub shuffle: bool,
+    pub repeat: bool,
 }
 
 /// Values the views edit in place: text fields and sliders.
@@ -30,6 +38,7 @@ pub struct Inputs {
     pub volume: u8,
     /// The seek slider's position while it is being dragged, in seconds.
     pub seeking: Option<f32>,
+    pub selection: playlist_view::Selection,
 }
 
 const TITLE_HEIGHT: f32 = 20.0;
@@ -63,7 +72,12 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
         egui::pos2(full.right() - GUTTER, status.top() - 6.0),
     );
     theme::inset(ui.painter(), body, palette.list_bg, &palette);
-    ui.scope_builder(UiBuilder::new().max_rect(body.shrink(16.0)), |ui| {
+    let padding = if matches!(view.session, SessionState::Ready { .. }) {
+        8.0
+    } else {
+        16.0
+    };
+    ui.scope_builder(UiBuilder::new().max_rect(body.shrink(padding)), |ui| {
         body_contents(ui, view, inputs, actions);
     });
 
@@ -134,43 +148,8 @@ fn body_contents(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Ve
                 actions.push(Action::SignIn);
             }
         }
-        SessionState::Ready { .. } => test_bench(ui, view, inputs, actions),
+        SessionState::Ready { .. } => playlist_view::draw(ui, view, inputs, actions),
     }
-}
-
-/// M0's stand-in for the playlist view: play any track, album or artist link.
-fn test_bench(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
-    let palette = view.palette;
-    ui.label(
-        RichText::new("Play a link")
-            .size(15.0)
-            .color(palette.current),
-    );
-    ui.label(
-        RichText::new("Paste a Spotify track, album or artist link. Albums and artists play their first song.")
-            .color(palette.dim),
-    );
-    ui.horizontal(|ui| {
-        let field = ui.add(
-            TextEdit::singleline(&mut inputs.link)
-                .hint_text("https://open.spotify.com/track/…")
-                .desired_width((ui.available_width() - 80.0).max(120.0))
-                .min_size(vec2(0.0, widgets::BUTTON_HEIGHT)),
-        );
-        let submitted = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        let clicked =
-            text_button(ui, &palette, "PLAY", false, !inputs.link.trim().is_empty()).clicked();
-        if (submitted || clicked) && !inputs.link.trim().is_empty() {
-            actions.push(Action::PlayLink(inputs.link.trim().to_string()));
-        }
-    });
-    ui.add_space(12.0);
-    ui.label(RichText::new("Playlists arrive in M1.").color(palette.dim));
-    ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
-        if text_button(ui, &palette, "SIGN OUT", false, true).clicked() {
-            actions.push(Action::SignOut);
-        }
-    });
 }
 
 fn status_bar(ui: &mut Ui, rect: Rect, view: &View) {
@@ -185,6 +164,7 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View) {
     );
     let (text, color) = match view.error {
         Some(error) => (error.to_string(), palette.current),
+        None if view.notice.is_some() => (view.notice.unwrap_or_default().to_string(), palette.dim),
         None => (
             match view.session {
                 SessionState::Ready { user } => format!("Signed in as {user}"),
@@ -207,7 +187,7 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View) {
     painter.text(
         inner.right_center(),
         Align2::RIGHT_CENTER,
-        "M0",
+        "M1",
         FontId::monospace(9.0),
         palette.chrome,
     );

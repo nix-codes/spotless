@@ -31,6 +31,14 @@ impl Paths {
         self.cache.join("audio")
     }
 
+    pub fn playlists(&self) -> PathBuf {
+        self.config.join("playlists.json")
+    }
+
+    pub fn settings(&self) -> PathBuf {
+        self.config.join("settings.json")
+    }
+
     /// librespot writes the reusable playback credential here.
     pub fn credentials(&self) -> PathBuf {
         self.config.join("credentials.json")
