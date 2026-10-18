@@ -7,6 +7,12 @@ fn main() -> Result<()> {
         env_logger::Env::default().default_filter_or("warn,spotless=info,librespot=info"),
     )
     .init();
+    // One Spotless at a time: they would share the sign-in ports and the
+    // playlists file. A second start brings the first one forward.
+    if spotless::media::raise_running() {
+        log::info!("Spotless is already running; brought it forward");
+        return Ok(());
+    }
     let paths = Paths::new()?;
 
     let options = eframe::NativeOptions {

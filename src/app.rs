@@ -477,8 +477,14 @@ impl App {
                     actions.push(Action::Volume(percent));
                 }
                 MediaEvent::Raise => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    // Where the desktop refuses focus (Wayland), the window
+                    // at least asks for attention.
+                    ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
+                        egui::UserAttentionType::Informational,
+                    ));
                 }
                 MediaEvent::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             }

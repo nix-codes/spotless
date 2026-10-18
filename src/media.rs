@@ -97,6 +97,31 @@ impl NowPlaying {
     }
 }
 
+/// Single instance: if Spotless already runs (its MPRIS name is taken),
+/// asks it to bring its window forward and returns true. Without a
+/// session bus, says false and lets this one run.
+pub fn raise_running() -> bool {
+    let attempt = || -> zbus::Result<bool> {
+        let connection = zbus::blocking::Connection::session()?;
+        let bus = zbus::blocking::fdo::DBusProxy::new(&connection)?;
+        if !bus.name_has_owner(BUS_NAME.try_into()?)? {
+            return Ok(false);
+        }
+        connection.call_method(
+            Some(BUS_NAME),
+            PATH,
+            Some("org.mpris.MediaPlayer2"),
+            "Raise",
+            &(),
+        )?;
+        Ok(true)
+    };
+    attempt().unwrap_or_else(|error| {
+        log::warn!("unable to check for a running Spotless: {error}");
+        false
+    })
+}
+
 /// The running MPRIS service.
 pub struct Mpris {
     updates: UnboundedSender<NowPlaying>,
