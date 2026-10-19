@@ -40,6 +40,7 @@ pub struct View<'a> {
     pub playing_list: Option<PlaylistId>,
     pub browse: &'a Browse,
     pub search: &'a SearchState,
+    pub lastfm: &'a crate::lastfm::LastFmState,
     /// The personal app search signs in with.
     pub web_client_id: Option<&'a str>,
     pub settings: &'a Settings,

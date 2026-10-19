@@ -17,11 +17,16 @@ use super::widgets::{small_action, small_button, text_button};
 use crate::action::Action;
 use crate::backend::{SearchState, SessionState, Store};
 use crate::browse::Loadable;
+use crate::lastfm::LastFmStatus;
+use crate::lastfm::api::is_key;
 use crate::spotify::webapi::REDIRECT_URI;
 use crate::store::AUDIO_CACHE_SIZES;
 
 const DASHBOARD: &str = "https://developer.spotify.com/dashboard";
+const LASTFM_CREATE: &str = "https://www.last.fm/api/account/create";
 const FIELD_ID: &str = "settings-client-id";
+const KEY_FIELD_ID: &str = "settings-lastfm-key";
+const SECRET_FIELD_ID: &str = "settings-lastfm-secret";
 /// The interface sizes − and + step through.
 const ZOOMS: [f32; 9] = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5];
 
@@ -36,15 +41,17 @@ pub enum Category {
     #[default]
     Account,
     Search,
+    LastFm,
     Playback,
     Display,
     Window,
     Storage,
 }
 
-const CATEGORIES: [(Category, &str); 6] = [
+const CATEGORIES: [(Category, &str); 7] = [
     (Category::Account, "Account"),
     (Category::Search, "Search"),
+    (Category::LastFm, "Last.fm"),
     (Category::Playback, "Playback"),
     (Category::Display, "Display"),
     (Category::Window, "Window"),
@@ -63,7 +70,10 @@ pub struct Form {
     /// The keyboard just moved: scroll the framed option into view.
     reveal: bool,
     client_id: String,
-    focus_field: bool,
+    lastfm_key: String,
+    lastfm_secret: String,
+    /// The text field to put the keyboard in next frame.
+    focus_field: Option<Item>,
     copied: bool,
 }
 
@@ -81,6 +91,11 @@ enum Item {
     Save,
     Link,
     Copy,
+    LastFmKey,
+    LastFmSecret,
+    LastFmConnect,
+    LastFmDisconnect,
+    LastFmLink,
     Levelling,
     /// One of the outputs listed, 0 being the system's default.
     Output(usize),
@@ -103,7 +118,9 @@ pub fn open(view: &View, category: Category) -> Form {
         keyboard: false,
         reveal: false,
         client_id: view.web_client_id.unwrap_or_default().to_string(),
-        focus_field: false,
+        lastfm_key: view.lastfm.api_key.clone(),
+        lastfm_secret: view.lastfm.secret.clone(),
+        focus_field: None,
         copied: false,
     }
 }
@@ -234,6 +251,7 @@ pub fn draw(
                 match c.form.category {
                     Category::Account => c.account(ui),
                     Category::Search => c.search(ui),
+                    Category::LastFm => c.lastfm(ui),
                     Category::Playback => c.playback(ui, &outputs),
                     Category::Display => c.display(ui),
                     Category::Window => c.window(ui),
@@ -295,6 +313,19 @@ fn items(category: Category, view: &View, outputs: usize) -> Vec<Item> {
         }
         Category::Account => Vec::new(),
         Category::Search => vec![Item::ClientId, Item::Save, Item::Link, Item::Copy],
+        Category::LastFm => {
+            let mut items = Vec::new();
+            if matches!(view.lastfm.status, LastFmStatus::Connected { .. }) {
+                items.push(Item::LastFmDisconnect);
+            }
+            items.extend([
+                Item::LastFmKey,
+                Item::LastFmSecret,
+                Item::LastFmConnect,
+                Item::LastFmLink,
+            ]);
+            items
+        }
         Category::Playback => std::iter::once(Item::Levelling)
             .chain((0..outputs).map(Item::Output))
             .collect(),
@@ -325,8 +356,7 @@ fn step_tab(ui: &Ui, form: &mut Form, items: &[Item], tab: isize) {
     if to == 0 {
         form.in_options = false;
         form.item = None;
-        ui.ctx()
-            .memory_mut(|m| m.surrender_focus(Id::new(FIELD_ID)));
+        surrender_fields(ui);
     } else {
         enter_option(ui, form, items[to - 1]);
     }
@@ -336,11 +366,17 @@ fn enter_option(ui: &Ui, form: &mut Form, item: Item) {
     form.in_options = true;
     form.item = Some(item);
     form.reveal = true;
-    if item == Item::ClientId {
-        form.focus_field = true;
+    if matches!(item, Item::ClientId | Item::LastFmKey | Item::LastFmSecret) {
+        form.focus_field = Some(item);
     } else {
-        ui.ctx()
-            .memory_mut(|m| m.surrender_focus(Id::new(FIELD_ID)));
+        surrender_fields(ui);
+    }
+}
+
+/// Takes the keyboard out of the text fields.
+fn surrender_fields(ui: &Ui) {
+    for id in [FIELD_ID, KEY_FIELD_ID, SECRET_FIELD_ID] {
+        ui.ctx().memory_mut(|m| m.surrender_focus(Id::new(id)));
     }
 }
 
@@ -413,7 +449,8 @@ impl Controls<'_, '_> {
                         .font(egui::TextStyle::Monospace)
                         .desired_width(270.0),
                 );
-                if std::mem::take(&mut self.form.focus_field) {
+                if self.form.focus_field == Some(Item::ClientId) {
+                    self.form.focus_field = None;
                     field.request_focus();
                 }
                 if field.has_focus() {
@@ -480,6 +517,137 @@ impl Controls<'_, '_> {
                 );
             });
         });
+    }
+
+    fn lastfm(&mut self, ui: &mut Ui) {
+        let palette = self.palette;
+        let state = self.view.lastfm;
+        let (status, connected) = match &state.status {
+            LastFmStatus::Off => ("NOT CONNECTED".to_string(), false),
+            LastFmStatus::SigningIn => ("WAITING FOR YOUR BROWSER".to_string(), false),
+            LastFmStatus::Connected { user } => (format!("CONNECTED AS {user}"), true),
+        };
+        row(ui, palette, "Status", |ui| {
+            let color = if connected {
+                palette.accent
+            } else {
+                palette.current
+            };
+            ui.label(RichText::new(status).monospace().color(color));
+            note(
+                ui,
+                palette,
+                "Spotless scrobbles the songs you play through a Last.fm API account of your own.",
+            );
+        });
+        if connected {
+            row(ui, palette, "", |ui| {
+                let button = small_button(ui, palette, "DISCONNECT", false);
+                self.ring(ui, Item::LastFmDisconnect, &button);
+                if button.clicked() || (self.pressed)(Item::LastFmDisconnect) {
+                    self.actions.push(Action::DisconnectLastFm);
+                }
+                note(
+                    ui,
+                    palette,
+                    "Listens Last.fm can't take at once are kept and sent later.",
+                );
+            });
+        }
+        let key = self.form.lastfm_key.trim().to_string();
+        let secret = self.form.lastfm_secret.trim().to_string();
+        let valid = is_key(&key) && is_key(&secret);
+        let changed = key != state.api_key || secret != state.secret;
+        let ready = valid && state.status != LastFmStatus::SigningIn && (changed || !connected);
+        let mut submitted = false;
+        row(ui, palette, "API key", |ui| {
+            let field = ui.add(
+                TextEdit::singleline(&mut self.form.lastfm_key)
+                    .id(Id::new(KEY_FIELD_ID))
+                    .hint_text("32 letters and digits")
+                    .font(egui::TextStyle::Monospace)
+                    .desired_width(270.0),
+            );
+            self.field_focus(&field, Item::LastFmKey);
+            submitted |= field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+        });
+        row(ui, palette, "Shared secret", |ui| {
+            ui.horizontal(|ui| {
+                let field = ui.add(
+                    TextEdit::singleline(&mut self.form.lastfm_secret)
+                        .id(Id::new(SECRET_FIELD_ID))
+                        .hint_text("32 letters and digits")
+                        .password(true)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(270.0),
+                );
+                self.field_focus(&field, Item::LastFmSecret);
+                submitted |= field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                let button = small_action(ui, palette, "CONNECT", ready);
+                self.ring(ui, Item::LastFmConnect, &button);
+                if ready && (button.clicked() || (self.pressed)(Item::LastFmConnect) || submitted) {
+                    self.actions
+                        .push(Action::ConnectLastFm(key.clone(), secret.clone()));
+                }
+            });
+            let typed = !key.is_empty() || !secret.is_empty();
+            if typed && !valid {
+                note(
+                    ui,
+                    palette,
+                    "Both are 32 letters and digits, on your API account's page.",
+                );
+            } else if connected && changed {
+                note(
+                    ui,
+                    palette,
+                    "CONNECT to scrobble through this account instead.",
+                );
+            }
+        });
+        row(ui, palette, "Setting one up", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                step(ui, palette, "1.");
+                label(ui, palette, "Create an API account at");
+                let link = ui.hyperlink_to(
+                    RichText::new("last.fm/api/account/create").color(palette.accent),
+                    LASTFM_CREATE,
+                );
+                self.ring(ui, Item::LastFmLink, &link);
+                if (self.pressed)(Item::LastFmLink) {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(LASTFM_CREATE));
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                step(ui, palette, "2.");
+                label(
+                    ui,
+                    palette,
+                    "Any application name will do. Leave the callback URL empty.",
+                );
+            });
+            ui.horizontal_wrapped(|ui| {
+                step(ui, palette, "3.");
+                label(
+                    ui,
+                    palette,
+                    "Paste its API key and shared secret above, then CONNECT and allow Spotless in your browser.",
+                );
+            });
+        });
+    }
+
+    /// Puts the keyboard in a text field when asked, and keeps the
+    /// framed option on it while it has the keyboard.
+    fn field_focus(&mut self, field: &Response, item: Item) {
+        if self.form.focus_field == Some(item) {
+            self.form.focus_field = None;
+            field.request_focus();
+        }
+        if field.has_focus() {
+            self.form.in_options = true;
+            self.form.item = Some(item);
+        }
     }
 
     fn playback(&mut self, ui: &mut Ui, outputs: &[(Option<String>, String)]) {

@@ -13,6 +13,7 @@ use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
+use crate::lastfm::{self, LastFmState, Scrobbler, api::Keys};
 use crate::model::catalog::{Discography, SearchResults};
 use crate::model::{EntryId, PlaylistId, TrackRef};
 use crate::paths::Paths;
@@ -54,6 +55,9 @@ pub enum Command {
     ListOutputs,
     /// Plays to this output (None: the system's default).
     Output(Option<String>),
+    /// Saves this Last.fm API account and approves it in the browser.
+    LastFmConnect(Keys),
+    LastFmDisconnect,
 }
 
 /// What Spotless keeps on disk that can be thrown away.
@@ -118,6 +122,7 @@ pub enum Event {
         result: Result<egui::ColorImage, String>,
     },
     Storage(Storage),
+    LastFm(LastFmState),
     /// The outputs to choose from; None when they can't be listed.
     Outputs(Option<Vec<Output>>),
     /// The songs of an `AddLink`.
@@ -201,6 +206,8 @@ struct Worker {
     emit: Emit,
     session: Option<Session>,
     engine: Option<Engine>,
+    /// Follows the player and scrobbles, once `run` has started it.
+    scrobbler: Option<Scrobbler>,
     /// Shared with the searches running in the background.
     web: Option<Arc<tokio::sync::Mutex<WebApi>>>,
     /// Held while search's browser approval runs, so it runs once.
@@ -219,6 +226,7 @@ impl Worker {
             emit,
             session: None,
             engine: None,
+            scrobbler: None,
             web: None,
             search_approval: Arc::default(),
             http: reqwest::Client::new(),
@@ -230,6 +238,16 @@ impl Worker {
         let settings = Settings::load(&self.paths);
         outputs::restore(settings.audio_output.clone());
         self.set_search_app(settings.web_client_id());
+        let emit = Arc::clone(&self.emit);
+        self.scrobbler = Some(lastfm::start(
+            &self.paths,
+            Arc::new(move |report| {
+                emit(match report {
+                    lastfm::Report::State(state) => Event::LastFm(state),
+                    lastfm::Report::Error(message) => Event::Error(message),
+                })
+            }),
+        ));
         (self.emit)(Event::Session(SessionState::Connecting));
         match session::restore(&self.paths).await {
             Ok(Some(session)) => self.ready(session),
@@ -273,13 +291,19 @@ impl Worker {
 
     fn ready(&mut self, session: Session) {
         let emit = Arc::clone(&self.emit);
+        let scrobbler = self.scrobbler.clone();
         match Engine::new(
             &session,
             self.volume,
             self.levelling,
             Arc::new(move |event| {
                 emit(match event {
-                    EngineEvent::Snapshot(snapshot) => Event::Player(snapshot),
+                    EngineEvent::Snapshot(snapshot) => {
+                        if let Some(scrobbler) = &scrobbler {
+                            scrobbler.snapshot(snapshot.clone());
+                        }
+                        Event::Player(snapshot)
+                    }
                     EngineEvent::Followed(entry) => Event::Followed(entry),
                     EngineEvent::Ended => Event::Ended,
                     EngineEvent::Unavailable => Event::Unavailable,
@@ -344,6 +368,16 @@ impl Worker {
                 tokio::task::spawn_blocking(move || emit(Event::Outputs(outputs::list())));
             }
             Command::Output(output) => outputs::choose(output),
+            Command::LastFmConnect(keys) => {
+                if let Some(scrobbler) = &self.scrobbler {
+                    scrobbler.connect(keys);
+                }
+            }
+            Command::LastFmDisconnect => {
+                if let Some(scrobbler) = &self.scrobbler {
+                    scrobbler.disconnect();
+                }
+            }
             Command::ClearCache(store) => {
                 let dir = match store {
                     Store::Audio => self.paths.audio_cache(),

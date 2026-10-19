@@ -5,6 +5,7 @@ pub mod app;
 pub mod backend;
 pub mod browse;
 pub mod images;
+pub mod lastfm;
 pub mod media;
 pub mod model;
 pub mod paths;

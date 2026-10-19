@@ -41,6 +41,8 @@ pub struct TrackInfo {
     pub uri: String,
     pub title: String,
     pub artists: String,
+    /// The first of them, as Last.fm takes it.
+    pub main_artist: String,
     pub album: String,
     pub duration_ms: u32,
     /// The album cover's URL, for the desktop's media controls.
@@ -353,25 +355,29 @@ fn apply(state: &mut PlayerSnapshot, event: PlayerEvent) -> bool {
 }
 
 fn track_info(item: &AudioItem) -> TrackInfo {
-    let (artists, album) = match &item.unique_fields {
+    let (artists, main_artist, album) = match &item.unique_fields {
         UniqueFields::Track { artists, album, .. } => (
             artists
                 .iter()
                 .map(|a| a.name.as_str())
                 .collect::<Vec<_>>()
                 .join(", "),
+            artists.first().map(|a| a.name.clone()).unwrap_or_default(),
             album.clone(),
         ),
-        UniqueFields::Local { artists, album, .. } => (
-            artists.clone().unwrap_or_default(),
-            album.clone().unwrap_or_default(),
-        ),
-        UniqueFields::Episode { show_name, .. } => (show_name.clone(), String::new()),
+        UniqueFields::Local { artists, album, .. } => {
+            let artists = artists.clone().unwrap_or_default();
+            (artists.clone(), artists, album.clone().unwrap_or_default())
+        }
+        UniqueFields::Episode { show_name, .. } => {
+            (show_name.clone(), show_name.clone(), String::new())
+        }
     };
     TrackInfo {
         uri: item.uri.clone(),
         title: item.name.clone(),
         artists,
+        main_artist,
         album,
         duration_ms: item.duration_ms,
         cover_url: item

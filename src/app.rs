@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState, Storage};
 use crate::browse::{Browse, Cover, Loadable, Page};
+use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
 use crate::media::{EventHook, MediaControls, MediaEvent, NowPlaying};
 use crate::model::{Library, Playback, PlaylistId, TrackRef};
 use crate::paths::Paths;
@@ -38,6 +39,7 @@ pub struct App {
     unsaved: Option<Instant>,
     browse: Browse,
     search: SearchState,
+    lastfm: LastFmState,
     /// What the caches hold, once measured.
     storage: Option<Storage>,
     /// The audio outputs, once listed; None when they can't be.
@@ -111,6 +113,7 @@ impl App {
             unsaved: None,
             browse: Browse::new(viewed, covers),
             search: SearchState::SignedOut,
+            lastfm: LastFmState::default(),
             storage: None,
             outputs: Loadable::Loading,
             pending_adds: Vec::new(),
@@ -158,6 +161,14 @@ impl App {
                 }
                 Event::Tracks { playlist, tracks } => self.insert_tracks(playlist, None, tracks),
                 Event::Search(state) => self.search = state,
+                Event::LastFm(state) => {
+                    if self.lastfm.status == LastFmStatus::SigningIn
+                        && let LastFmStatus::Connected { user } = &state.status
+                    {
+                        self.notice = Some(format!("Scrobbling to Last.fm as {user}."));
+                    }
+                    self.lastfm = state;
+                }
                 Event::Storage(storage) => self.storage = Some(storage),
                 Event::Outputs(outputs) => self.outputs = Loadable::Ready(outputs),
                 Event::Cover { url, result } => {
@@ -244,6 +255,18 @@ impl App {
                 self.settings.levelling = on;
                 self.mark_unsaved();
                 return self.send(Command::Levelling(on));
+            }
+            Action::ConnectLastFm(api_key, secret) => {
+                self.error = None;
+                self.notice = Some("Allow Spotless in the Last.fm page that opens.".into());
+                return self.send(Command::LastFmConnect(Keys {
+                    api_key: api_key.trim().into(),
+                    secret: secret.trim().into(),
+                }));
+            }
+            Action::DisconnectLastFm => {
+                self.notice = Some("Last.fm disconnected.".into());
+                return self.send(Command::LastFmDisconnect);
             }
             Action::SetAudioCache(on) => {
                 self.settings.audio_cache = on;
@@ -723,6 +746,7 @@ impl eframe::App for App {
             playing_list: self.transport.playing_list(),
             browse: &self.browse,
             search: &self.search,
+            lastfm: &self.lastfm,
             web_client_id: web_client_id.as_deref(),
             settings: &self.settings,
             storage: self.storage,

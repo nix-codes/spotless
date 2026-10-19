@@ -199,6 +199,22 @@ impl Settings {
     }
 }
 
+/// Written readable by the user only, from the moment it exists.
+pub fn save_private(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let temporary = path.with_extension("json.tmp");
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options
+        .open(&temporary)
+        .and_then(|mut file| file.write_all(bytes))
+        .with_context(|| format!("unable to write {}", temporary.display()))?;
+    std::fs::rename(&temporary, path)
+        .with_context(|| format!("unable to replace {}", path.display()))
+}
+
 fn write_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
     let temporary = path.with_extension("json.tmp");
     std::fs::write(&temporary, bytes)

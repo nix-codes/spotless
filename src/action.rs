@@ -16,6 +16,10 @@ pub enum Action {
     /// Search signs in with this personal app's client ID (empty: none).
     SetSearchApp(String),
     SetLevelling(bool),
+    /// Saves this Last.fm API account (key, shared secret) and approves it
+    /// in the browser.
+    ConnectLastFm(String, String),
+    DisconnectLastFm,
     /// The audio cache on or off, from the next start.
     SetAudioCache(bool),
     /// The audio cache's limit in MB, from the next start.

@@ -20,6 +20,7 @@ use serde_json::Value;
 
 use crate::model::catalog::{Release, ReleaseGroup, SearchResults};
 use crate::model::{AlbumRef, ArtistRef, TrackRef};
+use crate::store::save_private;
 
 /// The redirect a personal app registers (spotifast uses the same one, so
 /// only one of them can sign in at a time).
@@ -169,22 +170,6 @@ impl WebApi {
         }
         Ok(())
     }
-}
-
-/// Written readable by the user only, from the moment it exists.
-fn save_private(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
-    use std::io::Write;
-    let temporary = path.with_extension("json.tmp");
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options
-        .open(&temporary)
-        .and_then(|mut file| file.write_all(bytes))
-        .with_context(|| format!("unable to write {}", temporary.display()))?;
-    std::fs::rename(&temporary, path)
-        .with_context(|| format!("unable to replace {}", path.display()))
 }
 
 fn parse_search(body: &Value) -> SearchResults {

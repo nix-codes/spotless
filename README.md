@@ -86,10 +86,14 @@ accounts.
   album to the playlist shown alongside. Pasting a Spotify link adds it too.
 - **Covers are optional.** Off by default; when on, they show in the
   catalogue only. Playlists stay text.
+- **Last.fm scrobbling**, optional, sent by Spotless itself. Spotify's
+  Last.fm link only hears of what plays through Spotify Connect, which
+  Spotless stays out of so it never takes over your account's queue.
+  Listens made offline are sent later.
 - **Your desktop's controls**: media keys, the system's now-playing display
   (MPRIS on Linux, the media overlay on Windows), and a tray icon; closing
   the window keeps Spotless playing there.
-- **Settings** (F10): account, search, audio output, volume levelling,
+- **Settings** (F10): account, search, Last.fm, audio output, volume levelling,
   interface size, tray, and the audio and cover caches.
 - **One window, one copy**: starting Spotless again brings the running one
   forward.
@@ -156,6 +160,14 @@ most others; on GNOME, the AppIndicator extension).
    The steps are also in that settings page, with a button to copy the
    Redirect URI. Playlists and playback work without it; only search needs
    it.
+
+3. **Connect Last.fm** (optional, once). Last.fm needs an API account of
+   your own, also free:
+   1. Create one at
+      [last.fm/api/account/create](https://www.last.fm/api/account/create).
+      Any application name will do; leave the callback URL empty.
+   2. Paste its API key and shared secret in *Settings (F10) > Last.fm* and
+      click **CONNECT**. Your browser asks you to allow Spotless.
 
 Press **F1** at any time for the keys.
 

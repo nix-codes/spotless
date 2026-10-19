@@ -48,6 +48,16 @@ impl Paths {
         self.config.join("search-credentials.json")
     }
 
+    /// The Last.fm API account and sign-in (private).
+    pub fn lastfm(&self) -> PathBuf {
+        self.config.join("lastfm.json")
+    }
+
+    /// Listens Last.fm hasn't taken yet.
+    pub fn lastfm_queue(&self) -> PathBuf {
+        self.config.join("lastfm-queue.json")
+    }
+
     /// librespot writes the reusable playback credential here.
     pub fn credentials(&self) -> PathBuf {
         self.config.join("credentials.json")
