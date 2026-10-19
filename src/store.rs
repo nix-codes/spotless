@@ -94,6 +94,9 @@ pub struct Settings {
     /// Songs played are kept on disk, up to `audio_cache_mb`.
     pub audio_cache: bool,
     pub audio_cache_mb: u64,
+    /// The sound server's name for the chosen output; None follows the
+    /// system's default.
+    pub audio_output: Option<String>,
     raw: Map<String, Value>,
 }
 
@@ -159,6 +162,10 @@ impl Settings {
                 .and_then(Value::as_u64)
                 .filter(|mb| AUDIO_CACHE_SIZES.contains(mb))
                 .unwrap_or(2048),
+            audio_output: raw
+                .get("audio_output")
+                .and_then(Value::as_str)
+                .map(String::from),
             raw: raw.clone(),
         }
     }
@@ -173,6 +180,10 @@ impl Settings {
         raw.insert("zoom".into(), self.zoom.into());
         raw.insert("audio_cache".into(), self.audio_cache.into());
         raw.insert("audio_cache_mb".into(), self.audio_cache_mb.into());
+        match &self.audio_output {
+            Some(output) => raw.insert("audio_output".into(), output.clone().into()),
+            None => raw.remove("audio_output"),
+        };
         raw
     }
 

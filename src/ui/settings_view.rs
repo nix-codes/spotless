@@ -13,6 +13,7 @@ use super::widgets::{small_action, small_button, text_button};
 use crate::action::Action;
 use crate::backend::Store;
 use crate::backend::{SearchState, SessionState};
+use crate::browse::Loadable;
 use crate::spotify::webapi::REDIRECT_URI;
 use crate::store::AUDIO_CACHE_SIZES;
 
@@ -41,6 +42,8 @@ enum Item {
     ClientId,
     Save,
     Levelling,
+    /// One of the outputs listed, 0 being the system's default.
+    Output(usize),
     Smaller,
     Larger,
     Covers,
@@ -73,6 +76,7 @@ pub fn draw(
     let palette = view.palette;
     theme::inset(ui.painter(), rect, palette.list_bg, &palette);
     let signed_in = matches!(view.session, SessionState::Ready { .. });
+    let outputs = output_rows(view);
     let items: Vec<Item> = [
         Item::SignOut,
         Item::Link,
@@ -80,6 +84,10 @@ pub fn draw(
         Item::ClientId,
         Item::Save,
         Item::Levelling,
+    ]
+    .into_iter()
+    .chain((0..outputs.len()).map(Item::Output))
+    .chain([
         Item::Smaller,
         Item::Larger,
         Item::Covers,
@@ -88,8 +96,7 @@ pub fn draw(
         Item::CacheUp,
         Item::ClearAudio,
         Item::ClearCovers,
-    ]
-    .into_iter()
+    ])
     .filter(|&item| item != Item::SignOut || signed_in)
     .collect();
 
@@ -251,6 +258,27 @@ pub fn draw(
             }
             label(ui, &palette, "Evens out loudness between songs and albums");
         });
+        ui.horizontal_wrapped(|ui| {
+            label(ui, &palette, "Output");
+            match view.outputs {
+                Loadable::Ready(Some(_)) => {
+                    for (i, (output, name)) in outputs.iter().enumerate() {
+                        let chosen = *output == settings.audio_output;
+                        let button = small_button(ui, &palette, name, chosen);
+                        ring(ui, &palette, form, Item::Output(i), &button);
+                        if !chosen && (button.clicked() || pressed(Item::Output(i))) {
+                            actions.push(Action::SetOutput(output.clone()));
+                        }
+                    }
+                }
+                Loadable::Ready(None) | Loadable::Failed(_) => label(
+                    ui,
+                    &palette,
+                    "the system's default. Change it in your system's sound settings.",
+                ),
+                Loadable::Loading => label(ui, &palette, "looking for outputs…"),
+            }
+        });
 
         section(ui, &palette, "DISPLAY", None);
         ui.horizontal(|ui| {
@@ -346,6 +374,26 @@ pub fn draw(
     });
     form.reveal = false;
     close
+}
+
+/// The outputs to choose from, as (choice, label): the system's default
+/// first, then the sound server's, then a saved one that isn't connected.
+fn output_rows(view: &View) -> Vec<(Option<String>, String)> {
+    let Loadable::Ready(Some(listed)) = view.outputs else {
+        return Vec::new();
+    };
+    let mut rows = vec![(None, "System default".to_string())];
+    rows.extend(
+        listed
+            .iter()
+            .map(|output| (Some(output.name.clone()), output.description.clone())),
+    );
+    if let Some(saved) = &view.settings.audio_output
+        && !listed.iter().any(|output| output.name == *saved)
+    {
+        rows.push((Some(saved.clone()), "Chosen output (not connected)".into()));
+    }
+    rows
 }
 
 /// Spotify's client IDs: 32 hexadecimal digits.

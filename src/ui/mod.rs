@@ -14,9 +14,10 @@ use egui::{Align2, FontId, Rect, RichText, Ui, UiBuilder, vec2};
 
 use crate::action::Action;
 use crate::backend::{SearchState, SessionState, Storage};
-use crate::browse::Browse;
+use crate::browse::{Browse, Loadable};
 use crate::model::{EntryId, Library, Playlist, PlaylistId};
 use crate::playback::engine::PlayerSnapshot;
+use crate::playback::outputs::Output;
 use crate::store::Settings;
 use theme::Palette;
 use widgets::text_button;
@@ -44,6 +45,8 @@ pub struct View<'a> {
     pub settings: &'a Settings,
     /// What the caches hold, once measured.
     pub storage: Option<Storage>,
+    /// The audio outputs, once listed; None when they can't be.
+    pub outputs: &'a Loadable<Option<Vec<Output>>>,
 }
 
 /// Values the views edit in place: text fields and sliders.
@@ -279,6 +282,7 @@ fn open_settings(view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
     inputs.settings = Some(settings_view::open(view));
     actions.push(Action::CloseBrowse);
     actions.push(Action::MeasureStorage);
+    actions.push(Action::ListOutputs);
 }
 
 /// Ctrl+, and the SETTINGS button: open, or close when open.

@@ -18,6 +18,9 @@ pub enum Action {
     SetAudioCacheSize(u64),
     MeasureStorage,
     ClearCache(Store),
+    ListOutputs,
+    /// Plays to this output (None: the system's default).
+    SetOutput(Option<String>),
     /// Appends a track, album or artist link's songs to the target playlist.
     AddLink(String),
     Play,

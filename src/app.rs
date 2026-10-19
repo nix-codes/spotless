@@ -11,6 +11,7 @@ use crate::media::{MediaEvent, Mpris, NowPlaying};
 use crate::model::{Library, Playback, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status};
+use crate::playback::outputs::Output;
 use crate::playback::transport::{Request, Transport};
 use crate::store::{self, Settings, Tabs};
 use crate::ui::{self, Inputs, View, theme::Palette};
@@ -38,6 +39,8 @@ pub struct App {
     search: SearchState,
     /// What the caches hold, once measured.
     storage: Option<Storage>,
+    /// The audio outputs, once listed; None when they can't be.
+    outputs: Loadable<Option<Vec<Output>>>,
     media: Mpris,
     media_events: std::sync::mpsc::Receiver<MediaEvent>,
     /// Albums whose songs go to a playlist (at an index, or at the end)
@@ -95,6 +98,7 @@ impl App {
             browse: Browse::new(viewed, covers),
             search: SearchState::SignedOut,
             storage: None,
+            outputs: Loadable::Loading,
             pending_adds: Vec::new(),
             media,
             media_events,
@@ -137,6 +141,7 @@ impl App {
                 Event::Tracks { playlist, tracks } => self.insert_tracks(playlist, None, tracks),
                 Event::Search(state) => self.search = state,
                 Event::Storage(storage) => self.storage = Some(storage),
+                Event::Outputs(outputs) => self.outputs = Loadable::Ready(outputs),
                 Event::Cover { url, result } => {
                     let cover = match result {
                         Ok(image) => Cover::Ready(ctx.load_texture(
@@ -215,6 +220,12 @@ impl App {
                 return self.mark_unsaved();
             }
             Action::MeasureStorage => return self.send(Command::MeasureStorage),
+            Action::ListOutputs => return self.send(Command::ListOutputs),
+            Action::SetOutput(output) => {
+                self.settings.audio_output = output.clone();
+                self.mark_unsaved();
+                return self.send(Command::Output(output));
+            }
             Action::ClearCache(store) => return self.send(Command::ClearCache(store)),
             Action::SetSearchApp(client_id) => {
                 let client_id = Some(client_id.trim().to_string()).filter(|id| !id.is_empty());
@@ -620,6 +631,7 @@ impl eframe::App for App {
             web_client_id: web_client_id.as_deref(),
             settings: &self.settings,
             storage: self.storage,
+            outputs: &self.outputs,
         };
         ui::draw(ui, &view, &mut self.inputs, &mut actions);
         self.keep_zoom(ui.ctx());

@@ -17,6 +17,7 @@ use crate::model::catalog::{Discography, SearchResults};
 use crate::model::{EntryId, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
+use crate::playback::outputs::{self, Output};
 use crate::playback::transport::Request;
 use crate::spotify::webapi::WebApi;
 use crate::spotify::{catalog, session};
@@ -49,6 +50,10 @@ pub enum Command {
     MeasureStorage,
     /// Empties a cache, then measures again.
     ClearCache(Store),
+    /// The outputs to choose from; answered with `Event::Outputs`.
+    ListOutputs,
+    /// Plays to this output (None: the system's default).
+    Output(Option<String>),
 }
 
 /// What Spotless keeps on disk that can be thrown away.
@@ -113,6 +118,8 @@ pub enum Event {
         result: Result<egui::ColorImage, String>,
     },
     Storage(Storage),
+    /// The outputs to choose from; None when they can't be listed.
+    Outputs(Option<Vec<Output>>),
     /// The songs of an `AddLink`.
     Tracks {
         playlist: PlaylistId,
@@ -220,7 +227,9 @@ impl Worker {
     }
 
     async fn run(mut self, mut commands: UnboundedReceiver<Command>) {
-        self.set_search_app(Settings::load(&self.paths).web_client_id());
+        let settings = Settings::load(&self.paths);
+        outputs::restore(settings.audio_output.clone());
+        self.set_search_app(settings.web_client_id());
         (self.emit)(Event::Session(SessionState::Connecting));
         match session::restore(&self.paths).await {
             Ok(Some(session)) => self.ready(session),
@@ -330,6 +339,11 @@ impl Worker {
             }
             Command::Player(request) => self.player(request),
             Command::MeasureStorage => self.measure_storage(),
+            Command::ListOutputs => {
+                let emit = Arc::clone(&self.emit);
+                tokio::task::spawn_blocking(move || emit(Event::Outputs(outputs::list())));
+            }
+            Command::Output(output) => outputs::choose(output),
             Command::ClearCache(store) => {
                 let dir = match store {
                     Store::Audio => self.paths.audio_cache(),

@@ -64,7 +64,10 @@ impl Sink for RodioSink {
     fn start(&mut self) -> SinkResult<()> {
         if self.output.is_none() {
             match open(self.device.as_deref()) {
-                Ok(output) => self.output = Some(output),
+                Ok(output) => {
+                    self.output = Some(output);
+                    super::outputs::stream_opened();
+                }
                 Err(error) => return Err(self.fail(NO_DEVICE, error)),
             }
         }
