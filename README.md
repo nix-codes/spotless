@@ -175,7 +175,11 @@ importing Spotify playlists.
 
 ## Credits
 
-Spotless plays through [librespot](https://github.com/librespot-org/librespot)
+Spotless started from [spotifast](https://github.com/crmne/spotifast) by
+Carmine Paolino: its sign-in, playback and catalogue code were the base this
+player was trimmed and reshaped from.
+
+It plays through [librespot](https://github.com/librespot-org/librespot)
 (a fork with a few fixes not yet released) and draws its window with
 [egui](https://github.com/emilk/egui).
 
@@ -184,4 +188,5 @@ Spotify AB.
 
 ## License
 
-MIT.
+MIT: see [LICENSE](LICENSE). It covers Spotless and the code that came from
+spotifast.

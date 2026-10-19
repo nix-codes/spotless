@@ -1,8 +1,8 @@
 #!/bin/sh
 # Builds Spotless for Windows, from Linux, and packs it for handing out:
 #   target/dist/spotless-<version>-windows-x64.zip
-# A Spotless folder with Spotless.exe, install.cmd, uninstall.cmd and
-# README.txt in it.
+# A Spotless folder with Spotless.exe, install.cmd, uninstall.cmd,
+# README.txt and LICENSE.txt in it.
 #
 # Needs the x86_64-pc-windows-gnullvm Rust target and llvm-mingw's bin
 # folder on PATH, or LLVM_MINGW pointing at llvm-mingw (docs/PLAN.md).
@@ -31,6 +31,9 @@ for file in install.cmd uninstall.cmd README.txt; do
     sed -e "s/@VERSION@/$version/g" -e 's/$/\r/' \
         "$root/packaging/windows/$file" > "$stage/Spotless/$file"
 done
+
+# MIT asks for the notice in every copy handed out.
+sed 's/$/\r/' "$root/LICENSE" > "$stage/Spotless/LICENSE.txt"
 
 out="$root/target/dist/spotless-$version-windows-x64.zip"
 mkdir -p "$root/target/dist"
