@@ -8,96 +8,15 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
 
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use zbus::zvariant::{ObjectPath, OwnedValue, Value};
 
-use crate::playback::engine::{PlayerSnapshot, Status};
+use super::{EventHook, MediaEvent, NowPlaying};
+use crate::playback::engine::Status;
 
 const BUS_NAME: &str = "org.mpris.MediaPlayer2.spotless";
 const PATH: &str = "/org/mpris/MediaPlayer2";
-
-/// What the desktop asks of the player.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum MediaEvent {
-    Play,
-    Pause,
-    PlayPause,
-    Stop,
-    Next,
-    Previous,
-    /// Seek by this many microseconds, back if negative.
-    SeekBy(i64),
-    /// Seek to this many microseconds.
-    SeekTo(i64),
-    /// 0.0–1.0.
-    Volume(f64),
-    Raise,
-    Quit,
-    /// The tray icon was clicked: show the window, or hide it.
-    ToggleWindow,
-}
-
-pub type EventHook = Arc<dyn Fn(MediaEvent) + Send + Sync>;
-
-/// What the desktop shows.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct NowPlaying {
-    pub status: Status,
-    pub uri: String,
-    pub title: String,
-    pub artists: Vec<String>,
-    pub album: String,
-    pub cover_url: Option<String>,
-    pub length_ms: u32,
-    /// The position at `at`; it moves on from there while playing.
-    pub position_ms: u32,
-    pub at: Option<Instant>,
-    /// 0.0–1.0.
-    pub volume: f64,
-}
-
-impl NowPlaying {
-    pub fn from_player(player: &PlayerSnapshot, volume: u8) -> Self {
-        let track = player.track.as_ref();
-        Self {
-            status: player.status,
-            uri: track.map(|t| t.uri.clone()).unwrap_or_default(),
-            title: track.map(|t| t.title.clone()).unwrap_or_default(),
-            artists: track
-                .map(|t| t.artists.split(", ").map(String::from).collect())
-                .unwrap_or_default(),
-            album: track.map(|t| t.album.clone()).unwrap_or_default(),
-            cover_url: track.and_then(|t| t.cover_url.clone()),
-            length_ms: track.map_or(0, |t| t.duration_ms),
-            position_ms: player.position_now(),
-            at: Some(Instant::now()),
-            volume: f64::from(volume) / 100.0,
-        }
-    }
-
-    fn position_us(&self) -> i64 {
-        let mut ms = u64::from(self.position_ms);
-        if self.status == Status::Playing
-            && let Some(at) = self.at
-        {
-            ms += at.elapsed().as_millis() as u64;
-        }
-        (ms.min(u64::from(self.length_ms)) * 1000) as i64
-    }
-
-    /// Whether the desktop needs telling: a new song, status or volume, or
-    /// a position that jumped (a seek) rather than moved on.
-    pub fn differs(&self, shown: &Self) -> bool {
-        let moved = (self.position_us() - shown.position_us()).abs() > 1_500_000;
-        self.status != shown.status
-            || self.uri != shown.uri
-            || self.cover_url != shown.cover_url
-            || (self.volume - shown.volume).abs() > 0.005
-            || moved
-    }
-}
 
 /// Single instance: if Spotless already runs (its MPRIS name is taken),
 /// asks it to bring its window forward and returns true. Without a
@@ -125,14 +44,14 @@ pub fn raise_running() -> bool {
 }
 
 /// The running MPRIS service.
-pub struct Mpris {
+pub struct MediaControls {
     updates: UnboundedSender<NowPlaying>,
     shown: NowPlaying,
 }
 
-impl Mpris {
+impl MediaControls {
     /// Registers on the session bus in the background.
-    pub fn start(on_event: EventHook) -> Self {
+    pub fn start(_cc: &eframe::CreationContext<'_>, on_event: EventHook) -> Self {
         let (updates, receiver) = unbounded_channel();
         let spawned = std::thread::Builder::new()
             .name("spotless-mpris".into())
@@ -452,32 +371,5 @@ mod tests {
             spotify_link("spotify:track:abc"),
             "https://open.spotify.com/track/abc"
         );
-    }
-
-    #[test]
-    fn only_jumps_in_position_need_telling() {
-        let playing = NowPlaying {
-            status: Status::Playing,
-            uri: "spotify:track:a".into(),
-            length_ms: 300_000,
-            position_ms: 10_000,
-            at: Some(Instant::now()),
-            ..NowPlaying::default()
-        };
-        let later = NowPlaying {
-            position_ms: 10_500,
-            ..playing.clone()
-        };
-        assert!(!later.differs(&playing));
-        let seeked = NowPlaying {
-            position_ms: 90_000,
-            ..playing.clone()
-        };
-        assert!(seeked.differs(&playing));
-        let paused = NowPlaying {
-            status: Status::Paused,
-            ..playing.clone()
-        };
-        assert!(paused.differs(&playing));
     }
 }

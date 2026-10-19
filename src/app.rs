@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState, Storage};
 use crate::browse::{Browse, Cover, Loadable, Page};
-use crate::media::{EventHook, MediaEvent, Mpris, NowPlaying};
+use crate::media::{EventHook, MediaControls, MediaEvent, NowPlaying};
 use crate::model::{Library, Playback, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status};
@@ -42,7 +42,7 @@ pub struct App {
     storage: Option<Storage>,
     /// The audio outputs, once listed; None when they can't be.
     outputs: Loadable<Option<Vec<Output>>>,
-    media: Mpris,
+    media: MediaControls,
     media_events: std::sync::mpsc::Receiver<MediaEvent>,
     /// Where the media keys and the tray send their events.
     media_hook: EventHook,
@@ -75,7 +75,7 @@ impl App {
             let _ = media_sender.send(event);
             ctx.request_repaint();
         });
-        let media = Mpris::start(Arc::clone(&media_hook));
+        let media = MediaControls::start(cc, Arc::clone(&media_hook));
         let tray = if settings.tray {
             Tray::start(Arc::clone(&media_hook))
         } else {

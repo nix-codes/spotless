@@ -27,8 +27,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "glow", "default_fonts", "wayland", "x11"] }
 egui = "0.36"
-# Media keys (MPRIS): the zbus egui already builds for accessibility.
-zbus = "5"
 rodio = { version = "0.21", default-features = false, features = ["playback"] }
 cpal = "0.16"
 thiserror = "2"
@@ -47,8 +45,24 @@ librespot-metadata = { git = "https://github.com/crmne/librespot", rev = "d04729
 librespot-oauth = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# Media keys (MPRIS): the zbus egui already builds for accessibility.
+zbus = "5"
 # The tray icon (src/tray.rs): a StatusNotifierItem on the session bus.
 ksni = { version = "0.3.6", default-features = false, features = ["async-io", "blocking"] }
+
+[target.'cfg(windows)'.dependencies]
+# Media keys and the single-instance check (src/media/smtc.rs). The same
+# windows crate version the rest of the build already pulls in.
+windows = { version = "0.62", features = [
+    "Foundation",
+    "Media",
+    "Storage_Streams",
+    "Win32_Security",
+    "Win32_System_Threading",
+    "Win32_System_WinRT",
+    "Win32_UI_WindowsAndMessaging",
+] }
+raw-window-handle = "0.6"
 
 [patch.crates-io]
 # hyper-proxy2's unreleased rustls 0.23 update, as spotifast carries it, so
