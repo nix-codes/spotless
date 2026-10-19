@@ -32,7 +32,7 @@ jobs:
     name: Linux, and the Windows zip
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # cpal's ALSA backend needs its headers.
       - name: System libraries
@@ -65,7 +65,7 @@ jobs:
       - name: Windows zip
         run: packaging/windows/build.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: spotless-windows-x64
           path: target/dist/*.zip
@@ -80,7 +80,7 @@ jobs:
       MESA_VERSION: "26.2.4"
       MESA_SHA256: 351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Rust
         run: rustup show active-toolchain
