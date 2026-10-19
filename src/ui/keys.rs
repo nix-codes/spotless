@@ -5,9 +5,11 @@
 //! playlist, the catalog's Back and Esc) stay in the views; [`HELP`] lists
 //! them all, so keep it in step with both.
 
-use egui::{Event, Id, InputState, Key, Modifiers, RichText, Stroke, Ui};
+use egui::{
+    Align, Event, Id, InputState, Key, Layout, Modifiers, RichText, Sense, Stroke, Ui, vec2,
+};
 
-use super::theme::Palette;
+use super::theme::{self, Palette};
 use super::widgets::small_button;
 use super::{Inputs, View};
 use crate::action::Action;
@@ -20,7 +22,8 @@ const SEEK_MS: i64 = 5_000;
 const FAR_SEEK_MS: i64 = 30_000;
 const VOLUME_STEP: u8 = 5;
 
-/// The F1 screen: sections of (keys, what they do).
+/// The F1 screen: sections of (keys, what they do). One binding a row,
+/// and a few words for each: the screen is read at a glance.
 pub const HELP: &[(&str, &[(&str, &str)])] = &[
     (
         "PLAYBACK",
@@ -29,7 +32,8 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("← / →", "Back / forward 5 seconds"),
             ("Shift+← / →", "Back / forward 30 seconds"),
             ("Ctrl+← / →", "Previous / next song"),
-            ("+ / −, Ctrl+↑ / ↓", "Volume up / down"),
+            ("+ / −", "Volume up / down"),
+            ("Ctrl+↑ / ↓", "Volume up / down"),
             ("M", "Mute / unmute"),
             ("S", "Shuffle on / off"),
             ("R", "Repeat on / off"),
@@ -39,46 +43,50 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
     (
         "PLAYLISTS AND SCREENS",
         &[
-            ("Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous playlist"),
+            ("Ctrl+Tab", "Next playlist"),
+            ("Ctrl+Shift+Tab", "Previous playlist"),
             ("Ctrl+1 … 9", "Playlist 1 … 9"),
             ("Ctrl+T", "New playlist"),
             ("Ctrl+W", "Close the playlist"),
             ("F2", "Rename the playlist"),
             ("Ctrl+B", "Browse / playlists"),
             ("Ctrl+F", "Search"),
-            ("F10", "Settings (↑ ↓, Tab, Enter, Esc there)"),
             ("Ctrl+V", "Add a pasted Spotify link"),
+            ("F10", "Settings"),
             ("F1 or ?", "This list"),
-            ("Ctrl+Q", "Quit (closing the window keeps the tray)"),
+            ("Ctrl+Q", "Quit (closing only hides)"),
         ],
     ),
     (
         "IN A PLAYLIST",
         &[
-            ("↑ ↓ PgUp PgDn Home End", "Select a song"),
-            ("Shift + those", "Extend the selection"),
+            ("↑ / ↓", "Select a song"),
+            ("PgUp / PgDn", "Select a page up / down"),
+            ("Home / End", "Select the first / last"),
+            ("Shift+any of those", "Extend the selection"),
+            ("Ctrl+A", "Select all"),
             ("Enter", "Play the selected song"),
             ("Delete", "Remove the selection"),
-            ("Q", "Play next (mark / unmark)"),
             ("Alt+↑ / ↓", "Move the selection"),
-            ("Ctrl+A", "Select all"),
+            ("Q", "Play next (mark / unmark)"),
         ],
     ),
     (
         "IN BROWSE",
         &[
-            ("Tab / Shift+Tab", "Search field, results, playlist column"),
-            ("↑ / ↓, PgUp / PgDn", "Highlight a row"),
-            ("Enter", "Search; open an artist or album; play a song"),
+            ("Tab / Shift+Tab", "Next / previous area"),
+            ("↑ / ↓", "Highlight a row"),
+            ("PgUp / PgDn", "A page up / down"),
+            ("Enter", "Search; open; play a song"),
             ("Insert or A", "Add the album or song"),
-            ("Delete", "Remove the song (playlist column)"),
-            ("Alt+1 … 4", "All / Albums / Singles & EPs / Appears on"),
+            ("Delete", "Remove from the playlist"),
+            ("Alt+1 … 4", "All, Albums, Singles, Appears on"),
             ("Ctrl+S", "Oldest / newest first"),
             ("Ctrl+E", "Show / hide all songs"),
             ("C", "Covers on / off"),
-            ("Ctrl+Tab, Ctrl+1 … 9", "Choose the playlist + ADD adds to"),
+            ("Ctrl+Tab, Ctrl+1 … 9", "The playlist + ADD adds to"),
             ("Backspace / Alt+←", "Back"),
-            ("Esc", "Leave the search field, then close Browse"),
+            ("Esc", "Leave the search, then Browse"),
         ],
     ),
 ];
@@ -302,18 +310,26 @@ fn consume(i: &mut InputState, modifiers: Modifiers, key: Key, repeats: bool) ->
     count
 }
 
-/// The F1 screen: the sections in two columns when the window is wide
-/// enough, one otherwise; it scrolls when the window is too short.
+const KEYS_WIDTH: f32 = 160.0;
+const WHAT_WIDTH: f32 = 215.0;
+/// Between a section's keys and what they do.
+const COLUMN_GAP: f32 = 14.0;
+/// Inside a section's panel.
+const PAD: f32 = 12.0;
+/// Between the panels.
+const GAP: f32 = 14.0;
+
+/// The F1 screen: each section in a panel of its own, two side by side
+/// when the window is wide enough, one under another otherwise; it scrolls
+/// when the window is too short.
 pub fn help(ui: &Ui, palette: &Palette, inputs: &mut Inputs) {
     if !inputs.help {
         return;
     }
-    const KEYS_WIDTH: f32 = 170.0;
-    const WHAT_WIDTH: f32 = 210.0;
-    const GAP: f32 = 28.0;
-    let column = KEYS_WIDTH + 12.0 + WHAT_WIDTH;
+    let panel = KEYS_WIDTH + COLUMN_GAP + WHAT_WIDTH + 2.0 * PAD;
     let screen = ui.ctx().content_rect();
-    let two = screen.width() >= 2.0 * column + GAP + 80.0;
+    // The dialog's own margins and edge take the rest.
+    let two = screen.width() >= 2.0 * panel + GAP + 48.0;
     let modal = egui::Modal::new(Id::new("keys-help"))
         .frame(
             egui::Frame::new()
@@ -323,50 +339,33 @@ pub fn help(ui: &Ui, palette: &Palette, inputs: &mut Inputs) {
         )
         .show(ui.ctx(), |ui| {
             ui.label(RichText::new("Keys").size(15.0).color(palette.current));
-            ui.add_space(4.0);
-            let section = |ui: &mut Ui, (title, keys): &(&str, &[(&str, &str)])| {
-                ui.add_space(6.0);
-                ui.label(
-                    RichText::new(*title)
-                        .monospace()
-                        .size(10.0)
-                        .color(palette.dim),
-                );
-                egui::Grid::new(*title)
-                    .num_columns(2)
-                    .spacing([12.0, 3.0])
-                    .min_col_width(KEYS_WIDTH)
-                    .max_col_width(WHAT_WIDTH)
-                    .show(ui, |ui| {
-                        for (keys, what) in *keys {
-                            ui.label(RichText::new(*keys).monospace().color(palette.list_fg));
-                            ui.label(RichText::new(*what).color(palette.chrome));
-                            ui.end_row();
-                        }
-                    });
-            };
+            ui.add_space(10.0);
             egui::ScrollArea::vertical()
-                .max_height((screen.height() - 140.0).max(120.0))
+                .max_height((screen.height() - 150.0).max(120.0))
                 .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing = vec2(GAP, GAP);
                     if two {
-                        // Keys for everywhere on the left, for one screen on the right.
-                        ui.horizontal_top(|ui| {
-                            ui.vertical(|ui| {
-                                ui.set_width(column);
-                                section(ui, &HELP[0]);
-                                section(ui, &HELP[1]);
-                            });
-                            ui.add_space(GAP);
-                            ui.vertical(|ui| {
-                                ui.set_width(column);
-                                section(ui, &HELP[2]);
-                                section(ui, &HELP[3]);
-                            });
-                        });
+                        // Keys for everywhere on the left, for one screen on
+                        // the right; the panels side by side are as tall as
+                        // each other, so the rows of panels line up.
+                        for (row, pair) in [[0, 2], [1, 3]].into_iter().enumerate() {
+                            let id = Id::new(("keys-help-row", row));
+                            let height = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or(0.0);
+                            let tallest = ui
+                                .horizontal_top(|ui| {
+                                    pair.map(|i| section(ui, palette, &HELP[i], height))
+                                        .into_iter()
+                                        .fold(0.0, f32::max)
+                                })
+                                .inner;
+                            if tallest != height {
+                                ui.data_mut(|d| d.insert_temp(id, tallest));
+                                ui.ctx().request_repaint();
+                            }
+                        }
                     } else {
-                        ui.set_width(column);
                         for entry in HELP {
-                            section(ui, entry);
+                            section(ui, palette, entry, 0.0);
                         }
                     }
                 });
@@ -376,4 +375,57 @@ pub fn help(ui: &Ui, palette: &Palette, inputs: &mut Inputs) {
     if modal.inner || modal.backdrop_response.clicked() {
         inputs.help = false;
     }
+}
+
+/// One section's panel, at least `height` tall inside. Returns how tall its
+/// title and rows are.
+fn section(
+    ui: &mut Ui,
+    palette: &Palette,
+    (title, keys): &(&str, &[(&str, &str)]),
+    height: f32,
+) -> f32 {
+    let mut content = 0.0;
+    let frame = egui::Frame::new()
+        .fill(palette.list_bg)
+        .inner_margin(PAD)
+        .show(ui, |ui| {
+            // Top to bottom, also when the panels sit side by side.
+            ui.with_layout(Layout::top_down(Align::Min), |ui| {
+                ui.set_width(KEYS_WIDTH + COLUMN_GAP + WHAT_WIDTH);
+                ui.spacing_mut().item_spacing = vec2(8.0, 0.0);
+                let top = ui.cursor().top();
+                // The title, with the window title bar's grooves after it.
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(*title)
+                            .monospace()
+                            .size(11.0)
+                            .color(palette.chrome),
+                    );
+                    let (rect, _) =
+                        ui.allocate_exact_size(vec2(ui.available_width(), 7.0), Sense::hover());
+                    theme::stripes(ui.painter(), rect, palette);
+                });
+                ui.add_space(12.0);
+                egui::Grid::new(*title)
+                    .num_columns(2)
+                    .spacing([COLUMN_GAP, 7.0])
+                    .min_col_width(KEYS_WIDTH)
+                    .max_col_width(WHAT_WIDTH)
+                    .show(ui, |ui| {
+                        for (keys, what) in *keys {
+                            ui.label(RichText::new(*keys).monospace().color(palette.list_fg));
+                            ui.label(RichText::new(*what).color(palette.chrome));
+                            ui.end_row();
+                        }
+                    });
+                content = ui.cursor().top() - top;
+                if height > content {
+                    ui.add_space(height - content);
+                }
+            });
+        });
+    theme::bevel(ui.painter(), frame.response.rect, false, palette);
+    content
 }
