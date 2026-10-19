@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Spotless
+GenericName=Music Player
+Comment=A minimal Spotify player in the spirit of Winamp
+Exec=spotless
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=spotify;music;player;winamp;
+Icon=spotless
+StartupNotify=true
+StartupWMClass=spotless

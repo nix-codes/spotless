@@ -15,10 +15,16 @@ fn main() -> Result<()> {
     }
     let paths = Paths::new()?;
 
+    // The installed .desktop file gives launchers the icon; this one is for
+    // the window itself, so a start from a terminal shows it too.
+    let icon = eframe::icon_data::from_png_bytes(include_bytes!(
+        "../packaging/icons/spotless-256.png"
+    ))?;
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Spotless")
             .with_app_id("spotless")
+            .with_icon(icon)
             .with_inner_size([960.0, 600.0])
             .with_min_inner_size([560.0, 360.0]),
         ..Default::default()
