@@ -169,6 +169,18 @@ most others; on GNOME, the AppIndicator extension).
    2. Paste its API key and shared secret in *Settings (F10) > Last.fm* and
       click **CONNECT**. Your browser asks you to allow Spotless.
 
+   **Why an API account of your own?** Linking Last.fm in your Spotify
+   account doesn't help here: Spotify only scrobbles what plays through
+   Spotify Connect, and a player that joins Connect takes over your
+   account's playback, replacing the queue on your other devices. So
+   Spotless stays out of Connect and scrobbles by itself. To do that,
+   Last.fm requires every app to sign its requests with an API key and a
+   shared secret; unlike Spotify, it has no sign-in that works without a
+   secret. A key built into Spotless would put that secret in public source
+   code, where anyone could copy and misuse it, and every Spotless user
+   would share its limits and lose scrobbling if Last.fm revoked it. Your
+   own API account is used only by your copy of Spotless.
+
 Press **F1** at any time for the keys.
 
 ## Your data

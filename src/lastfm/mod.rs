@@ -6,6 +6,11 @@
 //! account the user makes on Last.fm (its key and shared secret) and a
 //! one-time approval in the browser.
 //!
+//! The API account is the user's own because Last.fm signs every call with
+//! the app's shared secret and has no sign-in without one. A key shipped
+//! with Spotless would publish that secret, share one allowance among all
+//! users, and stop everyone's scrobbling if Last.fm revoked it.
+//!
 //! The sign-in is kept in a private `lastfm.json`; listens Last.fm hasn't
 //! taken yet wait in `lastfm-queue.json` and are sent when it can be
 //! reached again.
