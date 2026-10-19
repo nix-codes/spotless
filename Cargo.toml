@@ -58,3 +58,6 @@ hyper-proxy2 = { git = "https://github.com/crmne/hyper-proxy2", rev = "efca48113
 [profile.dev.package."*"]
 # Dependencies optimised even in debug builds: audio decoding is too slow otherwise.
 opt-level = 2
+
+[build-dependencies]
+winresource = "0.1.34"

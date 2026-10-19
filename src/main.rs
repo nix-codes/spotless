@@ -1,3 +1,7 @@
+// Windows: no console window next to Spotless's own. Debug builds keep it,
+// for the log.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use anyhow::Result;
 use spotless::app::App;
 use spotless::paths::Paths;
