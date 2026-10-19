@@ -1,4 +1,5 @@
-//! The player strip: the LCD, seek, transport and volume.
+//! The player strip: the LCD, seek, transport and volume. With a skin
+//! that has them, it is drawn from the skin's bitmaps (`skinned_strip`).
 
 use egui::{Align2, Color32, FontId, Rect, Slider, Ui, UiBuilder, pos2, vec2};
 
@@ -12,6 +13,9 @@ pub const HEIGHT: f32 = 84.0;
 const LCD_WIDTH: f32 = 340.0;
 
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+    if let Some(art) = view.art {
+        return super::skinned_strip::draw(ui, view, art, inputs, actions);
+    }
     let rect = ui.max_rect();
     let lcd_width = LCD_WIDTH.min(rect.width() * 0.5);
     let lcd = Rect::from_min_size(rect.min, vec2(lcd_width, HEIGHT));
@@ -50,37 +54,45 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View) {
         palette.lcd,
     );
 
-    let now = match (&player.track, player.status) {
+    painter.text(
+        pos2(left, rect.top() + 54.0),
+        Align2::LEFT_CENTER,
+        now_line(view),
+        FontId::monospace(14.0),
+        palette.lcd,
+    );
+    painter.text(
+        pos2(left, rect.top() + 72.0),
+        Align2::LEFT_CENTER,
+        meta_line(view, '·'),
+        FontId::monospace(9.0),
+        dimmed(palette.lcd),
+    );
+}
+
+/// The LCD's main line: what plays, or why nothing does.
+pub(super) fn now_line(view: &View) -> String {
+    match (&view.player.track, view.player.status) {
         (_, Status::Loading) => "Loading…".to_string(),
         (Some(track), _) => format!("{} - {}", track.artists, track.title),
         (None, _) => match view.session {
             SessionState::Ready { .. } => "Nothing playing".into(),
             _ => "Not signed in".into(),
         },
-    };
-    painter.text(
-        pos2(left, rect.top() + 54.0),
-        Align2::LEFT_CENTER,
-        now,
-        FontId::monospace(14.0),
-        palette.lcd,
-    );
-    let meta = match &player.track {
-        Some(track) if !track.album.is_empty() => {
-            format!("320 KBPS · {}", track.album.to_uppercase())
-        }
-        _ => "320 KBPS · 44 KHZ".into(),
-    };
-    painter.text(
-        pos2(left, rect.top() + 72.0),
-        Align2::LEFT_CENTER,
-        meta,
-        FontId::monospace(9.0),
-        dimmed(palette.lcd),
-    );
+    }
 }
 
-fn dimmed(color: Color32) -> Color32 {
+/// The LCD's small line: the bitrate and the album.
+pub(super) fn meta_line(view: &View, separator: char) -> String {
+    match &view.player.track {
+        Some(track) if !track.album.is_empty() => {
+            format!("320 KBPS {separator} {}", track.album.to_uppercase())
+        }
+        _ => format!("320 KBPS {separator} 44 KHZ"),
+    }
+}
+
+pub(super) fn dimmed(color: Color32) -> Color32 {
     color.gamma_multiply(0.7)
 }
 

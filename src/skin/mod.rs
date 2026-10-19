@@ -1,12 +1,15 @@
-//! Classic Winamp skins, for their colours.
+//! Classic Winamp skins.
 //!
-//! A `.wsz` file is a zip of bitmaps and two small text files. Spotless's
-//! window has no place for the bitmaps themselves, so it takes the skin's
-//! colours from them: the playlist's from `pledit.txt`, the display's from
-//! the digits and the scrolling text, the frame's from the playlist
-//! editor's edges. Whatever a skin leaves out stays Classic. Modern `.wal`
-//! skins are XML and scripts, and not read.
+//! A `.wsz` file is a zip of bitmaps and two small text files. The player
+//! strip draws the skin's own buttons, digits, font and sliders
+//! ([`sprites`] says where they are); everything else takes the skin's
+//! colours: the playlist's from `pledit.txt`, the display's from the digits
+//! and the scrolling text, the frame's from the playlist editor's edges.
+//! Whatever a skin leaves out stays Classic. Modern `.wal` skins are XML and
+//! scripts, and not read.
 
+pub mod font;
+pub mod sprites;
 mod zip;
 
 use std::collections::HashMap;
@@ -15,16 +18,21 @@ use std::path::Path;
 use egui::Color32;
 use thiserror::Error;
 
+pub use sprites::{Sheet, Sprite};
+
 use crate::ui::theme::Palette;
 
-/// The files read, by lower-case name.
-const WANTED: [&str; 6] = [
-    "pledit.txt",
-    "pledit.bmp",
-    "text.bmp",
-    "numbers.bmp",
-    "nums_ex.bmp",
-    "main.bmp",
+/// The playlist's colours.
+const PLEDIT_TXT: &str = "pledit.txt";
+/// The sheets the player strip is drawn from; it also needs one of the
+/// two digit sheets.
+const PLAYER_SHEETS: [Sheet; 6] = [
+    Sheet::CButtons,
+    Sheet::ShufRep,
+    Sheet::PosBar,
+    Sheet::Volume,
+    Sheet::PlayPaus,
+    Sheet::Text,
 ];
 /// File extensions a skin archive may carry.
 const ARCHIVE_EXTENSIONS: [&str; 2] = ["wsz", "zip"];
@@ -77,20 +85,78 @@ pub fn display_name(file: &str) -> &str {
     }
 }
 
-/// The palette of the skin at `path`, an archive or a folder.
-pub fn load(path: &Path) -> Result<Palette, SkinError> {
-    let files = if path.is_dir() {
-        read_dir(path)?
-    } else {
-        read_archive(&std::fs::read(path)?)?
-    };
-    if files.is_empty() {
-        return Err(SkinError::Empty);
+/// A skin read: its colours and its bitmaps.
+pub struct Skin {
+    pub palette: Palette,
+    sheets: HashMap<Sheet, Bitmap>,
+}
+
+impl Skin {
+    /// The skin at `path`, an archive or a folder.
+    pub fn load(path: &Path) -> Result<Self, SkinError> {
+        let files = if path.is_dir() {
+            read_dir(path)?
+        } else {
+            read_archive(&std::fs::read(path)?)?
+        };
+        if files.is_empty() {
+            return Err(SkinError::Empty);
+        }
+        Ok(Self::from_files(&files))
     }
-    Ok(palette(&files))
+
+    fn from_files(files: &Files) -> Self {
+        let sheets: HashMap<Sheet, Bitmap> = Sheet::ALL
+            .into_iter()
+            .filter_map(|sheet| {
+                let bitmap = Bitmap::decode(files.get(sheet.file_name())?)?;
+                Some((sheet, bitmap))
+            })
+            .collect();
+        let list = files
+            .get(PLEDIT_TXT)
+            .map_or(PlaylistColors::DEFAULT, |text| {
+                PlaylistColors::parse(&String::from_utf8_lossy(text))
+            });
+        Self {
+            palette: palette(&sheets, list),
+            sheets,
+        }
+    }
+
+    pub fn sheet(&self, sheet: Sheet) -> Option<&Bitmap> {
+        self.sheets.get(&sheet)
+    }
+
+    /// The sheet the time's digits come from: the extended one when the
+    /// skin has it, as in Winamp.
+    pub fn digits(&self) -> Option<Sheet> {
+        [Sheet::NumsEx, Sheet::Numbers]
+            .into_iter()
+            .find(|&sheet| self.sheets.contains_key(&sheet))
+    }
+
+    /// The files the player strip needs that the skin lacks. Without
+    /// them, the skin only lends its colours.
+    pub fn missing_art(&self) -> Vec<&'static str> {
+        let mut missing: Vec<&str> = PLAYER_SHEETS
+            .into_iter()
+            .filter(|sheet| !self.sheets.contains_key(sheet))
+            .map(Sheet::file_name)
+            .collect();
+        if self.digits().is_none() {
+            missing.push(Sheet::Numbers.file_name());
+        }
+        missing
+    }
 }
 
 type Files = HashMap<String, Vec<u8>>;
+
+/// Whether a file in a skin is one Spotless reads.
+fn wanted(name: &str) -> bool {
+    name == PLEDIT_TXT || Sheet::ALL.iter().any(|sheet| sheet.file_name() == name)
+}
 
 fn read_archive(bytes: &[u8]) -> Result<Files, SkinError> {
     let archive = zip::Archive::parse(bytes).map_err(|error| match error {
@@ -105,7 +171,7 @@ fn read_archive(bytes: &[u8]) -> Result<Files, SkinError> {
         }
         // Skins nest their files in a folder now and then; the first of a
         // name wins.
-        if WANTED.contains(&name.as_str()) && !files.contains_key(&name) {
+        if wanted(&name) && !files.contains_key(&name) {
             files.insert(name, archive.read(entry).map_err(SkinError::Archive)?);
         }
     }
@@ -119,7 +185,7 @@ fn read_dir(dir: &Path) -> Result<Files, SkinError> {
         if name == "skin.xml" {
             return Err(SkinError::ModernSkin);
         }
-        if WANTED.contains(&name.as_str()) {
+        if wanted(&name) {
             files.insert(name, std::fs::read(entry.path())?);
         }
     }
@@ -184,10 +250,10 @@ fn hex(value: &str) -> Option<Color32> {
 }
 
 /// A decoded bitmap: RGBA, rows top to bottom.
-struct Bitmap {
-    width: u32,
-    height: u32,
-    rgba: Vec<u8>,
+pub struct Bitmap {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
 }
 
 impl Bitmap {
@@ -273,28 +339,23 @@ const FRAME_TILES: [(u32, u32, u32, u32); 3] =
 const TEXT_AREA: (u32, u32, u32, u32) = (0, 0, 155, 18);
 const EVERYTHING: (u32, u32, u32, u32) = (0, 0, u32::MAX, u32::MAX);
 
-fn palette(files: &Files) -> Palette {
+fn palette(sheets: &HashMap<Sheet, Bitmap>, list: PlaylistColors) -> Palette {
     let classic = Palette::CLASSIC;
-    let bitmap = |name: &str| files.get(name).and_then(|bytes| Bitmap::decode(bytes));
-    let list = files
-        .get("pledit.txt")
-        .map_or(PlaylistColors::DEFAULT, |text| {
-            PlaylistColors::parse(&String::from_utf8_lossy(text))
-        });
+    let bitmap = |sheet: Sheet| sheets.get(&sheet);
 
-    let frame = bitmap("pledit.bmp")
+    let frame = bitmap(Sheet::PlEdit)
         .and_then(|b| {
             Histogram::of(FRAME_TILES.iter().flat_map(|&t| b.pixels(t))).most_common(|_| true)
         })
         .or_else(|| {
-            bitmap("main.bmp")
+            bitmap(Sheet::Main)
                 .and_then(|b| Histogram::of(b.pixels(EVERYTHING)).most_common(|_| true))
         })
         .unwrap_or(classic.frame);
-    let text = bitmap("text.bmp").and_then(|b| ink(&b, TEXT_AREA));
-    let digits = bitmap("numbers.bmp")
-        .or_else(|| bitmap("nums_ex.bmp"))
-        .and_then(|b| ink(&b, EVERYTHING));
+    let text = bitmap(Sheet::Text).and_then(|b| ink(b, TEXT_AREA));
+    let digits = bitmap(Sheet::NumsEx)
+        .or_else(|| bitmap(Sheet::Numbers))
+        .and_then(|b| ink(b, EVERYTHING));
     let lcd_bg = text
         .or(digits)
         .map_or(classic.lcd_bg, |(background, _)| background);
@@ -408,7 +469,7 @@ mod tests {
             ("Skin/numbers.bmp", &numbers, true),
             ("Skin/PLEDIT.BMP", &pledit, true),
         ]);
-        let palette = palette(&read_archive(&archive).unwrap());
+        let palette = Skin::from_files(&read_archive(&archive).unwrap()).palette;
         assert_eq!(palette.list_fg, Color32::from_rgb(0xc0, 0xc0, 0xc0));
         assert_eq!(palette.current, Color32::from_rgb(0xff, 0xff, 0));
         assert_eq!(palette.list_bg, Color32::from_rgb(0x10, 0x10, 0x10));
@@ -426,7 +487,7 @@ mod tests {
             |x, _| if x % 2 == 0 { [0, 0, 0] } else { [8, 8, 8] },
         );
         let archive = zip::write(&[("numbers.bmp", &numbers, false)]);
-        let palette = palette(&read_archive(&archive).unwrap());
+        let palette = Skin::from_files(&read_archive(&archive).unwrap()).palette;
         assert_eq!(palette.lcd, PlaylistColors::DEFAULT.normal);
     }
 

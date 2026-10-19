@@ -729,6 +729,8 @@ impl Controls<'_, '_> {
             }
             if let Some(error) = self.view.skin_error {
                 ui.label(RichText::new(error).color(palette.current));
+            } else if let Some(text) = self.view.skin_note {
+                note(ui, palette, text);
             }
             let button = small_button(ui, palette, "OPEN FOLDER", false);
             self.ring(ui, Item::SkinsFolder, &button);
@@ -739,7 +741,7 @@ impl Controls<'_, '_> {
                 ui,
                 palette,
                 &format!(
-                    "Classic Winamp skins (.wsz) put in {} lend Spotless their colours.",
+                    "Classic Winamp skins (.wsz) put in {} dress the player and lend everything else their colours.",
                     home_relative(self.view.skins_dir)
                 ),
             );

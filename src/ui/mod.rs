@@ -7,6 +7,8 @@ mod keys;
 mod player_strip;
 mod playlist_view;
 mod settings_view;
+pub mod skin_art;
+mod skinned_strip;
 pub mod theme;
 pub mod widgets;
 
@@ -53,6 +55,10 @@ pub struct View<'a> {
     /// The skins folder's contents, while Settings shows them.
     pub skins: &'a [String],
     pub skins_dir: &'a std::path::Path,
+    /// The skin's bitmaps, when it has the player's.
+    pub art: Option<&'a skin_art::SkinArt>,
+    /// What the chosen skin lacks, said in Settings.
+    pub skin_note: Option<&'a str>,
     /// Why the chosen skin couldn't be read.
     pub skin_error: Option<&'a str>,
 }

@@ -14,8 +14,10 @@ use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status};
 use crate::playback::outputs::Output;
 use crate::playback::transport::{Request, Transport};
+use crate::skin::Skin;
 use crate::store::{self, Settings, Tabs};
 use crate::tray::{Tray, TrayState};
+use crate::ui::skin_art::SkinArt;
 use crate::ui::{self, Inputs, View, theme::Palette};
 
 /// Changes are saved this long after the last one.
@@ -27,8 +29,11 @@ pub struct App {
     paths: Paths,
     backend: Option<Backend>,
     palette: Palette,
-    /// The palette changed: egui's widgets take it next frame.
-    restyle: bool,
+    ctx: egui::Context,
+    /// The skin's bitmaps, when it has the player's.
+    art: Option<SkinArt>,
+    /// What the chosen skin lacks.
+    skin_note: Option<String>,
     /// The skins folder's contents, while Settings shows them.
     skins: Vec<String>,
     skins_listed: Option<Instant>,
@@ -70,10 +75,7 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, paths: Paths) -> Self {
         let settings = Settings::load(&paths);
-        let (palette, skin_error) = match load_skin(&paths, settings.skin.as_deref()) {
-            Ok(palette) => (palette, None),
-            Err(error) => (Palette::CLASSIC, Some(error)),
-        };
+        let palette = Palette::CLASSIC;
         palette.apply(&cc.egui_ctx);
         cc.egui_ctx.set_zoom_factor(settings.zoom);
         let (library, tabs) = store::load_library(&paths);
@@ -107,13 +109,15 @@ impl App {
             Ok(backend) => (Some(backend), SessionState::Connecting),
             Err(error) => (None, SessionState::Failed(format!("{error:#}"))),
         };
-        Self {
+        let mut app = Self {
             backend,
             palette,
-            restyle: false,
+            ctx: cc.egui_ctx.clone(),
+            art: None,
+            skin_note: None,
             skins: Vec::new(),
             skins_listed: None,
-            skin_error,
+            skin_error: None,
             session,
             player: PlayerSnapshot::default(),
             error: None,
@@ -140,7 +144,12 @@ impl App {
             window_hidden: false,
             quitting: false,
             paths,
+        };
+        let skin = app.settings.skin.clone();
+        if let Err(error) = app.use_skin(skin.as_deref()) {
+            app.skin_error = Some(error);
         }
+        app
     }
 
     fn receive(&mut self, ctx: &egui::Context) {
@@ -268,10 +277,8 @@ impl App {
                 return;
             }
             Action::SetSkin(skin) => {
-                match load_skin(&self.paths, skin.as_deref()) {
-                    Ok(palette) => {
-                        self.palette = palette;
-                        self.restyle = true;
+                match self.use_skin(skin.as_deref()) {
+                    Ok(()) => {
                         self.skin_error = None;
                         self.settings.skin = skin;
                         self.mark_unsaved();
@@ -686,6 +693,33 @@ impl App {
         self.mark_unsaved();
     }
 
+    /// Draws with a skin from the skins folder, or Classic for None. A
+    /// skin that can't be read leaves things as they are.
+    fn use_skin(&mut self, skin: Option<&str>) -> Result<(), String> {
+        let (palette, art, note) = match skin {
+            None => (Palette::CLASSIC, None, None),
+            Some(name) => {
+                let skin = Skin::load(&self.paths.skins().join(name)).map_err(|error| {
+                    log::warn!("skin {name}: {error}");
+                    format!("{}: {error}", crate::skin::display_name(name))
+                })?;
+                let missing = skin.missing_art();
+                let note = (!missing.is_empty()).then(|| {
+                    format!(
+                        "This skin lends only its colours: it has no {}.",
+                        missing.join(", ")
+                    )
+                });
+                (skin.palette, SkinArt::new(&self.ctx, &skin), note)
+            }
+        };
+        self.palette = palette;
+        self.palette.apply(&self.ctx);
+        self.art = art;
+        self.skin_note = note;
+        Ok(())
+    }
+
     /// Reads the skins folder every few seconds while Settings shows the
     /// skins, so skins dropped in turn up.
     fn list_skins(&mut self, ctx: &egui::Context) {
@@ -732,17 +766,6 @@ impl App {
 }
 
 /// The slider's 0–100 as librespot's 0–65535.
-/// The palette of a skin in the skins folder; None is Classic.
-fn load_skin(paths: &Paths, skin: Option<&str>) -> Result<Palette, String> {
-    let Some(skin) = skin else {
-        return Ok(Palette::CLASSIC);
-    };
-    crate::skin::load(&paths.skins().join(skin)).map_err(|error| {
-        log::warn!("skin {skin}: {error}");
-        format!("{}: {error}", crate::skin::display_name(skin))
-    })
-}
-
 fn volume_level(percent: u8) -> u16 {
     (u32::from(percent.min(100)) * u32::from(u16::MAX) / 100) as u16
 }
@@ -794,9 +817,6 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        if std::mem::take(&mut self.restyle) {
-            self.palette.apply(ui.ctx());
-        }
         self.list_skins(ui.ctx());
         let mut actions = Vec::new();
         let web_client_id = self.settings.web_client_id();
@@ -827,6 +847,8 @@ impl eframe::App for App {
             skins: &self.skins,
             skins_dir: &self.paths.skins(),
             skin_error: self.skin_error.as_deref(),
+            art: self.art.as_ref(),
+            skin_note: self.skin_note.as_deref(),
         };
         ui::draw(ui, &view, &mut self.inputs, &mut actions);
         self.keep_zoom(ui.ctx());
