@@ -48,6 +48,24 @@ Spotless is the player I wanted instead.
 | The screen | Home feeds, recommendations, podcasts and more | A player, your playlists, and the catalogue when you ask for it |
 | The keyboard | A few shortcuts | Everything works from the keyboard (F1 lists the keys) |
 
+## Who it's for
+
+- **People who miss Winamp**, or players like it (AIMP, foobar2000,
+  MediaMonkey): one compact window, a playlist you build yourself, and a
+  player that does what you tell it.
+- **Anyone who wants a simpler Spotify**: fewer screens, nothing competing
+  for attention, just finding music and playing it.
+- **Album listeners**, who want an artist's albums in order and whole
+  albums in their playlists, without the detours.
+- **Keyboard users**: every action has a key.
+- **Anyone using several devices** who wants this computer's music to stay
+  separate from the phone's.
+
+It isn't for you if you rely on Spotify's own playlists, recommendations,
+podcasts, or Spotify Connect, or if you don't have Premium: Spotless leaves
+those out, and Spotify only allows playback in other apps for Premium
+accounts.
+
 ## Features
 
 - **Local playlists in tabs.** As many as you like, saved between sessions. A
