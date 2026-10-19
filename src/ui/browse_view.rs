@@ -317,8 +317,7 @@ fn search_prompt(ui: &mut Ui, view: &View) -> bool {
         SearchState::NoApp => note(
             ui,
             view,
-            "Search needs your personal Spotify app. Add \"web_client_id\": \"<its Client ID>\" \
-             to ~/.config/spotless/settings.json and restart Spotless.",
+            "Search needs a Spotify app of your own. Set it up in Settings (Ctrl+,).",
         ),
         SearchState::SigningIn => note(
             ui,

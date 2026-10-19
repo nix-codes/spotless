@@ -8,6 +8,8 @@ use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 pub enum Action {
     SignIn,
     SignOut,
+    /// Search signs in with this personal app's client ID (empty: none).
+    SetSearchApp(String),
     /// Appends a track, album or artist link's songs to the target playlist.
     AddLink(String),
     Play,

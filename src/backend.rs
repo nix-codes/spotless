@@ -41,11 +41,13 @@ pub enum Command {
     Album(String),
     /// An album cover, by image URL.
     Cover(String),
+    /// The personal app search signs in with changed (None: no app).
+    SearchApp(Option<String>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SearchState {
-    /// No personal app is set in settings.json.
+    /// No personal app is set up.
     NoApp,
     SignedOut,
     SigningIn,
@@ -195,15 +197,7 @@ impl Worker {
     }
 
     async fn run(mut self, mut commands: UnboundedReceiver<Command>) {
-        let web = Settings::load(&self.paths)
-            .web_client_id()
-            .map(|id| WebApi::new(id, self.paths.search_credentials()));
-        (self.emit)(Event::Search(match &web {
-            None => SearchState::NoApp,
-            Some(web) if web.signed_in() => SearchState::Ready,
-            Some(_) => SearchState::SignedOut,
-        }));
-        self.web = web.map(|web| Arc::new(tokio::sync::Mutex::new(web)));
+        self.set_search_app(Settings::load(&self.paths).web_client_id());
         (self.emit)(Event::Session(SessionState::Connecting));
         match session::restore(&self.paths).await {
             Ok(Some(session)) => self.ready(session),
@@ -213,6 +207,29 @@ impl Worker {
         while let Some(command) = commands.recv().await {
             self.handle(command).await;
         }
+    }
+
+    /// Search signs in with this personal app from now on.
+    fn set_search_app(&mut self, client_id: Option<String>) {
+        let web = client_id.map(|id| WebApi::new(id, self.paths.search_credentials()));
+        (self.emit)(Event::Search(match &web {
+            None => SearchState::NoApp,
+            Some(web) if web.signed_in() => SearchState::Ready,
+            Some(_) => SearchState::SignedOut,
+        }));
+        self.web = web.map(|web| Arc::new(tokio::sync::Mutex::new(web)));
+    }
+
+    /// Runs search's browser approval now, unless it was given already.
+    fn approve_search_now(&self) {
+        let Some(web) = self.web.clone() else { return };
+        let approval = Arc::clone(&self.search_approval);
+        let emit = Arc::clone(&self.emit);
+        tokio::spawn(async move {
+            if let Err(error) = approve_search(&web, &approval, &emit).await {
+                emit(Event::Error(error));
+            }
+        });
     }
 
     fn ready(&mut self, session: Session) {
@@ -249,15 +266,7 @@ impl Worker {
                     Ok(session) => {
                         self.ready(session);
                         // Search's approval follows at once, as one sign-in.
-                        if let Some(web) = self.web.clone() {
-                            let approval = Arc::clone(&self.search_approval);
-                            let emit = Arc::clone(&self.emit);
-                            tokio::spawn(async move {
-                                if let Err(error) = approve_search(&web, &approval, &emit).await {
-                                    emit(Event::Error(error));
-                                }
-                            });
-                        }
+                        self.approve_search_now();
                     }
                     Err(error) => {
                         (self.emit)(Event::Session(SessionState::Failed(format!("{error:#}"))))
@@ -289,6 +298,15 @@ impl Worker {
                 });
             }
             Command::Player(request) => self.player(request),
+            Command::SearchApp(client_id) => {
+                // The saved approval belongs to the old app.
+                let _ = std::fs::remove_file(self.paths.search_credentials());
+                self.set_search_app(client_id);
+                // Signed in already: approve now, as part of setting it up.
+                if self.session.is_some() {
+                    self.approve_search_now();
+                }
+            }
             Command::Search(query) => {
                 let Some(web) = self.web.clone() else { return };
                 let approval = Arc::clone(&self.search_approval);

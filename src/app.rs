@@ -190,6 +190,20 @@ impl App {
         let requests = match action {
             Action::SignIn => return self.send(Command::SignIn),
             Action::SignOut => return self.send(Command::SignOut),
+            Action::SetSearchApp(client_id) => {
+                let client_id = Some(client_id.trim().to_string()).filter(|id| !id.is_empty());
+                self.error = None;
+                self.notice = Some(match (&client_id, &self.session) {
+                    (None, _) => "Search's app removed.".into(),
+                    (Some(_), SessionState::Ready { .. }) => {
+                        "Saved. Approve search in the browser page that opens.".into()
+                    }
+                    (Some(_), _) => "Saved. Search is approved when you sign in.".into(),
+                });
+                self.settings.set_web_client_id(client_id.clone());
+                self.mark_unsaved();
+                return self.send(Command::SearchApp(client_id));
+            }
             Action::AddLink(text) => {
                 self.error = None;
                 self.notice = Some("Reading the link…".into());
@@ -544,6 +558,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.receive(&ui.ctx().clone());
         let mut actions = Vec::new();
+        let web_client_id = self.settings.web_client_id();
         let playlist = self
             .library
             .get(self.viewed)
@@ -562,6 +577,7 @@ impl eframe::App for App {
             playing_list: self.transport.playing_list(),
             browse: &self.browse,
             search: &self.search,
+            web_client_id: web_client_id.as_deref(),
         };
         ui::draw(ui, &view, &mut self.inputs, &mut actions);
         actions.extend(self.media_actions(&ui.ctx().clone()));

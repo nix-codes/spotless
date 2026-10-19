@@ -46,6 +46,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("F2", "Rename the playlist"),
             ("Ctrl+B", "Browse / playlists"),
             ("Ctrl+F", "Search"),
+            ("Ctrl+,", "Settings (Tab, Enter, Esc there)"),
             ("Ctrl+V", "Add a pasted Spotify link"),
             ("F1 or ?", "This list"),
         ],
@@ -91,6 +92,10 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Actio
     ui.input_mut(|i| {
         if take(i, Modifiers::NONE, Key::F1) || i.consume_key(Modifiers::NONE, Key::Questionmark) {
             inputs.help = !inputs.help;
+            return;
+        }
+        if take(i, Modifiers::COMMAND, Key::Comma) {
+            super::toggle_settings(view, inputs, actions);
             return;
         }
         if inputs.help {

@@ -77,8 +77,8 @@ pub fn save_library(paths: &Paths, library: &Library, tabs: Tabs) -> Result<()> 
     write_atomically(&paths.playlists(), &serde_json::to_vec(&file)?)
 }
 
-/// The settings Spotless changes. Other keys in the file (`web_client_id`)
-/// are kept as they are.
+/// The settings. `web_client_id` goes through its own methods; keys
+/// Spotless doesn't know are kept as they are.
 #[derive(Clone, Debug)]
 pub struct Settings {
     /// 0–100.
@@ -115,6 +115,14 @@ impl Settings {
             .map(str::trim)
             .filter(|id| !id.is_empty())
             .map(String::from)
+    }
+
+    /// Sets or, with None, removes the personal app.
+    pub fn set_web_client_id(&mut self, id: Option<String>) {
+        match id {
+            Some(id) => self.raw.insert("web_client_id".into(), id.into()),
+            None => self.raw.remove("web_client_id"),
+        };
     }
 
     fn from_raw(raw: Map<String, Value>) -> Self {
@@ -221,5 +229,19 @@ mod tests {
         let raw: Value = serde_json::from_slice(&std::fs::read(paths.settings()).unwrap()).unwrap();
         assert_eq!(raw["web_client_id"], "abc");
         assert_eq!(raw["shuffle"], true);
+    }
+
+    #[test]
+    fn the_search_app_is_set_and_removed() {
+        let paths = temporary_paths("search-app");
+        let mut settings = Settings::load(&paths);
+        assert_eq!(settings.web_client_id(), None);
+        settings.set_web_client_id(Some("abc".into()));
+        settings.save(&paths).unwrap();
+        let mut settings = Settings::load(&paths);
+        assert_eq!(settings.web_client_id().as_deref(), Some("abc"));
+        settings.set_web_client_id(None);
+        settings.save(&paths).unwrap();
+        assert_eq!(Settings::load(&paths).web_client_id(), None);
     }
 }

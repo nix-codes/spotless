@@ -6,6 +6,7 @@ mod browse_view;
 mod keys;
 mod player_strip;
 mod playlist_view;
+mod settings_view;
 pub mod theme;
 pub mod widgets;
 
@@ -37,6 +38,8 @@ pub struct View<'a> {
     pub playing_list: Option<PlaylistId>,
     pub browse: &'a Browse,
     pub search: &'a SearchState,
+    /// The personal app search signs in with.
+    pub web_client_id: Option<&'a str>,
 }
 
 /// Values the views edit in place: text fields and sliders.
@@ -64,6 +67,8 @@ pub struct Inputs {
     pub tab: isize,
     /// Browse's areas and highlighted rows.
     pub nav: browse_view::Nav,
+    /// The settings screen, while it is open.
+    pub settings: Option<settings_view::Form>,
 }
 
 const TITLE_HEIGHT: f32 = 20.0;
@@ -72,7 +77,18 @@ const GUTTER: f32 = 10.0;
 
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
     let palette = view.palette;
+    let settings_open = inputs.settings.is_some();
     keys::global(ui, view, inputs, actions);
+    // A key for another screen (Ctrl+B, J, Ctrl+T…) leaves the settings.
+    let elsewhere = actions.iter().any(|action| {
+        matches!(
+            action,
+            Action::ToggleBrowse | Action::SelectPlaylist(_) | Action::NewPlaylist
+        )
+    });
+    if settings_open && (elsewhere || inputs.renaming.is_some() || inputs.focus_search) {
+        inputs.settings = None;
+    }
     keys::help(ui, &palette, inputs);
     let full = ui.max_rect();
     ui.painter().rect_filled(full, 0.0, palette.frame);
@@ -98,6 +114,14 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
         egui::pos2(full.left() + GUTTER, strip.bottom() + GUTTER),
         egui::pos2(full.right() - GUTTER, status.top() - 6.0),
     );
+    if let Some(form) = &mut inputs.settings {
+        if settings_view::draw(ui, body, view, form, &mut inputs.tab, actions) {
+            inputs.settings = None;
+        }
+        status_bar(ui, status, view, inputs, actions);
+        inputs.tab = 0;
+        return;
+    }
     let ready = matches!(view.session, SessionState::Ready { .. });
     if ready && view.browse.open {
         browse_view::draw(ui, body, view, inputs, actions);
@@ -217,7 +241,7 @@ fn status_bar(
         ),
     };
     let inner = rect.shrink2(vec2(GUTTER, 0.0));
-    // Buttons from the right: SIGN OUT when signed in, then KEYS.
+    // Buttons from the right: SETTINGS, then KEYS.
     let mut right = inner.right();
     let mut button = |ui: &mut Ui, label: &str| {
         let width = widgets::small_button_width(ui, label);
@@ -229,8 +253,8 @@ fn status_bar(
         let mut child = ui.new_child(UiBuilder::new().max_rect(at));
         widgets::small_button(&mut child, &palette, label, false).clicked()
     };
-    if matches!(view.session, SessionState::Ready { .. }) && button(ui, "SIGN OUT") {
-        actions.push(Action::SignOut);
+    if button(ui, "SETTINGS") {
+        toggle_settings(view, inputs, actions);
     }
     if button(ui, "F1 · KEYS") {
         inputs.help = true;
@@ -244,4 +268,17 @@ fn status_bar(
             FontId::proportional(12.0),
             color,
         );
+}
+
+/// Shows the settings in place of the playlists or Browse.
+fn open_settings(view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+    inputs.settings = Some(settings_view::open(view));
+    actions.push(Action::CloseBrowse);
+}
+
+/// Ctrl+, and the SETTINGS button: open, or close when open.
+pub(super) fn toggle_settings(view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+    if inputs.settings.take().is_none() {
+        open_settings(view, inputs, actions);
+    }
 }
