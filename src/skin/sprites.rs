@@ -132,6 +132,16 @@ sprites! {
     VOLUME_THUMB = (Volume, 15, 422, 14, 11);
     VOLUME_THUMB_PRESSED = (Volume, 0, 422, 14, 11);
 
+    /// The playlist editor's title bar, its top fourteen rows only (the
+    /// frame's edge is below): the left corner, the title piece, and the
+    /// stripes that tile; lit, and unlit for a window in the background.
+    TITLE_LEFT = (PlEdit, 0, 0, 25, 14);
+    TITLE_MIDDLE = (PlEdit, 26, 0, 100, 14);
+    TITLE_TILE = (PlEdit, 127, 0, 25, 14);
+    TITLE_LEFT_UNLIT = (PlEdit, 0, 21, 25, 14);
+    TITLE_MIDDLE_UNLIT = (PlEdit, 26, 21, 100, 14);
+    TITLE_TILE_UNLIT = (PlEdit, 127, 21, 25, 14);
+
     STATUS_PLAYING = (PlayPaus, 0, 0, 9, 9);
     STATUS_PAUSED = (PlayPaus, 9, 0, 9, 9);
     STATUS_STOPPED = (PlayPaus, 18, 0, 9, 9);

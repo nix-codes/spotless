@@ -1,13 +1,14 @@
 //! The player strip drawn from a skin's bitmaps: its transport buttons,
 //! the time in its digits, the song in its font, its seek bar, shuffle,
 //! repeat and volume. Laid out as the plain strip is, the LCD on the left.
+//! The title bar above it is the skin's too.
 
 use std::time::Duration;
 
 use egui::emath::GuiRounding;
 use egui::{
-    Align, Id, Layout, Painter, Pos2, Rect, Response, Sense, Ui, UiBuilder, WidgetInfo, WidgetType,
-    pos2, vec2,
+    Align, FontId, Id, Layout, Painter, Pos2, Rect, Response, Sense, Ui, UiBuilder, WidgetInfo,
+    WidgetType, pos2, vec2,
 };
 
 use super::player_strip::{HEIGHT, meta_line, now_line};
@@ -44,6 +45,73 @@ const MARQUEE_GAP: &str = "  ***  ";
 /// How long the marquee waits between one-character steps, in ms.
 const MARQUEE_STEP: u64 = 220;
 
+/// Points per skin pixel for a strip `width` points wide: smaller when
+/// the window is too narrow for the controls at full size.
+pub fn unit(width: f32) -> f32 {
+    let room = (width - MIN_LCD_WIDTH - 10.0 - BROWSE_WIDTH) / CONTROLS;
+    skin_art::unit(room.min((HEIGHT - 8.0) / CONTROL_ROWS))
+}
+
+/// The title bar: the playlist editor's, stretched, with the stripes
+/// running up to the name from both sides.
+pub fn title_bar(ui: &Ui, rect: Rect, view: &View, art: &SkinArt, unit: f32, label: &str) {
+    let lit = ui.input(|i| i.viewport().focused.unwrap_or(true));
+    let (left, middle, tile) = if lit {
+        (
+            sprites::TITLE_LEFT,
+            sprites::TITLE_MIDDLE,
+            sprites::TITLE_TILE,
+        )
+    } else {
+        (
+            sprites::TITLE_LEFT_UNLIT,
+            sprites::TITLE_MIDDLE_UNLIT,
+            sprites::TITLE_TILE_UNLIT,
+        )
+    };
+    let painter = ui.painter().with_clip_rect(rect);
+    let px = |n: u32| n as f32 * unit;
+    let piece = |x: u32, width: u32| {
+        Sprite::new(middle.sheet, middle.x + x, middle.y, width, middle.height)
+    };
+    // The title piece's ends finish the stripes; between them, its plain
+    // background takes the name.
+    let (cap, gap) = (piece(0, 5), piece(5, 1));
+    let end_cap = piece(95, 5);
+    let font = FontId::monospace(10.0);
+    let text = ui
+        .painter()
+        .layout_no_wrap(label.into(), font.clone(), view.palette.chrome);
+    let name = Rect::from_center_size(rect.center(), vec2(text.size().x + px(16), rect.height()))
+        .round_to_pixels(ui.pixels_per_point());
+    let fill_from = rect.left() + px(left.width);
+    let fill_to = rect.right() - px(left.width);
+    for (from, to) in [
+        (fill_from, name.left() - px(cap.width)),
+        (name.right() + px(end_cap.width), fill_to),
+    ] {
+        let tiles = painter.with_clip_rect(rect.with_min_x(from).with_max_x(to));
+        let mut x = from;
+        while x < to {
+            art.paint(&tiles, tile, pos2(x, rect.top()), unit);
+            x += px(tile.width);
+        }
+    }
+    art.paint(
+        &painter,
+        cap,
+        pos2(name.left() - px(cap.width), rect.top()),
+        unit,
+    );
+    art.paint_into(&painter, gap, name, false);
+    art.paint(&painter, end_cap, pos2(name.right(), rect.top()), unit);
+    art.paint(&painter, left, rect.min, unit);
+    // The right corner is the left one mirrored: the skin's own has the
+    // playlist's close and shade buttons, which Spotless has no use for.
+    art.paint_mirrored(&painter, left, pos2(fill_to, rect.top()), unit);
+    painter.galley(name.center() - text.size() / 2.0, text, view.palette.chrome);
+}
+
 pub fn draw(
     ui: &mut Ui,
     view: &View,
@@ -52,8 +120,7 @@ pub fn draw(
     actions: &mut Vec<Action>,
 ) {
     let rect = ui.max_rect();
-    let room = (rect.width() - MIN_LCD_WIDTH - 10.0 - BROWSE_WIDTH) / CONTROLS;
-    let unit = skin_art::unit(ui.ctx(), room.min((HEIGHT - 8.0) / CONTROL_ROWS));
+    let unit = unit(rect.width());
     let controls_width = CONTROLS * unit + BROWSE_WIDTH;
     let lcd_width = (rect.width() - 10.0 - controls_width).clamp(MIN_LCD_WIDTH, LCD_WIDTH);
     let lcd = Rect::from_min_size(rect.min, vec2(lcd_width, HEIGHT));

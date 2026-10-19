@@ -95,8 +95,8 @@ accounts.
   the window keeps Spotless playing there.
 - **Winamp skins.** Put classic skins (`.wsz`) in the `skins` folder next to
   your settings and pick one in Settings > Display: the player is drawn with
-  the skin's own buttons, digits, font, seek bar and volume, and everything
-  else takes its colours.
+  the skin's own title bar, buttons, digits, font, seek bar and volume, and
+  everything else takes its colours.
 - **Settings** (F10): account, search, Last.fm, audio output, volume levelling,
   interface size, skin, tray, and the audio and cover caches.
 - **One window, one copy**: starting Spotless again brings the running one

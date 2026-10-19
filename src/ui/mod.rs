@@ -104,6 +104,7 @@ impl Inputs {
 }
 
 const TITLE_HEIGHT: f32 = 20.0;
+const TITLE: &str = "S P O T L E S S";
 const STATUS_HEIGHT: f32 = 22.0;
 const GUTTER: f32 = 10.0;
 
@@ -126,8 +127,20 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     ui.painter().rect_filled(full, 0.0, palette.frame);
     theme::bevel(ui.painter(), full, true, &palette);
 
-    let title = Rect::from_min_size(full.min, vec2(full.width(), TITLE_HEIGHT));
-    title_bar(ui, title, &palette);
+    let skinned = view.art.filter(|art| art.has(crate::skin::Sheet::PlEdit));
+    let title = match skinned {
+        Some(art) => {
+            let unit = skinned_strip::unit(full.width() - 2.0 * GUTTER);
+            let title = Rect::from_min_size(full.min, vec2(full.width(), 14.0 * unit));
+            skinned_strip::title_bar(ui, title, view, art, unit, TITLE);
+            title
+        }
+        None => {
+            let title = Rect::from_min_size(full.min, vec2(full.width(), TITLE_HEIGHT));
+            title_bar(ui, title, &palette);
+            title
+        }
+    };
 
     let strip_top = title.bottom() + 4.0;
     let strip = Rect::from_min_max(
@@ -179,7 +192,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
 fn title_bar(ui: &Ui, rect: Rect, palette: &Palette) {
     let painter = ui.painter();
     let font = FontId::monospace(10.0);
-    let label = "S P O T L E S S";
+    let label = TITLE;
     let text_width = painter
         .layout_no_wrap(label.into(), font.clone(), palette.chrome)
         .size()
