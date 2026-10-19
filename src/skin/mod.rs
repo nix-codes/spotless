@@ -1,0 +1,456 @@
+//! Classic Winamp skins, for their colours.
+//!
+//! A `.wsz` file is a zip of bitmaps and two small text files. Spotless's
+//! window has no place for the bitmaps themselves, so it takes the skin's
+//! colours from them: the playlist's from `pledit.txt`, the display's from
+//! the digits and the scrolling text, the frame's from the playlist
+//! editor's edges. Whatever a skin leaves out stays Classic. Modern `.wal`
+//! skins are XML and scripts, and not read.
+
+mod zip;
+
+use std::collections::HashMap;
+use std::path::Path;
+
+use egui::Color32;
+use thiserror::Error;
+
+use crate::ui::theme::Palette;
+
+/// The files read, by lower-case name.
+const WANTED: [&str; 6] = [
+    "pledit.txt",
+    "pledit.bmp",
+    "text.bmp",
+    "numbers.bmp",
+    "nums_ex.bmp",
+    "main.bmp",
+];
+/// File extensions a skin archive may carry.
+const ARCHIVE_EXTENSIONS: [&str; 2] = ["wsz", "zip"];
+
+#[derive(Debug, Error)]
+pub enum SkinError {
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    #[error("not a zip archive; a classic skin is a .wsz file or a folder of bitmaps")]
+    NotAnArchive,
+    #[error("{0}")]
+    Archive(zip::ZipError),
+    #[error("this is a modern Winamp skin; Spotless needs a classic one")]
+    ModernSkin,
+    #[error("no skin files were found inside")]
+    Empty,
+}
+
+/// The skins in `dir`: `.wsz` and `.zip` files and folders, by name.
+pub fn list(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter(|entry| {
+            let path = entry.path();
+            path.is_dir()
+                || path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| ARCHIVE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+        })
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| !name.starts_with('.'))
+        .collect();
+    names.sort_by_key(|name| name.to_lowercase());
+    names
+}
+
+/// A skin's name without its file extension.
+pub fn display_name(file: &str) -> &str {
+    match file.rsplit_once('.') {
+        Some((stem, extension))
+            if ARCHIVE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()) =>
+        {
+            stem
+        }
+        _ => file,
+    }
+}
+
+/// The palette of the skin at `path`, an archive or a folder.
+pub fn load(path: &Path) -> Result<Palette, SkinError> {
+    let files = if path.is_dir() {
+        read_dir(path)?
+    } else {
+        read_archive(&std::fs::read(path)?)?
+    };
+    if files.is_empty() {
+        return Err(SkinError::Empty);
+    }
+    Ok(palette(&files))
+}
+
+type Files = HashMap<String, Vec<u8>>;
+
+fn read_archive(bytes: &[u8]) -> Result<Files, SkinError> {
+    let archive = zip::Archive::parse(bytes).map_err(|error| match error {
+        zip::ZipError::NotAnArchive => SkinError::NotAnArchive,
+        error => SkinError::Archive(error),
+    })?;
+    let mut files = Files::new();
+    for entry in archive.entries().iter().filter(|e| !e.is_dir()) {
+        let name = entry.file_name();
+        if name == "skin.xml" {
+            return Err(SkinError::ModernSkin);
+        }
+        // Skins nest their files in a folder now and then; the first of a
+        // name wins.
+        if WANTED.contains(&name.as_str()) && !files.contains_key(&name) {
+            files.insert(name, archive.read(entry).map_err(SkinError::Archive)?);
+        }
+    }
+    Ok(files)
+}
+
+fn read_dir(dir: &Path) -> Result<Files, SkinError> {
+    let mut files = Files::new();
+    for entry in std::fs::read_dir(dir)?.flatten() {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if name == "skin.xml" {
+            return Err(SkinError::ModernSkin);
+        }
+        if WANTED.contains(&name.as_str()) {
+            files.insert(name, std::fs::read(entry.path())?);
+        }
+    }
+    Ok(files)
+}
+
+/// The colours of `pledit.txt`'s `[Text]` section, the playlist's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PlaylistColors {
+    normal: Color32,
+    current: Color32,
+    background: Color32,
+    selected: Color32,
+}
+
+impl PlaylistColors {
+    /// What Winamp used when a skin had no `pledit.txt`.
+    const DEFAULT: Self = Self {
+        normal: Color32::from_rgb(0x00, 0xff, 0x00),
+        current: Color32::WHITE,
+        background: Color32::BLACK,
+        selected: Color32::from_rgb(0x00, 0x00, 0xff),
+    };
+
+    /// An INI file; anything unreadable keeps its default, as in Winamp.
+    fn parse(text: &str) -> Self {
+        let mut colors = Self::DEFAULT;
+        let mut in_text = false;
+        for line in text.lines().map(str::trim) {
+            if let Some(section) = line.strip_prefix('[') {
+                in_text = section
+                    .strip_suffix(']')
+                    .unwrap_or(section)
+                    .trim()
+                    .eq_ignore_ascii_case("text");
+                continue;
+            }
+            let Some((key, value)) = line.split_once('=').filter(|_| in_text) else {
+                continue;
+            };
+            let slot = match key.trim().to_ascii_lowercase().as_str() {
+                "normal" => &mut colors.normal,
+                "current" => &mut colors.current,
+                "normalbg" => &mut colors.background,
+                "selectedbg" => &mut colors.selected,
+                _ => continue,
+            };
+            *slot = hex(value).unwrap_or(*slot);
+        }
+        colors
+    }
+}
+
+/// A `#RRGGBB` colour. Winamp took it without the hash and with extra
+/// digits after the six. This reads bytes, so a multi-byte character is
+/// no colour rather than a panic.
+fn hex(value: &str) -> Option<Color32> {
+    let digits = value.trim().trim_start_matches('#').as_bytes();
+    let nibble = |at: usize| digits.get(at).and_then(|byte| (*byte as char).to_digit(16));
+    let channel = |at: usize| Some((nibble(at)? << 4 | nibble(at + 1)?) as u8);
+    Some(Color32::from_rgb(channel(0)?, channel(2)?, channel(4)?))
+}
+
+/// A decoded bitmap: RGBA, rows top to bottom.
+struct Bitmap {
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+}
+
+impl Bitmap {
+    /// A BMP or PNG, whatever the file is called: skins mislabel them.
+    fn decode(bytes: &[u8]) -> Option<Self> {
+        let image = image::load_from_memory(bytes).ok()?.into_rgba8();
+        Some(Self {
+            width: image.width(),
+            height: image.height(),
+            rgba: image.into_raw(),
+        })
+    }
+
+    /// The opaque pixels of a `(x, y, width, height)` area, clipped to the
+    /// bitmap.
+    fn pixels(&self, (x, y, w, h): (u32, u32, u32, u32)) -> impl Iterator<Item = Color32> + '_ {
+        let rows = y.min(self.height)..(y + h).min(self.height);
+        rows.flat_map(move |row| {
+            (x.min(self.width)..(x + w).min(self.width)).filter_map(move |column| {
+                let at = ((row * self.width + column) * 4) as usize;
+                let [r, g, b, a] = self.rgba[at..at + 4] else {
+                    return None;
+                };
+                (a > 0).then(|| Color32::from_rgb(r, g, b))
+            })
+        })
+    }
+}
+
+/// Colours counted in buckets of near-identical ones, so a gradient
+/// still has a most common colour.
+#[derive(Default)]
+struct Histogram {
+    buckets: HashMap<(u8, u8, u8), (u32, [u32; 3])>,
+}
+
+impl Histogram {
+    fn of(colors: impl Iterator<Item = Color32>) -> Self {
+        let mut histogram = Self::default();
+        for c in colors {
+            let (count, sums) = histogram
+                .buckets
+                .entry((c.r() >> 3, c.g() >> 3, c.b() >> 3))
+                .or_default();
+            *count += 1;
+            for (sum, value) in sums.iter_mut().zip([c.r(), c.g(), c.b()]) {
+                *sum += u32::from(value);
+            }
+        }
+        histogram
+    }
+
+    /// The most common colour among those `keep` accepts: its bucket's
+    /// average.
+    fn most_common(&self, keep: impl Fn(Color32) -> bool) -> Option<Color32> {
+        self.buckets
+            .values()
+            .map(|&(count, [r, g, b])| {
+                let color =
+                    Color32::from_rgb((r / count) as u8, (g / count) as u8, (b / count) as u8);
+                (count, color)
+            })
+            .filter(|&(_, color)| keep(color))
+            .max_by_key(|&(count, color)| (count, color.r(), color.g(), color.b()))
+            .map(|(_, color)| color)
+    }
+}
+
+/// A bitmap's background and the colour drawn on it: the most common
+/// colour, and the most common one that stands out from it.
+fn ink(bitmap: &Bitmap, area: (u32, u32, u32, u32)) -> Option<(Color32, Color32)> {
+    let histogram = Histogram::of(bitmap.pixels(area));
+    let background = histogram.most_common(|_| true)?;
+    let ink = histogram.most_common(|c| contrast(c, background) >= 3.0)?;
+    Some((background, ink))
+}
+
+/// The pieces of `pledit.bmp` that are plain frame: the left and right
+/// edges and the bottom's filler.
+const FRAME_TILES: [(u32, u32, u32, u32); 3] =
+    [(0, 42, 12, 29), (31, 42, 20, 29), (179, 0, 25, 38)];
+/// The scrolling text's alphabet in `text.bmp`; some skins add more below.
+const TEXT_AREA: (u32, u32, u32, u32) = (0, 0, 155, 18);
+const EVERYTHING: (u32, u32, u32, u32) = (0, 0, u32::MAX, u32::MAX);
+
+fn palette(files: &Files) -> Palette {
+    let classic = Palette::CLASSIC;
+    let bitmap = |name: &str| files.get(name).and_then(|bytes| Bitmap::decode(bytes));
+    let list = files
+        .get("pledit.txt")
+        .map_or(PlaylistColors::DEFAULT, |text| {
+            PlaylistColors::parse(&String::from_utf8_lossy(text))
+        });
+
+    let frame = bitmap("pledit.bmp")
+        .and_then(|b| {
+            Histogram::of(FRAME_TILES.iter().flat_map(|&t| b.pixels(t))).most_common(|_| true)
+        })
+        .or_else(|| {
+            bitmap("main.bmp")
+                .and_then(|b| Histogram::of(b.pixels(EVERYTHING)).most_common(|_| true))
+        })
+        .unwrap_or(classic.frame);
+    let text = bitmap("text.bmp").and_then(|b| ink(&b, TEXT_AREA));
+    let digits = bitmap("numbers.bmp")
+        .or_else(|| bitmap("nums_ex.bmp"))
+        .and_then(|b| ink(&b, EVERYTHING));
+    let lcd_bg = text
+        .or(digits)
+        .map_or(classic.lcd_bg, |(background, _)| background);
+    let lcd = [digits, text]
+        .into_iter()
+        .flatten()
+        .map(|(_, ink)| ink)
+        .chain([list.normal])
+        .find(|&ink| contrast(ink, lcd_bg) >= 3.0)
+        .unwrap_or(classic.lcd);
+
+    let dark = luminance(frame) < 0.3;
+    let hi = mix(frame, Color32::WHITE, 0.2);
+    let chrome = if dark {
+        mix(frame, Color32::WHITE, 0.75)
+    } else {
+        mix(frame, Color32::BLACK, 0.8)
+    };
+    Palette {
+        desk: mix(frame, Color32::BLACK, 0.75),
+        frame,
+        hi,
+        lo: mix(frame, Color32::BLACK, 0.6),
+        chrome,
+        button: mix(frame, hi, 0.35),
+        lcd_bg,
+        lcd,
+        list_bg: list.background,
+        list_fg: list.normal,
+        current: list.current,
+        selected_bg: list.selected,
+        dim: mix(list.normal, list.background, 0.35),
+        accent: lcd,
+    }
+}
+
+/// `t` of the way from `a` to `b`.
+fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
+    let channel = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t).round() as u8;
+    Color32::from_rgb(
+        channel(a.r(), b.r()),
+        channel(a.g(), b.g()),
+        channel(a.b(), b.b()),
+    )
+}
+
+/// WCAG's relative luminance, 0 for black to 1 for white.
+fn luminance(c: Color32) -> f32 {
+    let linear = |v: u8| {
+        let v = f32::from(v) / 255.0;
+        if v <= 0.040_45 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(c.r()) + 0.7152 * linear(c.g()) + 0.0722 * linear(c.b())
+}
+
+/// WCAG's contrast ratio, 1 to 21.
+fn contrast(a: Color32, b: Color32) -> f32 {
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A bitmap as a PNG, as some skins ship them.
+    fn png(width: u32, height: u32, paint: impl Fn(u32, u32) -> [u8; 3]) -> Vec<u8> {
+        let image = image::RgbImage::from_fn(width, height, |x, y| image::Rgb(paint(x, y)));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        bytes.into_inner()
+    }
+
+    #[test]
+    fn pledit_colours_are_read_forgivingly() {
+        let colors = PlaylistColors::parse(
+            "[Text]\nNormal=#00FF00\nCurrent=FFFFFF00\nNormalBG=#nope\nSelectedBG=#0000C6\nFont=Arial\n",
+        );
+        assert_eq!(colors.normal, Color32::from_rgb(0, 255, 0));
+        assert_eq!(colors.current, Color32::WHITE);
+        assert_eq!(colors.background, PlaylistColors::DEFAULT.background);
+        assert_eq!(colors.selected, Color32::from_rgb(0, 0, 0xc6));
+        assert_eq!(hex("#ÿÿÿÿÿÿ"), None);
+    }
+
+    #[test]
+    fn keys_outside_the_text_section_are_ignored() {
+        let colors = PlaylistColors::parse("[Other]\nNormal=#123456\n");
+        assert_eq!(colors, PlaylistColors::DEFAULT);
+    }
+
+    #[test]
+    fn a_skin_gives_its_colours_and_keeps_classic_for_the_rest() {
+        // Digits: amber on dark blue, with dim unlit segments.
+        let numbers = png(99, 13, |x, y| match (x % 9, y % 4) {
+            (0..=2, 0) => [0xff, 0xb0, 0x00],
+            (3, _) => [0x10, 0x10, 0x30],
+            _ => [0x00, 0x00, 0x40],
+        });
+        let pledit = png(280, 186, |_, _| [0x60, 0x20, 0x20]);
+        let archive = zip::write(&[
+            (
+                "Skin/PLEDIT.TXT",
+                b"[Text]\nNormal=#C0C0C0\nCurrent=#FFFF00\nNormalBG=#101010\nSelectedBG=#404080\n",
+                false,
+            ),
+            ("Skin/numbers.bmp", &numbers, true),
+            ("Skin/PLEDIT.BMP", &pledit, true),
+        ]);
+        let palette = palette(&read_archive(&archive).unwrap());
+        assert_eq!(palette.list_fg, Color32::from_rgb(0xc0, 0xc0, 0xc0));
+        assert_eq!(palette.current, Color32::from_rgb(0xff, 0xff, 0));
+        assert_eq!(palette.list_bg, Color32::from_rgb(0x10, 0x10, 0x10));
+        assert_eq!(palette.frame, Color32::from_rgb(0x60, 0x20, 0x20));
+        assert_eq!(palette.lcd_bg, Color32::from_rgb(0, 0, 0x40));
+        assert_eq!(palette.lcd, Color32::from_rgb(0xff, 0xb0, 0));
+        assert_eq!(palette.accent, palette.lcd);
+    }
+
+    #[test]
+    fn digits_too_faint_to_read_give_way_to_the_playlist_colour() {
+        let numbers = png(
+            99,
+            13,
+            |x, _| if x % 2 == 0 { [0, 0, 0] } else { [8, 8, 8] },
+        );
+        let archive = zip::write(&[("numbers.bmp", &numbers, false)]);
+        let palette = palette(&read_archive(&archive).unwrap());
+        assert_eq!(palette.lcd, PlaylistColors::DEFAULT.normal);
+    }
+
+    #[test]
+    fn modern_skins_and_other_files_are_refused() {
+        let modern = zip::write(&[("skin.xml", b"<WinampAbstractionLayer/>", false)]);
+        assert!(matches!(read_archive(&modern), Err(SkinError::ModernSkin)));
+        assert!(matches!(
+            read_archive(b"BM a bitmap"),
+            Err(SkinError::NotAnArchive)
+        ));
+    }
+
+    #[test]
+    fn skins_are_listed_by_name_and_shown_without_extension() {
+        let dir = std::env::temp_dir().join(format!("spotless-test-skins-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("Unpacked")).unwrap();
+        for name in ["base-2.91.wsz", "Amber.ZIP", "notes.txt", ".hidden.wsz"] {
+            std::fs::write(dir.join(name), b"").unwrap();
+        }
+        assert_eq!(list(&dir), ["Amber.ZIP", "base-2.91.wsz", "Unpacked"]);
+        assert_eq!(display_name("base-2.91.wsz"), "base-2.91");
+        assert_eq!(display_name("Unpacked"), "Unpacked");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

@@ -1,6 +1,6 @@
 //! The skin's colours and the Winamp-style drawing helpers.
 //!
-//! There is one built-in palette, Classic, for now.
+//! Classic is built in; a classic Winamp skin gives another (`crate::skin`).
 
 use egui::{Color32, CornerRadius, Painter, Rect, Stroke, StrokeKind, pos2};
 

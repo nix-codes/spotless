@@ -99,6 +99,9 @@ pub struct Settings {
     pub audio_output: Option<String>,
     /// The tray icon, which closing the window hides Spotless in.
     pub tray: bool,
+    /// The skin the colours come from, by its name in the skins folder;
+    /// None is Classic.
+    pub skin: Option<String>,
     raw: Map<String, Value>,
 }
 
@@ -169,6 +172,7 @@ impl Settings {
                 .get("audio_output")
                 .and_then(Value::as_str)
                 .map(String::from),
+            skin: raw.get("skin").and_then(Value::as_str).map(String::from),
             raw: raw.clone(),
         }
     }
@@ -187,6 +191,10 @@ impl Settings {
         match &self.audio_output {
             Some(output) => raw.insert("audio_output".into(), output.clone().into()),
             None => raw.remove("audio_output"),
+        };
+        match &self.skin {
+            Some(skin) => raw.insert("skin".into(), skin.clone().into()),
+            None => raw.remove("skin"),
         };
         raw
     }

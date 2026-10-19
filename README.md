@@ -93,8 +93,11 @@ accounts.
 - **Your desktop's controls**: media keys, the system's now-playing display
   (MPRIS on Linux, the media overlay on Windows), and a tray icon; closing
   the window keeps Spotless playing there.
+- **Winamp skins, for their colours.** Put classic skins (`.wsz`) in the
+  `skins` folder next to your settings and pick one in Settings > Display:
+  the playlist, the display and the frame take the skin's colours.
 - **Settings** (F10): account, search, Last.fm, audio output, volume levelling,
-  interface size, tray, and the audio and cover caches.
+  interface size, skin, tray, and the audio and cover caches.
 - **One window, one copy**: starting Spotless again brings the running one
   forward.
 
@@ -189,7 +192,7 @@ Your settings and playlists stay on your computer:
 
 | | Linux | Windows |
 |---|---|---|
-| Settings, playlists, sign-in | `~/.config/spotless` | `%APPDATA%\spotless` |
+| Settings, playlists, sign-in, skins | `~/.config/spotless` | `%APPDATA%\spotless` |
 | Audio and cover caches | `~/.cache/spotless` | `%LOCALAPPDATA%\spotless` |
 
 Uninstalling keeps these; delete the folders to remove them too.
@@ -212,8 +215,8 @@ Spotless is young. Linux is its main platform; the Windows build is new and
 has only been tested under Wine and on GitHub's build machines so far.
 
 Not there on purpose: Spotify's own playlists and queue, Spotify Connect,
-podcasts, and anything social. Maybe later: Winamp skins, an equalizer,
-importing Spotify playlists.
+podcasts, and anything social. Maybe later: drawing the skins' buttons and
+digits, an equalizer, importing Spotify playlists.
 
 ## Credits
 

@@ -33,7 +33,9 @@ thiserror = "2"
 # Last.fm: request signatures are MD5; the approval page opens in the browser.
 md-5 = "0.10"
 open = "5"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+image = { version = "0.25", default-features = false, features = ["bmp", "jpeg", "png"] }
+# Skins (src/skin/zip.rs) are inflated with the flate2 librespot already builds.
+flate2 = "1"
 # librespot from the fork spotifast pins (crmne/librespot spotifast-dev):
 # librespot's dev branch plus fixes not yet released, among them recovery
 # after a session drop and a distinct error when Spotify refuses an audio

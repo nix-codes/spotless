@@ -19,6 +19,7 @@ use crate::backend::{SearchState, SessionState, Store};
 use crate::browse::Loadable;
 use crate::lastfm::LastFmStatus;
 use crate::lastfm::api::is_key;
+use crate::skin;
 use crate::spotify::webapi::REDIRECT_URI;
 use crate::store::AUDIO_CACHE_SIZES;
 
@@ -102,6 +103,9 @@ enum Item {
     Smaller,
     Larger,
     Covers,
+    /// One of the skins listed, 0 being Classic.
+    Skin(usize),
+    SkinsFolder,
     Tray,
     AudioCache,
     CacheDown,
@@ -329,7 +333,11 @@ fn items(category: Category, view: &View, outputs: usize) -> Vec<Item> {
         Category::Playback => std::iter::once(Item::Levelling)
             .chain((0..outputs).map(Item::Output))
             .collect(),
-        Category::Display => vec![Item::Smaller, Item::Larger, Item::Covers],
+        Category::Display => [Item::Smaller, Item::Larger, Item::Covers]
+            .into_iter()
+            .chain((0..skin_rows(view).len()).map(Item::Skin))
+            .chain([Item::SkinsFolder])
+            .collect(),
         Category::Window => vec![Item::Tray],
         Category::Storage => vec![
             Item::AudioCache,
@@ -709,6 +717,33 @@ impl Controls<'_, '_> {
             }
             note(ui, palette, "Thumbnails next to albums in Browse.");
         });
+        row(ui, palette, "Skin", |ui| {
+            let chosen = self.view.settings.skin.as_deref();
+            for (i, (skin, name)) in skin_rows(self.view).into_iter().enumerate() {
+                let on = skin.as_deref() == chosen;
+                let choice = radio(ui, palette, on, &name);
+                self.ring(ui, Item::Skin(i), &choice);
+                if !on && (choice.clicked() || (self.pressed)(Item::Skin(i))) {
+                    self.actions.push(Action::SetSkin(skin));
+                }
+            }
+            if let Some(error) = self.view.skin_error {
+                ui.label(RichText::new(error).color(palette.current));
+            }
+            let button = small_button(ui, palette, "OPEN FOLDER", false);
+            self.ring(ui, Item::SkinsFolder, &button);
+            if button.clicked() || (self.pressed)(Item::SkinsFolder) {
+                self.actions.push(Action::OpenSkinsFolder);
+            }
+            note(
+                ui,
+                palette,
+                &format!(
+                    "Classic Winamp skins (.wsz) put in {} lend Spotless their colours.",
+                    home_relative(self.view.skins_dir)
+                ),
+            );
+        });
     }
 
     fn window(&mut self, ui: &mut Ui) {
@@ -891,6 +926,34 @@ fn radio(ui: &mut Ui, palette: &Palette, chosen: bool, text: &str) -> Response {
         color,
     );
     response
+}
+
+/// The skins to choose from, as (choice, label): Classic first, then the
+/// skins folder's, then a saved one that isn't there any more.
+fn skin_rows(view: &View) -> Vec<(Option<String>, String)> {
+    let mut rows = vec![(None, "Classic".to_string())];
+    rows.extend(
+        view.skins
+            .iter()
+            .map(|skin| (Some(skin.clone()), skin::display_name(skin).to_string())),
+    );
+    if let Some(saved) = &view.settings.skin
+        && !view.skins.contains(saved)
+    {
+        rows.push((
+            Some(saved.clone()),
+            format!("{} (missing)", skin::display_name(saved)),
+        ));
+    }
+    rows
+}
+
+/// A path with the home folder as ~.
+fn home_relative(path: &std::path::Path) -> String {
+    match dirs::home_dir().and_then(|home| path.strip_prefix(home).ok()) {
+        Some(rest) if cfg!(unix) => format!("~/{}", rest.display()),
+        _ => path.display().to_string(),
+    }
 }
 
 /// The outputs to choose from, as (choice, label): the system's default

@@ -20,11 +20,20 @@ use crate::ui::{self, Inputs, View, theme::Palette};
 
 /// Changes are saved this long after the last one.
 const SAVE_DELAY: Duration = Duration::from_secs(1);
+/// How often Settings looks for new skins.
+const SKINS_FRESH: Duration = Duration::from_secs(2);
 
 pub struct App {
     paths: Paths,
     backend: Option<Backend>,
     palette: Palette,
+    /// The palette changed: egui's widgets take it next frame.
+    restyle: bool,
+    /// The skins folder's contents, while Settings shows them.
+    skins: Vec<String>,
+    skins_listed: Option<Instant>,
+    /// Why the chosen skin couldn't be read.
+    skin_error: Option<String>,
     session: SessionState,
     player: PlayerSnapshot,
     error: Option<String>,
@@ -60,9 +69,12 @@ pub struct App {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, paths: Paths) -> Self {
-        let palette = Palette::CLASSIC;
-        palette.apply(&cc.egui_ctx);
         let settings = Settings::load(&paths);
+        let (palette, skin_error) = match load_skin(&paths, settings.skin.as_deref()) {
+            Ok(palette) => (palette, None),
+            Err(error) => (Palette::CLASSIC, Some(error)),
+        };
+        palette.apply(&cc.egui_ctx);
         cc.egui_ctx.set_zoom_factor(settings.zoom);
         let (library, tabs) = store::load_library(&paths);
         let covers = settings.covers;
@@ -98,6 +110,10 @@ impl App {
         Self {
             backend,
             palette,
+            restyle: false,
+            skins: Vec::new(),
+            skins_listed: None,
+            skin_error,
             session,
             player: PlayerSnapshot::default(),
             error: None,
@@ -249,6 +265,30 @@ impl App {
                 } else {
                     None
                 };
+                return;
+            }
+            Action::SetSkin(skin) => {
+                match load_skin(&self.paths, skin.as_deref()) {
+                    Ok(palette) => {
+                        self.palette = palette;
+                        self.restyle = true;
+                        self.skin_error = None;
+                        self.settings.skin = skin;
+                        self.mark_unsaved();
+                    }
+                    Err(error) => self.skin_error = Some(error),
+                }
+                return;
+            }
+            Action::OpenSkinsFolder => {
+                let dir = self.paths.skins();
+                let opened = std::fs::create_dir_all(&dir)
+                    .map_err(anyhow::Error::from)
+                    .and_then(|()| Ok(open::that_detached(&dir)?));
+                if let Err(error) = opened {
+                    self.error = Some(format!("Unable to open {}: {error}", dir.display()));
+                }
+                self.skins_listed = None;
                 return;
             }
             Action::SetLevelling(on) => {
@@ -646,6 +686,23 @@ impl App {
         self.mark_unsaved();
     }
 
+    /// Reads the skins folder every few seconds while Settings shows the
+    /// skins, so skins dropped in turn up.
+    fn list_skins(&mut self, ctx: &egui::Context) {
+        if !self.inputs.showing_skins() {
+            self.skins_listed = None;
+            return;
+        }
+        if self
+            .skins_listed
+            .is_none_or(|at| at.elapsed() >= SKINS_FRESH)
+        {
+            self.skins = crate::skin::list(&self.paths.skins());
+            self.skins_listed = Some(Instant::now());
+        }
+        ctx.request_repaint_after(SKINS_FRESH);
+    }
+
     fn mark_unsaved(&mut self) {
         self.unsaved.get_or_insert_with(Instant::now);
     }
@@ -675,6 +732,17 @@ impl App {
 }
 
 /// The slider's 0–100 as librespot's 0–65535.
+/// The palette of a skin in the skins folder; None is Classic.
+fn load_skin(paths: &Paths, skin: Option<&str>) -> Result<Palette, String> {
+    let Some(skin) = skin else {
+        return Ok(Palette::CLASSIC);
+    };
+    crate::skin::load(&paths.skins().join(skin)).map_err(|error| {
+        log::warn!("skin {skin}: {error}");
+        format!("{}: {error}", crate::skin::display_name(skin))
+    })
+}
+
 fn volume_level(percent: u8) -> u16 {
     (u32::from(percent.min(100)) * u32::from(u16::MAX) / 100) as u16
 }
@@ -726,6 +794,10 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if std::mem::take(&mut self.restyle) {
+            self.palette.apply(ui.ctx());
+        }
+        self.list_skins(ui.ctx());
         let mut actions = Vec::new();
         let web_client_id = self.settings.web_client_id();
         let playlist = self
@@ -752,6 +824,9 @@ impl eframe::App for App {
             storage: self.storage,
             outputs: &self.outputs,
             tray_shown: self.tray.as_ref().is_some_and(Tray::shown),
+            skins: &self.skins,
+            skins_dir: &self.paths.skins(),
+            skin_error: self.skin_error.as_deref(),
         };
         ui::draw(ui, &view, &mut self.inputs, &mut actions);
         self.keep_zoom(ui.ctx());

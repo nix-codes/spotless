@@ -4621,6 +4621,7 @@ dependencies = [
  "egui",
  "env_logger",
  "fastrand",
+ "flate2",
  "image",
  "ksni",
  "librespot-core",

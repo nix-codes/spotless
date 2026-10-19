@@ -50,6 +50,11 @@ pub struct View<'a> {
     pub outputs: &'a Loadable<Option<Vec<Output>>>,
     /// A panel shows the tray icon.
     pub tray_shown: bool,
+    /// The skins folder's contents, while Settings shows them.
+    pub skins: &'a [String],
+    pub skins_dir: &'a std::path::Path,
+    /// Why the chosen skin couldn't be read.
+    pub skin_error: Option<&'a str>,
 }
 
 /// Values the views edit in place: text fields and sliders.
@@ -81,6 +86,15 @@ pub struct Inputs {
     pub settings: Option<settings_view::Form>,
     /// The settings category shown last, to open on next time.
     pub settings_category: settings_view::Category,
+}
+
+impl Inputs {
+    /// Settings is open on the skins (Display).
+    pub fn showing_skins(&self) -> bool {
+        self.settings
+            .as_ref()
+            .is_some_and(|form| form.category() == settings_view::Category::Display)
+    }
 }
 
 const TITLE_HEIGHT: f32 = 20.0;

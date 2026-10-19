@@ -13,6 +13,9 @@ pub enum Action {
     Quit,
     /// The tray icon on or off.
     SetTray(bool),
+    /// Colours from this skin in the skins folder (None: Classic).
+    SetSkin(Option<String>),
+    OpenSkinsFolder,
     /// Search signs in with this personal app's client ID (empty: none).
     SetSearchApp(String),
     SetLevelling(bool),
