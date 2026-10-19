@@ -1,0 +1,140 @@
+# Builds and checks Spotless on every push, on Linux and on Windows, and
+# makes the Windows zip that packaging/windows/build.sh makes locally.
+#
+# Nothing here signs in to Spotify or plays audio: the runners have no
+# account and no sound device. The Windows job only checks that Spotless
+# builds with Microsoft's compiler, passes its tests, opens its window and
+# keeps to one copy at a time.
+
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch replaces a run still going.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The llvm-mingw used for the Windows zip, as in docs/PLAN.md.
+  LLVM_MINGW_VERSION: "20261006"
+  LLVM_MINGW_SHA256: 5f9c6ed95b2d4bdb2869a488c5fd5857fbdabcf288a0aa3eb1da43f6a08d8ab4
+
+jobs:
+  linux:
+    name: Linux, and the Windows zip
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # cpal's ALSA backend needs its headers.
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+
+      # rust-toolchain.toml picks the toolchain; this adds the Windows target.
+      - name: Rust
+        run: rustup show active-toolchain && rustup target add x86_64-pc-windows-gnullvm
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --release --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --release
+
+      - name: llvm-mingw
+        run: |
+          name=llvm-mingw-$LLVM_MINGW_VERSION-ucrt-ubuntu-22.04-x86_64
+          curl -sSLo "$RUNNER_TEMP/$name.tar.xz" \
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/$LLVM_MINGW_VERSION/$name.tar.xz"
+          echo "$LLVM_MINGW_SHA256  $RUNNER_TEMP/$name.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/$name.tar.xz" -C "$RUNNER_TEMP"
+          echo "LLVM_MINGW=$RUNNER_TEMP/$name" >> "$GITHUB_ENV"
+
+      - name: Windows zip
+        run: packaging/windows/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spotless-windows-x64
+          path: target/dist/*.zip
+          if-no-files-found: error
+
+  windows:
+    name: Windows
+    runs-on: windows-2025
+    env:
+      # Mesa's software OpenGL, for the start-up check only: the runner has
+      # no graphics card, and Windows' own OpenGL 1.1 is too old for egui.
+      MESA_VERSION: "26.2.4"
+      MESA_SHA256: 351fc8c8b695878ffb3eaa044b3ead08672a48b1a045e3c3e3975811df0f6695
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust
+        run: rustup show active-toolchain
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy --release --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --release
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Software OpenGL
+        shell: pwsh
+        run: |
+          $archive = "$env:RUNNER_TEMP\mesa.7z"
+          Invoke-WebRequest -Uri "https://github.com/pal1000/mesa-dist-win/releases/download/$env:MESA_VERSION/mesa3d-$env:MESA_VERSION-release-msvc.7z" -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne $env:MESA_SHA256) { throw "Mesa's checksum doesn't match" }
+          7z e $archive "-o$env:RUNNER_TEMP\mesa" x64\opengl32.dll x64\libgallium_wgl.dll | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\mesa\*.dll" target\release\
+
+      - name: Start-up check
+        shell: pwsh
+        env:
+          GALLIUM_DRIVER: llvmpipe
+          RUST_LOG: info
+        run: |
+          $exe = "target\release\spotless.exe"
+          $first = Start-Process $exe -PassThru -RedirectStandardError first.log
+          Start-Sleep -Seconds 15
+          $first.Refresh()
+          if ($first.HasExited) {
+            Get-Content first.log
+            throw "Spotless quit on its own at start (exit code $($first.ExitCode))"
+          }
+          if ($first.MainWindowTitle -ne "Spotless") {
+            # The runner's desktop may not report windows; the process
+            # running is what counts.
+            Write-Output "::warning::No window titled Spotless was reported (got '$($first.MainWindowTitle)')"
+          }
+
+          # A second start brings the first forward and quits.
+          $second = Start-Process $exe -PassThru -RedirectStandardError second.log
+          if (-not $second.WaitForExit(20000)) {
+            Stop-Process $second
+            throw "A second Spotless didn't quit: the single-instance check failed"
+          }
+          if ($second.ExitCode -ne 0) { throw "The second Spotless quit with exit code $($second.ExitCode)" }
+          Start-Sleep -Seconds 2
+          if ($first.HasExited) { throw "The first Spotless quit when the second one started" }
+
+          Stop-Process $first
+          "--- first"; Get-Content first.log
+          "--- second"; Get-Content second.log
