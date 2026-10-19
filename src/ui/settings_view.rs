@@ -483,13 +483,11 @@ impl Controls<'_, '_> {
             ui.horizontal_wrapped(|ui| {
                 step(ui, palette, "1.");
                 label(ui, palette, "Create an app at");
-                let link = ui.hyperlink_to(
-                    RichText::new("developer.spotify.com/dashboard").color(palette.accent),
-                    DASHBOARD,
-                );
+                let link =
+                    ui.link(RichText::new("developer.spotify.com/dashboard").color(palette.accent));
                 self.ring(ui, Item::Link, &link);
-                if (self.pressed)(Item::Link) {
-                    ui.ctx().open_url(egui::OpenUrl::new_tab(DASHBOARD));
+                if link.clicked() || (self.pressed)(Item::Link) {
+                    open_in_browser(DASHBOARD);
                 }
             });
             ui.horizontal_wrapped(|ui| {
@@ -609,13 +607,11 @@ impl Controls<'_, '_> {
             ui.horizontal_wrapped(|ui| {
                 step(ui, palette, "1.");
                 label(ui, palette, "Create an API account at");
-                let link = ui.hyperlink_to(
-                    RichText::new("last.fm/api/account/create").color(palette.accent),
-                    LASTFM_CREATE,
-                );
+                let link =
+                    ui.link(RichText::new("last.fm/api/account/create").color(palette.accent));
                 self.ring(ui, Item::LastFmLink, &link);
-                if (self.pressed)(Item::LastFmLink) {
-                    ui.ctx().open_url(egui::OpenUrl::new_tab(LASTFM_CREATE));
+                if link.clicked() || (self.pressed)(Item::LastFmLink) {
+                    open_in_browser(LASTFM_CREATE);
                 }
             });
             ui.horizontal_wrapped(|ui| {
@@ -915,6 +911,14 @@ fn output_rows(view: &View) -> Vec<(Option<String>, String)> {
         rows.push((Some(saved.clone()), "Chosen output (not connected)".into()));
     }
     rows
+}
+
+/// Opens a page in the browser. Not through egui, whose link opening is
+/// left out of the build.
+fn open_in_browser(url: &str) {
+    if let Err(error) = open::that_detached(url) {
+        log::warn!("unable to open {url}: {error}");
+    }
 }
 
 /// Spotify's client IDs: 32 hexadecimal digits.
