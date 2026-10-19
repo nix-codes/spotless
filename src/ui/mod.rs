@@ -78,6 +78,8 @@ pub struct Inputs {
     pub nav: browse_view::Nav,
     /// The settings screen, while it is open.
     pub settings: Option<settings_view::Form>,
+    /// The settings category shown last, to open on next time.
+    pub settings_category: settings_view::Category,
 }
 
 const TITLE_HEIGHT: f32 = 20.0;
@@ -96,7 +98,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
         )
     });
     if settings_open && (elsewhere || inputs.renaming.is_some() || inputs.focus_search) {
-        inputs.settings = None;
+        close_settings(inputs);
     }
     keys::help(ui, &palette, inputs);
     let full = ui.max_rect();
@@ -125,7 +127,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     );
     if let Some(form) = &mut inputs.settings {
         if settings_view::draw(ui, body, view, form, &mut inputs.tab, actions) {
-            inputs.settings = None;
+            close_settings(inputs);
         }
         status_bar(ui, status, view, inputs, actions);
         inputs.tab = 0;
@@ -262,7 +264,7 @@ fn status_bar(
         let mut child = ui.new_child(UiBuilder::new().max_rect(at));
         widgets::small_button(&mut child, &palette, label, false).clicked()
     };
-    if button(ui, "SETTINGS") {
+    if button(ui, "F10 · SETTINGS") {
         toggle_settings(view, inputs, actions);
     }
     if button(ui, "F1 · KEYS") {
@@ -281,15 +283,24 @@ fn status_bar(
 
 /// Shows the settings in place of the playlists or Browse.
 fn open_settings(view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
-    inputs.settings = Some(settings_view::open(view));
+    inputs.settings = Some(settings_view::open(view, inputs.settings_category));
     actions.push(Action::CloseBrowse);
     actions.push(Action::MeasureStorage);
     actions.push(Action::ListOutputs);
 }
 
-/// Ctrl+, and the SETTINGS button: open, or close when open.
+/// Leaves the settings, remembering the category shown.
+fn close_settings(inputs: &mut Inputs) {
+    if let Some(form) = inputs.settings.take() {
+        inputs.settings_category = form.category();
+    }
+}
+
+/// F10 and the SETTINGS button: open, or close when open.
 pub(super) fn toggle_settings(view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
-    if inputs.settings.take().is_none() {
+    if inputs.settings.is_some() {
+        close_settings(inputs);
+    } else {
         open_settings(view, inputs, actions);
     }
 }

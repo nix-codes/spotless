@@ -46,7 +46,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("F2", "Rename the playlist"),
             ("Ctrl+B", "Browse / playlists"),
             ("Ctrl+F", "Search"),
-            ("Ctrl+,", "Settings (Tab, Enter, Esc there)"),
+            ("F10", "Settings (↑ ↓, Tab, Enter, Esc there)"),
             ("Ctrl+V", "Add a pasted Spotify link"),
             ("F1 or ?", "This list"),
             ("Ctrl+Q", "Quit (closing the window keeps the tray)"),
@@ -99,7 +99,8 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Actio
             actions.push(Action::Quit);
             return;
         }
-        if take(i, Modifiers::COMMAND, Key::Comma) {
+        // Ctrl+, too, as in most desktop apps.
+        if take(i, Modifiers::NONE, Key::F10) || take(i, Modifiers::COMMAND, Key::Comma) {
             super::toggle_settings(view, inputs, actions);
             return;
         }
