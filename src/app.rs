@@ -7,13 +7,14 @@ use std::time::{Duration, Instant};
 use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState, Storage};
 use crate::browse::{Browse, Cover, Loadable, Page};
-use crate::media::{MediaEvent, Mpris, NowPlaying};
+use crate::media::{EventHook, MediaEvent, Mpris, NowPlaying};
 use crate::model::{Library, Playback, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status};
 use crate::playback::outputs::Output;
 use crate::playback::transport::{Request, Transport};
 use crate::store::{self, Settings, Tabs};
+use crate::tray::{Tray, TrayState};
 use crate::ui::{self, Inputs, View, theme::Palette};
 
 /// Changes are saved this long after the last one.
@@ -43,6 +44,13 @@ pub struct App {
     outputs: Loadable<Option<Vec<Output>>>,
     media: Mpris,
     media_events: std::sync::mpsc::Receiver<MediaEvent>,
+    /// Where the media keys and the tray send their events.
+    media_hook: EventHook,
+    tray: Option<Tray>,
+    /// The window is hidden in the tray.
+    window_hidden: bool,
+    /// Quitting for real: closing the window doesn't hide it.
+    quitting: bool,
     /// Albums whose songs go to a playlist (at an index, or at the end)
     /// once they are read.
     pending_adds: Vec<(String, PlaylistId, Option<usize>)>,
@@ -63,10 +71,16 @@ impl App {
 
         let (media_sender, media_events) = std::sync::mpsc::channel();
         let ctx = cc.egui_ctx.clone();
-        let media = Mpris::start(Arc::new(move |event| {
+        let media_hook: EventHook = Arc::new(move |event| {
             let _ = media_sender.send(event);
             ctx.request_repaint();
-        }));
+        });
+        let media = Mpris::start(Arc::clone(&media_hook));
+        let tray = if settings.tray {
+            Tray::start(Arc::clone(&media_hook))
+        } else {
+            None
+        };
 
         let volume = volume_level(settings.volume);
         let started = Backend::start(
@@ -102,6 +116,10 @@ impl App {
             pending_adds: Vec::new(),
             media,
             media_events,
+            media_hook,
+            tray,
+            window_hidden: false,
+            quitting: false,
             paths,
         }
     }
@@ -206,6 +224,22 @@ impl App {
         let requests = match action {
             Action::SignIn => return self.send(Command::SignIn),
             Action::SignOut => return self.send(Command::SignOut),
+            Action::Quit => {
+                self.quitting = true;
+                return;
+            }
+            Action::SetTray(on) => {
+                self.settings.tray = on;
+                self.mark_unsaved();
+                self.tray = if on {
+                    self.tray
+                        .take()
+                        .or_else(|| Tray::start(Arc::clone(&self.media_hook)))
+                } else {
+                    None
+                };
+                return;
+            }
             Action::SetLevelling(on) => {
                 self.settings.levelling = on;
                 self.mark_unsaved();
@@ -501,7 +535,8 @@ impl App {
         let position = i64::from(self.player.position_now());
         let length = i64::from(self.player.track.as_ref().map_or(0, |t| t.duration_ms));
         let mut actions = Vec::new();
-        for event in self.media_events.try_iter() {
+        let events: Vec<MediaEvent> = self.media_events.try_iter().collect();
+        for event in events {
             match event {
                 MediaEvent::Play => match status {
                     Status::Paused => actions.push(Action::TogglePause),
@@ -527,20 +562,43 @@ impl App {
                     self.inputs.volume = percent;
                     actions.push(Action::Volume(percent));
                 }
-                MediaEvent::Raise => {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                    // Where the desktop refuses focus (Wayland), the window
-                    // at least asks for attention.
-                    ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
-                        egui::UserAttentionType::Informational,
-                    ));
-                }
-                MediaEvent::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                MediaEvent::Raise => self.show_window(ctx),
+                MediaEvent::Quit => actions.push(Action::Quit),
+                MediaEvent::ToggleWindow if self.window_hidden => self.show_window(ctx),
+                MediaEvent::ToggleWindow => self.hide_window(ctx),
             }
         }
         actions
+    }
+
+    fn show_window(&mut self, ctx: &egui::Context) {
+        self.window_hidden = false;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        // Where the desktop refuses focus (Wayland), the window at least
+        // asks for attention.
+        ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
+            egui::UserAttentionType::Informational,
+        ));
+    }
+
+    /// Hides the window in the tray, if a panel shows the tray icon: a
+    /// window hidden anywhere else couldn't be found again.
+    fn hide_window(&mut self, ctx: &egui::Context) {
+        if self.tray.as_ref().is_some_and(Tray::shown) {
+            self.window_hidden = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        }
+    }
+
+    /// Closing the window hides it in the tray, unless quitting.
+    fn keep_in_tray(&mut self, ctx: &egui::Context) {
+        let closing = ctx.input(|i| i.viewport().close_requested());
+        if closing && !self.quitting && self.tray.as_ref().is_some_and(Tray::shown) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.hide_window(ctx);
+        }
     }
 
     /// Saves the zoom when it changes, by the settings or by egui's own
@@ -606,8 +664,45 @@ fn seed() -> u64 {
 }
 
 impl eframe::App for App {
+    /// Everything but drawing: it also runs while the window is hidden in
+    /// the tray, whenever something asks for a repaint.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.receive(ctx);
+        for action in self.media_actions(ctx) {
+            self.apply(action);
+        }
+        if self.quitting {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        self.keep_in_tray(ctx);
+        self.media
+            .update(NowPlaying::from_player(&self.player, self.settings.volume));
+        if let Some(tray) = &mut self.tray {
+            let now_playing = self
+                .player
+                .track
+                .as_ref()
+                .map(|t| format!("{} - {}", t.artists, t.title))
+                .unwrap_or_default();
+            tray.update(TrayState {
+                playing: self.player.status == Status::Playing,
+                now_playing,
+                window_hidden: self.window_hidden,
+            });
+        }
+        // The clock moves on its own while a song plays.
+        if self.player.status == Status::Playing {
+            ctx.request_repaint_after(Duration::from_millis(250));
+        }
+        if let Some(since) = self.unsaved {
+            match SAVE_DELAY.checked_sub(since.elapsed()) {
+                Some(wait) if !wait.is_zero() => ctx.request_repaint_after(wait),
+                _ => self.save(),
+            }
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.receive(&ui.ctx().clone());
         let mut actions = Vec::new();
         let web_client_id = self.settings.web_client_id();
         let playlist = self
@@ -632,24 +727,16 @@ impl eframe::App for App {
             settings: &self.settings,
             storage: self.storage,
             outputs: &self.outputs,
+            tray_shown: self.tray.as_ref().is_some_and(Tray::shown),
         };
         ui::draw(ui, &view, &mut self.inputs, &mut actions);
         self.keep_zoom(ui.ctx());
-        actions.extend(self.media_actions(&ui.ctx().clone()));
+        // What the actions change is saved and shown by the next logic pass.
+        if !actions.is_empty() {
+            ui.ctx().request_repaint();
+        }
         for action in actions {
             self.apply(action);
-        }
-        self.media
-            .update(NowPlaying::from_player(&self.player, self.settings.volume));
-        // The clock moves on its own while a song plays.
-        if self.player.status == Status::Playing {
-            ui.ctx().request_repaint_after(Duration::from_millis(250));
-        }
-        if let Some(since) = self.unsaved {
-            match SAVE_DELAY.checked_sub(since.elapsed()) {
-                Some(wait) if !wait.is_zero() => ui.ctx().request_repaint_after(wait),
-                _ => self.save(),
-            }
         }
     }
 

@@ -49,6 +49,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+,", "Settings (Tab, Enter, Esc there)"),
             ("Ctrl+V", "Add a pasted Spotify link"),
             ("F1 or ?", "This list"),
+            ("Ctrl+Q", "Quit (closing the window keeps the tray)"),
         ],
     ),
     (
@@ -92,6 +93,10 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Actio
     ui.input_mut(|i| {
         if take(i, Modifiers::NONE, Key::F1) || i.consume_key(Modifiers::NONE, Key::Questionmark) {
             inputs.help = !inputs.help;
+            return;
+        }
+        if take(i, Modifiers::COMMAND, Key::Q) {
+            actions.push(Action::Quit);
             return;
         }
         if take(i, Modifiers::COMMAND, Key::Comma) {

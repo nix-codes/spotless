@@ -47,6 +47,8 @@ pub struct View<'a> {
     pub storage: Option<Storage>,
     /// The audio outputs, once listed; None when they can't be.
     pub outputs: &'a Loadable<Option<Vec<Output>>>,
+    /// A panel shows the tray icon.
+    pub tray_shown: bool,
 }
 
 /// Values the views edit in place: text fields and sliders.

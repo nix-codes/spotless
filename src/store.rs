@@ -97,6 +97,8 @@ pub struct Settings {
     /// The sound server's name for the chosen output; None follows the
     /// system's default.
     pub audio_output: Option<String>,
+    /// The tray icon, which closing the window hides Spotless in.
+    pub tray: bool,
     raw: Map<String, Value>,
 }
 
@@ -162,6 +164,7 @@ impl Settings {
                 .and_then(Value::as_u64)
                 .filter(|mb| AUDIO_CACHE_SIZES.contains(mb))
                 .unwrap_or(2048),
+            tray: raw.get("tray").and_then(Value::as_bool).unwrap_or(true),
             audio_output: raw
                 .get("audio_output")
                 .and_then(Value::as_str)
@@ -180,6 +183,7 @@ impl Settings {
         raw.insert("zoom".into(), self.zoom.into());
         raw.insert("audio_cache".into(), self.audio_cache.into());
         raw.insert("audio_cache_mb".into(), self.audio_cache_mb.into());
+        raw.insert("tray".into(), self.tray.into());
         match &self.audio_output {
             Some(output) => raw.insert("audio_output".into(), output.clone().into()),
             None => raw.remove("audio_output"),

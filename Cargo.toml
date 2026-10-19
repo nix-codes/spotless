@@ -45,6 +45,7 @@ librespot-core = { git = "https://github.com/crmne/librespot", rev = "d047290182
 librespot-playback = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-metadata = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-oauth = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
+ksni = { version = "0.3.6", default-features = false, features = ["async-io", "blocking"] }
 
 [patch.crates-io]
 # hyper-proxy2's unreleased rustls 0.23 update, as spotifast carries it, so

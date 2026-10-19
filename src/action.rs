@@ -9,6 +9,10 @@ use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 pub enum Action {
     SignIn,
     SignOut,
+    /// Quits, even with the tray keeping the window.
+    Quit,
+    /// The tray icon on or off.
+    SetTray(bool),
     /// Search signs in with this personal app's client ID (empty: none).
     SetSearchApp(String),
     SetLevelling(bool),

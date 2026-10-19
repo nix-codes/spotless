@@ -1,5 +1,5 @@
 //! The settings screen: the account, search's personal Spotify app,
-//! playback, display and storage.
+//! playback, display, the window and storage.
 //!
 //! Opens with Ctrl+, or SETTINGS in the status bar, in place of the body.
 //! Tab and Shift+Tab move through its controls, Enter uses the framed one,
@@ -47,6 +47,7 @@ enum Item {
     Smaller,
     Larger,
     Covers,
+    Tray,
     AudioCache,
     CacheDown,
     CacheUp,
@@ -91,6 +92,7 @@ pub fn draw(
         Item::Smaller,
         Item::Larger,
         Item::Covers,
+        Item::Tray,
         Item::AudioCache,
         Item::CacheDown,
         Item::CacheUp,
@@ -310,6 +312,23 @@ pub fn draw(
                 actions.push(Action::ToggleCovers);
             }
             label(ui, &palette, "Album covers next to albums in Browse");
+        });
+
+        section(ui, &palette, "WINDOW", None);
+        ui.horizontal(|ui| {
+            let button = small_button(ui, &palette, "SYSTEM TRAY", settings.tray);
+            ring(ui, &palette, form, Item::Tray, &button);
+            if button.clicked() || pressed(Item::Tray) {
+                actions.push(Action::SetTray(!settings.tray));
+            }
+            let text = if !settings.tray {
+                "Closing the window quits Spotless"
+            } else if view.tray_shown {
+                "Closing the window keeps Spotless playing in the tray (Ctrl+Q quits)"
+            } else {
+                "No panel shows tray icons here, so closing the window quits"
+            };
+            label(ui, &palette, text);
         });
 
         section(ui, &palette, "STORAGE", None);

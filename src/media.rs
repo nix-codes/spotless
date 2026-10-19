@@ -35,6 +35,8 @@ pub enum MediaEvent {
     Volume(f64),
     Raise,
     Quit,
+    /// The tray icon was clicked: show the window, or hide it.
+    ToggleWindow,
 }
 
 pub type EventHook = Arc<dyn Fn(MediaEvent) + Send + Sync>;
