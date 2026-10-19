@@ -163,7 +163,7 @@ impl Backend {
 type Emit = Arc<dyn Fn(Event) + Send + Sync>;
 
 /// Search signs in with the personal app, a second approval besides
-/// playback's (docs/PLAN.md, section 6). It runs when Spotless signs in, or
+/// playback's (see `spotify/webapi.rs`). It runs when Spotless signs in, or
 /// on the first search if search was never approved. The browser is already
 /// signed in to Spotify by then, so it usually passes without a question.
 /// One at a time: a second caller waits, then finds it done.

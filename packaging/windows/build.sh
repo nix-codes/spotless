@@ -4,8 +4,9 @@
 # A Spotless folder with Spotless.exe, install.cmd, uninstall.cmd,
 # README.txt and LICENSE.txt in it.
 #
-# Needs the x86_64-pc-windows-gnullvm Rust target and llvm-mingw's bin
-# folder on PATH, or LLVM_MINGW pointing at llvm-mingw (docs/PLAN.md).
+# Needs the x86_64-pc-windows-gnullvm Rust target and llvm-mingw
+# (github.com/mstorsjo/llvm-mingw, which ring needs to compile and link):
+# its bin folder on PATH, or LLVM_MINGW pointing at it.
 set -eu
 
 root=$(cd "$(dirname "$0")/../.." && pwd)

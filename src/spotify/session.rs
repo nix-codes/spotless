@@ -6,8 +6,7 @@
 //! for a reusable credential, which librespot's cache stores in the config
 //! folder. Later starts reconnect with that credential and no browser.
 //!
-//! M0 keeps the credential in a private file. Moving it to the platform's
-//! credential store is planned for M4 (docs/PLAN.md).
+//! The credential is kept in a private file in the config folder.
 
 use anyhow::{Context, Result, anyhow};
 use librespot_core::authentication::Credentials;

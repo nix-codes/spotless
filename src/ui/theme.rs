@@ -1,7 +1,6 @@
 //! The skin's colours and the Winamp-style drawing helpers.
 //!
-//! M0 has the built-in Classic palette only. M4 derives a palette from a
-//! `.wsz` skin's `pledit.txt` (docs/PLAN.md).
+//! There is one built-in palette, Classic, for now.
 
 use egui::{Color32, CornerRadius, Painter, Rect, Stroke, StrokeKind, pos2};
 

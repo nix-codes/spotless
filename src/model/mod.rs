@@ -1,5 +1,5 @@
-//! The playlists and the rules for moving through them (docs/PLAN.md,
-//! section 5). Pure data: no Spotify, no audio, no UI.
+//! The playlists and the rules for moving through them. Pure data: no
+//! Spotify, no audio, no UI.
 
 pub mod catalog;
 pub mod library;

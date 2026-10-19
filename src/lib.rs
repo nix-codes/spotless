@@ -1,6 +1,4 @@
 //! Spotless: a minimal Spotify player in the spirit of Winamp.
-//!
-//! See `docs/PLAN.md` for the product rules and the module plan.
 
 pub mod action;
 pub mod app;

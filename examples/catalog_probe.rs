@@ -1,5 +1,4 @@
-//! M0 spike (docs/PLAN.md, section 6): what can the playback session alone
-//! give the catalog view?
+//! A probe: what can the playback session alone give the catalog view?
 //!
 //! 1. An artist's discography, grouped by release type, with years.
 //! 2. Search: librespot has no search of its own, so this tries the Web API's

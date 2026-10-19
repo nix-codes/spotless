@@ -178,9 +178,9 @@ cargo run --release
 
 The toolchain version is pinned in `rust-toolchain.toml`; rustup picks it up
 on its own. On Windows, building also needs the Visual Studio Build Tools.
-The Windows zip can be built from Linux with `packaging/windows/build.sh`
-(see `docs/PLAN.md` for the toolchain). `docs/PLAN.md` also holds the
-design decisions and how each part works.
+The Windows zip can be built from Linux with `packaging/windows/build.sh`,
+using Rust's `x86_64-pc-windows-gnullvm` target and
+[llvm-mingw](https://github.com/mstorsjo/llvm-mingw).
 
 ## Status
 

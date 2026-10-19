@@ -23,7 +23,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # The llvm-mingw used for the Windows zip, as in docs/PLAN.md.
+  # The llvm-mingw used for the Windows zip (packaging/windows/build.sh).
   LLVM_MINGW_VERSION: "20261006"
   LLVM_MINGW_SHA256: 5f9c6ed95b2d4bdb2869a488c5fd5857fbdabcf288a0aa3eb1da43f6a08d8ab4
 

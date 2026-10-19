@@ -1,9 +1,13 @@
 //! Search through the Web API with the user's personal Spotify app.
 //!
-//! The playback session can't search (docs/PLAN.md, section 6), so search
-//! signs in separately with the personal app's client ID (`web_client_id`
-//! in settings.json). The browser approval happens once; the refresh token
-//! it gives is kept in a private file and renewed as Spotify rotates it.
+//! The playback session can't search, as `examples/catalog_probe.rs` found:
+//! Spotify refuses the session's keymaster token (403), always rate-limits
+//! its Login5 token on the Web API (429: the desktop client ID's quota is
+//! shared by every librespot app), and rejects the session's own
+//! `searchview` endpoint (400). So search signs in separately with the
+//! personal app's client ID (`web_client_id` in settings.json). The browser
+//! approval happens once; the refresh token it gives is kept in a private
+//! file and renewed as Spotify rotates it.
 //! Spotless never shares it with spotifast, since a rotation would sign the
 //! other app out.
 
