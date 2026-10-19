@@ -3,6 +3,7 @@
 //! Views read a [`View`] and push [`Action`]s; they never change state.
 
 mod browse_view;
+mod keys;
 mod player_strip;
 mod playlist_view;
 pub mod theme;
@@ -13,7 +14,7 @@ use egui::{Align2, FontId, Rect, RichText, Ui, UiBuilder, vec2};
 use crate::action::Action;
 use crate::backend::{SearchState, SessionState};
 use crate::browse::Browse;
-use crate::model::{Library, Playlist, PlaylistId};
+use crate::model::{EntryId, Library, Playlist, PlaylistId};
 use crate::playback::engine::PlayerSnapshot;
 use theme::Palette;
 use widgets::text_button;
@@ -53,6 +54,12 @@ pub struct Inputs {
     pub renaming: Option<(PlaylistId, String)>,
     /// The playlist waiting for Close to be confirmed.
     pub closing: Option<PlaylistId>,
+    /// The volume to go back to after muting with M.
+    pub unmuted: Option<u8>,
+    /// A row to select once its playlist is the one shown (J).
+    pub jump: Option<(PlaylistId, EntryId)>,
+    /// The F1 list of keys is open.
+    pub help: bool,
 }
 
 const TITLE_HEIGHT: f32 = 20.0;
@@ -61,6 +68,8 @@ const GUTTER: f32 = 10.0;
 
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
     let palette = view.palette;
+    keys::global(ui, view, inputs, actions);
+    keys::help(ui, &palette, inputs);
     let full = ui.max_rect();
     ui.painter().rect_filled(full, 0.0, palette.frame);
     theme::bevel(ui.painter(), full, true, &palette);
@@ -88,7 +97,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     let ready = matches!(view.session, SessionState::Ready { .. });
     if ready && view.browse.open {
         browse_view::draw(ui, body, view, inputs, actions);
-        status_bar(ui, status, view, actions);
+        status_bar(ui, status, view, inputs, actions);
         return;
     }
     theme::inset(ui.painter(), body, palette.list_bg, &palette);
@@ -101,7 +110,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
         body_contents(ui, view, inputs, actions);
     });
 
-    status_bar(ui, status, view, actions);
+    status_bar(ui, status, view, inputs, actions);
 }
 
 fn title_bar(ui: &Ui, rect: Rect, palette: &Palette) {
@@ -172,7 +181,13 @@ fn body_contents(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Ve
     }
 }
 
-fn status_bar(ui: &mut Ui, rect: Rect, view: &View, actions: &mut Vec<Action>) {
+fn status_bar(
+    ui: &mut Ui,
+    rect: Rect,
+    view: &View,
+    inputs: &mut Inputs,
+    actions: &mut Vec<Action>,
+) {
     let palette = view.palette;
     let painter = ui.painter();
     painter.line_segment(
@@ -195,8 +210,26 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, actions: &mut Vec<Action>) {
         ),
     };
     let inner = rect.shrink2(vec2(GUTTER, 0.0));
-    painter
-        .with_clip_rect(inner.with_max_x(inner.right() - 80.0))
+    // Buttons from the right: SIGN OUT when signed in, then KEYS.
+    let mut right = inner.right();
+    let mut button = |ui: &mut Ui, label: &str| {
+        let width = widgets::small_button_width(ui, label);
+        let at = Rect::from_center_size(
+            egui::pos2(right - width / 2.0, inner.center().y),
+            vec2(width, widgets::SMALL_HEIGHT),
+        );
+        right -= width + 6.0;
+        let mut child = ui.new_child(UiBuilder::new().max_rect(at));
+        widgets::small_button(&mut child, &palette, label, false).clicked()
+    };
+    if matches!(view.session, SessionState::Ready { .. }) && button(ui, "SIGN OUT") {
+        actions.push(Action::SignOut);
+    }
+    if button(ui, "F1 · KEYS") {
+        inputs.help = true;
+    }
+    ui.painter()
+        .with_clip_rect(inner.with_max_x(right - 10.0))
         .text(
             inner.left_center(),
             Align2::LEFT_CENTER,
@@ -204,15 +237,4 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, actions: &mut Vec<Action>) {
             FontId::proportional(12.0),
             color,
         );
-    if matches!(view.session, SessionState::Ready { .. }) {
-        let width = widgets::small_button_width(ui, "SIGN OUT");
-        let at = Rect::from_center_size(
-            egui::pos2(inner.right() - width / 2.0, inner.center().y),
-            vec2(width, widgets::SMALL_HEIGHT),
-        );
-        let mut child = ui.new_child(UiBuilder::new().max_rect(at));
-        if widgets::small_button(&mut child, &palette, "SIGN OUT", false).clicked() {
-            actions.push(Action::SignOut);
-        }
-    }
 }

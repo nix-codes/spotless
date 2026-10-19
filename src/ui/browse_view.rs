@@ -2,7 +2,7 @@
 //! column with the playlist + ADD adds to on the right.
 //!
 //! Enter searches, Esc goes back to the playlists, Alt+Left goes back a
-//! page, Ctrl+F jumps to the search field.
+//! page. Ctrl+F (in `keys.rs`) jumps to the search field.
 
 use egui::{
     Align2, Color32, FontId, Id, Key, Painter, Rect, Response, RichText, ScrollArea, Sense, Stroke,
@@ -55,7 +55,7 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
     theme::inset(ui.painter(), catalog, palette.list_bg, &palette);
     theme::inset(ui.painter(), slim, palette.list_bg, &palette);
 
-    keyboard(ui, view, inputs, actions);
+    keyboard(ui, view, actions);
     ui.scope_builder(UiBuilder::new().max_rect(catalog.shrink(PAD)), |ui| {
         search_bar(ui, view, inputs, actions);
         ui.add_space(PAD);
@@ -85,15 +85,11 @@ fn page_id(page: &Page) -> String {
     }
 }
 
-fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
-    let typing = ui.ctx().memory(|m| m.focused()).is_some();
+fn keyboard(ui: &Ui, view: &View, actions: &mut Vec<Action>) {
+    if ui.ctx().text_edit_focused() {
+        return;
+    }
     ui.input(|i| {
-        if i.modifiers.command && i.key_pressed(Key::F) {
-            inputs.focus_search = true;
-        }
-        if typing {
-            return;
-        }
         if i.key_pressed(Key::Escape) {
             actions.push(Action::CloseBrowse);
         }

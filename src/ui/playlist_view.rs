@@ -37,6 +37,15 @@ pub struct Selection {
     reveal: Option<usize>,
 }
 
+impl Selection {
+    /// Selects one row and scrolls to it.
+    fn select(&mut self, id: EntryId, index: usize) {
+        self.rows = BTreeSet::from([id]);
+        self.anchor = Some(id);
+        self.reveal = Some(index);
+    }
+}
+
 /// Rows being dragged, in list order.
 struct RowDrag(Vec<EntryId>);
 
@@ -51,6 +60,14 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     let rows = Rect::from_min_max(full.min, pos2(full.right(), full.bottom() - TOOLBAR_HEIGHT));
     let toolbar_rect = Rect::from_min_max(pos2(full.left(), rows.bottom() + 6.0), full.max);
 
+    if let Some((jump_list, entry)) = inputs.jump
+        && jump_list == list.id
+    {
+        inputs.jump = None;
+        if let Some(index) = list.index_of(entry) {
+            inputs.selection.select(entry, index);
+        }
+    }
     inputs
         .selection
         .rows
@@ -622,7 +639,7 @@ fn move_by(
 
 /// The editor's keys, unless a text field has the keyboard.
 fn keyboard(ui: &Ui, list: &Playlist, selection: &mut Selection, actions: &mut Vec<Action>) {
-    if ui.ctx().memory(|m| m.focused()).is_some() || list.is_empty() {
+    if ui.ctx().text_edit_focused() || list.is_empty() {
         return;
     }
     let rows = selected(list, selection);
