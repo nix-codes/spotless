@@ -1,6 +1,7 @@
 //! What the interface asks for. Views only emit these; `App` applies them
 //! after the frame is drawn.
 
+use crate::backend::Store;
 use crate::model::catalog::ReleaseTab;
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 
@@ -10,6 +11,13 @@ pub enum Action {
     SignOut,
     /// Search signs in with this personal app's client ID (empty: none).
     SetSearchApp(String),
+    SetLevelling(bool),
+    /// The audio cache on or off, from the next start.
+    SetAudioCache(bool),
+    /// The audio cache's limit in MB, from the next start.
+    SetAudioCacheSize(u64),
+    MeasureStorage,
+    ClearCache(Store),
     /// Appends a track, album or artist link's songs to the target playlist.
     AddLink(String),
     Play,

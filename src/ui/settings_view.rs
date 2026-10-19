@@ -1,4 +1,5 @@
-//! The settings screen: the account, search's personal Spotify app, covers.
+//! The settings screen: the account, search's personal Spotify app,
+//! playback, display and storage.
 //!
 //! Opens with Ctrl+, or SETTINGS in the status bar, in place of the body.
 //! Tab and Shift+Tab move through its controls, Enter uses the framed one,
@@ -10,11 +11,15 @@ use super::View;
 use super::theme::{self, Palette};
 use super::widgets::{small_action, small_button, text_button};
 use crate::action::Action;
+use crate::backend::Store;
 use crate::backend::{SearchState, SessionState};
 use crate::spotify::webapi::REDIRECT_URI;
+use crate::store::AUDIO_CACHE_SIZES;
 
 const DASHBOARD: &str = "https://developer.spotify.com/dashboard";
 const FIELD_ID: &str = "settings-client-id";
+/// The interface sizes − and + step through.
+const ZOOMS: [f32; 9] = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5];
 
 /// The screen's state while it is open.
 pub struct Form {
@@ -23,6 +28,8 @@ pub struct Form {
     item: Option<Item>,
     focus_field: bool,
     copied: bool,
+    /// Tab moved: scroll the framed control into view.
+    reveal: bool,
 }
 
 /// The controls Tab moves through, top to bottom.
@@ -33,7 +40,15 @@ enum Item {
     Copy,
     ClientId,
     Save,
+    Levelling,
+    Smaller,
+    Larger,
     Covers,
+    AudioCache,
+    CacheDown,
+    CacheUp,
+    ClearAudio,
+    ClearCovers,
 }
 
 pub fn open(view: &View) -> Form {
@@ -42,6 +57,7 @@ pub fn open(view: &View) -> Form {
         item: None,
         focus_field: false,
         copied: false,
+        reveal: false,
     }
 }
 
@@ -63,7 +79,15 @@ pub fn draw(
         Item::Copy,
         Item::ClientId,
         Item::Save,
+        Item::Levelling,
+        Item::Smaller,
+        Item::Larger,
         Item::Covers,
+        Item::AudioCache,
+        Item::CacheDown,
+        Item::CacheUp,
+        Item::ClearAudio,
+        Item::ClearCovers,
     ]
     .into_iter()
     .filter(|&item| item != Item::SignOut || signed_in)
@@ -80,6 +104,7 @@ pub fn draw(
         };
         *tab = 0;
         form.item = Some(items[next]);
+        form.reveal = true;
         if items[next] == Item::ClientId {
             form.focus_field = true;
         } else {
@@ -116,6 +141,9 @@ pub fn draw(
             });
         });
 
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
         section(ui, &palette, "ACCOUNT", None);
         ui.horizontal(|ui| {
             let who = match view.session {
@@ -213,16 +241,110 @@ pub fn draw(
             );
         }
 
-        section(ui, &palette, "CATALOG", None);
+        let settings = view.settings;
+        section(ui, &palette, "PLAYBACK", None);
+        ui.horizontal(|ui| {
+            let button = small_button(ui, &palette, "LEVEL VOLUME", settings.levelling);
+            ring(ui, &palette, form, Item::Levelling, &button);
+            if button.clicked() || pressed(Item::Levelling) {
+                actions.push(Action::SetLevelling(!settings.levelling));
+            }
+            label(ui, &palette, "Evens out loudness between songs and albums");
+        });
+
+        section(ui, &palette, "DISPLAY", None);
+        ui.horizontal(|ui| {
+            label(ui, &palette, "Interface size");
+            let zoom = ui.ctx().zoom_factor();
+            let smaller = ZOOMS.iter().rev().find(|&&z| z < zoom - 0.001).copied();
+            let larger = ZOOMS.iter().find(|&&z| z > zoom + 0.001).copied();
+            let button = small_action(ui, &palette, "−", smaller.is_some());
+            ring(ui, &palette, form, Item::Smaller, &button);
+            if let Some(z) = smaller.filter(|_| button.clicked() || pressed(Item::Smaller)) {
+                ui.ctx().set_zoom_factor(z);
+            }
+            ui.label(
+                RichText::new(format!("{:.0}%", zoom * 100.0))
+                    .monospace()
+                    .color(palette.list_fg),
+            );
+            let button = small_action(ui, &palette, "+", larger.is_some());
+            ring(ui, &palette, form, Item::Larger, &button);
+            if let Some(z) = larger.filter(|_| button.clicked() || pressed(Item::Larger)) {
+                ui.ctx().set_zoom_factor(z);
+            }
+            ui.label(RichText::new("also Ctrl + / − / 0").color(palette.dim));
+        });
         ui.horizontal(|ui| {
             let button = small_button(ui, &palette, "COVERS", view.browse.show_covers);
             ring(ui, &palette, form, Item::Covers, &button);
             if button.clicked() || pressed(Item::Covers) {
                 actions.push(Action::ToggleCovers);
             }
-            ui.label(RichText::new("Album covers next to albums in Browse").color(palette.chrome));
+            label(ui, &palette, "Album covers next to albums in Browse");
         });
+
+        section(ui, &palette, "STORAGE", None);
+        let used = |bytes: Option<u64>| bytes.map_or("measuring…".into(), size);
+        ui.horizontal(|ui| {
+            let button = small_button(ui, &palette, "AUDIO CACHE", settings.audio_cache);
+            ring(ui, &palette, form, Item::AudioCache, &button);
+            if button.clicked() || pressed(Item::AudioCache) {
+                actions.push(Action::SetAudioCache(!settings.audio_cache));
+            }
+            label(ui, &palette, "Songs played start faster the next time");
+        });
+        ui.horizontal(|ui| {
+            label(ui, &palette, "Up to");
+            let at = AUDIO_CACHE_SIZES
+                .iter()
+                .position(|&mb| mb == settings.audio_cache_mb)
+                .unwrap_or(2);
+            let button = small_action(ui, &palette, "−", at > 0);
+            ring(ui, &palette, form, Item::CacheDown, &button);
+            if at > 0 && (button.clicked() || pressed(Item::CacheDown)) {
+                actions.push(Action::SetAudioCacheSize(AUDIO_CACHE_SIZES[at - 1]));
+            }
+            ui.label(
+                RichText::new(size(settings.audio_cache_mb * 1024 * 1024))
+                    .monospace()
+                    .color(palette.list_fg),
+            );
+            let last = AUDIO_CACHE_SIZES.len() - 1;
+            let button = small_action(ui, &palette, "+", at < last);
+            ring(ui, &palette, form, Item::CacheUp, &button);
+            if at < last && (button.clicked() || pressed(Item::CacheUp)) {
+                actions.push(Action::SetAudioCacheSize(AUDIO_CACHE_SIZES[at + 1]));
+            }
+            label(ui, &palette, &format!("· using {}", used(view.storage.map(|s| s.audio))));
+            let button = small_button(ui, &palette, "CLEAR", false);
+            ring(ui, &palette, form, Item::ClearAudio, &button);
+            if button.clicked() || pressed(Item::ClearAudio) {
+                actions.push(Action::ClearCache(Store::Audio));
+            }
+        });
+        ui.horizontal(|ui| {
+            label(
+                ui,
+                &palette,
+                &format!("Album covers · using {}", used(view.storage.map(|s| s.covers))),
+            );
+            let button = small_button(ui, &palette, "CLEAR", false);
+            ring(ui, &palette, form, Item::ClearCovers, &button);
+            if button.clicked() || pressed(Item::ClearCovers) {
+                actions.push(Action::ClearCache(Store::Covers));
+            }
+        });
+        ui.label(
+            RichText::new(
+                "Kept in ~/.cache/spotless. Turning the audio cache on or off, \
+                 and its size, take effect the next time Spotless starts.",
+            )
+            .color(palette.dim),
+        );
+            });
     });
+    form.reveal = false;
     close
 }
 
@@ -231,11 +353,33 @@ fn is_client_id(text: &str) -> bool {
     text.len() == 32 && text.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-/// Frames the control Tab got to.
+/// Frames the control Tab got to, scrolling to it when Tab just moved.
 fn ring(ui: &Ui, palette: &Palette, form: &Form, item: Item, response: &Response) {
     if form.item == Some(item) {
         theme::focus_ring(ui.painter(), response.rect.expand(3.0), palette);
+        if form.reveal {
+            ui.scroll_to_rect(response.rect, None);
+        }
     }
+}
+
+/// "2.2 MB", "1.4 GB".
+fn size(bytes: u64) -> String {
+    const MB: f64 = 1024.0 * 1024.0;
+    let mb = bytes as f64 / MB;
+    if bytes == 0 {
+        "0 MB".into()
+    } else if mb >= 1024.0 {
+        format!("{:.1} GB", mb / 1024.0).replace(".0 ", " ")
+    } else if mb >= 10.0 {
+        format!("{mb:.0} MB")
+    } else {
+        format!("{mb:.1} MB")
+    }
+}
+
+fn label(ui: &mut Ui, palette: &Palette, text: &str) {
+    ui.label(RichText::new(text).color(palette.chrome));
 }
 
 fn section(ui: &mut Ui, palette: &Palette, title: &str, status: Option<&str>) {
@@ -275,5 +419,16 @@ mod tests {
         assert!(is_client_id("0123456789abcdef0123456789ABCDEF"));
         assert!(!is_client_id("0123456789abcdef"));
         assert!(!is_client_id("0123456789abcdef0123456789abcdeg"));
+    }
+
+    #[test]
+    fn sizes_read_naturally() {
+        use super::size;
+        assert_eq!(size(0), "0 MB");
+        assert_eq!(size(2_306_867), "2.2 MB");
+        assert_eq!(size(124_780_544), "119 MB");
+        assert_eq!(size(2048 * 1024 * 1024), "2 GB");
+        assert_eq!(size(1536 * 1024 * 1024), "1.5 GB");
+        assert_eq!(size(512 * 1024 * 1024), "512 MB");
     }
 }

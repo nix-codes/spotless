@@ -44,6 +44,7 @@ async fn main() -> Result<()> {
     let engine = Engine::new(
         &session,
         0,
+        false,
         Arc::new(move |event| {
             let _ = sender.send((Instant::now(), event));
         }),

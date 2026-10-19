@@ -87,8 +87,19 @@ pub struct Settings {
     pub shuffle: bool,
     /// Album covers in the catalog.
     pub covers: bool,
+    /// Volume levelling (Spotify's normalisation).
+    pub levelling: bool,
+    /// The interface's zoom, 1 at normal size.
+    pub zoom: f32,
+    /// Songs played are kept on disk, up to `audio_cache_mb`.
+    pub audio_cache: bool,
+    pub audio_cache_mb: u64,
     raw: Map<String, Value>,
 }
+
+/// The audio cache's sizes to choose from, in MB.
+pub const AUDIO_CACHE_SIZES: [u64; 6] = [512, 1024, 2048, 4096, 8192, 16384];
+pub const ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.75..=2.5;
 
 impl Settings {
     pub fn load(paths: &Paths) -> Self {
@@ -135,6 +146,19 @@ impl Settings {
             repeat: flag("repeat"),
             shuffle: flag("shuffle"),
             covers: flag("covers"),
+            levelling: flag("levelling"),
+            zoom: raw.get("zoom").and_then(Value::as_f64).map_or(1.0, |z| {
+                (z as f32).clamp(*ZOOM_RANGE.start(), *ZOOM_RANGE.end())
+            }),
+            audio_cache: raw
+                .get("audio_cache")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            audio_cache_mb: raw
+                .get("audio_cache_mb")
+                .and_then(Value::as_u64)
+                .filter(|mb| AUDIO_CACHE_SIZES.contains(mb))
+                .unwrap_or(2048),
             raw: raw.clone(),
         }
     }
@@ -145,6 +169,10 @@ impl Settings {
         raw.insert("repeat".into(), self.repeat.into());
         raw.insert("shuffle".into(), self.shuffle.into());
         raw.insert("covers".into(), self.covers.into());
+        raw.insert("levelling".into(), self.levelling.into());
+        raw.insert("zoom".into(), self.zoom.into());
+        raw.insert("audio_cache".into(), self.audio_cache.into());
+        raw.insert("audio_cache_mb".into(), self.audio_cache_mb.into());
         raw
     }
 
@@ -229,6 +257,21 @@ mod tests {
         let raw: Value = serde_json::from_slice(&std::fs::read(paths.settings()).unwrap()).unwrap();
         assert_eq!(raw["web_client_id"], "abc");
         assert_eq!(raw["shuffle"], true);
+    }
+
+    #[test]
+    fn playback_and_storage_settings_default_and_stay_in_range() {
+        let paths = temporary_paths("ranges");
+        let settings = Settings::load(&paths);
+        assert!(!settings.levelling);
+        assert_eq!(settings.zoom, 1.0);
+        assert!(settings.audio_cache);
+        assert_eq!(settings.audio_cache_mb, 2048);
+
+        std::fs::write(paths.settings(), br#"{"zoom":9,"audio_cache_mb":3}"#).unwrap();
+        let settings = Settings::load(&paths);
+        assert_eq!(settings.zoom, *ZOOM_RANGE.end());
+        assert_eq!(settings.audio_cache_mb, 2048);
     }
 
     #[test]

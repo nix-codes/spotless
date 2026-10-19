@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::action::Action;
-use crate::backend::{Backend, Command, Event, SearchState, SessionState};
+use crate::backend::{Backend, Command, Event, SearchState, SessionState, Storage};
 use crate::browse::{Browse, Cover, Loadable, Page};
 use crate::media::{MediaEvent, Mpris, NowPlaying};
 use crate::model::{Library, Playback, PlaylistId, TrackRef};
@@ -36,6 +36,8 @@ pub struct App {
     unsaved: Option<Instant>,
     browse: Browse,
     search: SearchState,
+    /// What the caches hold, once measured.
+    storage: Option<Storage>,
     media: Mpris,
     media_events: std::sync::mpsc::Receiver<MediaEvent>,
     /// Albums whose songs go to a playlist (at an index, or at the end)
@@ -48,6 +50,7 @@ impl App {
         let palette = Palette::CLASSIC;
         palette.apply(&cc.egui_ctx);
         let settings = Settings::load(&paths);
+        cc.egui_ctx.set_zoom_factor(settings.zoom);
         let (library, tabs) = store::load_library(&paths);
         let covers = settings.covers;
         let viewed = tabs.viewed.or(tabs.playing).unwrap_or(PlaylistId::DEFAULT);
@@ -63,7 +66,13 @@ impl App {
         }));
 
         let volume = volume_level(settings.volume);
-        let (backend, session) = match Backend::start(paths.clone(), volume, cc.egui_ctx.clone()) {
+        let started = Backend::start(
+            paths.clone(),
+            volume,
+            settings.levelling,
+            cc.egui_ctx.clone(),
+        );
+        let (backend, session) = match started {
             Ok(backend) => (Some(backend), SessionState::Connecting),
             Err(error) => (None, SessionState::Failed(format!("{error:#}"))),
         };
@@ -85,6 +94,7 @@ impl App {
             unsaved: None,
             browse: Browse::new(viewed, covers),
             search: SearchState::SignedOut,
+            storage: None,
             pending_adds: Vec::new(),
             media,
             media_events,
@@ -126,6 +136,7 @@ impl App {
                 }
                 Event::Tracks { playlist, tracks } => self.insert_tracks(playlist, None, tracks),
                 Event::Search(state) => self.search = state,
+                Event::Storage(storage) => self.storage = Some(storage),
                 Event::Cover { url, result } => {
                     let cover = match result {
                         Ok(image) => Cover::Ready(ctx.load_texture(
@@ -190,6 +201,21 @@ impl App {
         let requests = match action {
             Action::SignIn => return self.send(Command::SignIn),
             Action::SignOut => return self.send(Command::SignOut),
+            Action::SetLevelling(on) => {
+                self.settings.levelling = on;
+                self.mark_unsaved();
+                return self.send(Command::Levelling(on));
+            }
+            Action::SetAudioCache(on) => {
+                self.settings.audio_cache = on;
+                return self.mark_unsaved();
+            }
+            Action::SetAudioCacheSize(mb) => {
+                self.settings.audio_cache_mb = mb;
+                return self.mark_unsaved();
+            }
+            Action::MeasureStorage => return self.send(Command::MeasureStorage),
+            Action::ClearCache(store) => return self.send(Command::ClearCache(store)),
             Action::SetSearchApp(client_id) => {
                 let client_id = Some(client_id.trim().to_string()).filter(|id| !id.is_empty());
                 self.error = None;
@@ -506,6 +532,20 @@ impl App {
         actions
     }
 
+    /// Saves the zoom when it changes, by the settings or by egui's own
+    /// Ctrl+plus and Ctrl+minus, within the range the settings allow.
+    fn keep_zoom(&mut self, ctx: &egui::Context) {
+        let zoom = ctx.zoom_factor();
+        let kept = zoom.clamp(*store::ZOOM_RANGE.start(), *store::ZOOM_RANGE.end());
+        if kept != zoom {
+            ctx.set_zoom_factor(kept);
+        }
+        if (kept - self.settings.zoom).abs() > 0.001 {
+            self.settings.zoom = kept;
+            self.mark_unsaved();
+        }
+    }
+
     /// The model changed: send what the engine must do, and save soon.
     fn changed(&mut self, requests: Vec<Request>) {
         for request in requests {
@@ -578,8 +618,11 @@ impl eframe::App for App {
             browse: &self.browse,
             search: &self.search,
             web_client_id: web_client_id.as_deref(),
+            settings: &self.settings,
+            storage: self.storage,
         };
         ui::draw(ui, &view, &mut self.inputs, &mut actions);
+        self.keep_zoom(ui.ctx());
         actions.extend(self.media_actions(&ui.ctx().clone()));
         for action in actions {
             self.apply(action);

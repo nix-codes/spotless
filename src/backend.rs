@@ -43,6 +43,26 @@ pub enum Command {
     Cover(String),
     /// The personal app search signs in with changed (None: no app).
     SearchApp(Option<String>),
+    /// Volume levelling on or off.
+    Levelling(bool),
+    /// How much the caches hold; answered with `Event::Storage`.
+    MeasureStorage,
+    /// Empties a cache, then measures again.
+    ClearCache(Store),
+}
+
+/// What Spotless keeps on disk that can be thrown away.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Store {
+    Audio,
+    Covers,
+}
+
+/// Bytes on disk per cache.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Storage {
+    pub audio: u64,
+    pub covers: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -92,6 +112,7 @@ pub enum Event {
         url: String,
         result: Result<egui::ColorImage, String>,
     },
+    Storage(Storage),
     /// The songs of an `AddLink`.
     Tracks {
         playlist: PlaylistId,
@@ -106,7 +127,7 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn start(paths: Paths, volume: u16, ctx: egui::Context) -> Result<Self> {
+    pub fn start(paths: Paths, volume: u16, levelling: bool, ctx: egui::Context) -> Result<Self> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .thread_name("spotless-backend")
@@ -120,7 +141,7 @@ impl Backend {
         std::thread::Builder::new()
             .name("spotless-runtime".into())
             .spawn(move || {
-                runtime.block_on(Worker::new(paths, volume, emit).run(receiver));
+                runtime.block_on(Worker::new(paths, volume, levelling, emit).run(receiver));
             })?;
         Ok(Self { commands, events })
     }
@@ -169,6 +190,7 @@ async fn approve_search(
 struct Worker {
     paths: Paths,
     volume: u16,
+    levelling: bool,
     emit: Emit,
     session: Option<Session>,
     engine: Option<Engine>,
@@ -182,10 +204,11 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(paths: Paths, volume: u16, emit: Emit) -> Self {
+    fn new(paths: Paths, volume: u16, levelling: bool, emit: Emit) -> Self {
         Self {
             paths,
             volume,
+            levelling,
             emit,
             session: None,
             engine: None,
@@ -220,6 +243,13 @@ impl Worker {
         self.web = web.map(|web| Arc::new(tokio::sync::Mutex::new(web)));
     }
 
+    /// Measures the caches in the background.
+    fn measure_storage(&self) {
+        let emit = Arc::clone(&self.emit);
+        let paths = self.paths.clone();
+        tokio::task::spawn_blocking(move || emit(Event::Storage(measure(&paths))));
+    }
+
     /// Runs search's browser approval now, unless it was given already.
     fn approve_search_now(&self) {
         let Some(web) = self.web.clone() else { return };
@@ -237,6 +267,7 @@ impl Worker {
         match Engine::new(
             &session,
             self.volume,
+            self.levelling,
             Arc::new(move |event| {
                 emit(match event {
                     EngineEvent::Snapshot(snapshot) => Event::Player(snapshot),
@@ -298,6 +329,28 @@ impl Worker {
                 });
             }
             Command::Player(request) => self.player(request),
+            Command::MeasureStorage => self.measure_storage(),
+            Command::ClearCache(store) => {
+                let dir = match store {
+                    Store::Audio => self.paths.audio_cache(),
+                    Store::Covers => self.paths.covers(),
+                };
+                let emit = Arc::clone(&self.emit);
+                let paths = self.paths.clone();
+                tokio::task::spawn_blocking(move || {
+                    if let Err(error) = clear_dir(&dir) {
+                        log::error!("unable to clear {}: {error}", dir.display());
+                        emit(Event::Error("Couldn't clear all of the cache.".into()));
+                    }
+                    emit(Event::Storage(measure(&paths)));
+                });
+            }
+            Command::Levelling(on) => {
+                self.levelling = on;
+                if let Some(engine) = &mut self.engine {
+                    engine.set_levelling(on);
+                }
+            }
             Command::SearchApp(client_id) => {
                 // The saved approval belongs to the old app.
                 let _ = std::fs::remove_file(self.paths.search_credentials());
@@ -410,5 +463,64 @@ impl Worker {
         if let Some(engine) = &self.engine {
             action(engine);
         }
+    }
+}
+
+fn measure(paths: &Paths) -> Storage {
+    Storage {
+        audio: dir_size(&paths.audio_cache()),
+        covers: dir_size(&paths.covers()),
+    }
+}
+
+/// The bytes in a folder and its subfolders; a missing folder holds none.
+fn dir_size(dir: &std::path::Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| match entry.file_type() {
+            Ok(kind) if kind.is_dir() => dir_size(&entry.path()),
+            Ok(kind) if kind.is_file() => entry.metadata().map_or(0, |m| m.len()),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// Removes what a folder holds, keeping the folder.
+fn clear_dir(dir: &std::path::Path) -> std::io::Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            std::fs::remove_dir_all(entry.path())?;
+        } else {
+            std::fs::remove_file(entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clear_dir, dir_size};
+
+    #[test]
+    fn a_cleared_folder_is_empty_and_kept() {
+        let dir = std::env::temp_dir().join(format!("spotless-clear-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("ab")).unwrap();
+        std::fs::write(dir.join("ab/cd"), [0; 300]).unwrap();
+        std::fs::write(dir.join("ef"), [0; 200]).unwrap();
+        assert_eq!(dir_size(&dir), 500);
+        clear_dir(&dir).unwrap();
+        assert_eq!(dir_size(&dir), 0);
+        assert!(dir.is_dir());
+        assert!(clear_dir(&dir.join("missing")).is_ok());
     }
 }

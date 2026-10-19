@@ -17,6 +17,7 @@ use librespot_core::session::Session;
 use librespot_oauth::OAuthClientBuilder;
 
 use crate::paths::Paths;
+use crate::store::Settings;
 
 /// Spotify's desktop client, as librespot uses it.
 pub const CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
@@ -25,15 +26,16 @@ pub const CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
 pub const REDIRECT_URI: &str = "http://127.0.0.1:8898/login";
 pub const SCOPES: &[&str] = &["streaming"];
 
-const AUDIO_CACHE_LIMIT: u64 = 2 * 1024 * 1024 * 1024;
-
+/// The audio cache as the settings have it when the session starts: off, or
+/// up to its size.
 fn open_cache(paths: &Paths) -> Result<Cache> {
+    let settings = Settings::load(paths);
     let audio = paths.audio_cache();
     Cache::new(
         Some(paths.config.as_path()),
         None,
-        Some(audio.as_path()),
-        Some(AUDIO_CACHE_LIMIT),
+        settings.audio_cache.then_some(audio.as_path()),
+        Some(settings.audio_cache_mb * 1024 * 1024),
     )
     .context("unable to open the playback cache")
 }

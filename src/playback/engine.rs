@@ -8,7 +8,11 @@
 //! Like Spirc, the engine holds the song to follow the playing one, preloads
 //! it when librespot asks, and starts it the moment the playing song ends,
 //! so songs follow each other without a gap (`super::transport`).
+//!
+//! Volume levelling is fixed when a librespot player is made, so changing it
+//! makes a new player that picks up the song where the old one was.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -16,7 +20,7 @@ use anyhow::{Context, Result, anyhow};
 use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
 use librespot_metadata::audio::{AudioItem, UniqueFields};
-use librespot_playback::config::{Bitrate, PlayerConfig, VolumeCtrl};
+use librespot_playback::config::{Bitrate, NormalisationType, PlayerConfig, VolumeCtrl};
 use librespot_playback::mixer::{self, Mixer, MixerConfig};
 use librespot_playback::player::{Player, PlayerEvent};
 
@@ -87,14 +91,22 @@ pub type Notify = Arc<dyn Fn(EngineEvent) + Send + Sync>;
 type Follow = Arc<Mutex<Option<(EntryId, SpotifyUri)>>>;
 
 pub struct Engine {
+    session: Session,
     player: Arc<Player>,
     mixer: Arc<dyn Mixer>,
     follow: Follow,
+    notify: Notify,
+    /// Volume levelling, as the player was made with.
+    levelling: bool,
+    /// The player's state as last reported, to carry over to a new player.
+    state: Arc<Mutex<PlayerSnapshot>>,
+    /// Cleared when the player is replaced: its events are no longer told.
+    live: Arc<AtomicBool>,
 }
 
 impl Engine {
     /// Must be called on the tokio runtime: the event fold runs on it.
-    pub fn new(session: &Session, volume: u16, notify: Notify) -> Result<Self> {
+    pub fn new(session: &Session, volume: u16, levelling: bool, notify: Notify) -> Result<Self> {
         let mixer =
             mixer::find(Some("softvol")).ok_or_else(|| anyhow!("soft volume mixer missing"))?;
         // librespot's default curve puts half the slider below -30 dB. The
@@ -105,41 +117,50 @@ impl Engine {
         })
         .context("unable to create the mixer")?;
         mixer.set_volume(volume);
-
-        // A device by name, for testing without one: any name that doesn't
-        // exist acts as a missing output.
-        let device = std::env::var("SPOTLESS_AUDIO_DEVICE").ok();
-        let on_error = {
-            let notify = Arc::clone(&notify);
-            Box::new(move |message| notify(EngineEvent::OutputError(message)))
-        };
-        let config = PlayerConfig {
-            bitrate: Bitrate::Bitrate320,
-            gapless: true,
-            position_update_interval: Some(Duration::from_secs(1)),
-            ..PlayerConfig::default()
-        };
-        let player = Player::new(
-            config,
-            session.clone(),
-            mixer.get_soft_volume(),
-            move || Box::new(RodioSink::new(device, on_error)),
-        );
-
         let follow: Follow = Arc::default();
-        // Subscribed before the first load, so its events are seen.
-        let events = player.get_player_event_channel();
-        tokio::spawn(follow_songs(
-            Arc::clone(&player),
-            events,
-            Arc::clone(&follow),
-            notify,
-        ));
+        let state = Arc::default();
+        let live = Arc::new(AtomicBool::new(true));
+        let player = start_player(session, &mixer, levelling, &follow, &state, &live, &notify);
         Ok(Self {
+            session: session.clone(),
             player,
             mixer,
             follow,
+            notify,
+            levelling,
+            state,
+            live,
         })
+    }
+
+    /// Turns volume levelling on or off with a new player, which goes on
+    /// with the song (playing or paused) and the song to follow it.
+    pub fn set_levelling(&mut self, on: bool) {
+        if on == self.levelling {
+            return;
+        }
+        self.levelling = on;
+        let state = lock(&self.state).clone();
+        self.live.store(false, Ordering::SeqCst);
+        self.player.stop();
+        self.live = Arc::new(AtomicBool::new(true));
+        *lock(&self.state) = PlayerSnapshot::default();
+        self.player = start_player(
+            &self.session,
+            &self.mixer,
+            on,
+            &self.follow,
+            &self.state,
+            &self.live,
+            &self.notify,
+        );
+        let playing = matches!(state.status, Status::Playing | Status::Loading);
+        if state.status != Status::Stopped
+            && let Some(track) = state.track.as_ref()
+            && let Ok(uri) = SpotifyUri::from_uri(&track.uri)
+        {
+            self.player.load(uri, playing, state.position_now());
+        }
     }
 
     /// Plays `track` now, following it with nothing until told otherwise.
@@ -175,17 +196,73 @@ impl Engine {
     }
 }
 
+/// Makes a player on the session and starts following its events.
+fn start_player(
+    session: &Session,
+    mixer: &Arc<dyn Mixer>,
+    levelling: bool,
+    follow: &Follow,
+    state: &Arc<Mutex<PlayerSnapshot>>,
+    live: &Arc<AtomicBool>,
+    notify: &Notify,
+) -> Arc<Player> {
+    // A device by name, for testing without one: any name that doesn't
+    // exist acts as a missing output.
+    let device = std::env::var("SPOTLESS_AUDIO_DEVICE").ok();
+    let on_error = {
+        let notify = Arc::clone(notify);
+        let live = Arc::clone(live);
+        Box::new(move |message| {
+            if live.load(Ordering::SeqCst) {
+                notify(EngineEvent::OutputError(message));
+            }
+        })
+    };
+    let config = PlayerConfig {
+        bitrate: Bitrate::Bitrate320,
+        gapless: true,
+        normalisation: levelling,
+        // Album gain while an album plays through, track gain otherwise.
+        normalisation_type: NormalisationType::Auto,
+        position_update_interval: Some(Duration::from_secs(1)),
+        ..PlayerConfig::default()
+    };
+    let player = Player::new(
+        config,
+        session.clone(),
+        mixer.get_soft_volume(),
+        move || Box::new(RodioSink::new(device, on_error)),
+    );
+    // Subscribed before the first load, so its events are seen.
+    let events = player.get_player_event_channel();
+    tokio::spawn(follow_songs(
+        Arc::clone(&player),
+        events,
+        Arc::clone(follow),
+        Arc::clone(state),
+        Arc::clone(live),
+        Arc::clone(notify),
+    ));
+    player
+}
+
 /// Preloads the followed song when librespot asks, starts it as the playing
-/// one ends, and reports the player's state.
+/// one ends, and reports the player's state. Ends, letting the player go,
+/// once the player has been replaced.
 async fn follow_songs(
     player: Arc<Player>,
     mut events: librespot_playback::player::PlayerEventChannel,
     follow: Follow,
+    shared: Arc<Mutex<PlayerSnapshot>>,
+    live: Arc<AtomicBool>,
     notify: Notify,
 ) {
     let mut state = PlayerSnapshot::default();
     let mut current = None;
     while let Some(event) = events.recv().await {
+        if !live.load(Ordering::SeqCst) {
+            break;
+        }
         if let PlayerEvent::PlayRequestIdChanged { play_request_id } = event {
             current = Some(play_request_id);
             continue;
@@ -214,9 +291,12 @@ async fn follow_songs(
             _ => {}
         }
         if apply(&mut state, event) {
+            *lock(&shared) = state.clone();
             notify(EngineEvent::Snapshot(state.clone()));
         }
     }
+    // Dropping a player waits for its thread, which may be finishing audio.
+    tokio::task::spawn_blocking(move || drop(player));
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
