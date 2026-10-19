@@ -25,6 +25,9 @@ Spotify's own app has frustrated me for years:
 - **What I do use is hard to reach.** Listening to albums means going back and
   forth between screens, and coming back often loses the place you scrolled
   to.
+- **It can't be navigated with the keyboard.** There are a few shortcuts,
+  but getting around (searching, opening an artist, picking an album,
+  adding it) takes the mouse.
 - **The queue works against you.** It's one queue, synced across all your
   devices. I understand why, but I rarely want that, and often I want the
   opposite: a computer playing its own queue without overwriting what my
@@ -90,6 +93,9 @@ accounts.
   Last.fm link only hears of what plays through Spotify Connect, which
   Spotless stays out of so it never takes over your account's queue.
   Listens made offline are sent later.
+- **Made for the keyboard.** Everything works without the mouse: playback,
+  moving between tabs and through playlists, searching and browsing an
+  artist's albums, adding them, and Settings. F1 lists the keys.
 - **Your desktop's controls**: media keys, the system's now-playing display
   (MPRIS on Linux, the media overlay on Windows), and a tray icon; closing
   the window keeps Spotless playing there.
