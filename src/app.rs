@@ -582,6 +582,18 @@ impl eframe::App for App {
         }
     }
 
+    /// Tab and Shift+Tab never walk the focus through the buttons; Ctrl+Tab
+    /// (switching playlists) still gets through.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        raw_input.events.retain(|event| {
+            !matches!(
+                event,
+                egui::Event::Key { key: egui::Key::Tab, modifiers, .. }
+                    if !modifiers.command && !modifiers.ctrl
+            )
+        });
+    }
+
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.save();
     }

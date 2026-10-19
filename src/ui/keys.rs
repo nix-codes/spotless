@@ -67,7 +67,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Enter", "Search (in the search field)"),
             ("Ctrl+Tab, Ctrl+1 … 9", "Choose the playlist + ADD adds to"),
             ("Backspace / Alt+←", "Back"),
-            ("Esc", "Leave the search field, then back to the playlists"),
+            ("Esc", "Leave the search field, then close Browse"),
         ],
     ),
 ];
@@ -282,11 +282,18 @@ fn consume(i: &mut InputState, modifiers: Modifiers, key: Key, repeats: bool) ->
     count
 }
 
-/// The F1 screen.
+/// The F1 screen: the sections in two columns when the window is wide
+/// enough, one otherwise; it scrolls when the window is too short.
 pub fn help(ui: &Ui, palette: &Palette, inputs: &mut Inputs) {
     if !inputs.help {
         return;
     }
+    const KEYS_WIDTH: f32 = 170.0;
+    const WHAT_WIDTH: f32 = 210.0;
+    const GAP: f32 = 28.0;
+    let column = KEYS_WIDTH + 12.0 + WHAT_WIDTH;
+    let screen = ui.ctx().content_rect();
+    let two = screen.width() >= 2.0 * column + GAP + 80.0;
     let modal = egui::Modal::new(Id::new("keys-help"))
         .frame(
             egui::Frame::new()
@@ -295,21 +302,21 @@ pub fn help(ui: &Ui, palette: &Palette, inputs: &mut Inputs) {
                 .inner_margin(16),
         )
         .show(ui.ctx(), |ui| {
-            ui.set_max_width(520.0);
             ui.label(RichText::new("Keys").size(15.0).color(palette.current));
-            ui.add_space(6.0);
-            for (section, keys) in HELP {
+            ui.add_space(4.0);
+            let section = |ui: &mut Ui, (title, keys): &(&str, &[(&str, &str)])| {
                 ui.add_space(6.0);
                 ui.label(
-                    RichText::new(*section)
+                    RichText::new(*title)
                         .monospace()
                         .size(10.0)
                         .color(palette.dim),
                 );
-                egui::Grid::new(*section)
+                egui::Grid::new(*title)
                     .num_columns(2)
-                    .spacing([16.0, 3.0])
-                    .min_col_width(170.0)
+                    .spacing([12.0, 3.0])
+                    .min_col_width(KEYS_WIDTH)
+                    .max_col_width(WHAT_WIDTH)
                     .show(ui, |ui| {
                         for (keys, what) in *keys {
                             ui.label(RichText::new(*keys).monospace().color(palette.list_fg));
@@ -317,7 +324,32 @@ pub fn help(ui: &Ui, palette: &Palette, inputs: &mut Inputs) {
                             ui.end_row();
                         }
                     });
-            }
+            };
+            egui::ScrollArea::vertical()
+                .max_height((screen.height() - 140.0).max(120.0))
+                .show(ui, |ui| {
+                    if two {
+                        // Playback with the playlist's keys, screens with Browse's.
+                        ui.horizontal_top(|ui| {
+                            ui.vertical(|ui| {
+                                ui.set_width(column);
+                                section(ui, &HELP[0]);
+                                section(ui, &HELP[2]);
+                            });
+                            ui.add_space(GAP);
+                            ui.vertical(|ui| {
+                                ui.set_width(column);
+                                section(ui, &HELP[1]);
+                                section(ui, &HELP[3]);
+                            });
+                        });
+                    } else {
+                        ui.set_width(column);
+                        for entry in HELP {
+                            section(ui, entry);
+                        }
+                    }
+                });
             ui.add_space(12.0);
             small_button(ui, palette, "CLOSE", false).clicked()
         });
