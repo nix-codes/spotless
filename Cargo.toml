@@ -45,6 +45,9 @@ librespot-core = { git = "https://github.com/crmne/librespot", rev = "d047290182
 librespot-playback = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-metadata = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-oauth = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The tray icon (src/tray.rs): a StatusNotifierItem on the session bus.
 ksni = { version = "0.3.6", default-features = false, features = ["async-io", "blocking"] }
 
 [patch.crates-io]

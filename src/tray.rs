@@ -3,11 +3,11 @@
 //! Clicking it shows or hides the window; its menu plays, pauses, skips,
 //! shows the window and quits. While a panel shows it, closing the window
 //! hides Spotless here instead of quitting. Its clicks arrive as
-//! [`MediaEvent`]s, like the media keys.
+//! [`MediaEvent`](crate::media::MediaEvent)s, like the media keys.
 //!
 //! Elsewhere there is no tray yet, and closing the window quits.
 
-use crate::media::{EventHook, MediaEvent};
+use crate::media::EventHook;
 
 /// What the tray shows.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -28,7 +28,8 @@ mod imp {
     use ksni::blocking::{Handle, TrayMethods};
     use ksni::menu::{MenuItem, StandardItem};
 
-    use super::{EventHook, MediaEvent, TrayState};
+    use super::{EventHook, TrayState};
+    use crate::media::MediaEvent;
 
     pub struct Tray {
         handle: Handle<Item>,
