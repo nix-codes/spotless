@@ -51,15 +51,19 @@ zbus = "5"
 ksni = { version = "0.3.6", default-features = false, features = ["async-io", "blocking"] }
 
 [target.'cfg(windows)'.dependencies]
-# Media keys and the single-instance check (src/media/smtc.rs). The same
-# windows crate version the rest of the build already pulls in.
+# Media keys and the single-instance check (src/media/smtc.rs), the tray
+# icon (src/tray/notify_icon.rs). The same windows crate version the rest
+# of the build already pulls in.
 windows = { version = "0.62", features = [
     "Foundation",
     "Media",
     "Storage_Streams",
+    "Win32_Graphics_Gdi",
     "Win32_Security",
+    "Win32_System_LibraryLoader",
     "Win32_System_Threading",
     "Win32_System_WinRT",
+    "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
 raw-window-handle = "0.6"
