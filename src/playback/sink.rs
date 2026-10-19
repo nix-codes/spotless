@@ -7,6 +7,11 @@
 //! librespot pauses. Play tries the device again.
 //!
 //! librespot exits the process if `stop` fails, so `stop` never does.
+//!
+//! Where outputs are chosen by device (Windows, see `outputs.rs`), a new
+//! choice reopens the output on the next write, dropping the half second
+//! queued for the old one. A chosen device that isn't connected plays on
+//! the default one.
 
 use std::thread;
 use std::time::{Duration, Instant};
@@ -31,9 +36,11 @@ const STALL_LIMIT: Duration = Duration::from_secs(2);
 const DRAIN_LIMIT: Duration = Duration::from_secs(1);
 
 pub struct RodioSink {
-    /// A device name, else the system's default output.
+    /// A device name for testing, which overrides the chosen output.
     device: Option<String>,
     output: Option<Output>,
+    /// The chosen output when `output` was opened.
+    opened: Option<String>,
     on_error: ErrorHook,
 }
 
@@ -48,6 +55,7 @@ impl RodioSink {
         Self {
             device,
             output: None,
+            opened: None,
             on_error,
         }
     }
@@ -58,18 +66,37 @@ impl RodioSink {
         (self.on_error)(message.to_string());
         SinkError::ConnectionRefused(detail.to_string())
     }
+
+    /// Opens the testing device, else the chosen output, else (or if that
+    /// one isn't connected) the default one.
+    fn open(&mut self) -> Result<(), OpenError> {
+        let chosen = super::outputs::device();
+        let output = match (self.device.as_deref(), chosen.as_deref()) {
+            (Some(device), _) => open(Some(device))?,
+            (None, Some(name)) => open(Some(name)).or_else(|error| {
+                log::warn!("audio output: {error}; using the default one");
+                open(None)
+            })?,
+            (None, None) => open(None)?,
+        };
+        self.output = Some(output);
+        self.opened = chosen;
+        super::outputs::stream_opened();
+        Ok(())
+    }
+
+    /// Whether the output was chosen anew since it opened.
+    fn rechosen(&self) -> bool {
+        self.device.is_none() && self.output.is_some() && super::outputs::device() != self.opened
+    }
 }
 
 impl Sink for RodioSink {
     fn start(&mut self) -> SinkResult<()> {
-        if self.output.is_none() {
-            match open(self.device.as_deref()) {
-                Ok(output) => {
-                    self.output = Some(output);
-                    super::outputs::stream_opened();
-                }
-                Err(error) => return Err(self.fail(NO_DEVICE, error)),
-            }
+        if (self.output.is_none() || self.rechosen())
+            && let Err(error) = self.open()
+        {
+            return Err(self.fail(NO_DEVICE, error));
         }
         if let Some(output) = &self.output {
             output.sink.play();
@@ -89,6 +116,13 @@ impl Sink for RodioSink {
     }
 
     fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
+        if self.rechosen() {
+            log::info!("audio output: chosen anew, reopening");
+            self.output = None;
+            if let Err(error) = self.open() {
+                return Err(self.fail(NO_DEVICE, error));
+            }
+        }
         let Some(output) = &self.output else {
             return Err(SinkError::NotConnected("no audio output".into()));
         };

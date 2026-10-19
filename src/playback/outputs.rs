@@ -7,8 +7,10 @@
 //! to the chosen output, which the sound server also remembers for the
 //! streams that follow.
 //!
-//! Elsewhere nothing is listed yet, and the system's sound settings decide.
-//! (On Windows, cpal's own device list is reliable: that goes here.)
+//! On Windows cpal's own device list is reliable, so the audio output
+//! opens the chosen device by name ([`device`]), and opens it again when
+//! the choice changes. Elsewhere nothing is listed yet, and the system's
+//! sound settings decide.
 
 use std::sync::Mutex;
 
@@ -54,6 +56,12 @@ pub fn list() -> Option<Vec<Output>> {
     imp::list()
 }
 
+/// The device the audio output opens by name: the chosen one where the
+/// stream isn't moved for it (Windows), else None for the default device.
+pub fn device() -> Option<String> {
+    if imp::OPENS_BY_NAME { choice() } else { None }
+}
+
 #[cfg(target_os = "linux")]
 mod imp {
     use std::process::Command;
@@ -65,6 +73,9 @@ mod imp {
 
     /// `pactl`'s name for whichever output is the default.
     pub const DEFAULT: &str = "@DEFAULT_SINK@";
+
+    /// The stream opens on the default device and is moved.
+    pub const OPENS_BY_NAME: bool = false;
 
     pub fn list() -> Option<Vec<Output>> {
         let sinks = pactl_json(&["list", "sinks"])?;
@@ -138,11 +149,43 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+mod imp {
+    use cpal::traits::{DeviceTrait, HostTrait};
+
+    use super::Output;
+
+    pub const DEFAULT: &str = "";
+
+    /// The audio output opens the chosen device itself.
+    pub const OPENS_BY_NAME: bool = true;
+
+    /// WASAPI's outputs, by the names the system's sound settings show.
+    pub fn list() -> Option<Vec<Output>> {
+        let devices = cpal::default_host().output_devices().ok()?;
+        let mut outputs: Vec<Output> = Vec::new();
+        for name in devices.filter_map(|device| device.name().ok()) {
+            if !outputs.iter().any(|output| output.name == name) {
+                outputs.push(Output {
+                    description: name.clone(),
+                    name,
+                });
+            }
+        }
+        Some(outputs)
+    }
+
+    /// Nothing to move: the audio output notices the new choice.
+    pub fn move_stream(_output: &str, _attempts: u32) {}
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
 mod imp {
     use super::Output;
 
     pub const DEFAULT: &str = "";
+
+    pub const OPENS_BY_NAME: bool = false;
 
     pub fn list() -> Option<Vec<Output>> {
         None
