@@ -10,7 +10,7 @@ use egui::{
 };
 
 use super::theme::{self, Palette};
-use super::widgets::small_button;
+use super::widgets::text_button;
 use super::{Inputs, View};
 use crate::action::Action;
 use crate::backend::SessionState;
@@ -315,13 +315,16 @@ const WHAT_WIDTH: f32 = 215.0;
 /// Between a section's keys and what they do.
 const COLUMN_GAP: f32 = 14.0;
 /// Inside a section's panel.
-const PAD: f32 = 12.0;
+const PAD: f32 = 10.0;
 /// Between the panels.
-const GAP: f32 = 14.0;
+const GAP: f32 = 10.0;
+/// Between a section's rows.
+const ROW_GAP: f32 = 5.0;
 
 /// The F1 screen: each section in a panel of its own, two side by side
-/// when the window is wide enough, one under another otherwise; it scrolls
-/// when the window is too short.
+/// when the window is wide enough, one under another otherwise. It takes
+/// the window's height, and scrolls when that isn't enough (about 700
+/// points show every key at once).
 pub fn help(ui: &Ui, palette: &Palette, inputs: &mut Inputs) {
     if !inputs.help {
         return;
@@ -330,6 +333,7 @@ pub fn help(ui: &Ui, palette: &Palette, inputs: &mut Inputs) {
     let screen = ui.ctx().content_rect();
     // The dialog's own margins and edge take the rest.
     let two = screen.width() >= 2.0 * panel + GAP + 48.0;
+    let width = if two { 2.0 * panel + GAP } else { panel };
     let modal = egui::Modal::new(Id::new("keys-help"))
         .frame(
             egui::Frame::new()
@@ -338,10 +342,25 @@ pub fn help(ui: &Ui, palette: &Palette, inputs: &mut Inputs) {
                 .inner_margin(16),
         )
         .show(ui.ctx(), |ui| {
-            ui.label(RichText::new("Keys").size(15.0).color(palette.current));
-            ui.add_space(10.0);
+            // The title and the close button on one line, as in Settings,
+            // so the keys get the height.
+            let close = ui
+                .horizontal(|ui| {
+                    ui.set_width(width);
+                    ui.label(RichText::new("Keys").size(15.0).color(palette.current));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        text_button(ui, palette, "ESC · CLOSE", false, true).clicked()
+                    })
+                    .inner
+                })
+                .inner;
+            ui.add_space(8.0);
+            // What's left of the window after the dialog's margins and title,
+            // from the first frame on: the dialog's place isn't known yet then.
+            let height = (screen.height() - 90.0).max(120.0);
             egui::ScrollArea::vertical()
-                .max_height((screen.height() - 150.0).max(120.0))
+                .max_height(height)
+                .min_scrolled_height(height)
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing = vec2(GAP, GAP);
                     if two {
@@ -369,8 +388,7 @@ pub fn help(ui: &Ui, palette: &Palette, inputs: &mut Inputs) {
                         }
                     }
                 });
-            ui.add_space(12.0);
-            small_button(ui, palette, "CLOSE", false).clicked()
+            close
         });
     if modal.inner || modal.backdrop_response.clicked() {
         inputs.help = false;
@@ -407,10 +425,10 @@ fn section(
                         ui.allocate_exact_size(vec2(ui.available_width(), 7.0), Sense::hover());
                     theme::stripes(ui.painter(), rect, palette);
                 });
-                ui.add_space(12.0);
+                ui.add_space(8.0);
                 egui::Grid::new(*title)
                     .num_columns(2)
-                    .spacing([COLUMN_GAP, 7.0])
+                    .spacing([COLUMN_GAP, ROW_GAP])
                     .min_col_width(KEYS_WIDTH)
                     .max_col_width(WHAT_WIDTH)
                     .show(ui, |ui| {
