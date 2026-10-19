@@ -5,7 +5,8 @@
 //!
 //! Rows: click selects (Ctrl toggles, Shift extends), double-click or Enter
 //! plays, Delete removes, Q marks to play next, Alt+Up/Down or dragging
-//! moves the selection, Ctrl+A selects all.
+//! moves the selection, Ctrl+A selects all. Up/Down, PageUp/PageDown and
+//! Home/End move the selection; with Shift they extend it.
 
 use std::collections::BTreeSet;
 
@@ -30,8 +31,12 @@ const SCROLL_EDGE: f32 = 24.0;
 #[derive(Default)]
 pub struct Selection {
     pub rows: BTreeSet<EntryId>,
-    /// Where Shift+click and the arrow keys extend from.
+    /// Where Shift+click and Shift+arrows extend from.
     anchor: Option<EntryId>,
+    /// The row the arrow keys move from, framed when several are selected.
+    cursor: Option<EntryId>,
+    /// Rows that fit in the list, for PageUp and PageDown.
+    page: usize,
     /// The scroll offset last frame, and the row to bring into view.
     offset: f32,
     reveal: Option<usize>,
@@ -42,6 +47,7 @@ impl Selection {
     fn select(&mut self, id: EntryId, index: usize) {
         self.rows = BTreeSet::from([id]);
         self.anchor = Some(id);
+        self.cursor = Some(id);
         self.reveal = Some(index);
     }
 }
@@ -413,20 +419,23 @@ fn draw_rows(ui: &mut Ui, view: &View, selection: &mut Selection, actions: &mut 
             if selected {
                 painter.rect_filled(rect, 0.0, palette.selected_bg);
             }
+            if selection.rows.len() > 1 && selection.cursor == Some(entry.id) {
+                theme::focus_ring(&painter, rect.expand(1.0), &palette);
+            }
             paint_row(&painter, rect, &palette, list, index, number_width, current);
 
             if response.double_clicked() {
-                selection.rows = BTreeSet::from([entry.id]);
-                selection.anchor = Some(entry.id);
-                actions.push(Action::PlayEntry(entry.id));
+                selection.select(entry.id, index);
+                selection.reveal = None;
+                actions.push(Action::PlayEntry(list.id, entry.id));
             } else if response.clicked() {
                 let modifiers = ui.input(|i| i.modifiers);
                 click(list, selection, entry.id, modifiers);
             }
             if response.drag_started() {
                 if !selected {
-                    selection.rows = BTreeSet::from([entry.id]);
-                    selection.anchor = Some(entry.id);
+                    selection.select(entry.id, index);
+                    selection.reveal = None;
                 }
                 let rows = list
                     .entries()
@@ -464,6 +473,7 @@ fn draw_rows(ui: &mut Ui, view: &View, selection: &mut Selection, actions: &mut 
         }
     });
     selection.offset = output.state.offset.y;
+    selection.page = ((output.inner_rect.height() / ROW_HEIGHT) as usize).max(1);
 
     let Some(dragging) = dragging else { return };
     let count = match dragging.0.len() {
@@ -575,6 +585,7 @@ fn click(list: &Playlist, selection: &mut Selection, id: EntryId, modifiers: Mod
         selection
             .rows
             .extend(list.entries()[range].iter().map(|entry| entry.id));
+        selection.cursor = Some(id);
         return;
     }
     if modifiers.command {
@@ -585,6 +596,7 @@ fn click(list: &Playlist, selection: &mut Selection, id: EntryId, modifiers: Mod
         selection.rows = BTreeSet::from([id]);
     }
     selection.anchor = Some(id);
+    selection.cursor = Some(id);
 }
 
 /// The selected rows, in list order.
@@ -613,7 +625,8 @@ fn remove(
         .find(|id| !selection.rows.contains(id));
     selection.rows = next.into_iter().collect();
     selection.anchor = next;
-    actions.push(Action::Remove(rows));
+    selection.cursor = next;
+    actions.push(Action::Remove(list.id, rows));
 }
 
 /// Moves the selection one row up or down.
@@ -653,6 +666,8 @@ fn keyboard(ui: &Ui, list: &Playlist, selection: &mut Selection, actions: &mut V
             Key::A,
             Key::Home,
             Key::End,
+            Key::PageUp,
+            Key::PageDown,
         ];
         (
             keys.into_iter().find(|&key| i.key_pressed(key)),
@@ -663,7 +678,7 @@ fn keyboard(ui: &Ui, list: &Playlist, selection: &mut Selection, actions: &mut V
     match key {
         Key::Enter => {
             if let Some(&first) = rows.first() {
-                actions.push(Action::PlayEntry(first));
+                actions.push(Action::PlayEntry(list.id, first));
             }
         }
         Key::Delete if !rows.is_empty() => remove(list, selection, rows, actions),
@@ -674,23 +689,42 @@ fn keyboard(ui: &Ui, list: &Playlist, selection: &mut Selection, actions: &mut V
         Key::ArrowUp | Key::ArrowDown if modifiers.alt && !rows.is_empty() => {
             move_by(list, selection, rows, key == Key::ArrowUp, actions);
         }
-        Key::ArrowUp | Key::ArrowDown | Key::Home | Key::End => {
+        Key::ArrowUp | Key::ArrowDown | Key::Home | Key::End | Key::PageUp | Key::PageDown
+            if !modifiers.alt && !modifiers.command =>
+        {
             let from = selection
-                .anchor
+                .cursor
+                .or(selection.anchor)
                 .and_then(|id| list.index_of(id))
                 .or(list.cursor().and_then(|id| list.index_of(id)));
             let last = list.len() - 1;
+            let page = selection.page.max(1);
             let to = match (key, from) {
                 (Key::Home, _) => 0,
                 (Key::End, _) => last,
                 (Key::ArrowUp, Some(i)) => i.saturating_sub(1),
                 (Key::ArrowDown, Some(i)) => (i + 1).min(last),
+                (Key::PageUp, Some(i)) => i.saturating_sub(page),
+                (Key::PageDown, Some(i)) => (i + page).min(last),
                 _ => 0,
             };
             let id = list.entries()[to].id;
-            selection.rows = BTreeSet::from([id]);
-            selection.anchor = Some(id);
-            selection.reveal = Some(to);
+            if modifiers.shift {
+                // Extend from the anchor to the new row.
+                let anchor = selection
+                    .anchor
+                    .and_then(|id| list.index_of(id))
+                    .unwrap_or(from.unwrap_or(to));
+                selection.anchor = Some(list.entries()[anchor].id);
+                selection.rows = list.entries()[anchor.min(to)..=anchor.max(to)]
+                    .iter()
+                    .map(|entry| entry.id)
+                    .collect();
+                selection.cursor = Some(id);
+                selection.reveal = Some(to);
+            } else {
+                selection.select(id, to);
+            }
         }
         _ => {}
     }

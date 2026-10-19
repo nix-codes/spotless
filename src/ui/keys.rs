@@ -53,7 +53,8 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
     (
         "IN A PLAYLIST",
         &[
-            ("↑ / ↓, Home / End", "Select a song"),
+            ("↑ ↓ PgUp PgDn Home End", "Select a song"),
+            ("Shift + those", "Extend the selection"),
             ("Enter", "Play the selected song"),
             ("Delete", "Remove the selection"),
             ("Q", "Play next (mark / unmark)"),
@@ -64,7 +65,15 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
     (
         "IN BROWSE",
         &[
-            ("Enter", "Search (in the search field)"),
+            ("Tab / Shift+Tab", "Search field, results, playlist column"),
+            ("↑ / ↓, PgUp / PgDn", "Highlight a row"),
+            ("Enter", "Search; open an artist or album; play a song"),
+            ("Insert or A", "Add the album or song"),
+            ("Delete", "Remove the song (playlist column)"),
+            ("Alt+1 … 4", "All / Albums / Singles & EPs / Appears on"),
+            ("Ctrl+S", "Oldest / newest first"),
+            ("Ctrl+E", "Show / hide all songs"),
+            ("C", "Covers on / off"),
             ("Ctrl+Tab, Ctrl+1 … 9", "Choose the playlist + ADD adds to"),
             ("Backspace / Alt+←", "Back"),
             ("Esc", "Leave the search field, then close Browse"),
@@ -329,17 +338,17 @@ pub fn help(ui: &Ui, palette: &Palette, inputs: &mut Inputs) {
                 .max_height((screen.height() - 140.0).max(120.0))
                 .show(ui, |ui| {
                     if two {
-                        // Playback with the playlist's keys, screens with Browse's.
+                        // Keys for everywhere on the left, for one screen on the right.
                         ui.horizontal_top(|ui| {
                             ui.vertical(|ui| {
                                 ui.set_width(column);
                                 section(ui, &HELP[0]);
-                                section(ui, &HELP[2]);
+                                section(ui, &HELP[1]);
                             });
                             ui.add_space(GAP);
                             ui.vertical(|ui| {
                                 ui.set_width(column);
-                                section(ui, &HELP[1]);
+                                section(ui, &HELP[2]);
                                 section(ui, &HELP[3]);
                             });
                         });

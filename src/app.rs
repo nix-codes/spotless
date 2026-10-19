@@ -263,15 +263,15 @@ impl App {
                 self.settings.repeat = on;
                 self.transport.set_repeat(library, on)
             }
-            Action::PlayEntry(entry) => {
+            Action::PlayEntry(list, entry) => {
                 self.error = None;
-                self.transport.play_entry(library, viewed, entry, position)
+                self.transport.play_entry(library, list, entry, position)
             }
-            Action::Remove(entries) => {
-                if let Some(list) = library.get_mut(viewed) {
-                    list.remove(&entries);
+            Action::Remove(list, entries) => {
+                if let Some(playlist) = library.get_mut(list) {
+                    playlist.remove(&entries);
                 }
-                self.transport.edited(library, viewed)
+                self.transport.edited(library, list)
             }
             Action::Move(entries, index) => {
                 if let Some(list) = library.get_mut(viewed) {
@@ -582,15 +582,24 @@ impl eframe::App for App {
         }
     }
 
-    /// Tab and Shift+Tab never walk the focus through the buttons; Ctrl+Tab
-    /// (switching playlists) still gets through.
+    /// Tab and Shift+Tab never walk egui's focus through the buttons: they
+    /// move between Browse's areas (`Inputs::tab`). Ctrl+Tab (switching
+    /// playlists) still gets through.
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        raw_input.events.retain(|event| {
-            !matches!(
-                event,
-                egui::Event::Key { key: egui::Key::Tab, modifiers, .. }
-                    if !modifiers.command && !modifiers.ctrl
-            )
+        let tab = &mut self.inputs.tab;
+        raw_input.events.retain(|event| match event {
+            egui::Event::Key {
+                key: egui::Key::Tab,
+                modifiers,
+                pressed,
+                ..
+            } if !modifiers.command && !modifiers.ctrl => {
+                if *pressed {
+                    *tab += if modifiers.shift { -1 } else { 1 };
+                }
+                false
+            }
+            _ => true,
         });
     }
 

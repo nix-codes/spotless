@@ -60,6 +60,10 @@ pub struct Inputs {
     pub jump: Option<(PlaylistId, EntryId)>,
     /// The F1 list of keys is open.
     pub help: bool,
+    /// Tab presses this frame, minus Shift+Tab ones.
+    pub tab: isize,
+    /// Browse's areas and highlighted rows.
+    pub nav: browse_view::Nav,
 }
 
 const TITLE_HEIGHT: f32 = 20.0;
@@ -98,6 +102,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     if ready && view.browse.open {
         browse_view::draw(ui, body, view, inputs, actions);
         status_bar(ui, status, view, inputs, actions);
+        inputs.tab = 0;
         return;
     }
     theme::inset(ui.painter(), body, palette.list_bg, &palette);
@@ -111,6 +116,8 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     });
 
     status_bar(ui, status, view, inputs, actions);
+    // Tab only means something in Browse.
+    inputs.tab = 0;
 }
 
 fn title_bar(ui: &Ui, rect: Rect, palette: &Palette) {

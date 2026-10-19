@@ -20,9 +20,9 @@ pub enum Action {
     Volume(u8),
     SetShuffle(bool),
     SetRepeat(bool),
-    /// Double-click or Enter on a row of the viewed playlist.
-    PlayEntry(EntryId),
-    Remove(Vec<EntryId>),
+    /// Double-click or Enter on a playlist's row.
+    PlayEntry(PlaylistId, EntryId),
+    Remove(PlaylistId, Vec<EntryId>),
     /// Moves these rows, keeping their order, to just before the row now at
     /// this index.
     Move(Vec<EntryId>, usize),

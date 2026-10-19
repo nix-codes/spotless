@@ -1,8 +1,14 @@
 //! The catalog: search, results and artist pages on the left, and the slim
 //! column with the playlist + ADD adds to on the right.
 //!
-//! Enter searches, Esc goes back to the playlists, Alt+Left goes back a
-//! page. Ctrl+F (in `keys.rs`) jumps to the search field.
+//! Tab and Shift+Tab move between three areas: the search field, the
+//! results and the slim column. In the results, the arrows move a
+//! highlighted row; Enter opens it (an artist, an album's songs) or plays it
+//! (a song), Insert or A adds it. In the slim column, Enter plays and Delete
+//! removes. Alt+1…4 pick the release tab, Ctrl+S the order, Ctrl+E shows or
+//! hides all songs, C the covers. Esc goes back to the playlists,
+//! Backspace or Alt+Left back a page. Ctrl+F (in `keys.rs`) jumps to the
+//! search field.
 
 use egui::{
     Align2, Color32, FontId, Id, Key, Painter, Rect, Response, RichText, ScrollArea, Sense, Stroke,
@@ -16,7 +22,7 @@ use crate::action::Action;
 use crate::backend::SearchState;
 use crate::browse::{Cover, Loadable, Page};
 use crate::model::catalog::{Release, ReleaseTab};
-use crate::model::{TrackRef, playlist::Playlist};
+use crate::model::{EntryId, TrackRef, playlist::Playlist};
 
 const SLIM_WIDTH: f32 = 250.0;
 const ROW_HEIGHT: f32 = 22.0;
@@ -27,6 +33,51 @@ const COVER_ROW_HEIGHT: f32 = 34.0;
 const THUMB: f32 = 28.0;
 /// The cover beside an opened album's songs.
 const BIG_COVER: f32 = 140.0;
+
+/// PageUp and PageDown move this many rows.
+const PAGE_ROWS: usize = 10;
+const SEARCH_ID: &str = "catalog-search";
+
+/// Where the keyboard is in Browse, kept between frames.
+#[derive(Default)]
+pub struct Nav {
+    area: Area,
+    /// The keyboard was used last, not the mouse: the active area is framed.
+    keyboard: bool,
+    /// The highlighted result, counted in drawing order, on the page `page`.
+    row: Option<usize>,
+    page: String,
+    /// Result rows drawn last frame, and so far this frame.
+    rows: usize,
+    drawn: usize,
+    /// Set by the keys for the highlighted row: scroll to it, act on it.
+    reveal: bool,
+    act: Option<Act>,
+    /// Ctrl+E, for the artist page.
+    expand_all: bool,
+    /// The highlighted song in the slim column, and the one to scroll to.
+    slim: Option<EntryId>,
+    slim_reveal: Option<usize>,
+    slim_offset: f32,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Area {
+    Search,
+    #[default]
+    Results,
+    Slim,
+}
+
+const AREAS: [Area; 3] = [Area::Search, Area::Results, Area::Slim];
+
+#[derive(Clone, Copy)]
+enum Act {
+    /// Enter: open an artist or album, play a song.
+    Open,
+    /// Insert or A: add to the playlist.
+    Add,
+}
 
 /// Songs or an album dragged from the catalog to the slim column.
 enum CatalogDrag {
@@ -55,26 +106,74 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
     theme::inset(ui.painter(), catalog, palette.list_bg, &palette);
     theme::inset(ui.painter(), slim, palette.list_bg, &palette);
 
-    keyboard(ui, view, actions);
+    let page = view.browse.page();
+    let nav = &mut inputs.nav;
+    // A new page starts at its top, highlighted only when the keyboard got
+    // there (Enter on a search or an artist).
+    if nav.page != page_id(page) {
+        nav.page = page_id(page);
+        nav.row = nav.keyboard.then_some(0);
+        nav.rows = 0;
+    }
+    if ui.input(|i| i.pointer.any_pressed()) {
+        nav.keyboard = false;
+    }
+    switch_area(ui, inputs);
+    keyboard(ui, view, &mut inputs.nav, actions);
+    match inputs.nav.area {
+        Area::Results if inputs.nav.keyboard => theme::focus_ring(ui.painter(), catalog, &palette),
+        Area::Slim if inputs.nav.keyboard => theme::focus_ring(ui.painter(), slim, &palette),
+        _ => {}
+    }
     ui.scope_builder(UiBuilder::new().max_rect(catalog.shrink(PAD)), |ui| {
         search_bar(ui, view, inputs, actions);
         ui.add_space(PAD);
-        let page = view.browse.page();
+        let nav = &mut inputs.nav;
+        nav.drawn = 0;
         ScrollArea::vertical()
             .id_salt(page_id(page))
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 0.0);
                 match page {
-                    Page::Home => home(ui, view, actions),
-                    Page::Search(query) => search_page(ui, view, query, actions),
-                    Page::Artist(uri) => artist_page(ui, view, uri, actions),
+                    Page::Home => home(ui, view, nav, actions),
+                    Page::Search(query) => search_page(ui, view, nav, query, actions),
+                    Page::Artist(uri) => artist_page(ui, view, nav, uri, actions),
                 }
             });
+        // Keys for rows that aren't there are dropped.
+        nav.rows = nav.drawn;
+        nav.row = nav.row.map(|row| row.min(nav.rows.saturating_sub(1)));
+        nav.act = None;
+        nav.reveal = false;
+        nav.expand_all = false;
     });
     ui.scope_builder(UiBuilder::new().max_rect(slim.shrink(8.0)), |ui| {
-        slim_column(ui, view, actions);
+        slim_column(ui, view, &mut inputs.nav, actions);
     });
+}
+
+/// Tab and Shift+Tab: the next or previous area. Into the search field
+/// puts the keyboard there; out of it takes the keyboard away.
+fn switch_area(ui: &Ui, inputs: &mut Inputs) {
+    if inputs.tab == 0 {
+        return;
+    }
+    let nav = &mut inputs.nav;
+    nav.keyboard = true;
+    let at = AREAS.iter().position(|&a| a == nav.area).unwrap_or(0) as isize;
+    nav.area = AREAS[(at + inputs.tab).rem_euclid(AREAS.len() as isize) as usize];
+    inputs.tab = 0;
+    if nav.area == Area::Search {
+        inputs.focus_search = true;
+    } else {
+        ui.ctx()
+            .memory_mut(|m| m.surrender_focus(Id::new(SEARCH_ID)));
+    }
+    if nav.area == Area::Results && nav.row.is_none() {
+        nav.row = Some(0);
+    }
+    nav.reveal = true;
 }
 
 fn page_id(page: &Page) -> String {
@@ -85,18 +184,67 @@ fn page_id(page: &Page) -> String {
     }
 }
 
-fn keyboard(ui: &Ui, view: &View, actions: &mut Vec<Action>) {
+fn keyboard(ui: &Ui, view: &View, nav: &mut Nav, actions: &mut Vec<Action>) {
     if ui.ctx().text_edit_focused() {
         return;
     }
+    let artist_page = matches!(view.browse.page(), Page::Artist(_));
     ui.input(|i| {
+        let plain = i.modifiers.is_none();
         if i.key_pressed(Key::Escape) {
             actions.push(Action::CloseBrowse);
         }
-        let back =
-            (i.modifiers.alt && i.key_pressed(Key::ArrowLeft)) || i.key_pressed(Key::Backspace);
+        let back = (i.modifiers.alt && i.key_pressed(Key::ArrowLeft))
+            || (plain && i.key_pressed(Key::Backspace));
         if back && view.browse.can_go_back() {
             actions.push(Action::Back);
+        }
+        if plain && i.key_pressed(Key::C) {
+            actions.push(Action::ToggleCovers);
+        }
+        if artist_page {
+            let numbers = [Key::Num1, Key::Num2, Key::Num3, Key::Num4];
+            for (tab, key) in ReleaseTab::ALL.into_iter().zip(numbers) {
+                if i.modifiers.alt && i.key_pressed(key) {
+                    actions.push(Action::SetTab(tab));
+                }
+            }
+            if i.modifiers.command && i.key_pressed(Key::S) {
+                actions.push(Action::ToggleSort);
+            }
+            if i.modifiers.command && i.key_pressed(Key::E) {
+                nav.expand_all = true;
+            }
+        }
+        if nav.area != Area::Results || !plain {
+            return;
+        }
+        let last = nav.rows.saturating_sub(1);
+        let from = nav.row.unwrap_or(0);
+        let to = if i.key_pressed(Key::ArrowDown) {
+            Some(if nav.row.is_some() { from + 1 } else { 0 })
+        } else if i.key_pressed(Key::ArrowUp) {
+            Some(from.saturating_sub(1))
+        } else if i.key_pressed(Key::PageDown) {
+            Some(from + PAGE_ROWS)
+        } else if i.key_pressed(Key::PageUp) {
+            Some(from.saturating_sub(PAGE_ROWS))
+        } else if i.key_pressed(Key::Home) {
+            Some(0)
+        } else if i.key_pressed(Key::End) {
+            Some(last)
+        } else {
+            None
+        };
+        if let Some(to) = to {
+            nav.row = Some(to.min(last));
+            nav.reveal = true;
+            nav.keyboard = true;
+        }
+        if i.key_pressed(Key::Enter) {
+            nav.act = Some(Act::Open);
+        } else if i.key_pressed(Key::Insert) || i.key_pressed(Key::A) {
+            nav.act = Some(Act::Add);
         }
     });
 }
@@ -110,7 +258,7 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<A
         let close_width = 210.0;
         let field = ui.add(
             TextEdit::singleline(&mut inputs.query)
-                .id(Id::new("catalog-search"))
+                .id(Id::new(SEARCH_ID))
                 .hint_text("Search artists, albums, songs…")
                 .desired_width((ui.available_width() - close_width).max(80.0))
                 .min_size(vec2(0.0, BUTTON_HEIGHT)),
@@ -118,8 +266,16 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<A
         if std::mem::take(&mut inputs.focus_search) {
             field.request_focus();
         }
-        if field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-            actions.push(Action::Search(inputs.query.clone()));
+        if field.has_focus() {
+            inputs.nav.area = Area::Search;
+        }
+        // Enter searches, Esc just leaves: either way the results are next.
+        if field.lost_focus() {
+            inputs.nav.area = Area::Results;
+            if ui.input(|i| i.key_pressed(Key::Enter)) {
+                actions.push(Action::Search(inputs.query.clone()));
+                inputs.nav.keyboard = true;
+            }
         }
         if text_button(ui, &palette, "COVERS", view.browse.show_covers, true)
             .on_hover_text("Show album covers")
@@ -133,21 +289,21 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<A
     });
 }
 
-fn home(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
+fn home(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Vec<Action>) {
     if !search_prompt(ui, view) {
         note(ui, view, "Type an artist, album or song and press Enter.");
     }
     if !view.browse.recent.is_empty() {
         section(ui, view, "RECENTLY VIEWED");
         for artist in &view.browse.recent {
-            let row = row(ui, &view.palette, ROW_HEIGHT, None, |painter, rect| {
+            let row = row(ui, &view.palette, nav, ROW_HEIGHT, None, |painter, rect| {
                 spans(
                     painter,
                     rect,
                     &[(&artist.name, body(), view.palette.list_fg)],
                 );
             });
-            if row.response.clicked() {
+            if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
                 actions.push(Action::OpenArtist(artist.clone()));
             }
         }
@@ -174,7 +330,7 @@ fn search_prompt(ui: &mut Ui, view: &View) -> bool {
     true
 }
 
-fn search_page(ui: &mut Ui, view: &View, query: &str, actions: &mut Vec<Action>) {
+fn search_page(ui: &mut Ui, view: &View, nav: &mut Nav, query: &str, actions: &mut Vec<Action>) {
     if search_prompt(ui, view) {
         return;
     }
@@ -197,7 +353,7 @@ fn search_page(ui: &mut Ui, view: &View, query: &str, actions: &mut Vec<Action>)
     if !results.artists.is_empty() {
         section(ui, view, "ARTISTS");
         for artist in &results.artists {
-            let row = row(ui, &palette, ROW_HEIGHT, None, |painter, rect| {
+            let row = row(ui, &palette, nav, ROW_HEIGHT, None, |painter, rect| {
                 spans(
                     painter,
                     rect,
@@ -207,7 +363,7 @@ fn search_page(ui: &mut Ui, view: &View, query: &str, actions: &mut Vec<Action>)
                     ],
                 );
             });
-            if row.response.clicked() {
+            if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
                 actions.push(Action::OpenArtist(artist.clone()));
             }
         }
@@ -215,18 +371,18 @@ fn search_page(ui: &mut Ui, view: &View, query: &str, actions: &mut Vec<Action>)
     if !results.albums.is_empty() {
         section(ui, view, "ALBUMS & EPS");
         for release in &results.albums {
-            album(ui, view, release, true, actions);
+            album(ui, view, nav, release, true, actions);
         }
     }
     if !results.songs.is_empty() {
         section(ui, view, "SONGS");
         for (i, track) in results.songs.iter().enumerate() {
-            song(ui, view, i + 1, track, true, actions);
+            song(ui, view, nav, i + 1, track, true, actions);
         }
     }
 }
 
-fn artist_page(ui: &mut Ui, view: &View, uri: &str, actions: &mut Vec<Action>) {
+fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut Vec<Action>) {
     let discography = match view.browse.artists.get(uri) {
         None | Some(Loadable::Loading) => return note(ui, view, "Reading the discography…"),
         Some(Loadable::Failed(error)) => return note(ui, view, error),
@@ -286,7 +442,7 @@ fn artist_page(ui: &mut Ui, view: &View, uri: &str, actions: &mut Vec<Action>) {
         } else {
             "SHOW ALL SONGS"
         };
-        if small_button(ui, &palette, label, false).clicked() {
+        if small_button(ui, &palette, label, false).clicked() || nav.expand_all {
             actions.push(Action::ExpandAlbums(if all_open {
                 Vec::new()
             } else {
@@ -302,6 +458,7 @@ fn artist_page(ui: &mut Ui, view: &View, uri: &str, actions: &mut Vec<Action>) {
         album(
             ui,
             view,
+            nav,
             release,
             browse.tab == ReleaseTab::AppearsOn,
             actions,
@@ -310,7 +467,14 @@ fn artist_page(ui: &mut Ui, view: &View, uri: &str, actions: &mut Vec<Action>) {
 }
 
 /// An album row that opens to show its songs.
-fn album(ui: &mut Ui, view: &View, release: &Release, by: bool, actions: &mut Vec<Action>) {
+fn album(
+    ui: &mut Ui,
+    view: &View,
+    nav: &mut Nav,
+    release: &Release,
+    by: bool,
+    actions: &mut Vec<Action>,
+) {
     let palette = view.palette;
     let expanded = view.browse.expanded.contains(&release.uri);
     let year = if release.year > 0 {
@@ -324,7 +488,7 @@ fn album(ui: &mut Ui, view: &View, release: &Release, by: bool, actions: &mut Ve
     };
     let covers = view.browse.show_covers;
     let height = if covers { COVER_ROW_HEIGHT } else { ROW_HEIGHT };
-    let row = row(ui, &palette, height, Some("+ ADD"), |painter, rect| {
+    let row = row(ui, &palette, nav, height, Some("+ ADD"), |painter, rect| {
         chevron(
             painter,
             pos2(rect.left() + 5.0, rect.center().y),
@@ -358,9 +522,9 @@ fn album(ui: &mut Ui, view: &View, release: &Release, by: bool, actions: &mut Ve
             title: release.title.clone(),
         });
     }
-    if row.button {
+    if row.button || matches!(row.act, Some(Act::Add)) {
         actions.push(Action::AddAlbum(release.uri.clone()));
-    } else if row.response.clicked() {
+    } else if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
         actions.push(Action::ToggleAlbum(release.uri.clone()));
     }
     if !expanded {
@@ -379,7 +543,7 @@ fn album(ui: &mut Ui, view: &View, release: &Release, by: bool, actions: &mut Ve
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     for (i, track) in tracks.iter().enumerate() {
-                        song(ui, view, i + 1, track, false, actions);
+                        song(ui, view, nav, i + 1, track, false, actions);
                     }
                 });
             });
@@ -387,7 +551,7 @@ fn album(ui: &mut Ui, view: &View, release: &Release, by: bool, actions: &mut Ve
         }
         Some(Loadable::Ready(tracks)) => {
             for (i, track) in tracks.iter().enumerate() {
-                song(ui, view, i + 1, track, false, actions);
+                song(ui, view, nav, i + 1, track, false, actions);
             }
             ui.add_space(4.0);
         }
@@ -432,6 +596,7 @@ fn cover(painter: &Painter, view: &View, release: &Release, rect: Rect, actions:
 fn song(
     ui: &mut Ui,
     view: &View,
+    nav: &mut Nav,
     number: usize,
     track: &TrackRef,
     full: bool,
@@ -447,42 +612,49 @@ fn song(
         .map(|a| a.name.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    let row = row(ui, &palette, TRACK_HEIGHT, Some("+"), |painter, rect| {
-        let indent = if full { 0.0 } else { 16.0 };
-        let right = painter.text(
-            rect.right_center() - vec2(4.0, 0.0),
-            Align2::RIGHT_CENTER,
-            &duration,
-            mono(),
-            palette.dim,
-        );
-        let text = Rect::from_min_max(
-            pos2(rect.left() + indent, rect.top()),
-            pos2(right.left() - 8.0, rect.bottom()),
-        );
-        let mut parts = vec![(number.as_str(), mono(), palette.dim)];
-        if full {
-            parts.push((artists.as_str(), body(), palette.list_fg));
-            parts.push(("-", body(), palette.dim));
-        }
-        parts.push((track.title.as_str(), body(), palette.list_fg));
-        if full {
-            parts.push((track.album.name.as_str(), body(), palette.dim));
-        }
-        spans(painter, text, &parts);
-    });
+    let row = row(
+        ui,
+        &palette,
+        nav,
+        TRACK_HEIGHT,
+        Some("+"),
+        |painter, rect| {
+            let indent = if full { 0.0 } else { 16.0 };
+            let right = painter.text(
+                rect.right_center() - vec2(4.0, 0.0),
+                Align2::RIGHT_CENTER,
+                &duration,
+                mono(),
+                palette.dim,
+            );
+            let text = Rect::from_min_max(
+                pos2(rect.left() + indent, rect.top()),
+                pos2(right.left() - 8.0, rect.bottom()),
+            );
+            let mut parts = vec![(number.as_str(), mono(), palette.dim)];
+            if full {
+                parts.push((artists.as_str(), body(), palette.list_fg));
+                parts.push(("-", body(), palette.dim));
+            }
+            parts.push((track.title.as_str(), body(), palette.list_fg));
+            if full {
+                parts.push((track.album.name.as_str(), body(), palette.dim));
+            }
+            spans(painter, text, &parts);
+        },
+    );
     if row.response.drag_started() {
         row.response
             .dnd_set_drag_payload(CatalogDrag::Tracks(vec![track.clone()]));
     }
-    if row.button {
+    if row.button || matches!(row.act, Some(Act::Add)) {
         actions.push(Action::AddTracks(vec![track.clone()]));
-    } else if row.response.double_clicked() {
+    } else if row.response.double_clicked() || matches!(row.act, Some(Act::Open)) {
         actions.push(Action::PlayNow(track.clone()));
     }
 }
 
-fn slim_column(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
+fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Vec<Action>) {
     let palette = view.palette;
     let browse = view.browse;
     let Some(target) = view.library.get(browse.target) else {
@@ -516,7 +688,8 @@ fn slim_column(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
         pos2(ui.max_rect().right(), ui.max_rect().bottom() - footer),
     );
     ui.scope_builder(UiBuilder::new().max_rect(rows), |ui| {
-        slim_rows(ui, view, target, actions);
+        slim_keys(ui, target, nav, actions);
+        slim_rows(ui, view, nav, target, actions);
     });
     ui.painter().text(
         pos2(ui.max_rect().left(), ui.max_rect().bottom()),
@@ -530,7 +703,58 @@ fn slim_column(ui: &mut Ui, view: &View, actions: &mut Vec<Action>) {
     }
 }
 
-fn slim_rows(ui: &mut Ui, view: &View, list: &Playlist, actions: &mut Vec<Action>) {
+/// The slim column's keys, when it is the active area: the arrows move the
+/// highlighted song, Enter plays it, Delete removes it.
+fn slim_keys(ui: &Ui, list: &Playlist, nav: &mut Nav, actions: &mut Vec<Action>) {
+    nav.slim = nav.slim.filter(|&id| list.index_of(id).is_some());
+    if nav.area != Area::Slim || list.is_empty() || ui.ctx().text_edit_focused() {
+        return;
+    }
+    let last = list.len() - 1;
+    let from = nav.slim.or(list.cursor()).and_then(|id| list.index_of(id));
+    let (to, enter, delete) = ui.input(|i| {
+        if !i.modifiers.is_none() {
+            return (None, false, false);
+        }
+        let at = from.unwrap_or(0);
+        let to = if i.key_pressed(Key::ArrowDown) {
+            Some(from.map_or(0, |at| at + 1))
+        } else if i.key_pressed(Key::ArrowUp) {
+            Some(at.saturating_sub(1))
+        } else if i.key_pressed(Key::PageDown) {
+            Some(at + PAGE_ROWS)
+        } else if i.key_pressed(Key::PageUp) {
+            Some(at.saturating_sub(PAGE_ROWS))
+        } else if i.key_pressed(Key::Home) {
+            Some(0)
+        } else if i.key_pressed(Key::End) {
+            Some(last)
+        } else {
+            None
+        };
+        (to, i.key_pressed(Key::Enter), i.key_pressed(Key::Delete))
+    });
+    if let Some(to) = to.map(|to| to.min(last)) {
+        nav.slim = Some(list.entries()[to].id);
+        nav.slim_reveal = Some(to);
+        nav.keyboard = true;
+    }
+    let Some(id) = nav.slim else { return };
+    if enter {
+        actions.push(Action::PlayEntry(list.id, id));
+    }
+    if delete && let Some(index) = list.index_of(id) {
+        // The next song takes the highlight, or the one before the last.
+        let next = list
+            .entries()
+            .get(index + 1)
+            .or(index.checked_sub(1).and_then(|i| list.entries().get(i)));
+        nav.slim = next.map(|entry| entry.id);
+        actions.push(Action::Remove(list.id, vec![id]));
+    }
+}
+
+fn slim_rows(ui: &mut Ui, view: &View, nav: &mut Nav, list: &Playlist, actions: &mut Vec<Action>) {
     let palette = view.palette;
     let dragging = egui::DragAndDrop::payload::<CatalogDrag>(ui.ctx());
     if let Some(drag) = &dragging {
@@ -559,13 +783,23 @@ fn slim_rows(ui: &mut Ui, view: &View, list: &Playlist, actions: &mut Vec<Action
     }
     let height = 17.0;
     let mut area = ScrollArea::vertical().auto_shrink([false, false]);
+    let view_height = ui.available_height();
+    if let Some(index) = nav.slim_reveal.take() {
+        let top = index as f32 * height;
+        let offset = if top < nav.slim_offset {
+            top
+        } else if top + height > nav.slim_offset + view_height {
+            top + height - view_height
+        } else {
+            nav.slim_offset
+        };
+        area = area.vertical_scroll_offset(offset);
     // Bring the songs just added into view.
-    if let Some(last) = list
+    } else if let Some(last) = list
         .entries()
         .iter()
         .rposition(|entry| view.browse.glow(entry.id) > 0.9)
     {
-        let view_height = ui.available_height();
         area = area.vertical_scroll_offset(((last + 1) as f32 * height - view_height).max(0.0));
     }
     let current = list.cursor().filter(|_| !list.detached());
@@ -574,8 +808,15 @@ fn slim_rows(ui: &mut Ui, view: &View, list: &Playlist, actions: &mut Vec<Action
         ui.spacing_mut().item_spacing.y = 0.0;
         for index in range {
             let entry = &list.entries()[index];
-            let (rect, _) =
-                ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
+            let (rect, response) =
+                ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
+            if response.clicked() {
+                nav.slim = Some(entry.id);
+                nav.area = Area::Slim;
+            }
+            if response.double_clicked() {
+                actions.push(Action::PlayEntry(list.id, entry.id));
+            }
             if dragging.is_some()
                 && let Some(p) = pointer
                 && hovered
@@ -588,6 +829,9 @@ fn slim_rows(ui: &mut Ui, view: &View, list: &Playlist, actions: &mut Vec<Action
                 });
             }
             let painter = ui.painter_at(rect);
+            if nav.area == Area::Slim && nav.slim == Some(entry.id) {
+                painter.rect_filled(rect, 0.0, palette.selected_bg);
+            }
             let glow = view.browse.glow(entry.id);
             if glow > 0.0 {
                 painter.rect_filled(rect, 0.0, palette.accent.gamma_multiply(0.45 * glow));
@@ -621,6 +865,7 @@ fn slim_rows(ui: &mut Ui, view: &View, list: &Playlist, actions: &mut Vec<Action
             );
         }
     });
+    nav.slim_offset = output.state.offset.y;
     if dragging.is_none() || !hovered {
         return;
     }
@@ -675,20 +920,35 @@ struct Row {
     response: Response,
     /// The row's button was clicked.
     button: bool,
+    /// A key pressed for this row, the highlighted one.
+    act: Option<Act>,
 }
 
 /// A full-width clickable row, painted by `paint` left of an optional
-/// button at its right end.
+/// button at its right end. Clicking it highlights it.
 fn row(
     ui: &mut Ui,
     palette: &Palette,
+    nav: &mut Nav,
     height: f32,
     button: Option<&str>,
     paint: impl FnOnce(&Painter, Rect),
 ) -> Row {
+    let index = nav.drawn;
+    nav.drawn += 1;
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click_and_drag());
-    if response.hovered() {
+    if response.clicked() || response.drag_started() {
+        nav.row = Some(index);
+        nav.area = Area::Results;
+    }
+    let lit = nav.row == Some(index) && nav.area == Area::Results;
+    if lit {
+        ui.painter().rect_filled(rect, 0.0, palette.selected_bg);
+        if nav.reveal {
+            ui.scroll_to_rect(rect, None);
+        }
+    } else if response.hovered() {
         ui.painter()
             .rect_filled(rect, 0.0, palette.hi.gamma_multiply(0.35));
     }
@@ -709,6 +969,7 @@ fn row(
     Row {
         response,
         button: clicked,
+        act: if lit { nav.act.take() } else { None },
     }
 }
 
