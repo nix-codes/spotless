@@ -142,6 +142,12 @@ sprites! {
     TITLE_MIDDLE_UNLIT = (PlEdit, 26, 21, 100, 14);
     TITLE_TILE_UNLIT = (PlEdit, 127, 21, 25, 14);
 
+    /// The playlist's scrollbar: the slot, cut from the right edge's tile
+    /// and stacked, and the thumb that slides in it.
+    SCROLL_SLOT = (PlEdit, 36, 42, 8, 29);
+    SCROLL_THUMB = (PlEdit, 52, 53, 8, 18);
+    SCROLL_THUMB_PRESSED = (PlEdit, 61, 53, 8, 18);
+
     STATUS_PLAYING = (PlayPaus, 0, 0, 9, 9);
     STATUS_PAUSED = (PlayPaus, 9, 0, 9, 9);
     STATUS_STOPPED = (PlayPaus, 18, 0, 9, 9);

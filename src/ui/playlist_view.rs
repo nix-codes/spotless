@@ -10,11 +10,13 @@
 
 use std::collections::BTreeSet;
 
+use egui::scroll_area::ScrollBarVisibility;
 use egui::{
     Align, Align2, DragAndDrop, FontId, Id, Key, Layout, Modifiers, Rect, RichText, ScrollArea,
     Sense, Stroke, TextEdit, Ui, UiBuilder, pos2, vec2,
 };
 
+use super::scrollbar::Scrollbar;
 use super::theme::{self, Palette};
 use super::widgets::{Glyph, drag_ghost, small_action, small_button, small_glyph};
 use super::{Inputs, View};
@@ -26,6 +28,8 @@ const TAB_HEIGHT: f32 = 22.0;
 const TOOLBAR_HEIGHT: f32 = 18.0;
 /// Between the tabs and the rows, and between the rows and the toolbar.
 const LIST_GAP: f32 = 16.0;
+/// Between the rows and the scrollbar's slot.
+const SLOT_GAP: f32 = 4.0;
 /// Dragging this close to the list's top or bottom edge scrolls it.
 const SCROLL_EDGE: f32 = 24.0;
 
@@ -69,6 +73,9 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     let toolbar_rect =
         Rect::from_min_max(pos2(full.left(), full.bottom() - TOOLBAR_HEIGHT), full.max);
     let rows = Rect::from_min_max(full.min, pos2(full.right(), toolbar_rect.top() - LIST_GAP));
+    let bar = Scrollbar::new(ui, view, Id::new("playlist-scrollbar"));
+    let slot = Rect::from_min_max(pos2(rows.right() - bar.width(), rows.top()), rows.max);
+    let rows = rows.with_max_x(slot.left() - SLOT_GAP);
 
     if let Some((jump_list, entry)) = inputs.jump
         && jump_list == list.id
@@ -91,8 +98,9 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
                 RichText::new("This playlist is empty. Press + ADD to find songs.")
                     .color(view.palette.dim),
             );
+            bar.paint(ui, slot, 0.0, 0.0, false);
         } else {
-            draw_rows(ui, view, &mut inputs.selection, actions);
+            draw_rows(ui, view, &mut inputs.selection, (&bar, slot), actions);
         }
     });
     ui.scope_builder(UiBuilder::new().max_rect(toolbar_rect), |ui| {
@@ -387,10 +395,20 @@ fn toolbar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Acti
     });
 }
 
-fn draw_rows(ui: &mut Ui, view: &View, selection: &mut Selection, actions: &mut Vec<Action>) {
+fn draw_rows(
+    ui: &mut Ui,
+    view: &View,
+    selection: &mut Selection,
+    (bar, slot): (&Scrollbar, Rect),
+    actions: &mut Vec<Action>,
+) {
     let palette = view.palette;
     let list = view.playlist;
-    let mut area = ScrollArea::vertical().auto_shrink([false, false]);
+    let mut area = ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden);
+    let furthest = (list.len() as f32 * ROW_HEIGHT - ui.available_height()).max(0.0);
+    let thumb_to = bar.interact(ui, slot, selection.offset, furthest);
     if let Some(index) = selection.reveal.take() {
         let top = index as f32 * ROW_HEIGHT;
         let height = ui.available_height();
@@ -401,6 +419,9 @@ fn draw_rows(ui: &mut Ui, view: &View, selection: &mut Selection, actions: &mut 
         } else {
             selection.offset
         };
+        area = area.vertical_scroll_offset(offset);
+    }
+    if let Some(offset) = thumb_to {
         area = area.vertical_scroll_offset(offset);
     }
     let number_width = list.len().to_string().len();
@@ -479,6 +500,7 @@ fn draw_rows(ui: &mut Ui, view: &View, selection: &mut Selection, actions: &mut 
         }
     });
     selection.offset = output.state.offset.y;
+    bar.paint(ui, slot, selection.offset, furthest, thumb_to.is_some());
     selection.page = ((output.inner_rect.height() / ROW_HEIGHT) as usize).max(1);
 
     let Some(dragging) = dragging else { return };

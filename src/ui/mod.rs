@@ -6,6 +6,7 @@ mod browse_view;
 mod keys;
 mod player_strip;
 mod playlist_view;
+mod scrollbar;
 mod settings_view;
 pub mod skin_art;
 mod skinned_strip;

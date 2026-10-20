@@ -335,6 +335,8 @@ fn ink(bitmap: &Bitmap, area: (u32, u32, u32, u32)) -> Option<(Color32, Color32)
 /// edges and the bottom's filler.
 const FRAME_TILES: [(u32, u32, u32, u32); 3] =
     [(0, 42, 12, 29), (31, 42, 20, 29), (179, 0, 25, 38)];
+/// The playlist scrollbar's thumb in `pledit.bmp`.
+const THUMB_AREA: (u32, u32, u32, u32) = (52, 53, 8, 18);
 /// The scrolling text's alphabet in `text.bmp`; some skins add more below.
 const TEXT_AREA: (u32, u32, u32, u32) = (0, 0, 155, 18);
 const EVERYTHING: (u32, u32, u32, u32) = (0, 0, u32::MAX, u32::MAX);
@@ -367,6 +369,10 @@ fn palette(sheets: &HashMap<Sheet, Bitmap>, list: PlaylistColors) -> Palette {
         .find(|&ink| contrast(ink, lcd_bg) >= 3.0)
         .unwrap_or(classic.lcd);
 
+    let thumb = bitmap(Sheet::PlEdit)
+        .and_then(|b| Histogram::of(b.pixels(THUMB_AREA)).most_common(|_| true))
+        .unwrap_or(classic.thumb);
+
     let dark = luminance(frame) < 0.3;
     let hi = mix(frame, Color32::WHITE, 0.2);
     let chrome = if dark {
@@ -389,6 +395,7 @@ fn palette(sheets: &HashMap<Sheet, Bitmap>, list: PlaylistColors) -> Palette {
         selected_bg: list.selected,
         dim: mix(list.normal, list.background, 0.35),
         accent: lcd,
+        thumb,
     }
 }
 
