@@ -9,6 +9,7 @@
 //! Classic draws it. What went wrong is kept as problems, by name, to show
 //! in Settings.
 
+pub mod built_in;
 mod geometry;
 mod manifest;
 mod source;

@@ -103,7 +103,7 @@ enum Item {
     Smaller,
     Larger,
     Covers,
-    /// One of the skins listed, 0 being Classic.
+    /// One of the skins listed, 0 being Spotless Classic.
     Skin(usize),
     SkinsFolder,
     Tray,
@@ -930,10 +930,10 @@ fn radio(ui: &mut Ui, palette: &Palette, chosen: bool, text: &str) -> Response {
     response
 }
 
-/// The skins to choose from, as (choice, label): Classic first, then the
+/// The skins to choose from, as (choice, label): Spotless Classic first, then the
 /// skins folder's, then a saved one that isn't there any more.
 fn skin_rows(view: &View) -> Vec<(Option<String>, String)> {
-    let mut rows = vec![(None, "Classic".to_string())];
+    let mut rows = vec![(None, "Spotless Classic".to_string())];
     rows.extend(
         view.skins
             .iter()

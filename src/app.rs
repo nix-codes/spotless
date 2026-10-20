@@ -697,11 +697,15 @@ impl App {
         self.mark_unsaved();
     }
 
-    /// Draws with a skin from the skins folder, or Classic for None. A
-    /// skin that can't be read leaves things as they are.
+    /// Draws with a skin from the skins folder, or Spotless Classic for
+    /// None. A skin that can't be read leaves things as they are.
     fn use_skin(&mut self, skin: Option<&str>) -> Result<(), String> {
         let (palette, art, note) = match skin {
-            None => (Palette::CLASSIC, None, None),
+            None => {
+                let classic = crate::skin::format::built_in::spotless_classic()
+                    .map_or(Palette::CLASSIC, |skin| skin.palette);
+                (classic, None, None)
+            }
             Some(name) => {
                 let skin = Skin::load(&self.paths.skins().join(name)).map_err(|error| {
                     log::warn!("skin {name}: {error}");

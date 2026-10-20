@@ -1,0 +1,22 @@
+# Spotless Classic: Spotless's own look. It gives only colours, so every
+# piece is drawn the way Spotless draws it without a skin.
+format = 1
+name = "Spotless Classic"
+author = "Spotless"
+
+[colors]
+desk = "#0b0b0f"
+window = "#2a2a37"
+edge_light = "#4c4c62"
+edge_dark = "#111117"
+chrome_text = "#c9c9da"
+button = "#363646"
+lcd_bg = "#000000"
+lcd_text = "#2bff62"
+list_bg = "#000000"
+list_text = "#00e639"
+list_current = "#ffffff"
+list_selected_bg = "#0b2fbf"
+list_dim = "#14a83a"
+accent = "#2bff62"
+scroll_thumb = "#b0995e"
