@@ -107,7 +107,7 @@ impl Inputs {}
 
 const TITLE_HEIGHT: f32 = 20.0;
 const TITLE: &str = "S P O T L E S S";
-const STATUS_HEIGHT: f32 = 22.0;
+const STATUS_HEIGHT: f32 = 30.0;
 const GUTTER: f32 = 10.0;
 /// The smallest the window can be made, while the playlists show.
 pub const MIN_WINDOW: egui::Vec2 = vec2(560.0, 360.0);
