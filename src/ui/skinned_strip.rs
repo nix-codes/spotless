@@ -1,16 +1,19 @@
 //! The player strip drawn from a skin's bitmaps: its transport buttons,
 //! the time in its digits, the song in its font, its seek bar, shuffle,
-//! repeat and volume. Laid out as the plain strip is, the LCD on the left.
+//! repeat, volume and PL. Laid out as the plain strip is.
 //! The title bar above it is the skin's too.
 
 use std::time::Duration;
 
 use egui::emath::GuiRounding;
 use egui::{
-    FontId, Id, Painter, Pos2, Rect, Response, Sense, Ui, WidgetInfo, WidgetType, pos2, vec2,
+    Align2, FontId, Id, Painter, Pos2, Rect, Response, Sense, Ui, WidgetInfo, WidgetType, pos2,
+    vec2,
 };
 
-use super::player_strip::{HEIGHT, eject_clicked, meta_line, now_line, time_shown};
+use super::player_strip::{
+    HEIGHT, KBPS, KHZ, eject_clicked, now_lines, pl_clicked, playlists_shown, time_shown,
+};
 use super::skin_art::{self, SkinArt};
 use super::{Inputs, View, theme};
 use crate::action::Action;
@@ -18,35 +21,33 @@ use crate::backend::SessionState;
 use crate::playback::engine::Status;
 use crate::skin::sprites::{self, Sprite};
 
-/// The LCD's rows, in skin pixels from its top: the time, the song, the
-/// album; and how tall they are together.
-const SONG_Y: f32 = 18.0;
-const META_Y: f32 = 27.0;
-const LCD_ROWS: f32 = 33.0;
-/// The controls' rows: the seek bar, then the buttons below it.
-const BUTTONS_Y: f32 = 16.0;
-const CONTROL_ROWS: f32 = 34.0;
+/// The rows, in skin pixels from the strip's top: the LCD and the song's
+/// display beside it, the volume row under the display, the seek bar,
+/// then the buttons; and how tall they are together.
+const TOP: f32 = 40.0;
+const TITLE_HEIGHT: f32 = 22.0;
+const INFO_Y: f32 = 26.0;
+const SEEK_Y: f32 = 45.0;
+const BUTTONS_Y: f32 = 61.0;
+const ROWS: f32 = 79.0;
 /// Widths in skin pixels.
-const TRANSPORT: f32 = 114.0;
+const LCD_WIDTH: f32 = 71.0;
 const EJECT: f32 = 22.0;
 const SHUFFLE: f32 = 47.0;
-const REPEAT: f32 = 28.0;
 const VOLUME: f32 = 68.0;
+const PL: f32 = 23.0;
 const GAP: f32 = 6.0;
-/// The controls' row: as wide as Winamp's main window.
-const CONTROLS: f32 = TRANSPORT + GAP + EJECT + GAP + SHUFFLE + REPEAT + GAP + VOLUME;
-const LCD_WIDTH: f32 = 340.0;
-const MIN_LCD_WIDTH: f32 = 160.0;
+/// The narrowest strip that keeps everything at full size, in skin pixels.
+const MIN_WIDTH: f32 = 300.0;
 /// What separates the end of a scrolling song from its start again.
 const MARQUEE_GAP: &str = "  ***  ";
 /// How long the marquee waits between one-character steps, in ms.
 const MARQUEE_STEP: u64 = 220;
 
 /// Points per skin pixel for a strip `width` points wide: smaller when
-/// the window is too narrow for the controls at full size.
+/// the window is too narrow for the strip at full size.
 pub fn unit(width: f32) -> f32 {
-    let room = (width - MIN_LCD_WIDTH - 10.0) / CONTROLS;
-    skin_art::unit(room.min((HEIGHT - 8.0) / CONTROL_ROWS))
+    skin_art::unit((width / MIN_WIDTH).min((HEIGHT - 2.0) / ROWS))
 }
 
 /// The title bar: the playlist editor's, stretched, with the stripes
@@ -118,14 +119,27 @@ pub fn draw(
 ) {
     let rect = ui.max_rect();
     let unit = unit(rect.width());
-    let controls_width = CONTROLS * unit;
-    let lcd_width = (rect.width() - 10.0 - controls_width).clamp(MIN_LCD_WIDTH, LCD_WIDTH);
-    let lcd = Rect::from_min_size(rect.min, vec2(lcd_width, HEIGHT));
+    let origin = pos2(
+        rect.left(),
+        rect.top() + (rect.height() - ROWS * unit) / 2.0,
+    )
+    .round_to_pixels(ui.pixels_per_point());
+    let at = |x: f32, y: f32| origin + vec2(x, y) * unit;
+    let lcd = Rect::from_min_max(origin, at(0.0, TOP) + vec2(20.0 + LCD_WIDTH * unit, 0.0));
     draw_lcd(ui, lcd, view, art, unit);
-    let controls = Rect::from_min_max(pos2(lcd.right() + 10.0, rect.top()), rect.max);
-    draw_controls(ui, controls, view, art, unit, inputs, actions);
+    let title = Rect::from_min_max(
+        pos2(lcd.right() + GAP * unit, origin.y),
+        pos2(rect.right(), at(0.0, TITLE_HEIGHT).y),
+    );
+    draw_title(ui, title, view, art, unit);
+    let info = pos2(title.left(), at(0.0, INFO_Y).y);
+    info_row(ui, info, rect.right(), view, art, unit, inputs, actions);
+    let seek = at(0.0, SEEK_Y);
+    seek_bar(ui, seek, rect.right(), view, art, unit, inputs, actions);
+    buttons(ui, at(0.0, BUTTONS_Y), view, art, unit, inputs, actions);
 }
 
+/// The LCD: the status glyph and the time, at Winamp's spacing.
 fn draw_lcd(ui: &Ui, rect: Rect, view: &View, art: &SkinArt, unit: f32) {
     let palette = view.palette;
     let painter = ui.painter().with_clip_rect(rect);
@@ -133,7 +147,7 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View, art: &SkinArt, unit: f32) {
     let player = view.player;
     let origin = pos2(
         rect.left() + 10.0,
-        rect.top() + (rect.height() - LCD_ROWS * unit) / 2.0,
+        rect.top() + (rect.height() - 13.0 * unit) / 2.0,
     )
     .round_to_pixels(ui.pixels_per_point());
     let at = |x: f32, y: f32| origin + vec2(x, y) * unit;
@@ -145,7 +159,7 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View, art: &SkinArt, unit: f32) {
     };
     art.paint(&painter, status, at(0.0, 2.0), unit);
 
-    // The time, at Winamp's spacing: two digits, a colon, two digits.
+    // Two digits, a colon, two digits.
     let seconds = if player.status == Status::Stopped {
         0
     } else {
@@ -158,15 +172,10 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View, art: &SkinArt, unit: f32) {
         (50.0, seconds % 60 / 10),
         (62.0, seconds % 10),
     ];
-    let shown = time_shown(ui, view);
-    for (x, value) in digits {
-        if shown {
-            art.paint(
-                &painter,
-                sprites::digit(art.digits, value),
-                at(x, 0.0),
-                unit,
-            );
+    if time_shown(ui, view) {
+        for (x, value) in digits {
+            let digit = sprites::digit(art.digits, value);
+            art.paint(&painter, digit, at(x, 0.0), unit);
         }
     }
     // The colon is part of Winamp's main window, not of the digits.
@@ -174,12 +183,73 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View, art: &SkinArt, unit: f32) {
         let dot = Rect::from_min_size(at(44.0, y), vec2(3.0, 1.0) * unit);
         painter.rect_filled(dot, 0.0, palette.lcd);
     }
+}
 
-    let width = rect.right() - 10.0 - origin.x;
-    let song = marquee(ui, view, &now_line(view), width, unit);
-    art.text(&painter, &song, at(0.0, SONG_Y), width, unit);
-    let meta = meta_line(view, '-');
-    art.text(&painter, &meta, at(0.0, META_Y), width, unit);
+/// The song's display, in the skin's font: the artist above, the song
+/// below, each scrolling on its own when too long.
+fn draw_title(ui: &Ui, rect: Rect, view: &View, art: &SkinArt, unit: f32) {
+    let palette = view.palette;
+    let painter = ui.painter().with_clip_rect(rect);
+    theme::inset(&painter, rect, palette.lcd_bg, &palette);
+    let origin = pos2(rect.left() + 4.0 * unit, rect.top()).round_to_pixels(ui.pixels_per_point());
+    let width = rect.right() - 4.0 * unit - origin.x;
+    let (artist, song) = now_lines(view);
+    for (y, line) in [(4.0, artist), (13.0, song)] {
+        let shown = marquee(ui, view, &line, width, unit);
+        art.text(&painter, &shown, origin + vec2(0.0, y * unit), width, unit);
+    }
+}
+
+/// Under the song's display: the bitrate in small displays, then the
+/// volume and PL at the right end.
+#[allow(clippy::too_many_arguments)]
+fn info_row(
+    ui: &mut Ui,
+    at: Pos2,
+    right: f32,
+    view: &View,
+    art: &SkinArt,
+    unit: f32,
+    inputs: &mut Inputs,
+    actions: &mut Vec<Action>,
+) {
+    let palette = view.palette;
+    let painter = ui.painter().clone();
+    let mut x = at.x;
+    for (value, label) in [(KBPS, "kbps"), (KHZ, "kHz")] {
+        let width = (value.chars().count() * 5) as f32 * unit;
+        let display =
+            Rect::from_min_size(pos2(x, at.y + unit), vec2(width + 4.0 * unit, 10.0 * unit));
+        theme::inset(&painter, display, palette.lcd_bg, &palette);
+        art.text(
+            &painter,
+            value,
+            display.min + vec2(2.0, 2.0) * unit,
+            width,
+            unit,
+        );
+        let text = painter.text(
+            pos2(display.right() + 3.0 * unit, display.center().y),
+            Align2::LEFT_CENTER,
+            label,
+            FontId::monospace(9.0),
+            palette.chrome,
+        );
+        x = text.right() + GAP * unit;
+    }
+    let lit = playlists_shown(view, inputs);
+    let pl = if lit {
+        (sprites::PL_LIT, sprites::PL_LIT_PRESSED)
+    } else {
+        (sprites::PL, sprites::PL_PRESSED)
+    };
+    let pl_at = pos2(right - PL * unit, at.y + unit);
+    let response = button(ui, &painter, art, pl_at, unit, pl, "Playlists", true);
+    pl_clicked(response, view, inputs, actions);
+    let volume_at = pos2(pl_at.x - (GAP + VOLUME) * unit, at.y);
+    if volume_at.x >= x {
+        volume(ui, &painter, art, volume_at, unit, inputs, actions);
+    }
 }
 
 /// The song as the marquee shows it: while it plays, a song longer than
@@ -197,9 +267,13 @@ fn marquee(ui: &Ui, view: &View, text: &str, width: f32, unit: f32) -> String {
     strip.iter().cycle().skip(step).take(fits + 1).collect()
 }
 
-fn draw_controls(
+/// Seek, across the strip, with the song's length in a small display at
+/// its end.
+#[allow(clippy::too_many_arguments)]
+fn seek_bar(
     ui: &mut Ui,
-    rect: Rect,
+    origin: Pos2,
+    right: f32,
     view: &View,
     art: &SkinArt,
     unit: f32,
@@ -207,17 +281,11 @@ fn draw_controls(
     actions: &mut Vec<Action>,
 ) {
     let palette = view.palette;
-    let painter = ui.painter().with_clip_rect(rect);
+    let painter = ui.painter().clone();
     let ready = matches!(view.session, SessionState::Ready { .. });
     let player = view.player;
-    let origin = pos2(
-        rect.left(),
-        rect.top() + (rect.height() - CONTROL_ROWS * unit) / 2.0,
-    )
-    .round_to_pixels(ui.pixels_per_point());
     let at = |x: f32, y: f32| origin + vec2(x, y) * unit;
-
-    // Seek, with the song's length in a small display at its end.
+    let rect = Rect::from_min_max(origin, pos2(right, origin.y));
     let duration = player.track.as_ref().map_or(0, |t| t.duration_ms) as f32 / 1000.0;
     let total = duration as u32;
     let length = format!("{}:{:02}", total / 60, total % 60);
@@ -276,8 +344,21 @@ fn draw_controls(
         let x = track.left() + fraction * travel;
         art.paint(&painter, thumb, pos2(x, track.top()), unit);
     }
+}
 
-    // Transport, eject, shuffle and repeat.
+/// Transport, eject, shuffle and repeat.
+fn buttons(
+    ui: &mut Ui,
+    origin: Pos2,
+    view: &View,
+    art: &SkinArt,
+    unit: f32,
+    inputs: &mut Inputs,
+    actions: &mut Vec<Action>,
+) {
+    let painter = ui.painter().clone();
+    let ready = matches!(view.session, SessionState::Ready { .. });
+    let at = |x: f32, y: f32| origin + vec2(x, y) * unit;
     let transport = [
         (
             sprites::PREVIOUS,
@@ -298,24 +379,13 @@ fn draw_controls(
     let mut x = 0.0;
     for (normal, pressed, name, action) in transport {
         let sprites = (normal, pressed);
-        if button(
-            ui,
-            &painter,
-            art,
-            at(x, BUTTONS_Y),
-            unit,
-            sprites,
-            name,
-            ready,
-        )
-        .clicked()
-        {
+        if button(ui, &painter, art, at(x, 0.0), unit, sprites, name, ready).clicked() {
             actions.push(action);
         }
         x += normal.width as f32;
     }
     x += GAP;
-    let row = BUTTONS_Y + 1.0;
+    let row = 1.0;
     let eject = if view.browse.open {
         (sprites::EJECT_PRESSED, sprites::EJECT_PRESSED)
     } else {
@@ -351,13 +421,6 @@ fn draw_controls(
     };
     if button(ui, &painter, art, at(x, row), unit, repeat, "Repeat", true).clicked() {
         actions.push(Action::SetRepeat(!view.repeat));
-    }
-    let repeat_end = at(x + REPEAT + GAP, 0.0).x;
-
-    // The volume at the right end.
-    let volume_at = pos2(rect.right() - VOLUME * unit, at(0.0, BUTTONS_Y + 3.0).y);
-    if volume_at.x >= repeat_end {
-        volume(ui, &painter, art, volume_at, unit, inputs, actions);
     }
 }
 

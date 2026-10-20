@@ -126,6 +126,11 @@ sprites! {
     REPEAT_OFF_PRESSED = (ShufRep, 0, 15, 28, 15);
     REPEAT_ON = (ShufRep, 0, 30, 28, 15);
     REPEAT_ON_PRESSED = (ShufRep, 0, 45, 28, 15);
+    /// The playlist button: lit while the playlists show.
+    PL = (ShufRep, 23, 61, 23, 12);
+    PL_PRESSED = (ShufRep, 69, 61, 23, 12);
+    PL_LIT = (ShufRep, 23, 73, 23, 12);
+    PL_LIT_PRESSED = (ShufRep, 69, 73, 23, 12);
 
     POSITION_TRACK = (PosBar, 0, 0, 248, 10);
     POSITION_THUMB = (PosBar, 248, 0, 29, 10);
