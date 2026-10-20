@@ -167,7 +167,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     } else if ready && view.browse.open {
         "B R O W S E"
     } else {
-        "P L A Y L I S T"
+        "P L A Y L I S T S"
     };
     let separator = bar(ui, strip.bottom() + 6.0, screen);
 
