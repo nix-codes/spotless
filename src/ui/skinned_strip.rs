@@ -133,7 +133,7 @@ pub fn title_bar(ui: &Ui, rect: Rect, view: &View, paint: &SkinPaint, unit: f32,
         "separator"
     };
     paint.paint(&painter, name, state, rect, unit);
-    let text = painter.layout_no_wrap(label.into(), FontId::monospace(10.0), view.palette.chrome);
+    let text = painter.layout_no_wrap(label.into(), FontId::monospace(10.0), view.palette.title);
     if let Some(plate) = paint.size("title", unit) {
         let gap = paint.title_gap() * unit;
         let ends = paint
@@ -145,7 +145,7 @@ pub fn title_bar(ui: &Ui, rect: Rect, view: &View, paint: &SkinPaint, unit: f32,
         paint.paint(&painter, "title", state, plate, unit);
     }
     let at = rect.center() - text.size() / 2.0;
-    painter.galley(at, text, view.palette.chrome);
+    painter.galley(at, text, view.palette.title);
 }
 
 pub fn draw(

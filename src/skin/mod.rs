@@ -341,18 +341,23 @@ const THUMB_AREA: (u32, u32, u32, u32) = (52, 53, 8, 18);
 /// The scrolling text's alphabet in `text.bmp`; some skins add more below.
 const TEXT_AREA: (u32, u32, u32, u32) = (0, 0, 155, 18);
 const EVERYTHING: (u32, u32, u32, u32) = (0, 0, u32::MAX, u32::MAX);
+/// Plain body in every main window: the band between the seek bar and
+/// the buttons.
+const BODY_AREA: (u32, u32, u32, u32) = (16, 83, 248, 5);
+/// The plain middle of the playlist editor's title piece, the name on it.
+const TITLE_AREA: (u32, u32, u32, u32) = (31, 0, 90, 14);
 
 fn palette(sheets: &HashMap<Sheet, Bitmap>, list: PlaylistColors) -> Palette {
     let classic = Palette::CLASSIC;
     let bitmap = |sheet: Sheet| sheets.get(&sheet);
 
-    let frame = bitmap(Sheet::PlEdit)
-        .and_then(|b| {
-            Histogram::of(FRAME_TILES.iter().flat_map(|&t| b.pixels(t))).most_common(|_| true)
-        })
+    // The main window's own body, else the playlist editor's edges.
+    let frame = bitmap(Sheet::Main)
+        .and_then(|b| Histogram::of(b.pixels(BODY_AREA)).most_common(|_| true))
         .or_else(|| {
-            bitmap(Sheet::Main)
-                .and_then(|b| Histogram::of(b.pixels(EVERYTHING)).most_common(|_| true))
+            bitmap(Sheet::PlEdit).and_then(|b| {
+                Histogram::of(FRAME_TILES.iter().flat_map(|&t| b.pixels(t))).most_common(|_| true)
+            })
         })
         .unwrap_or(classic.frame);
     let text = bitmap(Sheet::Text).and_then(|b| ink(b, TEXT_AREA));
@@ -374,13 +379,19 @@ fn palette(sheets: &HashMap<Sheet, Bitmap>, list: PlaylistColors) -> Palette {
         .and_then(|b| Histogram::of(b.pixels(THUMB_AREA)).most_common(|_| true))
         .unwrap_or(classic.thumb);
 
-    let dark = luminance(frame) < 0.3;
-    let hi = mix(frame, Color32::WHITE, 0.2);
-    let chrome = if dark {
-        mix(frame, Color32::WHITE, 0.75)
-    } else {
-        mix(frame, Color32::BLACK, 0.8)
+    // Text that reads on `background`.
+    let on = |background: Color32| {
+        if luminance(background) < 0.3 {
+            mix(background, Color32::WHITE, 0.75)
+        } else {
+            mix(background, Color32::BLACK, 0.8)
+        }
     };
+    let hi = mix(frame, Color32::WHITE, 0.2);
+    let chrome = on(frame);
+    let title = bitmap(Sheet::PlEdit)
+        .and_then(|b| Histogram::of(b.pixels(TITLE_AREA)).most_common(|_| true))
+        .map_or(chrome, on);
     Palette {
         desk: mix(frame, Color32::BLACK, 0.75),
         frame,
@@ -397,6 +408,7 @@ fn palette(sheets: &HashMap<Sheet, Bitmap>, list: PlaylistColors) -> Palette {
         dim: mix(list.normal, list.background, 0.35),
         accent: lcd,
         thumb,
+        title,
     }
 }
 

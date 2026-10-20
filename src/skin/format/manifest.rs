@@ -29,7 +29,7 @@ const FONT_SIZE: f64 = 12.0;
 /// Where in the palette a colour goes.
 type Field = fn(&mut Palette) -> &mut Color32;
 
-const COLORS: [(&str, Field); 15] = [
+const COLORS: [(&str, Field); 16] = [
     ("desk", |p| &mut p.desk),
     ("window", |p| &mut p.frame),
     ("edge_light", |p| &mut p.hi),
@@ -45,6 +45,7 @@ const COLORS: [(&str, Field); 15] = [
     ("list_dim", |p| &mut p.dim),
     ("accent", |p| &mut p.accent),
     ("scroll_thumb", |p| &mut p.thumb),
+    ("title_text", |p| &mut p.title),
 ];
 
 /// Groups of pieces under one name: `[pieces.seek.track]`.

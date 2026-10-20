@@ -47,21 +47,24 @@ pub fn convert(skin: &Skin, name: &str) -> Vec<(String, Vec<u8>)> {
     colors(&mut manifest, &skin.palette);
 
     let mut add = |path: &str, image: RgbaImage| files.push((path.to_string(), png(&image)));
-    for (sheet, path) in [
-        (Sheet::CButtons, "cbuttons.png"),
-        (Sheet::ShufRep, "shufrep.png"),
-        (Sheet::PosBar, "posbar.png"),
-        (Sheet::Volume, "volume.png"),
-        (Sheet::PlayPaus, "playpaus.png"),
-        (Sheet::Text, "text.png"),
-        (Sheet::PlEdit, "pledit.png"),
+    for (sheet, path, size) in [
+        (Sheet::CButtons, "cbuttons.png", (136, 36)),
+        (Sheet::ShufRep, "shufrep.png", (92, 85)),
+        (Sheet::PosBar, "posbar.png", (307, 10)),
+        (Sheet::Volume, "volume.png", (68, 433)),
+        (Sheet::PlayPaus, "playpaus.png", (42, 9)),
+        (Sheet::Text, "text.png", (155, 18)),
+        (Sheet::PlEdit, "pledit.png", (280, 186)),
     ] {
         if let Some(bitmap) = skin.sheet(sheet) {
-            add(path, image(bitmap));
+            add(path, padded(&image(bitmap), size));
         }
     }
-    if let Some(digits) = skin.digits().and_then(|sheet| skin.sheet(sheet)) {
-        add("digits.png", image(digits));
+    if let Some(sheet) = skin.digits()
+        && let Some(digits) = skin.sheet(sheet)
+    {
+        let width = if sheet == Sheet::NumsEx { 108 } else { 99 };
+        add("digits.png", padded(&image(digits), (width, 13)));
     }
     if let Some(main) = skin.sheet(Sheet::Main) {
         let main = image(main);
@@ -103,6 +106,7 @@ fn colors(manifest: &mut String, palette: &Palette) {
         ("list_dim", palette.dim),
         ("accent", palette.accent),
         ("scroll_thumb", palette.thumb),
+        ("title_text", palette.title),
     ];
     for (key, color) in colors {
         let _ = writeln!(manifest, "{key} = \"{}\"", hex(color));
@@ -343,6 +347,13 @@ fn title(pledit: &RgbaImage) -> RgbaImage {
     out
 }
 
+/// A sheet at least Winamp's size for it, clear where the skin's bitmap
+/// is short, as Winamp drew what such a bitmap lacked.
+fn padded(image: &RgbaImage, (width, height): (u32, u32)) -> RgbaImage {
+    let (width, height) = (width.max(image.width()), height.max(image.height()));
+    RgbaImage::from_fn(width, height, |x, y| pixel(image, x, y))
+}
+
 fn crop(image: &RgbaImage, (x, y, w, h): (u32, u32, u32, u32)) -> RgbaImage {
     RgbaImage::from_fn(w, h, |dx, dy| pixel(image, x + dx, y + dy))
 }
@@ -408,7 +419,8 @@ mod tests {
             ("main.bmp", bmp(275, 116)),
             ("cbuttons.bmp", bmp(136, 36)),
             ("shufrep.bmp", bmp(92, 85)),
-            ("posbar.bmp", bmp(307, 10)),
+            // One row short, as some skins have it.
+            ("posbar.bmp", bmp(307, 9)),
             ("volume.bmp", bmp(68, 433)),
             ("playpaus.bmp", bmp(42, 9)),
             ("numbers.bmp", bmp(99, 13)),

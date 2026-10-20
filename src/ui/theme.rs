@@ -24,6 +24,8 @@ pub struct Palette {
     pub accent: Color32,
     /// The playlist scrollbar's thumb.
     pub thumb: Color32,
+    /// A skinned title bar's name, on the skin's plate.
+    pub title: Color32,
 }
 
 impl Palette {
@@ -43,6 +45,7 @@ impl Palette {
         dim: Color32::from_rgb(0x14, 0xa8, 0x3a),
         accent: Color32::from_rgb(0x2b, 0xff, 0x62),
         thumb: Color32::from_rgb(0xb0, 0x99, 0x5e),
+        title: Color32::from_rgb(0xc9, 0xc9, 0xda),
     };
 
     /// egui's own widgets (text fields, sliders) in the skin's colours.
