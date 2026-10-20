@@ -23,8 +23,8 @@ const SEEK_HEIGHT: f32 = 18.0;
 const BLINK: Duration = Duration::from_secs(1);
 
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
-    if let Some(art) = view.art {
-        return super::skinned_strip::draw(ui, view, art, inputs, actions);
+    if let Some(paint) = view.art.filter(|paint| paint.has_player()) {
+        return super::skinned_strip::draw(ui, view, paint, inputs, actions);
     }
     let rect = ui.max_rect();
     let lcd = Rect::from_min_size(rect.min, vec2(LCD_WIDTH, TOP));

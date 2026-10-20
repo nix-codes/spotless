@@ -10,6 +10,7 @@
 //! in Settings.
 
 pub mod built_in;
+pub mod convert;
 mod geometry;
 mod manifest;
 mod source;
@@ -207,6 +208,7 @@ pub const PIECES: &[(&str, Kind)] = &[
     ("window", Kind::Frame),
     ("titlebar", Kind::Frame),
     ("separator", Kind::Frame),
+    ("title", Kind::Bar { vertical: false }),
     ("statusbar", Kind::Frame),
     ("lcd", Kind::Frame),
     ("display", Kind::Frame),
@@ -249,8 +251,8 @@ const STAND_INS: [(&str, &str); 2] = [("separator", "titlebar"), ("small_button"
 pub struct Piece {
     pub states: States,
     pub shape: Shape,
-    /// For a title bar: plain space either side of the name, in image
-    /// pixels.
+    /// For the plate behind a title bar's name: plain space either side
+    /// of the name, in image pixels.
     pub title_gap: u32,
 }
 

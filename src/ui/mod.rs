@@ -8,7 +8,7 @@ mod player_strip;
 mod playlist_view;
 mod scrollbar;
 mod settings_view;
-pub mod skin_art;
+pub mod skin_paint;
 mod skinned_strip;
 pub mod theme;
 pub mod widgets;
@@ -56,8 +56,8 @@ pub struct View<'a> {
     /// The skins folder's contents, while Settings shows them.
     pub skins: &'a [String],
     pub skins_dir: &'a std::path::Path,
-    /// The skin's bitmaps, when it has the player's.
-    pub art: Option<&'a skin_art::SkinArt>,
+    /// The skin's pieces, when it has any.
+    pub art: Option<&'a skin_paint::SkinPaint>,
     /// What the chosen skin lacks, said in Settings.
     pub skin_note: Option<&'a str>,
     /// Why the chosen skin couldn't be read.
@@ -142,18 +142,19 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     ui.painter().rect_filled(full, 0.0, palette.frame);
     theme::bevel(ui.painter(), full, true, &palette);
 
-    let skinned = view.art.filter(|art| art.has(crate::skin::Sheet::PlEdit));
+    let skinned = view.art.filter(|paint| paint.has("titlebar"));
     // A bar of stripes with a name: the window's title, and the separator
     // between the player and the screen below, as Winamp's playlist editor
     // had its own title bar under the main window.
     let bar = |ui: &Ui, top: f32, label: &str| match skinned {
-        Some(art) => {
-            let unit = skinned_strip::unit(full.width() - 2.0 * GUTTER);
-            let rect = Rect::from_min_size(
-                egui::pos2(full.left(), top),
-                vec2(full.width(), 14.0 * unit),
-            );
-            skinned_strip::title_bar(ui, rect, view, art, unit, label);
+        Some(paint) => {
+            let unit = skinned_strip::unit(paint, full.width() - 2.0 * GUTTER);
+            let height = paint
+                .size("titlebar", unit)
+                .map_or(TITLE_HEIGHT, |size| size.y);
+            let rect =
+                Rect::from_min_size(egui::pos2(full.left(), top), vec2(full.width(), height));
+            skinned_strip::title_bar(ui, rect, view, paint, unit, label);
             rect
         }
         None => {

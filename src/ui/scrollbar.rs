@@ -1,20 +1,24 @@
 //! The playlist's scrollbar, Winamp's: a thumb in a slot of its own beside
-//! the rows, from `pledit.bmp` when the skin has it.
+//! the rows, the skin's when it has one.
 //!
 //! The thumb is always there, at the top when everything fits. Dragging it
 //! scrolls; pressing in the slot brings the thumb's middle to the pointer.
 
 use egui::{Id, Rect, Sense, Ui, pos2, vec2};
 
-use super::skin_art::SkinArt;
+use super::skin_paint::SkinPaint;
 use super::theme::{self, Palette};
 use super::{GUTTER, View, skinned_strip};
-use crate::skin::{Sheet, sprites};
+use crate::skin::format::State;
+
+/// The thumb's size in points without a skin.
+const WIDTH: f32 = 12.0;
+const THUMB_HEIGHT: f32 = 27.0;
 
 pub struct Scrollbar<'a> {
-    art: Option<&'a SkinArt>,
+    paint: Option<&'a SkinPaint>,
     palette: Palette,
-    /// Points per skin pixel, the title bar's.
+    /// Points per image pixel, the title bar's.
     unit: f32,
     id: Id,
 }
@@ -22,20 +26,30 @@ pub struct Scrollbar<'a> {
 impl<'a> Scrollbar<'a> {
     pub fn new(ui: &Ui, view: &'a View, id: Id) -> Self {
         let width = ui.ctx().content_rect().width() - 2.0 * GUTTER;
+        let paint = view
+            .art
+            .filter(|paint| paint.has("scrollbar.track") && paint.has("scrollbar.thumb"));
         Self {
-            art: view.art.filter(|art| art.has(Sheet::PlEdit)),
+            paint,
             palette: view.palette,
-            unit: skinned_strip::unit(width),
+            unit: paint.map_or(1.0, |paint| skinned_strip::unit(paint, width)),
             id,
         }
     }
 
+    /// The thumb's size: the skin's, or Classic's.
+    fn thumb(&self) -> egui::Vec2 {
+        self.paint
+            .and_then(|paint| paint.size("scrollbar.thumb", self.unit))
+            .map_or(vec2(WIDTH, THUMB_HEIGHT), |size| size.round())
+    }
+
     pub fn width(&self) -> f32 {
-        (sprites::SCROLL_THUMB.width as f32 * self.unit).round()
+        self.thumb().x
     }
 
     fn thumb_height(&self) -> f32 {
-        (sprites::SCROLL_THUMB.height as f32 * self.unit).round()
+        self.thumb().y
     }
 
     /// Where the thumb's top is when the list is `offset` of `max`
@@ -91,7 +105,7 @@ impl<'a> Scrollbar<'a> {
             vec2(slot.width(), self.thumb_height()),
         );
         let painter = ui.painter().with_clip_rect(slot);
-        let Some(art) = self.art else {
+        let Some(paint) = self.paint else {
             theme::inset(&painter, slot, self.palette.frame, &self.palette);
             let face = self.palette.thumb;
             painter.rect_filled(thumb, 0.0, face);
@@ -103,18 +117,12 @@ impl<'a> Scrollbar<'a> {
             theme::bevel(&painter, thumb, !pressed, &edges);
             return;
         };
-        let piece = sprites::SCROLL_SLOT;
-        let step = piece.height as f32 * self.unit;
-        let mut y = slot.top();
-        while y < slot.bottom() {
-            art.paint(&painter, piece, pos2(slot.left(), y), self.unit);
-            y += step;
-        }
-        let sprite = if pressed {
-            sprites::SCROLL_THUMB_PRESSED
+        paint.paint(&painter, "scrollbar.track", State::Normal, slot, self.unit);
+        let state = if pressed {
+            State::Pressed
         } else {
-            sprites::SCROLL_THUMB
+            State::Normal
         };
-        art.paint(&painter, sprite, thumb.min, self.unit);
+        paint.paint(&painter, "scrollbar.thumb", state, thumb, self.unit);
     }
 }

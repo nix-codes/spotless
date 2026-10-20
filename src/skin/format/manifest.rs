@@ -456,7 +456,7 @@ impl Reader<'_> {
             Kind::Bar { .. } => known.extend(["slice", "middle"]),
             Kind::Frame => known.extend(["slice", "edges", "center", "padding"]),
         }
-        if matches!(name, "titlebar" | "separator") {
+        if name == "title" {
             known.push("title_gap");
         }
         self.unknown_keys(at, table, &known);

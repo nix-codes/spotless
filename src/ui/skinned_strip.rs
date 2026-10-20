@@ -1,7 +1,7 @@
-//! The player strip drawn from a skin's bitmaps: its transport buttons,
+//! The player strip drawn from a skin's pieces: its transport buttons,
 //! the time in its digits, the song in its font, its seek bar, shuffle,
-//! repeat, volume and PL. Laid out as the plain strip is.
-//! The title bar above it is the skin's too.
+//! repeat, volume and PL. Laid out as the plain strip is, every size taken
+//! from the skin's own pieces. The title bars are the skin's too.
 
 use std::time::Duration;
 
@@ -12,219 +12,342 @@ use egui::{
 };
 
 use super::player_strip::{HEIGHT, KBPS, KHZ, eject_clicked, now_lines, pl_clicked, time_shown};
-use super::skin_art::{self, SkinArt};
+use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
 use crate::action::Action;
 use crate::backend::SessionState;
 use crate::playback::engine::Status;
-use crate::skin::sprites::{self, Sprite};
+use crate::skin::format::{Role, State};
 
-/// The rows, in skin pixels from the strip's top: the LCD and the song's
-/// display beside it, the volume row under the display, the seek bar,
-/// then the buttons; and how tall they are together.
-const TOP: f32 = 40.0;
-const TITLE_HEIGHT: f32 = 22.0;
-const INFO_Y: f32 = 26.0;
-const SEEK_Y: f32 = 45.0;
-const BUTTONS_Y: f32 = 61.0;
-const ROWS: f32 = 79.0;
-/// Widths in skin pixels.
-const LCD_WIDTH: f32 = 71.0;
-const EJECT: f32 = 22.0;
-const SHUFFLE: f32 = 47.0;
-const VOLUME: f32 = 68.0;
-const PL: f32 = 23.0;
+/// Gaps, in image pixels: between groups of controls, between the
+/// display's two lines, and between the rows.
 const GAP: f32 = 6.0;
-/// The narrowest strip that keeps everything at full size, in skin pixels.
+const LINE_GAP: f32 = 3.0;
+const ROW_GAP: f32 = 4.0;
+/// A frame's padding when the skin draws no frame there.
+const PADDING: [f32; 4] = [3.0, 3.0, 3.0, 3.0];
+/// Points between the time's box and what's inside it.
+const LCD_MARGIN: f32 = 10.0;
+/// The narrowest strip that keeps everything at full size, in image
+/// pixels.
 const MIN_WIDTH: f32 = 300.0;
 /// What separates the end of a scrolling song from its start again.
 const MARQUEE_GAP: &str = "  ***  ";
 /// How long the marquee waits between one-character steps, in ms.
 const MARQUEE_STEP: u64 = 220;
+const TRANSPORT: [(&str, &str, Action); 5] = [
+    ("previous", "Previous", Action::Previous),
+    ("play", "Play", Action::Play),
+    ("pause", "Pause", Action::TogglePause),
+    ("stop", "Stop", Action::Stop),
+    ("next", "Next", Action::Next),
+];
 
-/// Points per skin pixel for a strip `width` points wide: smaller when
-/// the window is too narrow for the strip at full size.
-pub fn unit(width: f32) -> f32 {
-    skin_art::unit((width / MIN_WIDTH).min((HEIGHT - 2.0) / ROWS))
+/// The strip's rows in image pixels, from the skin's pieces.
+struct Rows {
+    display: f32,
+    info_y: f32,
+    info: f32,
+    top: f32,
+    seek_y: f32,
+    seek: f32,
+    buttons_y: f32,
+    buttons: f32,
+    total: f32,
 }
 
-/// The title bar: the playlist editor's, stretched, with the stripes
-/// running up to the name from both sides.
-pub fn title_bar(ui: &Ui, rect: Rect, view: &View, art: &SkinArt, unit: f32, label: &str) {
-    let lit = ui.input(|i| i.viewport().focused.unwrap_or(true));
-    let (left, middle, tile) = if lit {
-        (
-            sprites::TITLE_LEFT,
-            sprites::TITLE_MIDDLE,
-            sprites::TITLE_TILE,
-        )
-    } else {
-        (
-            sprites::TITLE_LEFT_UNLIT,
-            sprites::TITLE_MIDDLE_UNLIT,
-            sprites::TITLE_TILE_UNLIT,
-        )
-    };
-    let painter = ui.painter().with_clip_rect(rect);
-    let px = |n: u32| n as f32 * unit;
-    let piece = |x: u32, width: u32| {
-        Sprite::new(middle.sheet, middle.x + x, middle.y, width, middle.height)
-    };
-    // The title piece's ends finish the stripes; between them, its plain
-    // background takes the name.
-    let (cap, gap) = (piece(0, 5), piece(5, 1));
-    let end_cap = piece(95, 5);
-    let font = FontId::monospace(10.0);
-    let text = ui
-        .painter()
-        .layout_no_wrap(label.into(), font.clone(), view.palette.chrome);
-    let name = Rect::from_center_size(rect.center(), vec2(text.size().x + px(16), rect.height()))
-        .round_to_pixels(ui.pixels_per_point());
-    let fill_from = rect.left() + px(left.width);
-    let fill_to = rect.right() - px(left.width);
-    for (from, to) in [
-        (fill_from, name.left() - px(cap.width)),
-        (name.right() + px(end_cap.width), fill_to),
-    ] {
-        let tiles = painter.with_clip_rect(rect.with_min_x(from).with_max_x(to));
-        let mut x = from;
-        while x < to {
-            art.paint(&tiles, tile, pos2(x, rect.top()), unit);
-            x += px(tile.width);
+impl Rows {
+    fn of(paint: &SkinPaint) -> Self {
+        let height = |name: &str| paint.size(name, 1.0).map_or(0.0, |size| size.y);
+        let line = paint.cell(Role::Display).y;
+        let [_, top, _, bottom] = padding(paint, "display");
+        let display = top + 2.0 * line + LINE_GAP + bottom;
+        let [_, small_top, _, small_bottom] = padding(paint, "small_display");
+        let info = (small_top + line + small_bottom)
+            .max(height("volume.track"))
+            .max(height("volume.thumb"))
+            .max(height("pl"));
+        let info_y = display + ROW_GAP;
+        let top = info_y + info;
+        let seek_y = top + ROW_GAP + 1.0;
+        let seek = height("seek.track").max(height("seek.thumb"));
+        let buttons_y = seek_y + seek + GAP;
+        let buttons = [
+            "previous", "play", "pause", "stop", "next", "eject", "shuffle", "repeat",
+        ]
+        .into_iter()
+        .map(height)
+        .fold(0.0, f32::max);
+        Self {
+            display,
+            info_y,
+            info,
+            top,
+            seek_y,
+            seek,
+            buttons_y,
+            buttons,
+            total: buttons_y + buttons,
         }
     }
-    art.paint(
-        &painter,
-        cap,
-        pos2(name.left() - px(cap.width), rect.top()),
-        unit,
-    );
-    art.paint_into(&painter, gap, name, false);
-    art.paint(&painter, end_cap, pos2(name.right(), rect.top()), unit);
-    art.paint(&painter, left, rect.min, unit);
-    // The right corner is the left one mirrored: the skin's own has the
-    // playlist's close and shade buttons, which Spotless has no use for.
-    art.paint_mirrored(&painter, left, pos2(fill_to, rect.top()), unit);
-    painter.galley(name.center() - text.size() / 2.0, text, view.palette.chrome);
+}
+
+/// A frame's padding in image pixels, or the default where the skin has
+/// no frame.
+fn padding(paint: &SkinPaint, name: &str) -> [f32; 4] {
+    match paint.size(name, 1.0) {
+        Some(size) => {
+            let content = paint
+                .content(name, Rect::from_min_size(Pos2::ZERO, size), 1.0)
+                .unwrap_or(Rect::ZERO);
+            [
+                content.left(),
+                content.top(),
+                size.x - content.right(),
+                size.y - content.bottom(),
+            ]
+        }
+        None => PADDING,
+    }
+}
+
+/// Points per image pixel for a strip `width` points wide: the skin's
+/// scale, or smaller when the window is too narrow or the strip too tall.
+pub fn unit(paint: &SkinPaint, width: f32) -> f32 {
+    let rows = Rows::of(paint).total.max(1.0);
+    paint
+        .scale()
+        .min(width / MIN_WIDTH)
+        .min((HEIGHT - 2.0) / rows)
+}
+
+/// A title bar: the skin's stripes across it, and its plate behind the
+/// name in the middle.
+pub fn title_bar(ui: &Ui, rect: Rect, view: &View, paint: &SkinPaint, unit: f32, label: &str) {
+    let lit = ui.input(|i| i.viewport().focused.unwrap_or(true));
+    let state = if lit { State::Normal } else { State::Unlit };
+    let painter = ui.painter().with_clip_rect(rect);
+    let name = if label == super::TITLE {
+        "titlebar"
+    } else {
+        "separator"
+    };
+    paint.paint(&painter, name, state, rect, unit);
+    let text = painter.layout_no_wrap(label.into(), FontId::monospace(10.0), view.palette.chrome);
+    if let Some(plate) = paint.size("title", unit) {
+        let gap = paint.title_gap() * unit;
+        let ends = paint
+            .content("title", Rect::from_min_size(Pos2::ZERO, plate), unit)
+            .map_or(0.0, |inner| plate.x - inner.width());
+        let width = text.size().x + 2.0 * gap + ends;
+        let plate = Rect::from_center_size(rect.center(), vec2(width, plate.y))
+            .round_to_pixels(ui.pixels_per_point());
+        paint.paint(&painter, "title", state, plate, unit);
+    }
+    let at = rect.center() - text.size() / 2.0;
+    painter.galley(at, text, view.palette.chrome);
 }
 
 pub fn draw(
     ui: &mut Ui,
     view: &View,
-    art: &SkinArt,
+    paint: &SkinPaint,
     inputs: &mut Inputs,
     actions: &mut Vec<Action>,
 ) {
     let rect = ui.max_rect();
-    let unit = unit(rect.width());
+    let unit = unit(paint, rect.width());
+    let rows = Rows::of(paint);
     let origin = pos2(
         rect.left(),
-        rect.top() + (rect.height() - ROWS * unit) / 2.0,
+        rect.top() + (rect.height() - rows.total * unit) / 2.0,
     )
     .round_to_pixels(ui.pixels_per_point());
-    let at = |x: f32, y: f32| origin + vec2(x, y) * unit;
-    let lcd = Rect::from_min_max(origin, at(0.0, TOP) + vec2(20.0 + LCD_WIDTH * unit, 0.0));
-    draw_lcd(ui, lcd, view, art, unit);
+    let y = |pixels: f32| origin.y + pixels * unit;
+
+    let lcd_width = time_width(paint) * unit + 2.0 * LCD_MARGIN;
+    let lcd = Rect::from_min_size(origin, vec2(lcd_width, rows.top * unit));
+    draw_lcd(ui, lcd, view, paint, unit);
     let title = Rect::from_min_max(
         pos2(lcd.right() + GAP * unit, origin.y),
-        pos2(rect.right(), at(0.0, TITLE_HEIGHT).y),
+        pos2(rect.right(), y(rows.display)),
     );
-    draw_title(ui, title, view, art, unit);
-    let info = pos2(title.left(), at(0.0, INFO_Y).y);
-    info_row(ui, info, rect.right(), view, art, unit, inputs, actions);
-    let seek = at(0.0, SEEK_Y);
-    seek_bar(ui, seek, rect.right(), view, art, unit, inputs, actions);
-    buttons(ui, at(0.0, BUTTONS_Y), view, art, unit, inputs, actions);
+    draw_title(ui, title, view, paint, unit);
+    let info = Rect::from_min_max(
+        pos2(title.left(), y(rows.info_y)),
+        pos2(rect.right(), y(rows.info_y + rows.info)),
+    );
+    info_row(ui, info, view, paint, unit, inputs, actions);
+    let seek = Rect::from_min_max(
+        pos2(rect.left(), y(rows.seek_y)),
+        pos2(rect.right(), y(rows.seek_y + rows.seek)),
+    );
+    seek_bar(ui, seek, view, paint, unit, inputs, actions);
+    let buttons = Rect::from_min_max(
+        pos2(rect.left(), y(rows.buttons_y)),
+        pos2(rect.right(), y(rows.buttons_y + rows.buttons)),
+    );
+    buttons_row(ui, buttons, view, paint, unit, inputs, actions);
 }
 
-/// The LCD: the status glyph and the time, at Winamp's spacing.
-fn draw_lcd(ui: &Ui, rect: Rect, view: &View, art: &SkinArt, unit: f32) {
+/// Where the time's parts go from the status icon's left, in image
+/// pixels, at Winamp's spacing: the four digits, the colon; and how wide
+/// it all is.
+fn time_layout(paint: &SkinPaint) -> ([f32; 4], f32, f32) {
+    let status = paint.size("status.playing", 1.0).map_or(9.0, |size| size.x);
+    let digit = paint.cell(Role::Digits).x;
+    let first = status + 11.0;
+    let second = first + digit + 3.0;
+    let colon = second + digit + 3.0;
+    let third = colon + 6.0;
+    let fourth = third + digit + 3.0;
+    ([first, second, third, fourth], colon, fourth + digit)
+}
+
+fn time_width(paint: &SkinPaint) -> f32 {
+    time_layout(paint).2
+}
+
+/// The LCD: the status icon and the time.
+fn draw_lcd(ui: &Ui, rect: Rect, view: &View, paint: &SkinPaint, unit: f32) {
     let palette = view.palette;
     let painter = ui.painter().with_clip_rect(rect);
-    theme::inset(&painter, rect, palette.lcd_bg, &palette);
+    if !paint.paint(&painter, "lcd", State::Normal, rect, unit) {
+        theme::inset(&painter, rect, palette.lcd_bg, &palette);
+    }
     let player = view.player;
+    let height = paint.cell(Role::Digits).y;
     let origin = pos2(
-        rect.left() + 10.0,
-        rect.top() + (rect.height() - 13.0 * unit) / 2.0,
+        rect.left() + LCD_MARGIN,
+        rect.top() + (rect.height() - height * unit) / 2.0,
     )
     .round_to_pixels(ui.pixels_per_point());
     let at = |x: f32, y: f32| origin + vec2(x, y) * unit;
 
     let status = match player.status {
-        Status::Playing | Status::Loading => sprites::STATUS_PLAYING,
-        Status::Paused => sprites::STATUS_PAUSED,
-        Status::Stopped => sprites::STATUS_STOPPED,
+        Status::Playing | Status::Loading => "status.playing",
+        Status::Paused => "status.paused",
+        Status::Stopped => "status.stopped",
     };
-    art.paint(&painter, status, at(0.0, 2.0), unit);
+    let icon = paint.size(status, 1.0).map_or(0.0, |size| size.y);
+    paint.paint_at(
+        &painter,
+        status,
+        State::Normal,
+        at(0.0, (height - icon) / 2.0),
+        unit,
+    );
 
-    // Two digits, a colon, two digits; stopped, none of them.
+    // Stopped, the time is blank, as in Winamp.
     if player.status == Status::Stopped {
         return;
     }
     let seconds = player.position_now() / 1000;
     let minutes = (seconds / 60).min(99);
-    let digits = [
-        (20.0, minutes / 10),
-        (32.0, minutes % 10),
-        (50.0, seconds % 60 / 10),
-        (62.0, seconds % 10),
-    ];
+    let values = [minutes / 10, minutes % 10, seconds % 60 / 10, seconds % 10];
+    let (digits, colon, _) = time_layout(paint);
     if time_shown(ui, view) {
-        for (x, value) in digits {
-            let digit = sprites::digit(art.digits, value);
-            art.paint(&painter, digit, at(x, 0.0), unit);
+        let width = paint.cell(Role::Digits).x * unit;
+        for (x, value) in digits.into_iter().zip(values) {
+            let text = char::from_digit(value, 10).unwrap_or('0').to_string();
+            paint.text(
+                &painter,
+                Role::Digits,
+                &text,
+                at(x, 0.0),
+                width,
+                unit,
+                palette.lcd,
+            );
         }
     }
     // The colon is part of Winamp's main window, not of the digits.
-    for y in [4.0, 8.0] {
-        let dot = Rect::from_min_size(at(44.0, y), vec2(3.0, 1.0) * unit);
+    for y in [0.3, 0.6] {
+        let dot = Rect::from_min_size(at(colon, (height * y).round()), vec2(3.0, 1.0) * unit);
         painter.rect_filled(dot, 0.0, palette.lcd);
     }
 }
 
-/// The song's display, in the skin's font: the artist above, the song
-/// below, each scrolling on its own when too long.
-fn draw_title(ui: &Ui, rect: Rect, view: &View, art: &SkinArt, unit: f32) {
+/// The song's display: the artist above, the song below, each scrolling
+/// on its own when too long.
+fn draw_title(ui: &Ui, rect: Rect, view: &View, paint: &SkinPaint, unit: f32) {
     let palette = view.palette;
     let painter = ui.painter().with_clip_rect(rect);
-    theme::inset(&painter, rect, palette.lcd_bg, &palette);
-    let origin = pos2(rect.left() + 4.0 * unit, rect.top()).round_to_pixels(ui.pixels_per_point());
-    let width = rect.right() - 4.0 * unit - origin.x;
-    let (artist, song) = now_lines(view);
-    for (y, line) in [(4.0, artist), (13.0, song)] {
-        let shown = marquee(ui, view, &line, width, unit);
-        art.text(&painter, &shown, origin + vec2(0.0, y * unit), width, unit);
+    if !paint.paint(&painter, "display", State::Normal, rect, unit) {
+        theme::inset(&painter, rect, palette.lcd_bg, &palette);
     }
+    let [left, top, right, _] = padding(paint, "display").map(|n| n * unit);
+    let origin = pos2(rect.left() + left, rect.top() + top).round_to_pixels(ui.pixels_per_point());
+    let width = rect.right() - right - origin.x;
+    let line = (paint.cell(Role::Display).y + LINE_GAP) * unit;
+    let (artist, song) = now_lines(view);
+    for (index, text) in [artist, song].into_iter().enumerate() {
+        let shown = marquee(ui, view, paint, &text, width, unit);
+        let at = origin + vec2(0.0, index as f32 * line);
+        paint.text(
+            &painter,
+            Role::Display,
+            &shown,
+            at,
+            width,
+            unit,
+            palette.lcd,
+        );
+    }
+}
+
+/// A small display with `text` in it, its corner at `at`; gives its rect.
+fn small_display(
+    painter: &Painter,
+    view: &View,
+    paint: &SkinPaint,
+    at: Pos2,
+    text: &str,
+    unit: f32,
+) -> Rect {
+    let palette = view.palette;
+    let cell = paint.cell(Role::Display);
+    let [left, top, right, bottom] = padding(paint, "small_display");
+    let width = text.chars().count() as f32 * cell.x;
+    let size = vec2(left + width + right, top + cell.y + bottom) * unit;
+    let rect = Rect::from_min_size(at, size).round_to_pixels(painter.pixels_per_point());
+    if !paint.paint(painter, "small_display", State::Normal, rect, unit) {
+        theme::inset(painter, rect, palette.lcd_bg, &palette);
+    }
+    let text_at = rect.min + vec2(left, top) * unit;
+    paint.text(
+        painter,
+        Role::Display,
+        text,
+        text_at,
+        width * unit,
+        unit,
+        palette.lcd,
+    );
+    rect
 }
 
 /// Under the song's display: the bitrate in small displays, then the
 /// volume and PL at the right end.
-#[allow(clippy::too_many_arguments)]
 fn info_row(
     ui: &mut Ui,
-    at: Pos2,
-    right: f32,
+    rect: Rect,
     view: &View,
-    art: &SkinArt,
+    paint: &SkinPaint,
     unit: f32,
     inputs: &mut Inputs,
     actions: &mut Vec<Action>,
 ) {
     let palette = view.palette;
     let painter = ui.painter().clone();
-    let mut x = at.x;
+    let mut x = rect.left();
+    let small = paint.cell(Role::Display).y + {
+        let [_, top, _, bottom] = padding(paint, "small_display");
+        top + bottom
+    };
     for (value, label) in [(KBPS, "kbps"), (KHZ, "kHz")] {
-        let width = (value.chars().count() * 5) as f32 * unit;
-        let display =
-            Rect::from_min_size(pos2(x, at.y + unit), vec2(width + 4.0 * unit, 10.0 * unit));
-        theme::inset(&painter, display, palette.lcd_bg, &palette);
-        art.text(
-            &painter,
-            value,
-            display.min + vec2(2.0, 2.0) * unit,
-            width,
-            unit,
-        );
+        let at = pos2(x, rect.center().y - small * unit / 2.0);
+        let display = small_display(&painter, view, paint, at, value, unit);
         let text = painter.text(
             pos2(display.right() + 3.0 * unit, display.center().y),
             Align2::LEFT_CENTER,
@@ -234,24 +357,38 @@ fn info_row(
         );
         x = text.right() + GAP * unit;
     }
-    let pl = if view.settings.playlists {
-        (sprites::PL_LIT, sprites::PL_LIT_PRESSED)
-    } else {
-        (sprites::PL, sprites::PL_PRESSED)
+    let Some(pl) = paint.size("pl", unit) else {
+        return;
     };
-    let pl_at = pos2(right - PL * unit, at.y + unit);
-    let response = button(ui, &painter, art, pl_at, unit, pl, "Playlists", true);
+    let pl_at = pos2(rect.right() - pl.x, rect.center().y - pl.y / 2.0);
+    let state = toggle_state(view.settings.playlists);
+    let response = button(
+        ui,
+        &painter,
+        paint,
+        pl_at,
+        unit,
+        "pl",
+        state,
+        "Playlists",
+        true,
+    );
     pl_clicked(response, view, actions);
-    let volume_at = pos2(pl_at.x - (GAP + VOLUME) * unit, at.y);
-    if volume_at.x >= x {
-        volume(ui, &painter, art, volume_at, unit, inputs, actions);
+    if let Some(track) = paint.size("volume.track", unit) {
+        let at = pos2(
+            pl_at.x - GAP * unit - track.x,
+            rect.center().y - track.y / 2.0,
+        );
+        if at.x >= x {
+            volume(ui, &painter, paint, at, unit, inputs, actions);
+        }
     }
 }
 
 /// The song as the marquee shows it: while it plays, a song longer than
 /// the display scrolls a character at a time, from its start.
-fn marquee(ui: &Ui, view: &View, text: &str, width: f32, unit: f32) -> String {
-    let fits = (width / (5.0 * unit)).floor() as usize;
+fn marquee(ui: &Ui, view: &View, paint: &SkinPaint, text: &str, width: f32, unit: f32) -> String {
+    let fits = (width / (paint.cell(Role::Display).x * unit)).floor() as usize;
     if view.player.status != Status::Playing || text.chars().count() <= fits {
         return text.to_string();
     }
@@ -265,45 +402,42 @@ fn marquee(ui: &Ui, view: &View, text: &str, width: f32, unit: f32) -> String {
 
 /// Seek, across the strip, with the song's length in a small display at
 /// its end.
-#[allow(clippy::too_many_arguments)]
 fn seek_bar(
     ui: &mut Ui,
-    origin: Pos2,
-    right: f32,
+    rect: Rect,
     view: &View,
-    art: &SkinArt,
+    paint: &SkinPaint,
     unit: f32,
     inputs: &mut Inputs,
     actions: &mut Vec<Action>,
 ) {
-    let palette = view.palette;
     let painter = ui.painter().clone();
     let ready = matches!(view.session, SessionState::Ready { .. });
     let player = view.player;
-    let at = |x: f32, y: f32| origin + vec2(x, y) * unit;
-    let rect = Rect::from_min_max(origin, pos2(right, origin.y));
     let duration = player.track.as_ref().map_or(0, |t| t.duration_ms) as f32 / 1000.0;
     let total = duration as u32;
     let length = format!("{}:{:02}", total / 60, total % 60);
-    let length_width = (length.chars().count() * 5) as f32 * unit;
+
+    // The length's display first, from the right, so the track takes the
+    // rest.
+    let cell = paint.cell(Role::Display);
+    let [left, top, right, bottom] = padding(paint, "small_display");
+    let display = vec2(
+        left + length.chars().count() as f32 * cell.x + right,
+        top + cell.y + bottom,
+    ) * unit;
+    let display_at = pos2(rect.right() - display.x, rect.center().y - display.y / 2.0);
+    small_display(&painter, view, paint, display_at, &length, unit);
+
+    let height = paint
+        .size("seek.track", unit)
+        .map_or(rect.height(), |size| size.y);
     let track = Rect::from_min_max(
-        at(0.0, 0.0),
-        pos2(rect.right() - length_width - 8.0 * unit, at(0.0, 10.0).y),
-    );
-    art.paint_bar(
-        &painter,
-        sprites::POSITION_TRACK,
-        track.min,
-        track.width(),
-        unit,
-    );
-    let display = Rect::from_min_size(
-        pos2(track.right() + 4.0 * unit, track.top()),
-        vec2(length_width + 4.0 * unit, 10.0 * unit),
-    );
-    theme::inset(&painter, display, palette.lcd_bg, &palette);
-    let length_at = display.min + vec2(2.0, 2.0) * unit;
-    art.text(&painter, &length, length_at, length_width, unit);
+        pos2(rect.left(), rect.center().y - height / 2.0),
+        pos2(display_at.x - 4.0 * unit, rect.center().y + height / 2.0),
+    )
+    .round_to_pixels(ui.pixels_per_point());
+    paint.paint(&painter, "seek.track", State::Normal, track, unit);
 
     let enabled = ready && duration > 0.0 && player.status != Status::Stopped;
     let sense = if enabled {
@@ -312,13 +446,13 @@ fn seek_bar(
         Sense::hover()
     };
     let seek = ui.interact(track, Id::new("skin-seek"), sense);
-    let thumb_width = sprites::POSITION_THUMB.width as f32 * unit;
-    let travel = (track.width() - thumb_width).max(1.0);
+    let thumb = paint.size("seek.thumb", unit).unwrap_or(vec2(0.0, height));
+    let travel = (track.width() - thumb.x).max(1.0);
     if enabled
         && seek.is_pointer_button_down_on()
         && let Some(pointer) = seek.interact_pointer_pos()
     {
-        let fraction = ((pointer.x - track.left() - thumb_width / 2.0) / travel).clamp(0.0, 1.0);
+        let fraction = ((pointer.x - track.left() - thumb.x / 2.0) / travel).clamp(0.0, 1.0);
         inputs.seeking = Some(fraction * duration);
     }
     if (seek.drag_stopped() || seek.clicked())
@@ -332,142 +466,143 @@ fn seek_bar(
     seek.widget_info(|| WidgetInfo::slider(enabled, f64::from(position), "Seek"));
     if enabled {
         let fraction = (position / duration).clamp(0.0, 1.0);
-        let thumb = if seek.is_pointer_button_down_on() {
-            sprites::POSITION_THUMB_PRESSED
-        } else {
-            sprites::POSITION_THUMB
-        };
         let x = track.left() + fraction * travel;
-        art.paint(&painter, thumb, pos2(x, track.top()), unit);
+        let played = painter.with_clip_rect(track.with_max_x(x + thumb.x / 2.0));
+        paint.paint(&played, "seek.fill", State::Normal, track, unit);
+        let state = if seek.is_pointer_button_down_on() {
+            State::Pressed
+        } else {
+            State::Normal
+        };
+        let at = pos2(x, track.center().y - thumb.y / 2.0);
+        paint.paint_at(&painter, "seek.thumb", state, at, unit);
     }
 }
 
-/// Transport, eject, shuffle and repeat.
-fn buttons(
+/// Transport, eject, shuffle and repeat, each centred in the row.
+fn buttons_row(
     ui: &mut Ui,
-    origin: Pos2,
+    rect: Rect,
     view: &View,
-    art: &SkinArt,
+    paint: &SkinPaint,
     unit: f32,
     inputs: &mut Inputs,
     actions: &mut Vec<Action>,
 ) {
     let painter = ui.painter().clone();
     let ready = matches!(view.session, SessionState::Ready { .. });
-    let at = |x: f32, y: f32| origin + vec2(x, y) * unit;
-    let transport = [
-        (
-            sprites::PREVIOUS,
-            sprites::PREVIOUS_PRESSED,
-            "Previous",
-            Action::Previous,
-        ),
-        (sprites::PLAY, sprites::PLAY_PRESSED, "Play", Action::Play),
-        (
-            sprites::PAUSE,
-            sprites::PAUSE_PRESSED,
-            "Pause",
-            Action::TogglePause,
-        ),
-        (sprites::STOP, sprites::STOP_PRESSED, "Stop", Action::Stop),
-        (sprites::NEXT, sprites::NEXT_PRESSED, "Next", Action::Next),
-    ];
-    let mut x = 0.0;
-    for (normal, pressed, name, action) in transport {
-        let sprites = (normal, pressed);
-        if button(ui, &painter, art, at(x, 0.0), unit, sprites, name, ready).clicked() {
+    let mut x = rect.left();
+    let mut place = |name: &str, gap_before: f32| {
+        let size = paint.size(name, unit).unwrap_or_default();
+        x += gap_before * unit;
+        let at = pos2(x, rect.center().y - size.y / 2.0);
+        x += size.x;
+        at
+    };
+    for (name, label, action) in TRANSPORT {
+        let at = place(name, 0.0);
+        if button(
+            ui,
+            &painter,
+            paint,
+            at,
+            unit,
+            name,
+            State::Normal,
+            label,
+            ready,
+        )
+        .clicked()
+        {
             actions.push(action);
         }
-        x += normal.width as f32;
     }
-    x += GAP;
-    let row = 1.0;
-    let eject = if view.browse.open {
-        (sprites::EJECT_PRESSED, sprites::EJECT_PRESSED)
-    } else {
-        (sprites::EJECT, sprites::EJECT_PRESSED)
-    };
-    let response = button(ui, &painter, art, at(x, row), unit, eject, "Browse", ready);
+    let at = place("eject", GAP);
+    let state = toggle_state(view.browse.open);
+    let response = button(
+        ui, &painter, paint, at, unit, "eject", state, "Browse", ready,
+    );
     eject_clicked(response, view, inputs, actions);
-    x += EJECT + GAP;
-    let shuffle = if view.shuffle {
-        (sprites::SHUFFLE_ON, sprites::SHUFFLE_ON_PRESSED)
-    } else {
-        (sprites::SHUFFLE_OFF, sprites::SHUFFLE_OFF_PRESSED)
-    };
+    let at = place("shuffle", GAP);
+    let state = toggle_state(view.shuffle);
     if button(
-        ui,
-        &painter,
-        art,
-        at(x, row),
-        unit,
-        shuffle,
-        "Shuffle",
-        true,
+        ui, &painter, paint, at, unit, "shuffle", state, "Shuffle", true,
     )
     .clicked()
     {
         actions.push(Action::SetShuffle(!view.shuffle));
     }
-    x += SHUFFLE;
-    let repeat = if view.repeat {
-        (sprites::REPEAT_ON, sprites::REPEAT_ON_PRESSED)
-    } else {
-        (sprites::REPEAT_OFF, sprites::REPEAT_OFF_PRESSED)
-    };
-    if button(ui, &painter, art, at(x, row), unit, repeat, "Repeat", true).clicked() {
+    let at = place("repeat", 0.0);
+    let state = toggle_state(view.repeat);
+    if button(
+        ui, &painter, paint, at, unit, "repeat", state, "Repeat", true,
+    )
+    .clicked()
+    {
         actions.push(Action::SetRepeat(!view.repeat));
     }
 }
 
-/// A button drawn pressed while the pointer holds it down.
+fn toggle_state(on: bool) -> State {
+    if on { State::On } else { State::Normal }
+}
+
+/// A button drawn pressed while the pointer holds it down. `state` is
+/// Normal, or On for a toggle that is on.
 #[allow(clippy::too_many_arguments)]
 fn button(
     ui: &Ui,
     painter: &Painter,
-    art: &SkinArt,
+    paint: &SkinPaint,
     at: Pos2,
     unit: f32,
-    (normal, pressed): (Sprite, Sprite),
     name: &str,
+    state: State,
+    label: &str,
     enabled: bool,
 ) -> Response {
-    let rect = Rect::from_min_size(at, vec2(normal.width as f32, normal.height as f32) * unit);
+    let size = paint.size(name, unit).unwrap_or_default();
+    let rect = Rect::from_min_size(at, size);
     let sense = if enabled {
         Sense::click()
     } else {
         Sense::hover()
     };
     let response = ui.interact(rect, Id::new(("skin-button", name)), sense);
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, name));
-    let sprite = if response.is_pointer_button_down_on() {
-        pressed
-    } else {
-        normal
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, label));
+    let on = state == State::On;
+    let state = match (response.is_pointer_button_down_on(), response.hovered(), on) {
+        _ if !enabled => State::Disabled,
+        (true, _, true) => State::OnPressed,
+        (true, _, false) => State::Pressed,
+        (false, true, true) => State::OnHover,
+        (false, true, false) => State::Hover,
+        (false, false, _) => state,
     };
-    art.paint(painter, sprite, at, unit);
+    paint.paint_at(painter, name, state, at, unit);
     response
 }
 
-/// The volume: the skin's track for the level, and its thumb.
+/// The volume: the skin's track, its fill up to the level, and its thumb.
 fn volume(
     ui: &Ui,
     painter: &Painter,
-    art: &SkinArt,
+    paint: &SkinPaint,
     at: Pos2,
     unit: f32,
     inputs: &mut Inputs,
     actions: &mut Vec<Action>,
 ) {
-    let frame = (u32::from(inputs.volume) * (sprites::SLIDER_FRAMES - 1) + 50) / 100;
-    let track = art.paint(painter, sprites::volume_frame(frame), at, unit);
+    let Some(track) = paint.paint_at(painter, "volume.track", State::Normal, at, unit) else {
+        return;
+    };
     let response = ui.interact(track, Id::new("skin-volume"), Sense::click_and_drag());
-    let thumb_width = sprites::VOLUME_THUMB.width as f32 * unit;
-    let travel = track.width() - thumb_width;
+    let thumb = paint.size("volume.thumb", unit).unwrap_or_default();
+    let travel = track.width() - thumb.x;
     if response.is_pointer_button_down_on()
         && let Some(pointer) = response.interact_pointer_pos()
     {
-        let fraction = ((pointer.x - track.left() - thumb_width / 2.0) / travel).clamp(0.0, 1.0);
+        let fraction = ((pointer.x - track.left() - thumb.x / 2.0) / travel).clamp(0.0, 1.0);
         let level = (fraction * 100.0).round() as u8;
         if level != inputs.volume {
             inputs.volume = level;
@@ -475,11 +610,14 @@ fn volume(
         }
     }
     response.widget_info(|| WidgetInfo::slider(true, f64::from(inputs.volume), "Volume"));
-    let thumb = if response.is_pointer_button_down_on() {
-        sprites::VOLUME_THUMB_PRESSED
-    } else {
-        sprites::VOLUME_THUMB
-    };
     let x = track.left() + f32::from(inputs.volume) / 100.0 * travel;
-    art.paint(painter, thumb, pos2(x, track.top() + unit), unit);
+    let filled = painter.with_clip_rect(track.with_max_x(x + thumb.x / 2.0));
+    paint.paint(&filled, "volume.fill", State::Normal, track, unit);
+    let state = if response.is_pointer_button_down_on() {
+        State::Pressed
+    } else {
+        State::Normal
+    };
+    let at = pos2(x, track.center().y - thumb.y / 2.0);
+    paint.paint_at(painter, "volume.thumb", state, at, unit);
 }

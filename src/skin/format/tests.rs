@@ -182,12 +182,13 @@ fn a_piece_that_doesnt_fit_its_image_is_left_to_classic() {
 fn some_pieces_stand_in_for_others() {
     let sheet = png(8, 8);
     let skin = skin(
-        "format = 1\n[pieces.titlebar]\nimage = \"t.png\"\nslice = [2, 0, 2, 0]\nedges = \"tile\"\ntitle_gap = 6\n",
+        "format = 1\n[pieces.titlebar]\nimage = \"t.png\"\nslice = [2, 0, 2, 0]\nedges = \"tile\"\n[pieces.title]\nimage = \"t.png\"\nslice = [2, 2]\ntitle_gap = 6\n",
         &[("t.png", &sheet)],
     )
     .unwrap();
     assert!(skin.problems.is_empty(), "{:?}", skin.problems);
-    assert_eq!(skin.piece("separator").unwrap().title_gap, 6);
+    assert_eq!(skin.piece("separator"), skin.piece("titlebar"));
+    assert_eq!(skin.piece("title").unwrap().title_gap, 6);
     assert!(skin.piece("small_button").is_none());
 }
 

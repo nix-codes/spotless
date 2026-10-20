@@ -38,7 +38,7 @@ pub fn glyph(character: char) -> Sprite {
 }
 
 /// Reduces a character to one the font has a cell for.
-fn fold(character: char) -> char {
+pub fn fold(character: char) -> char {
     // Full-width forms are the ASCII punctuation, digits and letters again,
     // shifted up by 0xFEE0, and a Japanese or Korean release writes a title
     // with them: a star is U+FF0A, a tilde U+FF5E, the brackets U+FF08 and
