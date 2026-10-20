@@ -47,6 +47,7 @@ pub fn convert(skin: &Skin, name: &str) -> Vec<(String, Vec<u8>)> {
     colors(&mut manifest, &skin.palette);
 
     let mut add = |path: &str, image: RgbaImage| files.push((path.to_string(), png(&image)));
+    let mut sheets = Vec::new();
     for (sheet, path, size) in [
         (Sheet::CButtons, "cbuttons.png", (136, 36)),
         (Sheet::ShufRep, "shufrep.png", (92, 85)),
@@ -57,8 +58,12 @@ pub fn convert(skin: &Skin, name: &str) -> Vec<(String, Vec<u8>)> {
         (Sheet::PlEdit, "pledit.png", (280, 186)),
     ] {
         if let Some(bitmap) = skin.sheet(sheet) {
-            add(path, padded(&image(bitmap), size));
+            sheets.push((sheet, path, padded(&image(bitmap), size)));
         }
+    }
+    cut_backgrounds(&mut sheets);
+    for (_, path, image) in sheets {
+        add(path, image);
     }
     if let Some(sheet) = skin.digits()
         && let Some(digits) = skin.sheet(sheet)
@@ -347,6 +352,239 @@ fn title(pledit: &RgbaImage) -> RgbaImage {
     out
 }
 
+/// How close a pixel must be to the one beside it to be the same
+/// background, and to the background's average along the piece's edge.
+const STEP: u8 = 12;
+const SPREAD: u8 = 60;
+/// Background cut from a button only when the transport's buttons lose at
+/// least this share each, as round buttons on a backdrop do; square
+/// buttons that fill their cell lose almost none, or all of it when the
+/// cell is one colour, and keep it all.
+const SHAPED: f32 = 0.15;
+/// The most of a piece that may be cut: more is the piece itself. A bar's
+/// groove is thin, so most of a bar may go.
+const MOST: f32 = 0.6;
+const MOST_OF_A_BAR: f32 = 0.85;
+/// An island on a piece's edge smaller than this share of it is a scrap
+/// of background.
+const SCRAP: f32 = 0.1;
+
+/// Makes the backgrounds painted around a shaped skin's buttons, sliders
+/// and thumbs clear, so they sit on Spotless's window as they sat on
+/// Winamp's. A BMP has no transparency: the background is whatever joins
+/// a piece's edge in smooth steps of colour, up to its outline.
+fn cut_backgrounds(sheets: &mut [(Sheet, &str, RgbaImage)]) {
+    use sprites as s;
+    let Some((_, _, buttons)) = sheets.iter().find(|(sheet, ..)| *sheet == Sheet::CButtons) else {
+        return;
+    };
+    let mut shares: Vec<f32> = [s::PREVIOUS, s::PLAY, s::PAUSE, s::STOP, s::NEXT]
+        .into_iter()
+        .map(|sprite| background(buttons, sprite).len() as f32 / area(sprite))
+        .collect();
+    shares.sort_by(f32::total_cmp);
+    if !(SHAPED..=MOST).contains(&shares[shares.len() / 2]) {
+        return;
+    }
+    let volume = [
+        s::volume_frame(0),
+        s::volume_frame(sprites::SLIDER_FRAMES - 1),
+    ];
+    let pieces: [(Sheet, &[Sprite], f32); 6] = [
+        (
+            Sheet::CButtons,
+            &[
+                s::PREVIOUS,
+                s::PREVIOUS_PRESSED,
+                s::PLAY,
+                s::PLAY_PRESSED,
+                s::PAUSE,
+                s::PAUSE_PRESSED,
+                s::STOP,
+                s::STOP_PRESSED,
+                s::NEXT,
+                s::NEXT_PRESSED,
+                s::EJECT,
+                s::EJECT_PRESSED,
+            ],
+            MOST,
+        ),
+        (
+            Sheet::ShufRep,
+            &[
+                s::SHUFFLE_OFF,
+                s::SHUFFLE_OFF_PRESSED,
+                s::SHUFFLE_ON,
+                s::SHUFFLE_ON_PRESSED,
+                s::REPEAT_OFF,
+                s::REPEAT_OFF_PRESSED,
+                s::REPEAT_ON,
+                s::REPEAT_ON_PRESSED,
+                s::PL,
+                s::PL_PRESSED,
+                s::PL_LIT,
+                s::PL_LIT_PRESSED,
+            ],
+            MOST,
+        ),
+        (
+            Sheet::Volume,
+            &[s::VOLUME_THUMB, s::VOLUME_THUMB_PRESSED],
+            MOST,
+        ),
+        (Sheet::Volume, &volume, MOST_OF_A_BAR),
+        (
+            Sheet::PosBar,
+            &[s::POSITION_THUMB, s::POSITION_THUMB_PRESSED],
+            MOST,
+        ),
+        (Sheet::PosBar, &[s::POSITION_TRACK], MOST_OF_A_BAR),
+    ];
+    for (sheet, sprites, most) in pieces {
+        let Some((_, _, image)) = sheets.iter_mut().find(|(s, ..)| *s == sheet) else {
+            continue;
+        };
+        for &sprite in sprites {
+            let cut = background(image, sprite);
+            if cut.len() as f32 / area(sprite) <= most {
+                for (x, y) in cut {
+                    image.put_pixel(x, y, Rgba([0, 0, 0, 0]));
+                }
+                clear_scraps(image, sprite);
+            }
+        }
+    }
+}
+
+/// Islands left on a piece's edge once its background is cut, such as a
+/// backdrop's highlight that wasn't a small enough step to follow: each
+/// small one that touches the edge goes. The piece itself, the largest,
+/// and what it encloses (a toggle's light) stay.
+fn clear_scraps(image: &mut RgbaImage, sprite: Sprite) {
+    let x1 = (sprite.x + sprite.width).min(image.width());
+    let y1 = (sprite.y + sprite.height).min(image.height());
+    let (x0, y0) = (sprite.x, sprite.y);
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+    let width = (x1 - x0) as usize;
+    let index = |x: u32, y: u32| (y - y0) as usize * width + (x - x0) as usize;
+    let mut seen = vec![false; width * (y1 - y0) as usize];
+    let mut islands = Vec::new();
+    for y in y0..y1 {
+        for x in x0..x1 {
+            if seen[index(x, y)] || image.get_pixel(x, y).0[3] == 0 {
+                continue;
+            }
+            seen[index(x, y)] = true;
+            let (mut island, mut queue, mut on_edge) = (Vec::new(), vec![(x, y)], false);
+            while let Some((x, y)) = queue.pop() {
+                island.push((x, y));
+                on_edge |= x == x0 || y == y0 || x == x1 - 1 || y == y1 - 1;
+                let near = [
+                    (x + 1, y),
+                    (x.wrapping_sub(1), y),
+                    (x, y + 1),
+                    (x, y.wrapping_sub(1)),
+                ];
+                for (nx, ny) in near {
+                    if (x0..x1).contains(&nx)
+                        && (y0..y1).contains(&ny)
+                        && !seen[index(nx, ny)]
+                        && image.get_pixel(nx, ny).0[3] != 0
+                    {
+                        seen[index(nx, ny)] = true;
+                        queue.push((nx, ny));
+                    }
+                }
+            }
+            islands.push((island, on_edge));
+        }
+    }
+    let largest = islands
+        .iter()
+        .map(|(island, _)| island.len())
+        .max()
+        .unwrap_or(0);
+    let small = area(sprite) * SCRAP;
+    for (island, on_edge) in islands {
+        if on_edge && island.len() < largest && (island.len() as f32) < small {
+            for (x, y) in island {
+                image.put_pixel(x, y, Rgba([0, 0, 0, 0]));
+            }
+        }
+    }
+}
+
+fn area(sprite: Sprite) -> f32 {
+    (sprite.width * sprite.height).max(1) as f32
+}
+
+/// The pixels of a piece's background: from its edge inwards, each a
+/// small step of colour from the last and near the edge's average.
+fn background(image: &RgbaImage, sprite: Sprite) -> Vec<(u32, u32)> {
+    let (x0, y0) = (sprite.x, sprite.y);
+    let x1 = (x0 + sprite.width).min(image.width());
+    let y1 = (y0 + sprite.height).min(image.height());
+    if x0 >= x1 || y0 >= y1 {
+        return Vec::new();
+    }
+    let inside = |x: u32, y: u32| (x0..x1).contains(&x) && (y0..y1).contains(&y);
+    let edge: Vec<(u32, u32)> = (x0..x1)
+        .flat_map(|x| [(x, y0), (x, y1 - 1)])
+        .chain((y0..y1).flat_map(|y| [(x0, y), (x1 - 1, y)]))
+        .collect();
+    let mut sums = [0u32; 3];
+    for &(x, y) in &edge {
+        for (sum, value) in sums.iter_mut().zip(image.get_pixel(x, y).0) {
+            *sum += u32::from(value);
+        }
+    }
+    let average = sums.map(|sum| (sum / edge.len() as u32) as u8);
+    let far = |a: [u8; 3], b: [u8; 3]| {
+        a.iter()
+            .zip(b)
+            .map(|(a, b)| a.abs_diff(b))
+            .max()
+            .unwrap_or(0)
+    };
+    let rgb = |x: u32, y: u32| {
+        let [r, g, b, _] = image.get_pixel(x, y).0;
+        [r, g, b]
+    };
+    let width = (x1 - x0) as usize;
+    let index = |x: u32, y: u32| (y - y0) as usize * width + (x - x0) as usize;
+    let mut seen = vec![false; width * (y1 - y0) as usize];
+    let mut queue = std::collections::VecDeque::new();
+    for (x, y) in edge {
+        if !seen[index(x, y)] && far(rgb(x, y), average) <= SPREAD {
+            seen[index(x, y)] = true;
+            queue.push_back((x, y));
+        }
+    }
+    let mut found = Vec::new();
+    while let Some((x, y)) = queue.pop_front() {
+        found.push((x, y));
+        let near = [
+            (x + 1, y),
+            (x.wrapping_sub(1), y),
+            (x, y + 1),
+            (x, y.wrapping_sub(1)),
+        ];
+        for (nx, ny) in near {
+            if inside(nx, ny)
+                && !seen[index(nx, ny)]
+                && far(rgb(nx, ny), rgb(x, y)) <= STEP
+                && far(rgb(nx, ny), average) <= SPREAD
+            {
+                seen[index(nx, ny)] = true;
+                queue.push_back((nx, ny));
+            }
+        }
+    }
+    found
+}
+
 /// A sheet at least Winamp's size for it, clear where the skin's bitmap
 /// is short, as Winamp drew what such a bitmap lacked.
 fn padded(image: &RgbaImage, (width, height): (u32, u32)) -> RgbaImage {
@@ -478,6 +716,35 @@ mod tests {
         assert_eq!(files.len(), 1);
         let manifest = String::from_utf8(files[0].1.clone()).unwrap();
         assert!(manifest.contains("[colors]") && !manifest.contains("[pieces"));
+    }
+
+    /// A button sheet whose transport cells hold a ring on a grey
+    /// background, or fill their cell when `square`.
+    fn buttons(square: bool) -> RgbaImage {
+        RgbaImage::from_fn(136, 36, |x, y| {
+            let (cx, cy) = (x % 23, y % 18);
+            let (dx, dy) = (cx as f32 - 11.0, cy as f32 - 9.0);
+            let inside = square || dx * dx + dy * dy <= 72.0;
+            if inside {
+                Rgba([250, 250, 250, 255])
+            } else {
+                // A gentle gradient, as backdrops are.
+                Rgba([140 + cy as u8, 145 + cy as u8, 160, 255])
+            }
+        })
+    }
+
+    #[test]
+    fn round_buttons_lose_their_background_and_square_ones_keep_it() {
+        for square in [false, true] {
+            let mut sheets = vec![(Sheet::CButtons, "cbuttons.png", buttons(square))];
+            cut_backgrounds(&mut sheets);
+            let image = &sheets[0].2;
+            let corner = image.get_pixel(sprites::PLAY.x, sprites::PLAY.y).0[3];
+            let middle = image.get_pixel(sprites::PLAY.x + 11, sprites::PLAY.y + 9).0[3];
+            assert_eq!(corner, if square { 255 } else { 0 }, "square: {square}");
+            assert_eq!(middle, 255);
+        }
     }
 
     #[test]
