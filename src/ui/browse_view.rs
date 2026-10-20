@@ -803,8 +803,9 @@ fn slim_rows(ui: &mut Ui, view: &View, nav: &mut Nav, list: &Playlist, actions: 
     }
     let current = list.cursor().filter(|_| !list.detached());
     let mut drop_at: Option<(usize, f32)> = None;
+    // Before show_rows, which counts the spacing into each row's height.
+    ui.spacing_mut().item_spacing.y = 0.0;
     let output = area.show_rows(ui, height, list.len(), |ui, range| {
-        ui.spacing_mut().item_spacing.y = 0.0;
         for index in range {
             let entry = &list.entries()[index];
             let (rect, response) =

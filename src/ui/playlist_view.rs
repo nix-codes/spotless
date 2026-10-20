@@ -405,8 +405,10 @@ fn draw_rows(ui: &mut Ui, view: &View, selection: &mut Selection, actions: &mut 
     let pointer = ui.ctx().pointer_interact_pos();
     // Where dragged rows would land: the index, and the line to show it.
     let mut drop_at: Option<(usize, f32)> = None;
+    // Rows touch. show_rows counts the spacing into each row's height, so
+    // it is set before: inside, it would fit a row less in every three.
+    ui.spacing_mut().item_spacing.y = 0.0;
     let output = area.show_rows(ui, ROW_HEIGHT, list.len(), |ui, range| {
-        ui.spacing_mut().item_spacing.y = 0.0;
         let viewport = ui.clip_rect();
         for index in range {
             let entry = &list.entries()[index];
