@@ -62,6 +62,11 @@ impl Entry {
             .to_ascii_lowercase()
     }
 
+    /// Its size once inflated.
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
     pub fn is_dir(&self) -> bool {
         self.name.ends_with('/') || self.name.ends_with('\\')
     }

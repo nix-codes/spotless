@@ -9,6 +9,7 @@
 //! scripts, and not read.
 
 pub mod font;
+pub mod format;
 pub mod sprites;
 mod zip;
 

@@ -36,6 +36,9 @@ open = "5"
 image = { version = "0.25", default-features = false, features = ["bmp", "jpeg", "png"] }
 # Skins (src/skin/zip.rs) are inflated with the flate2 librespot already builds.
 flate2 = "1"
+# Spotless skins' manifests (src/skin/format/), keys kept in file order so
+# problems are listed as the author wrote them.
+toml = { version = "1", features = ["preserve_order"] }
 # librespot from the fork spotifast pins (crmne/librespot spotifast-dev):
 # librespot's dev branch plus fixes not yet released, among them recovery
 # after a session drop and a distinct error when Spotify refuses an audio
