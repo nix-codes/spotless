@@ -11,7 +11,7 @@ use egui::{
     WidgetType, pos2, vec2,
 };
 
-use super::player_strip::{HEIGHT, meta_line, now_line};
+use super::player_strip::{HEIGHT, meta_line, now_line, time_shown};
 use super::skin_art::{self, SkinArt};
 use super::widgets::text_button;
 use super::{Inputs, View, theme};
@@ -161,13 +161,16 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View, art: &SkinArt, unit: f32) {
         (50.0, seconds % 60 / 10),
         (62.0, seconds % 10),
     ];
+    let shown = time_shown(ui, view);
     for (x, value) in digits {
-        art.paint(
-            &painter,
-            sprites::digit(art.digits, value),
-            at(x, 0.0),
-            unit,
-        );
+        if shown {
+            art.paint(
+                &painter,
+                sprites::digit(art.digits, value),
+                at(x, 0.0),
+                unit,
+            );
+        }
     }
     // The colon is part of Winamp's main window, not of the digits.
     for y in [4.0, 8.0] {

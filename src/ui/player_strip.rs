@@ -1,6 +1,8 @@
 //! The player strip: the LCD, seek, transport and volume. With a skin
 //! that has them, it is drawn from the skin's bitmaps (`skinned_strip`).
 
+use std::time::Duration;
+
 use egui::{Align2, Color32, FontId, Rect, Slider, Ui, UiBuilder, pos2, vec2};
 
 use super::widgets::{Glyph, glyph_button, paint_glyph, text_button};
@@ -11,6 +13,8 @@ use crate::playback::engine::Status;
 
 pub const HEIGHT: f32 = 84.0;
 const LCD_WIDTH: f32 = 340.0;
+/// While paused, the time is shown this long, then hidden as long.
+const BLINK: Duration = Duration::from_secs(1);
 
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
     if let Some(art) = view.art {
@@ -46,10 +50,15 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View) {
     } else {
         player.position_now() / 1000
     };
+    let time = if time_shown(ui, view) {
+        format!("{:02}:{:02}", seconds / 60, seconds % 60)
+    } else {
+        "  :  ".to_string()
+    };
     painter.text(
         pos2(left + 20.0, rect.top() + 24.0),
         Align2::LEFT_CENTER,
-        format!("{:02}:{:02}", seconds / 60, seconds % 60),
+        time,
         FontId::monospace(32.0),
         palette.lcd,
     );
@@ -68,6 +77,20 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View) {
         FontId::monospace(9.0),
         dimmed(palette.lcd),
     );
+}
+
+/// Whether the time's digits show: while paused they blink, as in
+/// Winamp; the colon stays.
+pub(super) fn time_shown(ui: &Ui, view: &View) -> bool {
+    if view.player.status != Status::Paused {
+        return true;
+    }
+    let blink = BLINK.as_secs_f64();
+    let now = ui.input(|i| i.time);
+    let into = now % (2.0 * blink);
+    ui.ctx()
+        .request_repaint_after(Duration::from_secs_f64(blink - into % blink));
+    into < blink
 }
 
 /// The LCD's main line: what plays, or why nothing does.
