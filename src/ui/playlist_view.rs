@@ -23,7 +23,9 @@ use crate::model::{EntryId, Playlist, PlaylistId};
 
 const ROW_HEIGHT: f32 = 18.0;
 const TAB_HEIGHT: f32 = 22.0;
-const TOOLBAR_HEIGHT: f32 = 24.0;
+const TOOLBAR_HEIGHT: f32 = 18.0;
+/// Between the tabs and the rows, and between the rows and the toolbar.
+const LIST_GAP: f32 = 16.0;
 /// Dragging this close to the list's top or bottom edge scrolls it.
 const SCROLL_EDGE: f32 = 24.0;
 
@@ -60,11 +62,13 @@ struct TabDrag(PlaylistId);
 
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
     tab_bar(ui, view, inputs, actions);
-    ui.add_space(6.0);
+    // The item spacing after the tabs makes up the rest of the gap.
+    ui.add_space(LIST_GAP - ui.spacing().item_spacing.y);
     let list = view.playlist;
     let full = ui.available_rect_before_wrap();
-    let rows = Rect::from_min_max(full.min, pos2(full.right(), full.bottom() - TOOLBAR_HEIGHT));
-    let toolbar_rect = Rect::from_min_max(pos2(full.left(), rows.bottom() + 6.0), full.max);
+    let toolbar_rect =
+        Rect::from_min_max(pos2(full.left(), full.bottom() - TOOLBAR_HEIGHT), full.max);
+    let rows = Rect::from_min_max(full.min, pos2(full.right(), toolbar_rect.top() - LIST_GAP));
 
     if let Some((jump_list, entry)) = inputs.jump
         && jump_list == list.id
