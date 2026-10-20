@@ -13,7 +13,7 @@ mod skinned_strip;
 pub mod theme;
 pub mod widgets;
 
-use egui::{Align2, FontId, Rect, RichText, Ui, UiBuilder, vec2};
+use egui::{Align2, FontId, Rect, RichText, Ui, UiBuilder, ViewportCommand, vec2};
 
 use crate::action::Action;
 use crate::backend::{SearchState, SessionState, Storage};
@@ -93,6 +93,16 @@ pub struct Inputs {
     pub settings: Option<settings_view::Form>,
     /// The settings category shown last, to open on next time.
     pub settings_category: settings_view::Category,
+    /// How the window was last sized for PL.
+    pub fit: Fit,
+}
+
+/// The window's size for PL: while the player shows alone, the height
+/// (and scale) it was fitted to, and the height to give back after.
+#[derive(Default)]
+pub struct Fit {
+    collapsed: Option<(f32, f32)>,
+    expanded: Option<f32>,
 }
 
 impl Inputs {
@@ -108,6 +118,10 @@ const TITLE_HEIGHT: f32 = 20.0;
 const TITLE: &str = "S P O T L E S S";
 const STATUS_HEIGHT: f32 = 22.0;
 const GUTTER: f32 = 10.0;
+/// The smallest the window can be made, while the playlists show.
+pub const MIN_WINDOW: egui::Vec2 = vec2(560.0, 360.0);
+/// The window's height for the playlists when none is known yet.
+const DEFAULT_HEIGHT: f32 = 600.0;
 
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
     let palette = view.palette;
@@ -162,7 +176,31 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
         player_strip::draw(ui, view, inputs, actions);
     });
 
+    // With PL off the window is the player alone, unless Browse, the
+    // settings, the keys or a question needs the room.
     let ready = matches!(view.session, SessionState::Ready { .. });
+    let collapsed = ready
+        && !view.settings.playlists
+        && !view.browse.open
+        && inputs.settings.is_none()
+        && !inputs.help
+        && inputs.closing.is_none();
+    let status_top = strip.bottom() + 6.0;
+    fit_window(
+        ui,
+        full,
+        &mut inputs.fit,
+        collapsed.then(|| status_top + STATUS_HEIGHT - full.top()),
+    );
+    if collapsed {
+        let status = Rect::from_min_size(
+            egui::pos2(full.left(), status_top),
+            vec2(full.width(), STATUS_HEIGHT),
+        );
+        status_bar(ui, status, view, inputs, actions);
+        inputs.tab = 0;
+        return;
+    }
     let screen = if settings_open {
         "S E T T I N G S"
     } else if ready && view.browse.open {
@@ -207,6 +245,40 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     status_bar(ui, status, view, inputs, actions);
     // Tab only means something in Browse.
     inputs.tab = 0;
+}
+
+/// Fits the window to the player alone, `height` points of the window's
+/// content `full`, and holds it there; with None, gives the playlists back
+/// the height the window had before.
+fn fit_window(ui: &Ui, full: Rect, fit: &mut Fit, height: Option<f32>) {
+    let ctx = ui.ctx();
+    let screen = ctx.content_rect();
+    let send = |command| ctx.send_viewport_cmd(command);
+    match height {
+        Some(height) => {
+            let height = height + screen.height() - full.height();
+            let wanted = (height, ctx.pixels_per_point());
+            if fit.collapsed == Some(wanted) {
+                return;
+            }
+            if fit.collapsed.is_none() {
+                fit.expanded = Some(screen.height());
+            }
+            fit.collapsed = Some(wanted);
+            send(ViewportCommand::MinInnerSize(vec2(MIN_WINDOW.x, height)));
+            send(ViewportCommand::MaxInnerSize(vec2(16384.0, height)));
+            send(ViewportCommand::InnerSize(vec2(screen.width(), height)));
+        }
+        None => {
+            if fit.collapsed.take().is_none() {
+                return;
+            }
+            let height = fit.expanded.unwrap_or(DEFAULT_HEIGHT);
+            send(ViewportCommand::MaxInnerSize(egui::Vec2::INFINITY));
+            send(ViewportCommand::MinInnerSize(MIN_WINDOW));
+            send(ViewportCommand::InnerSize(vec2(screen.width(), height)));
+        }
+    }
 }
 
 fn title_bar(ui: &Ui, rect: Rect, palette: &Palette, label: &str) {

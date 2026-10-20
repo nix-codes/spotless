@@ -508,6 +508,10 @@ impl App {
             Action::SetTab(tab) => self.browse.tab = tab,
             Action::ToggleSort => self.browse.newest_first = !self.browse.newest_first,
             Action::SetTarget(list) => self.browse.target = list,
+            Action::TogglePlaylists => {
+                self.settings.playlists = !self.settings.playlists;
+                self.mark_unsaved();
+            }
             Action::ToggleCovers => {
                 self.browse.show_covers = !self.browse.show_covers;
                 self.settings.covers = self.browse.show_covers;

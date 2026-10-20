@@ -162,27 +162,16 @@ pub fn eject_clicked(
     }
 }
 
-/// Whether the playlists are the screen shown, which lights PL.
-pub(super) fn playlists_shown(view: &View, inputs: &Inputs) -> bool {
-    let browsing = view.browse.open && matches!(view.session, SessionState::Ready { .. });
-    !browsing && inputs.settings.is_none()
-}
-
-/// PL brings the playlists back from Browse or the settings.
-pub(super) fn pl_clicked(
-    response: egui::Response,
-    view: &View,
-    inputs: &mut Inputs,
-    actions: &mut Vec<Action>,
-) {
-    let tip = if playlists_shown(view, inputs) {
-        "The playlists"
+/// PL shows or hides the playlists below the player; in Browse or the
+/// settings it only sets what leaving them comes back to.
+pub(super) fn pl_clicked(response: egui::Response, view: &View, actions: &mut Vec<Action>) {
+    let tip = if view.settings.playlists {
+        "Hide the playlists"
     } else {
-        "Back to the playlists"
+        "Show the playlists"
     };
     if response.on_hover_text(tip).clicked() {
-        actions.push(Action::CloseBrowse);
-        super::close_settings(inputs);
+        actions.push(Action::TogglePlaylists);
     }
 }
 
@@ -198,9 +187,8 @@ fn info_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     ui.add_space(2.0);
     ui.label(label(format!("{KBPS} KBPS · {KHZ} KHZ")));
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        let lit = playlists_shown(view, inputs);
-        let pl = small_button(ui, &palette, "PL", lit);
-        pl_clicked(pl, view, inputs, actions);
+        let pl = small_button(ui, &palette, "PL", view.settings.playlists);
+        pl_clicked(pl, view, actions);
         ui.add_space(8.0);
         ui.spacing_mut().slider_width = 90.0;
         let mut volume = inputs.volume;

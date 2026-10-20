@@ -11,9 +11,7 @@ use egui::{
     vec2,
 };
 
-use super::player_strip::{
-    HEIGHT, KBPS, KHZ, eject_clicked, now_lines, pl_clicked, playlists_shown, time_shown,
-};
+use super::player_strip::{HEIGHT, KBPS, KHZ, eject_clicked, now_lines, pl_clicked, time_shown};
 use super::skin_art::{self, SkinArt};
 use super::{Inputs, View, theme};
 use crate::action::Action;
@@ -237,15 +235,14 @@ fn info_row(
         );
         x = text.right() + GAP * unit;
     }
-    let lit = playlists_shown(view, inputs);
-    let pl = if lit {
+    let pl = if view.settings.playlists {
         (sprites::PL_LIT, sprites::PL_LIT_PRESSED)
     } else {
         (sprites::PL, sprites::PL_PRESSED)
     };
     let pl_at = pos2(right - PL * unit, at.y + unit);
     let response = button(ui, &painter, art, pl_at, unit, pl, "Playlists", true);
-    pl_clicked(response, view, inputs, actions);
+    pl_clicked(response, view, actions);
     let volume_at = pos2(pl_at.x - (GAP + VOLUME) * unit, at.y);
     if volume_at.x >= x {
         volume(ui, &painter, art, volume_at, unit, inputs, actions);

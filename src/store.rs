@@ -87,6 +87,9 @@ pub struct Settings {
     pub shuffle: bool,
     /// Album covers in the catalog.
     pub covers: bool,
+    /// The playlists show below the player; off, the window is the
+    /// player alone (PL).
+    pub playlists: bool,
     /// Volume levelling (Spotify's normalisation).
     pub levelling: bool,
     /// The interface's zoom, 1 at normal size.
@@ -154,6 +157,10 @@ impl Settings {
             repeat: flag("repeat"),
             shuffle: flag("shuffle"),
             covers: flag("covers"),
+            playlists: raw
+                .get("playlists")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
             levelling: flag("levelling"),
             zoom: raw.get("zoom").and_then(Value::as_f64).map_or(1.0, |z| {
                 (z as f32).clamp(*ZOOM_RANGE.start(), *ZOOM_RANGE.end())
@@ -183,6 +190,7 @@ impl Settings {
         raw.insert("repeat".into(), self.repeat.into());
         raw.insert("shuffle".into(), self.shuffle.into());
         raw.insert("covers".into(), self.covers.into());
+        raw.insert("playlists".into(), self.playlists.into());
         raw.insert("levelling".into(), self.levelling.into());
         raw.insert("zoom".into(), self.zoom.into());
         raw.insert("audio_cache".into(), self.audio_cache.into());

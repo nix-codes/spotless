@@ -29,7 +29,7 @@ fn main() -> Result<()> {
             .with_app_id("spotless")
             .with_icon(icon)
             .with_inner_size([960.0, 600.0])
-            .with_min_inner_size([560.0, 360.0]),
+            .with_min_inner_size(spotless::ui::MIN_WINDOW),
         ..Default::default()
     };
     eframe::run_native(

@@ -61,6 +61,9 @@ pub enum Action {
     /// Moves a tab to this index, counted after it is taken out.
     MovePlaylist(PlaylistId, usize),
 
+    /// Shows or hides the playlists below the player (PL).
+    TogglePlaylists,
+
     // The catalog
     ToggleBrowse,
     CloseBrowse,
