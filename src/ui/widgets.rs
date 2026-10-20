@@ -15,6 +15,7 @@ pub enum Glyph {
     Pause,
     Stop,
     Next,
+    Eject,
     Up,
     Down,
 }
@@ -27,6 +28,7 @@ impl Glyph {
             Self::Pause => "Pause",
             Self::Stop => "Stop",
             Self::Next => "Next",
+            Self::Eject => "Browse",
             Self::Up => "Move up",
             Self::Down => "Move down",
         }
@@ -121,9 +123,20 @@ fn sized_button(
 
 /// A square transport button.
 pub fn glyph_button(ui: &mut Ui, palette: &Palette, glyph: Glyph, enabled: bool) -> Response {
-    let (rect, response) = button_frame(ui, palette, vec2(36.0, BUTTON_HEIGHT), false, enabled);
+    glyph_toggle(ui, palette, glyph, false, enabled)
+}
+
+/// A transport button that stays pressed in while `on`.
+pub fn glyph_toggle(
+    ui: &mut Ui,
+    palette: &Palette,
+    glyph: Glyph,
+    on: bool,
+    enabled: bool,
+) -> Response {
+    let (rect, response) = button_frame(ui, palette, vec2(36.0, BUTTON_HEIGHT), on, enabled);
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, glyph.name()));
-    let color = label_color(&response, palette, false, enabled);
+    let color = label_color(&response, palette, on, enabled);
     paint_glyph(ui, rect.center(), glyph, color);
     response
 }
@@ -195,6 +208,19 @@ pub fn paint_glyph(ui: &Ui, c: Pos2, glyph: Glyph, color: egui::Color32) {
         Glyph::Next => {
             painter.add(triangle(c.x - 6.0, c.x + 3.0, true));
             painter.rect_filled(bar(c.x + 4.0, 2.0), 0.0, color);
+        }
+        Glyph::Eject => {
+            painter.add(Shape::convex_polygon(
+                vec![
+                    pos2(c.x - 5.0, c.y + 1.0),
+                    pos2(c.x + 5.0, c.y + 1.0),
+                    pos2(c.x, c.y - 5.0),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+            let tray = Rect::from_min_size(pos2(c.x - 5.0, c.y + 3.0), vec2(10.0, 2.0));
+            painter.rect_filled(tray, 0.0, color);
         }
         Glyph::Up | Glyph::Down => {
             let (tip, base) = match glyph {

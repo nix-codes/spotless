@@ -7,13 +7,11 @@ use std::time::Duration;
 
 use egui::emath::GuiRounding;
 use egui::{
-    Align, FontId, Id, Layout, Painter, Pos2, Rect, Response, Sense, Ui, UiBuilder, WidgetInfo,
-    WidgetType, pos2, vec2,
+    FontId, Id, Painter, Pos2, Rect, Response, Sense, Ui, WidgetInfo, WidgetType, pos2, vec2,
 };
 
-use super::player_strip::{HEIGHT, meta_line, now_line, time_shown};
+use super::player_strip::{HEIGHT, eject_clicked, meta_line, now_line, time_shown};
 use super::skin_art::{self, SkinArt};
-use super::widgets::text_button;
 use super::{Inputs, View, theme};
 use crate::action::Action;
 use crate::backend::SessionState;
@@ -30,14 +28,13 @@ const BUTTONS_Y: f32 = 16.0;
 const CONTROL_ROWS: f32 = 34.0;
 /// Widths in skin pixels.
 const TRANSPORT: f32 = 114.0;
+const EJECT: f32 = 22.0;
 const SHUFFLE: f32 = 47.0;
 const REPEAT: f32 = 28.0;
 const VOLUME: f32 = 68.0;
 const GAP: f32 = 6.0;
-/// The controls' row, BROWSE aside: as wide as Winamp's main window.
-const CONTROLS: f32 = TRANSPORT + GAP + SHUFFLE + REPEAT + GAP + VOLUME + GAP;
-/// Points kept for BROWSE.
-const BROWSE_WIDTH: f32 = 100.0;
+/// The controls' row: as wide as Winamp's main window.
+const CONTROLS: f32 = TRANSPORT + GAP + EJECT + GAP + SHUFFLE + REPEAT + GAP + VOLUME;
 const LCD_WIDTH: f32 = 340.0;
 const MIN_LCD_WIDTH: f32 = 160.0;
 /// What separates the end of a scrolling song from its start again.
@@ -48,7 +45,7 @@ const MARQUEE_STEP: u64 = 220;
 /// Points per skin pixel for a strip `width` points wide: smaller when
 /// the window is too narrow for the controls at full size.
 pub fn unit(width: f32) -> f32 {
-    let room = (width - MIN_LCD_WIDTH - 10.0 - BROWSE_WIDTH) / CONTROLS;
+    let room = (width - MIN_LCD_WIDTH - 10.0) / CONTROLS;
     skin_art::unit(room.min((HEIGHT - 8.0) / CONTROL_ROWS))
 }
 
@@ -121,7 +118,7 @@ pub fn draw(
 ) {
     let rect = ui.max_rect();
     let unit = unit(rect.width());
-    let controls_width = CONTROLS * unit + BROWSE_WIDTH;
+    let controls_width = CONTROLS * unit;
     let lcd_width = (rect.width() - 10.0 - controls_width).clamp(MIN_LCD_WIDTH, LCD_WIDTH);
     let lcd = Rect::from_min_size(rect.min, vec2(lcd_width, HEIGHT));
     draw_lcd(ui, lcd, view, art, unit);
@@ -280,7 +277,7 @@ fn draw_controls(
         art.paint(&painter, thumb, pos2(x, track.top()), unit);
     }
 
-    // Transport, shuffle and repeat.
+    // Transport, eject, shuffle and repeat.
     let transport = [
         (
             sprites::PREVIOUS,
@@ -318,12 +315,20 @@ fn draw_controls(
         x += normal.width as f32;
     }
     x += GAP;
+    let row = BUTTONS_Y + 1.0;
+    let eject = if view.browse.open {
+        (sprites::EJECT_PRESSED, sprites::EJECT_PRESSED)
+    } else {
+        (sprites::EJECT, sprites::EJECT_PRESSED)
+    };
+    let response = button(ui, &painter, art, at(x, row), unit, eject, "Browse", ready);
+    eject_clicked(response, view, inputs, actions);
+    x += EJECT + GAP;
     let shuffle = if view.shuffle {
         (sprites::SHUFFLE_ON, sprites::SHUFFLE_ON_PRESSED)
     } else {
         (sprites::SHUFFLE_OFF, sprites::SHUFFLE_OFF_PRESSED)
     };
-    let row = BUTTONS_Y + 1.0;
     if button(
         ui,
         &painter,
@@ -349,33 +354,8 @@ fn draw_controls(
     }
     let repeat_end = at(x + REPEAT + GAP, 0.0).x;
 
-    // BROWSE at the right end, the volume before it.
-    let buttons = Rect::from_min_max(
-        pos2(repeat_end, at(0.0, BUTTONS_Y).y),
-        pos2(rect.right(), at(0.0, BUTTONS_Y + 18.0).y),
-    );
-    let mut browse_left = rect.right();
-    ui.scope_builder(
-        UiBuilder::new()
-            .max_rect(buttons)
-            .layout(Layout::right_to_left(Align::Center)),
-        |ui| {
-            let browsing = view.browse.open;
-            let label = if browsing { "PLAYLISTS" } else { "BROWSE" };
-            let response = text_button(ui, &palette, label, browsing, ready);
-            if response.clicked() {
-                actions.push(Action::ToggleBrowse);
-                if !browsing {
-                    inputs.focus_search = true;
-                }
-            }
-            browse_left = response.rect.left();
-        },
-    );
-    let volume_at = pos2(
-        browse_left - 8.0 - VOLUME * unit,
-        at(0.0, BUTTONS_Y + 3.0).y,
-    );
+    // The volume at the right end.
+    let volume_at = pos2(rect.right() - VOLUME * unit, at(0.0, BUTTONS_Y + 3.0).y);
     if volume_at.x >= repeat_end {
         volume(ui, &painter, art, volume_at, unit, inputs, actions);
     }

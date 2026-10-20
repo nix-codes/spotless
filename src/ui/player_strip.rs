@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use egui::{Align2, Color32, FontId, Rect, Slider, Ui, UiBuilder, pos2, vec2};
 
-use super::widgets::{Glyph, glyph_button, paint_glyph, text_button};
+use super::widgets::{Glyph, glyph_button, glyph_toggle, paint_glyph, text_button};
 use super::{Inputs, View, theme};
 use crate::action::Action;
 use crate::backend::SessionState;
@@ -119,6 +119,27 @@ pub(super) fn dimmed(color: Color32) -> Color32 {
     color.gamma_multiply(0.7)
 }
 
+/// Eject opens Browse, as it opens files in Winamp, and stays pressed in
+/// until it is clicked again for the playlists.
+pub fn eject_clicked(
+    response: egui::Response,
+    view: &View,
+    inputs: &mut Inputs,
+    actions: &mut Vec<Action>,
+) {
+    let tip = if view.browse.open {
+        "Back to the playlists (Ctrl+B)"
+    } else {
+        "Browse (Ctrl+B)"
+    };
+    if response.on_hover_text(tip).clicked() {
+        actions.push(Action::ToggleBrowse);
+        if !view.browse.open {
+            inputs.focus_search = true;
+        }
+    }
+}
+
 fn controls_column(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
     let palette = view.palette;
     let ready = matches!(view.session, SessionState::Ready { .. });
@@ -177,6 +198,9 @@ fn controls_column(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut 
             actions.push(Action::Next);
         }
         ui.add_space(6.0);
+        let eject = glyph_toggle(ui, &palette, Glyph::Eject, view.browse.open, ready);
+        eject_clicked(eject, view, inputs, actions);
+        ui.add_space(6.0);
         if text_button(ui, &palette, "SHUF", view.shuffle, true).clicked() {
             actions.push(Action::SetShuffle(!view.shuffle));
         }
@@ -185,15 +209,6 @@ fn controls_column(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut 
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let browsing = view.browse.open;
-            let label = if browsing { "PLAYLISTS" } else { "BROWSE" };
-            if text_button(ui, &palette, label, browsing, ready).clicked() {
-                actions.push(Action::ToggleBrowse);
-                if !browsing {
-                    inputs.focus_search = true;
-                }
-            }
-            ui.add_space(8.0);
             ui.spacing_mut().slider_width = 90.0;
             let mut volume = inputs.volume;
             let response = ui.add(Slider::new(&mut volume, 0..=100).show_value(false));

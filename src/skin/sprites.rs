@@ -115,6 +115,8 @@ sprites! {
     STOP_PRESSED = (CButtons, 69, 18, 23, 18);
     NEXT = (CButtons, 92, 0, 22, 18);
     NEXT_PRESSED = (CButtons, 92, 18, 22, 18);
+    EJECT = (CButtons, 114, 0, 22, 16);
+    EJECT_PRESSED = (CButtons, 114, 16, 22, 16);
 
     SHUFFLE_OFF = (ShufRep, 28, 0, 47, 15);
     SHUFFLE_OFF_PRESSED = (ShufRep, 28, 15, 47, 15);
