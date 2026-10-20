@@ -117,8 +117,10 @@ impl Listens {
 
 impl Listen {
     fn add_played(&mut self, now: Instant) {
-        if let Some(since) = self.playing_since.replace(now) {
-            self.played_ms += now.saturating_duration_since(since).as_millis() as u64;
+        // Only while playing: stopped or paused, there is no clock to move.
+        if let Some(since) = self.playing_since.as_mut() {
+            self.played_ms += now.saturating_duration_since(*since).as_millis() as u64;
+            *since = now;
         }
     }
 
@@ -254,6 +256,20 @@ mod tests {
         let heard = listens.tick(at(3609));
         assert_eq!(heard, None);
         assert!(listens.tick(at(3630)).is_some());
+    }
+
+    #[test]
+    fn a_stopped_song_does_not_count_while_it_waits() {
+        let mut listens = Listens::default();
+        let start = Instant::now();
+        let uri = "spotify:track:a";
+        let at = |s: u64| start + Duration::from_secs(s);
+        assert_eq!(scrobbles(&play(&mut listens, start, uri, 100, 8)), 0);
+        listens.observe(&snapshot(uri, 100, Status::Stopped, 0), at(8), 1_008);
+        // The scrobbler ticks every few seconds while nothing plays.
+        for s in (10..600).step_by(5) {
+            assert_eq!(listens.tick(at(s)), None, "at {s} s");
+        }
     }
 
     #[test]
