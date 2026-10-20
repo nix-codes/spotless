@@ -12,8 +12,8 @@ use std::collections::BTreeSet;
 
 use egui::scroll_area::ScrollBarVisibility;
 use egui::{
-    Align, Align2, DragAndDrop, FontId, Id, Key, Layout, Modifiers, Rect, RichText, ScrollArea,
-    Sense, Stroke, TextEdit, Ui, UiBuilder, pos2, vec2,
+    Align, Align2, Color32, DragAndDrop, FontId, Id, Key, Layout, Modifiers, Rect, RichText,
+    ScrollArea, Sense, Stroke, TextEdit, Ui, UiBuilder, pos2, vec2,
 };
 
 use super::scrollbar::Scrollbar;
@@ -137,6 +137,7 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Acti
         })
         .response
         .rect;
+    baseline(ui, view, &tabs, bar);
 
     // Reordering: drop a dragged tab between two others.
     let Some(dragged) = DragAndDrop::payload::<TabDrag>(ui.ctx()) else {
@@ -170,6 +171,33 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Acti
             actions.push(Action::MovePlaylist(dragged.0, to));
         }
     }
+}
+
+/// The line the tabs stand on, across the panel, broken under the
+/// shown tab so it opens into the list.
+fn baseline(ui: &Ui, view: &View, tabs: &[(PlaylistId, Rect)], bar: Rect) {
+    if skin_paint::has_chrome(ui.ctx(), "tab") {
+        return;
+    }
+    let palette = view.palette;
+    let stroke = Stroke::new(1.0, tab_edge(&palette));
+    let y = bar.bottom() - 0.5;
+    let (left, right) = (ui.max_rect().left(), ui.max_rect().right());
+    let painter = ui.painter();
+    match tabs.iter().find(|(id, _)| *id == view.playlist.id) {
+        Some((_, shown)) => {
+            painter.hline(left..=shown.left(), y, stroke);
+            painter.hline(shown.right()..=right, y, stroke);
+        }
+        None => {
+            painter.hline(left..=right, y, stroke);
+        }
+    }
+}
+
+/// The colour of the tabs' edges and the line they stand on.
+fn tab_edge(palette: &Palette) -> Color32 {
+    palette.button.gamma_multiply(0.6)
 }
 
 /// One tab: ▶ if playing, the name, the song count, ✕ unless Default.
@@ -206,22 +234,27 @@ fn tab(
     let painter = ui.painter();
     let state = skin_paint::state(&response, shown, true);
     let skinned = skin_paint::chrome(painter, "tab", state, rect);
+    // Every tab is drawn alike; the shown one opens into the list below
+    // the bar's baseline (drawn in `tab_bar`) and has the bright text.
     if !skinned {
-        painter.rect_filled(
-            rect,
-            0.0,
-            if shown {
-                palette.list_bg
-            } else {
-                palette.button
-            },
-        );
-        theme::bevel(painter, rect, !shown, &palette.for_buttons());
+        let edge = Stroke::new(1.0, tab_edge(&palette));
+        let r = rect.shrink(0.5);
+        if !shown {
+            painter.rect_filled(rect, 0.0, palette.button.gamma_multiply(0.25));
+        }
+        painter.line_segment([r.left_bottom(), r.left_top()], edge);
+        painter.line_segment([r.left_top(), r.right_top()], edge);
+        painter.line_segment([r.right_top(), r.right_bottom()], edge);
+        if shown {
+            let top = Rect::from_min_max(rect.min, pos2(rect.right(), rect.top() + 2.0));
+            painter.rect_filled(top, 0.0, palette.accent);
+        }
     }
-    let text_color = match (skinned, shown) {
-        (true, _) => palette.button_text,
-        (false, true) => palette.current,
-        (false, false) => palette.button_text,
+    let (text_color, count_color) = match (skinned, shown) {
+        (true, _) => (palette.button_text, palette.dim),
+        (false, true) => (palette.current, palette.dim),
+        (false, false) if response.hovered() => (palette.list_fg, palette.dim),
+        (false, false) => (palette.dim, palette.dim),
     };
     let mut x = rect.left() + 10.0;
     if playing {
@@ -249,7 +282,7 @@ fn tab(
         Align2::LEFT_CENTER,
         count,
         count_font,
-        palette.dim,
+        count_color,
     );
     let close =
         Rect::from_center_size(pos2(rect.right() - 12.0, rect.center().y), vec2(10.0, 10.0));
