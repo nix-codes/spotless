@@ -254,6 +254,15 @@ pub struct Piece {
     /// For the plate behind a title bar's name: plain space either side
     /// of the name, in image pixels.
     pub title_gap: u32,
+    /// For a bar drawn in shades by its level, as Winamp's volume: how
+    /// many, and how far apart down the image each is from the last.
+    pub levels: Option<Levels>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Levels {
+    pub count: u32,
+    pub step: u32,
 }
 
 impl Piece {
@@ -265,8 +274,24 @@ impl Piece {
     /// What to draw for `state` over `dst`: the image, the patches, and
     /// whether to dim them.
     pub fn patches(&self, state: State, dst: Rect, scale: f32) -> (&str, Vec<Patch>, bool) {
+        self.patches_at(state, 0.0, dst, scale)
+    }
+
+    /// The patches for a bar with levels at `level`, 0 to 1: the shade
+    /// for it. Other pieces have one shade.
+    pub fn patches_at(
+        &self,
+        state: State,
+        level: f32,
+        dst: Rect,
+        scale: f32,
+    ) -> (&str, Vec<Patch>, bool) {
         let (image, dim) = self.states.get(state);
-        let src = image.area.rect();
+        let shade = self.levels.map_or(0, |levels| {
+            let last = levels.count.saturating_sub(1);
+            (level.clamp(0.0, 1.0) * last as f32).round() as u32 * levels.step
+        });
+        let src = image.area.rect().translate(egui::vec2(0.0, shade as f32));
         let patches = match self.shape {
             Shape::Sprite => vec![Patch { src, dst }],
             Shape::Bar {

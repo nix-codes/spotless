@@ -53,8 +53,7 @@ status.paused = { image = { image = "playpaus.png", rect = [9, 0, 9, 9] } }
 status.stopped = { image = { image = "playpaus.png", rect = [18, 0, 9, 9] } }
 seek.track = { image = { image = "posbar.png", rect = [0, 0, 248, 10] }, slice = [31, 31] }
 seek.thumb = { normal = { image = "posbar.png", rect = [248, 0, 29, 10] }, pressed = { image = "posbar.png", rect = [278, 0, 29, 10] } }
-volume.track = { image = { image = "volume.png", rect = [0, 0, 68, 13] }, slice = [2, 2] }
-volume.fill = { image = { image = "volume.png", rect = [0, 405, 68, 13] }, slice = [2, 2] }
+volume.track = { image = { image = "volume.png", rect = [0, 0, 68, 13] }, slice = [2, 2], levels = { count = 28, step = 15 } }
 volume.thumb = { normal = { image = "volume.png", rect = [15, 422, 14, 11] }, pressed = { image = "volume.png", rect = [0, 422, 14, 11] } }
 
 [pieces.field]

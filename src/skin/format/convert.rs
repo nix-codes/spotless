@@ -239,13 +239,13 @@ fn player(manifest: &mut String, skin: &Skin) {
             ("pressed", s::POSITION_THUMB_PRESSED),
         ],
     );
-    // Winamp redraws the whole volume bar in one of 28 shades; here the
-    // loudest is drawn over the quietest up to the level.
+    // Winamp redraws the whole volume bar in one of its shades, from
+    // silent to full, each 15 pixels below the last.
     let _ = writeln!(
         manifest,
-        "volume.track = {{ image = {}, slice = [2, 2] }}\nvolume.fill = {{ image = {}, slice = [2, 2] }}",
+        "volume.track = {{ image = {}, slice = [2, 2], levels = {{ count = {}, step = 15 }} }}",
         reference(s::volume_frame(0)),
-        reference(s::volume_frame(sprites::SLIDER_FRAMES - 1)),
+        sprites::SLIDER_FRAMES,
     );
     states(
         manifest,
@@ -401,10 +401,7 @@ fn cut_backgrounds(sheets: &mut [(Sheet, &str, RgbaImage)]) {
     if !(SHAPED..=MOST).contains(&shares[shares.len() / 2]) {
         return;
     }
-    let volume = [
-        s::volume_frame(0),
-        s::volume_frame(sprites::SLIDER_FRAMES - 1),
-    ];
+    let volume: Vec<Sprite> = (0..sprites::SLIDER_FRAMES).map(s::volume_frame).collect();
     let pieces: [(Sheet, &[Sprite], f32); 6] = [
         (
             Sheet::CButtons,
@@ -708,6 +705,7 @@ mod tests {
                 "window"
                     | "statusbar"
                     | "seek.fill"
+                    | "volume.fill"
                     | "panel"
                     | "tab"
                     | "row_selected"
@@ -718,6 +716,12 @@ mod tests {
             );
             assert_eq!(skin.piece(name).is_some(), expected, "{name}");
         }
+        // The volume in its shades: silent at the top, full 405 below.
+        let volume = skin.piece("volume.track").unwrap();
+        let dst = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(68.0, 13.0));
+        let (_, quiet, _) = volume.patches_at(format::State::Normal, 0.0, dst, 1.0);
+        let (_, loud, _) = volume.patches_at(format::State::Normal, 1.0, dst, 1.0);
+        assert_eq!(loud[0].src.top() - quiet[0].src.top(), 405.0);
         let display = &skin.fonts[&format::Role::Display];
         assert_eq!(display.glyph(' ').map(|a| (a.x, a.y)), Some((150, 0)));
         assert_eq!(display.glyph('#').map(|a| (a.x, a.y)), Some((150, 6)));

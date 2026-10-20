@@ -575,7 +575,8 @@ fn button(
     response
 }
 
-/// The volume: the skin's track, its fill up to the level, and its thumb.
+/// The volume: the skin's track in the shade for the level, or with its
+/// fill up to it, and its thumb.
 fn volume(
     ui: &Ui,
     painter: &Painter,
@@ -585,9 +586,10 @@ fn volume(
     inputs: &mut Inputs,
     actions: &mut Vec<Action>,
 ) {
-    let Some(track) = paint.paint_at(painter, "volume.track", State::Normal, at, unit) else {
+    let Some(size) = paint.size("volume.track", unit) else {
         return;
     };
+    let track = Rect::from_min_size(at, size).round_to_pixels(painter.pixels_per_point());
     let response = ui.interact(track, Id::new("skin-volume"), Sense::click_and_drag());
     let thumb = paint.size("volume.thumb", unit).unwrap_or_default();
     let travel = track.width() - thumb.x;
@@ -602,9 +604,15 @@ fn volume(
         }
     }
     response.widget_info(|| WidgetInfo::slider(true, f64::from(inputs.volume), "Volume"));
-    let x = track.left() + f32::from(inputs.volume) / 100.0 * travel;
-    let filled = painter.with_clip_rect(track.with_max_x(x + thumb.x / 2.0));
-    paint.paint(&filled, "volume.fill", State::Normal, track, unit);
+    let level = f32::from(inputs.volume) / 100.0;
+    let x = track.left() + level * travel;
+    // A track in shades shows the level by its shade, as Winamp's does;
+    // one without is filled up to the thumb.
+    paint.paint_level(painter, "volume.track", level, track, unit);
+    if !paint.has_levels("volume.track") {
+        let filled = painter.with_clip_rect(track.with_max_x(x + thumb.x / 2.0));
+        paint.paint(&filled, "volume.fill", State::Normal, track, unit);
+    }
     let state = if response.is_pointer_button_down_on() {
         State::Pressed
     } else {

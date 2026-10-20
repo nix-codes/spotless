@@ -294,3 +294,25 @@ fn a_skin_loads_from_a_folder_or_a_zip() {
     std::fs::remove_dir_all(&dir).unwrap();
     std::fs::remove_file(&path).unwrap();
 }
+
+#[test]
+fn a_bar_in_shades_must_fit_its_image() {
+    let sheet = png(68, 433);
+    let skin = skin(
+        r#"
+        format = 1
+        [pieces.volume]
+        track = { image = { image = "v.png", rect = [0, 0, 68, 13] }, slice = [2, 2], levels = { count = 28, step = 15 } }
+        fill = { image = { image = "v.png", rect = [0, 0, 68, 13] }, slice = [2, 2], levels = { count = 30, step = 15 } }
+        "#,
+        &[("v.png", &sheet)],
+    )
+    .unwrap();
+    // 30 shades would reach row 448, past the image.
+    assert_eq!(problems(&skin), ["pieces.volume.fill"]);
+    let track = skin.piece("volume.track").unwrap();
+    let dst = Rect::from_min_size(pos2(0.0, 0.0), vec2(68.0, 13.0));
+    let (_, half, _) = track.patches_at(State::Normal, 0.5, dst, 1.0);
+    // Halfway is shade 14 of 0 to 27, rounded.
+    assert_eq!(half[0].src.top(), 14.0 * 15.0);
+}

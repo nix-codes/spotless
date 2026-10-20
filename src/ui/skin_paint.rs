@@ -142,8 +142,47 @@ impl SkinPaint {
         unit: f32,
         pixels_per_point: f32,
     ) -> Option<Vec<Shape>> {
+        self.shapes_at(name, state, 0.0, rect, unit, pixels_per_point)
+    }
+
+    /// Paints a bar in the shade for `level`, 0 to 1, when it has shades.
+    pub fn paint_level(
+        &self,
+        painter: &Painter,
+        name: &str,
+        level: f32,
+        rect: Rect,
+        unit: f32,
+    ) -> bool {
+        let shapes = self.shapes_at(
+            name,
+            State::Normal,
+            level,
+            rect,
+            unit,
+            painter.pixels_per_point(),
+        );
+        shapes.map(|shapes| painter.extend(shapes)).is_some()
+    }
+
+    /// Whether a piece comes in shades by level.
+    pub fn has_levels(&self, name: &str) -> bool {
+        self.skin
+            .piece(name)
+            .is_some_and(|piece| piece.levels.is_some())
+    }
+
+    fn shapes_at(
+        &self,
+        name: &str,
+        state: State,
+        level: f32,
+        rect: Rect,
+        unit: f32,
+        pixels_per_point: f32,
+    ) -> Option<Vec<Shape>> {
         let piece = self.skin.piece(name)?;
-        let (image, patches, dim) = piece.patches(state, rect, unit);
+        let (image, patches, dim) = piece.patches_at(state, level, rect, unit);
         let tint = if dim {
             Color32::WHITE.gamma_multiply(0.5)
         } else {

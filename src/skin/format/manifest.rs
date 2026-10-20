@@ -13,8 +13,8 @@ use toml::{Table, Value};
 
 use super::source::Source;
 use super::{
-    Area, FORMAT, Fill, Filter, Font, ImageRef, Kind, LoadError, MANIFEST, PIECES, Piece, Problem,
-    Role, Shape, Skin, State, States,
+    Area, FORMAT, Fill, Filter, Font, ImageRef, Kind, Levels, LoadError, MANIFEST, PIECES, Piece,
+    Problem, Role, Shape, Skin, State, States,
 };
 use crate::skin::{Bitmap, hex};
 use crate::ui::theme::Palette;
@@ -457,7 +457,7 @@ impl Reader<'_> {
         known.extend(State::ALL.iter().map(|state| state.key()));
         match kind {
             Kind::Sprite => {}
-            Kind::Bar { .. } => known.extend(["slice", "middle"]),
+            Kind::Bar { .. } => known.extend(["slice", "middle", "levels"]),
             Kind::Frame => known.extend(["slice", "edges", "center", "padding"]),
         }
         if name == "title" {
@@ -558,11 +558,53 @@ impl Reader<'_> {
                 0
             }),
         };
+        let levels = match table.get("levels") {
+            None => None,
+            Some(levels) => Some(self.levels(at, levels, &images)?),
+        };
         Some(Piece {
             states: States { images },
             shape,
             title_gap,
+            levels,
         })
+    }
+
+    /// A bar's shades: `{ count, step }`, each shade `step` pixels below
+    /// the last, all of them inside the image.
+    fn levels(
+        &mut self,
+        at: &str,
+        value: &Value,
+        images: &HashMap<State, ImageRef>,
+    ) -> Option<Levels> {
+        let table = value.as_table();
+        let get = |key: &str| table.and_then(|t| t.get(key)).and_then(integer);
+        let (Some(count), Some(step)) = (get("count"), get("step")) else {
+            self.problem(
+                at,
+                "levels should be { count = shades, step = pixels from one to the next }",
+            );
+            return None;
+        };
+        if count == 0 {
+            self.problem(at, "levels needs a count of 1 or more");
+            return None;
+        }
+        for image in images.values() {
+            let height = self.bitmap(&image.image).map_or(0, |(_, height)| height);
+            let last = u64::from(image.area.y)
+                + u64::from(count - 1) * u64::from(step)
+                + u64::from(image.area.height);
+            if last > u64::from(height) {
+                self.problem(
+                    at,
+                    &format!("its {count} shades go below the bottom of {}", image.image),
+                );
+                return None;
+            }
+        }
+        Some(Levels { count, step })
     }
 
     /// How `key` fills: stretched unless the skin says tile. A wrong value
