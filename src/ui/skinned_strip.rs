@@ -157,12 +157,11 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View, art: &SkinArt, unit: f32) {
     };
     art.paint(&painter, status, at(0.0, 2.0), unit);
 
-    // Two digits, a colon, two digits.
-    let seconds = if player.status == Status::Stopped {
-        0
-    } else {
-        player.position_now() / 1000
-    };
+    // Two digits, a colon, two digits; stopped, none of them.
+    if player.status == Status::Stopped {
+        return;
+    }
+    let seconds = player.position_now() / 1000;
     let minutes = (seconds / 60).min(99);
     let digits = [
         (20.0, minutes / 10),

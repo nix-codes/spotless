@@ -73,11 +73,11 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View) {
     };
     paint_glyph(ui, pos2(left + 5.0, rect.center().y), glyph, palette.lcd);
 
-    let seconds = if player.status == Status::Stopped {
-        0
-    } else {
-        player.position_now() / 1000
-    };
+    // Stopped, the time is blank, as in Winamp.
+    if player.status == Status::Stopped {
+        return;
+    }
+    let seconds = player.position_now() / 1000;
     let time = if time_shown(ui, view) {
         format!("{:02}:{:02}", seconds / 60, seconds % 60)
     } else {
