@@ -99,10 +99,9 @@ accounts.
 - **Your desktop's controls**: media keys, the system's now-playing display
   (MPRIS on Linux, the media overlay on Windows), and a tray icon; closing
   the window keeps Spotless playing there.
-- **Winamp skins.** Put classic skins (`.wsz`) in the `skins` folder next to
-  your settings and pick one in Settings > Display: the player is drawn with
-  the skin's own title bar, buttons, digits, font, seek bar and volume, and
-  everything else takes its colours.
+- **Two looks**: Spotless Classic, and Winamp Classic, drawn with Winamp's
+  own buttons, digits, font, seek bar and volume. Pick one in Settings >
+  Display.
 - **Settings** (F10): account, search, Last.fm, audio output, volume levelling,
   interface size, skin, tray, and the audio and cover caches.
 - **One window, one copy**: starting Spotless again brings the running one
@@ -199,7 +198,7 @@ Your settings and playlists stay on your computer:
 
 | | Linux | Windows |
 |---|---|---|
-| Settings, playlists, sign-in, skins | `~/.config/spotless` | `%APPDATA%\spotless` |
+| Settings, playlists, sign-in | `~/.config/spotless` | `%APPDATA%\spotless` |
 | Audio and cover caches | `~/.cache/spotless` | `%LOCALAPPDATA%\spotless` |
 
 Uninstalling keeps these; delete the folders to remove them too.

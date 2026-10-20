@@ -14,8 +14,7 @@ use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status};
 use crate::playback::outputs::Output;
 use crate::playback::transport::{Request, Transport};
-use crate::skin::display_name;
-use crate::skin::format::{self, LoadError};
+use crate::skin::format;
 use crate::store::{self, Settings, Tabs};
 use crate::tray::{Tray, TrayState};
 use crate::ui::skin_paint::SkinPaint;
@@ -23,8 +22,6 @@ use crate::ui::{self, Inputs, View, theme::Palette};
 
 /// Changes are saved this long after the last one.
 const SAVE_DELAY: Duration = Duration::from_secs(1);
-/// How often Settings looks for new skins.
-const SKINS_FRESH: Duration = Duration::from_secs(2);
 
 pub struct App {
     paths: Paths,
@@ -35,9 +32,6 @@ pub struct App {
     art: Option<Arc<SkinPaint>>,
     /// What the chosen skin lacks, or got wrong.
     skin_note: Option<String>,
-    /// The skins folder's contents, while Settings shows them.
-    skins: Vec<String>,
-    skins_listed: Option<Instant>,
     /// Why the chosen skin couldn't be read.
     skin_error: Option<String>,
     session: SessionState,
@@ -116,8 +110,6 @@ impl App {
             ctx: cc.egui_ctx.clone(),
             art: None,
             skin_note: None,
-            skins: Vec::new(),
-            skins_listed: None,
             skin_error: None,
             session,
             player: PlayerSnapshot::default(),
@@ -146,6 +138,11 @@ impl App {
             quitting: false,
             paths,
         };
+        // A skin from the skins folder of an older Spotless is gone:
+        // Spotless Classic takes its place.
+        if app.settings.skin.as_deref() != Some(format::built_in::WINAMP_CLASSIC_KEY) {
+            app.settings.skin = None;
+        }
         let skin = app.settings.skin.clone();
         if let Err(error) = app.use_skin(skin.as_deref()) {
             app.skin_error = Some(error);
@@ -286,17 +283,6 @@ impl App {
                     }
                     Err(error) => self.skin_error = Some(error),
                 }
-                return;
-            }
-            Action::OpenSkinsFolder => {
-                let dir = self.paths.skins();
-                let opened = std::fs::create_dir_all(&dir)
-                    .map_err(anyhow::Error::from)
-                    .and_then(|()| Ok(open::that_detached(&dir)?));
-                if let Err(error) = opened {
-                    self.error = Some(format!("Unable to open {}: {error}", dir.display()));
-                }
-                self.skins_listed = None;
                 return;
             }
             Action::SetLevelling(on) => {
@@ -698,19 +684,18 @@ impl App {
         self.mark_unsaved();
     }
 
-    /// Draws with a skin from the skins folder, or Spotless Classic for
-    /// None. A skin that can't be read leaves things as they are.
+    /// Draws with Winamp Classic, or Spotless Classic for anything else.
+    /// A skin that can't be read leaves things as they are.
     fn use_skin(&mut self, skin: Option<&str>) -> Result<(), String> {
-        let loaded = match skin {
-            None => format::built_in::spotless_classic().map_err(|error| error.to_string()),
+        let (name, loaded) = match skin {
             Some(format::built_in::WINAMP_CLASSIC_KEY) => {
-                format::built_in::winamp_classic().map_err(|error| error.to_string())
+                ("Winamp Classic", format::built_in::winamp_classic())
             }
-            Some(name) => load_skin(&self.paths.skins().join(name)),
-        }
-        .map_err(|error| {
-            log::warn!("skin {}: {error}", skin.unwrap_or("Spotless Classic"));
-            format!("{}: {error}", skin.map_or("Spotless Classic", display_name))
+            _ => ("Spotless Classic", format::built_in::spotless_classic()),
+        };
+        let loaded = loaded.map_err(|error| {
+            log::warn!("skin {name}: {error}");
+            format!("{name}: {error}")
         })?;
         let mut notes = Vec::new();
         for problem in loaded.problems.iter().take(3) {
@@ -725,9 +710,7 @@ impl App {
         let has_pieces = !loaded.images.is_empty();
         let paint = SkinPaint::new(&self.ctx, loaded);
         let missing = paint.missing_player();
-        if skin.is_some() && !has_pieces {
-            notes.insert(0, "This skin lends only its colours.".into());
-        } else if has_pieces && !missing.is_empty() {
+        if has_pieces && !missing.is_empty() {
             notes.insert(
                 0,
                 format!(
@@ -740,23 +723,6 @@ impl App {
         crate::ui::skin_paint::set_current(&self.ctx, self.art.clone());
         self.skin_note = (!notes.is_empty()).then(|| notes.join(" "));
         Ok(())
-    }
-
-    /// Reads the skins folder every few seconds while Settings shows the
-    /// skins, so skins dropped in turn up.
-    fn list_skins(&mut self, ctx: &egui::Context) {
-        if !self.inputs.showing_skins() {
-            self.skins_listed = None;
-            return;
-        }
-        if self
-            .skins_listed
-            .is_none_or(|at| at.elapsed() >= SKINS_FRESH)
-        {
-            self.skins = crate::skin::list(&self.paths.skins());
-            self.skins_listed = Some(Instant::now());
-        }
-        ctx.request_repaint_after(SKINS_FRESH);
     }
 
     fn mark_unsaved(&mut self) {
@@ -839,7 +805,6 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.list_skins(ui.ctx());
         let mut actions = Vec::new();
         let web_client_id = self.settings.web_client_id();
         let playlist = self
@@ -866,8 +831,6 @@ impl eframe::App for App {
             storage: self.storage,
             outputs: &self.outputs,
             tray_shown: self.tray.as_ref().is_some_and(Tray::shown),
-            skins: &self.skins,
-            skins_dir: &self.paths.skins(),
             skin_error: self.skin_error.as_deref(),
             art: self.art.as_deref(),
             skin_note: self.skin_note.as_deref(),
@@ -910,25 +873,6 @@ impl eframe::App for App {
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         self.palette.desk.to_normalized_gamma_f32()
-    }
-}
-
-/// A skin from the skins folder. One without a skin.toml is a classic
-/// Winamp skin, converted as it is read.
-fn load_skin(path: &std::path::Path) -> Result<format::Skin, String> {
-    match format::Skin::load(path) {
-        Err(LoadError::NoManifest | LoadError::NotAnArchive) => {
-            let classic = crate::skin::Skin::load(path).map_err(|error| error.to_string())?;
-            let file = path.file_name().map(|name| name.to_string_lossy());
-            let name = display_name(file.as_deref().unwrap_or("Skin"));
-            let files = format::convert::convert(&classic, name);
-            let files: Vec<(&str, &[u8])> = files
-                .iter()
-                .map(|(path, bytes)| (path.as_str(), bytes.as_slice()))
-                .collect();
-            format::Skin::built_in(name, &files).map_err(|error| error.to_string())
-        }
-        loaded => loaded.map_err(|error| error.to_string()),
     }
 }
 

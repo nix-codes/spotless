@@ -1,12 +1,13 @@
-//! Classic Winamp skins.
+//! Classic Winamp skins, read to be converted to Spotless's own format
+//! (`format::convert`): that is how Winamp Classic is made from Winamp's
+//! base skin. Spotless doesn't load them itself.
 //!
-//! A `.wsz` file is a zip of bitmaps and two small text files. The player
-//! strip draws the skin's own buttons, digits, font and sliders
-//! ([`sprites`] says where they are); everything else takes the skin's
-//! colours: the playlist's from `pledit.txt`, the display's from the digits
-//! and the scrolling text, the frame's from the playlist editor's edges.
-//! Whatever a skin leaves out stays Classic. Modern `.wal` skins are XML and
-//! scripts, and not read.
+//! A `.wsz` file is a zip of bitmaps and two small text files. Every skin
+//! keeps its pieces at the same places ([`sprites`] says where); its
+//! colours are guessed from them: the playlist's from `pledit.txt`, the
+//! display's from the digits and the scrolling text, the window's from the
+//! main window's body. Modern `.wal` skins are XML and scripts, and not
+//! read.
 
 pub mod font;
 pub mod format;
@@ -35,8 +36,6 @@ const PLAYER_SHEETS: [Sheet; 6] = [
     Sheet::PlayPaus,
     Sheet::Text,
 ];
-/// File extensions a skin archive may carry.
-const ARCHIVE_EXTENSIONS: [&str; 2] = ["wsz", "zip"];
 
 #[derive(Debug, Error)]
 pub enum SkinError {
@@ -50,40 +49,6 @@ pub enum SkinError {
     ModernSkin,
     #[error("no skin files were found inside")]
     Empty,
-}
-
-/// The skins in `dir`: `.wsz` and `.zip` files and folders, by name.
-pub fn list(dir: &Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut names: Vec<String> = entries
-        .flatten()
-        .filter(|entry| {
-            let path = entry.path();
-            path.is_dir()
-                || path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|e| ARCHIVE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
-        })
-        .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter(|name| !name.starts_with('.'))
-        .collect();
-    names.sort_by_key(|name| name.to_lowercase());
-    names
-}
-
-/// A skin's name without its file extension.
-pub fn display_name(file: &str) -> &str {
-    match file.rsplit_once('.') {
-        Some((stem, extension))
-            if ARCHIVE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()) =>
-        {
-            stem
-        }
-        _ => file,
-    }
 }
 
 /// A skin read: its colours and its bitmaps.
@@ -542,19 +507,5 @@ mod tests {
             read_archive(b"BM a bitmap"),
             Err(SkinError::NotAnArchive)
         ));
-    }
-
-    #[test]
-    fn skins_are_listed_by_name_and_shown_without_extension() {
-        let dir = std::env::temp_dir().join(format!("spotless-test-skins-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("Unpacked")).unwrap();
-        for name in ["base-2.91.wsz", "Amber.ZIP", "notes.txt", ".hidden.wsz"] {
-            std::fs::write(dir.join(name), b"").unwrap();
-        }
-        assert_eq!(list(&dir), ["Amber.ZIP", "base-2.91.wsz", "Unpacked"]);
-        assert_eq!(display_name("base-2.91.wsz"), "base-2.91");
-        assert_eq!(display_name("Unpacked"), "Unpacked");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

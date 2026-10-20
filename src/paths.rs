@@ -58,11 +58,6 @@ impl Paths {
         self.config.join("lastfm-queue.json")
     }
 
-    /// Classic Winamp skins the user adds.
-    pub fn skins(&self) -> PathBuf {
-        self.config.join("skins")
-    }
-
     /// librespot writes the reusable playback credential here.
     pub fn credentials(&self) -> PathBuf {
         self.config.join("credentials.json")

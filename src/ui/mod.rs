@@ -54,9 +54,6 @@ pub struct View<'a> {
     pub outputs: &'a Loadable<Option<Vec<Output>>>,
     /// A panel shows the tray icon.
     pub tray_shown: bool,
-    /// The skins folder's contents, while Settings shows them.
-    pub skins: &'a [String],
-    pub skins_dir: &'a std::path::Path,
     /// The skin's pieces, when it has any.
     pub art: Option<&'a skin_paint::SkinPaint>,
     /// What the chosen skin lacks, said in Settings.
@@ -106,14 +103,7 @@ pub struct Fit {
     expanded: Option<f32>,
 }
 
-impl Inputs {
-    /// Settings is open on the skins (Display).
-    pub fn showing_skins(&self) -> bool {
-        self.settings
-            .as_ref()
-            .is_some_and(|form| form.category() == settings_view::Category::Display)
-    }
-}
+impl Inputs {}
 
 const TITLE_HEIGHT: f32 = 20.0;
 const TITLE: &str = "S P O T L E S S";
