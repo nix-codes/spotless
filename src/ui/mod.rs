@@ -1,4 +1,4 @@
-//! The window: title bar, player strip, body, status bar.
+//! The window: title bar, player strip, separator, body, status bar.
 //!
 //! Views read a [`View`] and push [`Action`]s; they never change state.
 
@@ -128,19 +128,29 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     theme::bevel(ui.painter(), full, true, &palette);
 
     let skinned = view.art.filter(|art| art.has(crate::skin::Sheet::PlEdit));
-    let title = match skinned {
+    // A bar of stripes with a name: the window's title, and the separator
+    // between the player and the screen below, as Winamp's playlist editor
+    // had its own title bar under the main window.
+    let bar = |ui: &Ui, top: f32, label: &str| match skinned {
         Some(art) => {
             let unit = skinned_strip::unit(full.width() - 2.0 * GUTTER);
-            let title = Rect::from_min_size(full.min, vec2(full.width(), 14.0 * unit));
-            skinned_strip::title_bar(ui, title, view, art, unit, TITLE);
-            title
+            let rect = Rect::from_min_size(
+                egui::pos2(full.left(), top),
+                vec2(full.width(), 14.0 * unit),
+            );
+            skinned_strip::title_bar(ui, rect, view, art, unit, label);
+            rect
         }
         None => {
-            let title = Rect::from_min_size(full.min, vec2(full.width(), TITLE_HEIGHT));
-            title_bar(ui, title, &palette);
-            title
+            let rect = Rect::from_min_size(
+                egui::pos2(full.left(), top),
+                vec2(full.width(), TITLE_HEIGHT),
+            );
+            title_bar(ui, rect, &palette, label);
+            rect
         }
     };
+    let title = bar(ui, full.top(), TITLE);
 
     let strip_top = title.bottom() + 4.0;
     let strip = Rect::from_min_max(
@@ -151,12 +161,22 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
         player_strip::draw(ui, view, inputs, actions);
     });
 
+    let ready = matches!(view.session, SessionState::Ready { .. });
+    let screen = if settings_open {
+        "S E T T I N G S"
+    } else if ready && view.browse.open {
+        "B R O W S E"
+    } else {
+        "P L A Y L I S T"
+    };
+    let separator = bar(ui, strip.bottom() + 6.0, screen);
+
     let status = Rect::from_min_max(
         egui::pos2(full.left(), full.bottom() - STATUS_HEIGHT),
         full.max,
     );
     let body = Rect::from_min_max(
-        egui::pos2(full.left() + GUTTER, strip.bottom() + GUTTER),
+        egui::pos2(full.left() + GUTTER, separator.bottom() + 4.0),
         egui::pos2(full.right() - GUTTER, status.top() - 6.0),
     );
     if let Some(form) = &mut inputs.settings {
@@ -167,7 +187,6 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
         inputs.tab = 0;
         return;
     }
-    let ready = matches!(view.session, SessionState::Ready { .. });
     if ready && view.browse.open {
         browse_view::draw(ui, body, view, inputs, actions);
         status_bar(ui, status, view, inputs, actions);
@@ -189,10 +208,9 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     inputs.tab = 0;
 }
 
-fn title_bar(ui: &Ui, rect: Rect, palette: &Palette) {
+fn title_bar(ui: &Ui, rect: Rect, palette: &Palette, label: &str) {
     let painter = ui.painter();
     let font = FontId::monospace(10.0);
-    let label = TITLE;
     let text_width = painter
         .layout_no_wrap(label.into(), font.clone(), palette.chrome)
         .size()
