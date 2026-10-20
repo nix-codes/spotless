@@ -16,7 +16,9 @@ use egui::{
 };
 
 use super::theme::{self, Palette};
-use super::widgets::{BUTTON_HEIGHT, SMALL_HEIGHT, small_button, small_button_width, text_button};
+use super::widgets::{
+    BUTTON_HEIGHT, SMALL_HEIGHT, field, small_button, small_button_width, text_button,
+};
 use super::{Inputs, View};
 use crate::action::Action;
 use crate::backend::SearchState;
@@ -103,8 +105,8 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
         pos2(rect.right() - slim_width - PAD, rect.bottom()),
     );
     let slim = Rect::from_min_max(pos2(catalog.right() + PAD, rect.top()), rect.max);
-    theme::inset(ui.painter(), catalog, palette.list_bg, &palette);
-    theme::inset(ui.painter(), slim, palette.list_bg, &palette);
+    theme::panel(ui.painter(), catalog, &palette);
+    theme::panel(ui.painter(), slim, &palette);
 
     let page = view.browse.page();
     let nav = &mut inputs.nav;
@@ -256,7 +258,8 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<A
             actions.push(Action::Back);
         }
         let close_width = 210.0;
-        let field = ui.add(
+        let field = field(
+            ui,
             TextEdit::singleline(&mut inputs.query)
                 .id(Id::new(SEARCH_ID))
                 .hint_text("Search artists, albums, songs…")

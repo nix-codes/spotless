@@ -7,11 +7,12 @@
 //! smoothly.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use egui::emath::GuiRounding;
 use egui::{
-    Align2, Color32, ColorImage, FontId, Painter, Pos2, Rect, TextureHandle, TextureOptions, Vec2,
-    pos2, vec2,
+    Align2, Color32, ColorImage, FontId, Id, Painter, Pos2, Rect, Shape, TextureHandle,
+    TextureOptions, Vec2, pos2, vec2,
 };
 
 use crate::skin::Bitmap;
@@ -122,20 +123,40 @@ impl SkinPaint {
         rect: Rect,
         unit: f32,
     ) -> bool {
-        let Some(piece) = self.skin.piece(name) else {
-            return false;
-        };
+        match self.shapes(name, state, rect, unit, painter.pixels_per_point()) {
+            Some(shapes) => {
+                painter.extend(shapes);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// A piece over `rect` as shapes to paint, for a place that must put
+    /// it under what is drawn first.
+    pub fn shapes(
+        &self,
+        name: &str,
+        state: State,
+        rect: Rect,
+        unit: f32,
+        pixels_per_point: f32,
+    ) -> Option<Vec<Shape>> {
+        let piece = self.skin.piece(name)?;
         let (image, patches, dim) = piece.patches(state, rect, unit);
         let tint = if dim {
             Color32::WHITE.gamma_multiply(0.5)
         } else {
             Color32::WHITE
         };
-        for patch in patches {
-            let dst = patch.dst.round_to_pixels(painter.pixels_per_point());
-            self.image(painter, image, patch.src, dst, tint);
-        }
-        true
+        let shapes = patches
+            .into_iter()
+            .filter_map(|patch| {
+                let dst = patch.dst.round_to_pixels(pixels_per_point);
+                self.image(image, patch.src, dst, tint)
+            })
+            .collect();
+        Some(shapes)
     }
 
     /// Paints a piece at its own size with its corner at `at`, and gives
@@ -197,7 +218,9 @@ impl SkinPaint {
                     let dst = Rect::from_min_size(pos2(x, at.y), area.size() * unit)
                         .round_to_pixels(painter.pixels_per_point());
                     let tint = if *tint { color } else { Color32::WHITE };
-                    self.image(&painter, image, area.rect(), dst, tint);
+                    if let Some(shape) = self.image(image, area.rect(), dst, tint) {
+                        painter.add(shape);
+                    }
                 }
                 _ if character != ' ' => {
                     painter.text(
@@ -213,11 +236,9 @@ impl SkinPaint {
         }
     }
 
-    /// Draws `src` of an image (in its pixels) over `dst`.
-    fn image(&self, painter: &Painter, image: &str, src: Rect, dst: Rect, tint: Color32) {
-        let Some((texture, [width, height], enlarge)) = self.textures.get(image) else {
-            return;
-        };
+    /// `src` of an image (in its pixels) drawn over `dst`.
+    fn image(&self, image: &str, src: Rect, dst: Rect, tint: Color32) -> Option<Shape> {
+        let (texture, [width, height], enlarge) = self.textures.get(image)?;
         // Half a texel of the enlarged image in from the edges, so the
         // smoothing never reaches the neighbouring piece.
         let inset = 0.5 / *enlarge as f32;
@@ -226,7 +247,51 @@ impl SkinPaint {
             pos2((src.left() + inset) / w, (src.top() + inset) / h),
             pos2((src.right() - inset) / w, (src.bottom() - inset) / h),
         );
-        painter.image(texture.id(), dst, uv, tint);
+        Some(Shape::image(texture.id(), dst, uv, tint))
+    }
+}
+
+/// Where the skin in use is kept for the widgets, which see only colours.
+fn key() -> Id {
+    Id::new("skin-paint")
+}
+
+/// Makes `paint` the skin the widgets draw their chrome with.
+pub fn set_current(ctx: &egui::Context, paint: Option<Arc<SkinPaint>>) {
+    ctx.data_mut(|data| match paint {
+        Some(paint) => {
+            data.insert_temp(key(), paint);
+        }
+        None => data.remove::<Arc<SkinPaint>>(key()),
+    });
+}
+
+pub fn current(ctx: &egui::Context) -> Option<Arc<SkinPaint>> {
+    ctx.data(|data| data.get_temp(key()))
+}
+
+/// Paints a piece of the skin in use over `rect` at the skin's scale:
+/// false when there is no skin, or it hasn't the piece.
+pub fn chrome(painter: &Painter, name: &str, state: State, rect: Rect) -> bool {
+    current(painter.ctx())
+        .is_some_and(|paint| paint.paint(painter, name, state, rect, paint.scale()))
+}
+
+/// Whether the skin in use has a piece.
+pub fn has_chrome(ctx: &egui::Context, name: &str) -> bool {
+    current(ctx).is_some_and(|paint| paint.has(name))
+}
+
+/// The state of a control: `on` for a toggle that is on.
+pub fn state(response: &egui::Response, on: bool, enabled: bool) -> State {
+    match (response.is_pointer_button_down_on(), response.hovered(), on) {
+        _ if !enabled => State::Disabled,
+        (true, _, true) => State::OnPressed,
+        (true, _, false) => State::Pressed,
+        (false, true, true) => State::OnHover,
+        (false, true, false) => State::Hover,
+        (false, false, true) => State::On,
+        (false, false, false) => State::Normal,
     }
 }
 

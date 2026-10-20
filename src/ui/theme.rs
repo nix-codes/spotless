@@ -26,6 +26,11 @@ pub struct Palette {
     pub thumb: Color32,
     /// A skinned title bar's name, on the skin's plate.
     pub title: Color32,
+    /// A text button's label, on its face.
+    pub button_text: Color32,
+    /// A button's light and dark edges.
+    pub button_hi: Color32,
+    pub button_lo: Color32,
 }
 
 impl Palette {
@@ -46,7 +51,19 @@ impl Palette {
         accent: Color32::from_rgb(0x2b, 0xff, 0x62),
         thumb: Color32::from_rgb(0xb0, 0x99, 0x5e),
         title: Color32::from_rgb(0xc9, 0xc9, 0xda),
+        button_text: Color32::from_rgb(0xc9, 0xc9, 0xda),
+        button_hi: Color32::from_rgb(0x4c, 0x4c, 0x62),
+        button_lo: Color32::from_rgb(0x11, 0x11, 0x17),
     };
+
+    /// These colours for a button's bevel: its own edges.
+    pub fn for_buttons(&self) -> Self {
+        Self {
+            hi: self.button_hi,
+            lo: self.button_lo,
+            ..*self
+        }
+    }
 
     /// egui's own widgets (text fields, sliders) in the skin's colours.
     pub fn apply(&self, ctx: &egui::Context) {
@@ -104,6 +121,16 @@ pub fn bevel(painter: &Painter, rect: Rect, raised: bool, palette: &Palette) {
 pub fn inset(painter: &Painter, rect: Rect, fill: Color32, palette: &Palette) {
     painter.rect_filled(rect, CornerRadius::ZERO, fill);
     bevel(painter, rect, false, palette);
+}
+
+/// A panel that holds a list: the skin's, or an inset in the list's
+/// colour.
+pub fn panel(painter: &Painter, rect: Rect, palette: &Palette) {
+    let skinned =
+        super::skin_paint::chrome(painter, "panel", crate::skin::format::State::Normal, rect);
+    if !skinned {
+        inset(painter, rect, palette.list_bg, palette);
+    }
 }
 
 /// The title bar's horizontal grooves.

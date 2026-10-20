@@ -12,8 +12,9 @@ use egui::{
 };
 
 use super::View;
+use super::skin_paint;
 use super::theme::{self, Palette};
-use super::widgets::{small_action, small_button, text_button};
+use super::widgets::{field, small_action, small_button, text_button};
 use crate::action::Action;
 use crate::backend::{SearchState, SessionState, Store};
 use crate::browse::Loadable;
@@ -213,7 +214,7 @@ pub fn draw(
         });
     });
     categories(ui, list, &palette, form);
-    theme::inset(ui.painter(), panel, palette.list_bg, &palette);
+    theme::panel(ui.painter(), panel, &palette);
     if form.keyboard && !form.in_options {
         theme::focus_ring(ui.painter(), list, &palette);
     }
@@ -269,7 +270,7 @@ pub fn draw(
 
 /// The category list, the chosen one lit with a bar at its left.
 fn categories(ui: &mut Ui, rect: Rect, palette: &Palette, form: &mut Form) {
-    theme::inset(ui.painter(), rect, palette.list_bg, palette);
+    theme::panel(ui.painter(), rect, palette);
     let mut top = rect.top() + 6.0;
     for (category, name) in CATEGORIES {
         let row = Rect::from_min_size(
@@ -450,7 +451,8 @@ impl Controls<'_, '_> {
         let changed = typed != current;
         row(ui, palette, "Client ID", |ui| {
             ui.horizontal(|ui| {
-                let field = ui.add(
+                let field = field(
+                    ui,
                     TextEdit::singleline(&mut self.form.client_id)
                         .id(Id::new(FIELD_ID))
                         .hint_text("32 letters and digits")
@@ -567,7 +569,8 @@ impl Controls<'_, '_> {
         let ready = valid && state.status != LastFmStatus::SigningIn && (changed || !connected);
         let mut submitted = false;
         row(ui, palette, "API key", |ui| {
-            let field = ui.add(
+            let field = field(
+                ui,
                 TextEdit::singleline(&mut self.form.lastfm_key)
                     .id(Id::new(KEY_FIELD_ID))
                     .hint_text("32 letters and digits")
@@ -579,7 +582,8 @@ impl Controls<'_, '_> {
         });
         row(ui, palette, "Shared secret", |ui| {
             ui.horizontal(|ui| {
-                let field = ui.add(
+                let field = field(
+                    ui,
                     TextEdit::singleline(&mut self.form.lastfm_secret)
                         .id(Id::new(SECRET_FIELD_ID))
                         .hint_text("32 letters and digits")
@@ -867,13 +871,17 @@ fn row(ui: &mut Ui, palette: &Palette, label: &str, add: impl FnOnce(&mut Ui)) {
 fn toggle(ui: &mut Ui, palette: &Palette, on: bool) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(62.0, 22.0), Sense::click());
     let painter = ui.painter();
-    painter.rect_filled(rect, 0.0, palette.button);
-    theme::bevel(
-        painter,
-        rect,
-        !response.is_pointer_button_down_on(),
-        palette,
-    );
+    let state = skin_paint::state(&response, false, true);
+    let skinned = skin_paint::chrome(painter, "small_button", state, rect);
+    if !skinned {
+        painter.rect_filled(rect, 0.0, palette.button);
+        theme::bevel(
+            painter,
+            rect,
+            !response.is_pointer_button_down_on(),
+            &palette.for_buttons(),
+        );
+    }
     let light = Rect::from_center_size(pos2(rect.left() + 13.0, rect.center().y), vec2(9.0, 9.0));
     painter.rect_filled(light, 0.0, if on { palette.accent } else { palette.lcd_bg });
     painter.rect_stroke(
@@ -882,10 +890,12 @@ fn toggle(ui: &mut Ui, palette: &Palette, on: bool) -> Response {
         Stroke::new(1.0, palette.lo),
         egui::StrokeKind::Outside,
     );
-    let color = if response.hovered() || on {
+    let color = if skinned {
+        palette.button_text
+    } else if response.hovered() || on {
         palette.accent
     } else {
-        palette.chrome
+        palette.button_text
     };
     painter.text(
         pos2(light.right() + 8.0, rect.center().y),
@@ -930,16 +940,21 @@ fn radio(ui: &mut Ui, palette: &Palette, chosen: bool, text: &str) -> Response {
     response
 }
 
-/// The skins to choose from, as (choice, label): Spotless Classic first, then the
-/// skins folder's, then a saved one that isn't there any more.
+/// The skins to choose from, as (choice, label): the built-in ones first,
+/// then the skins folder's, then a saved one that isn't there any more.
 fn skin_rows(view: &View) -> Vec<(Option<String>, String)> {
-    let mut rows = vec![(None, "Spotless Classic".to_string())];
+    let winamp = skin::format::built_in::WINAMP_CLASSIC_KEY;
+    let mut rows = vec![
+        (None, "Spotless Classic".to_string()),
+        (Some(winamp.to_string()), "Winamp Classic".to_string()),
+    ];
     rows.extend(
         view.skins
             .iter()
             .map(|skin| (Some(skin.clone()), skin::display_name(skin).to_string())),
     );
     if let Some(saved) = &view.settings.skin
+        && saved != winamp
         && !view.skins.contains(saved)
     {
         rows.push((

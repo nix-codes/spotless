@@ -17,8 +17,9 @@ use egui::{
 };
 
 use super::scrollbar::Scrollbar;
+use super::skin_paint;
 use super::theme::{self, Palette};
-use super::widgets::{Glyph, drag_ghost, small_action, small_button, small_glyph};
+use super::widgets::{Glyph, drag_ghost, field, small_action, small_button, small_glyph};
 use super::{Inputs, View};
 use crate::action::Action;
 use crate::model::{EntryId, Playlist, PlaylistId};
@@ -203,20 +204,24 @@ fn tab(
         + 10.0;
     let (rect, response) = ui.allocate_exact_size(vec2(total, TAB_HEIGHT), Sense::click_and_drag());
     let painter = ui.painter();
-    painter.rect_filled(
-        rect,
-        0.0,
-        if shown {
-            palette.list_bg
-        } else {
-            palette.button
-        },
-    );
-    theme::bevel(painter, rect, !shown, &palette);
-    let text_color = if shown {
-        palette.current
-    } else {
-        palette.chrome
+    let state = skin_paint::state(&response, shown, true);
+    let skinned = skin_paint::chrome(painter, "tab", state, rect);
+    if !skinned {
+        painter.rect_filled(
+            rect,
+            0.0,
+            if shown {
+                palette.list_bg
+            } else {
+                palette.button
+            },
+        );
+        theme::bevel(painter, rect, !shown, &palette.for_buttons());
+    }
+    let text_color = match (skinned, shown) {
+        (true, _) => palette.button_text,
+        (false, true) => palette.current,
+        (false, false) => palette.button_text,
     };
     let mut x = rect.left() + 10.0;
     if playing {
@@ -296,7 +301,8 @@ fn rename_field(
     let Some((_, name)) = renaming.as_mut() else {
         return Rect::NOTHING;
     };
-    let field = ui.add(
+    let field = field(
+        ui,
         TextEdit::singleline(name)
             .id(Id::new(("rename", id)))
             .desired_width(140.0)

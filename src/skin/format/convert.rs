@@ -44,7 +44,7 @@ pub fn convert(skin: &Skin, name: &str) -> Vec<(String, Vec<u8>)> {
     let _ = writeln!(manifest, "name = {}", quoted(name));
     let _ = writeln!(manifest, "scale = {SCALE}");
     let _ = writeln!(manifest, "filter = \"pixel\"");
-    colors(&mut manifest, &skin.palette);
+    let palette = skin.palette;
 
     let mut add = |path: &str, image: RgbaImage| files.push((path.to_string(), png(&image)));
     let mut sheets = Vec::new();
@@ -62,6 +62,7 @@ pub fn convert(skin: &Skin, name: &str) -> Vec<(String, Vec<u8>)> {
         }
     }
     cut_backgrounds(&mut sheets);
+    colors(&mut manifest, &palette);
     for (_, path, image) in sheets {
         add(path, image);
     }
@@ -86,6 +87,7 @@ pub fn convert(skin: &Skin, name: &str) -> Vec<(String, Vec<u8>)> {
     if skin.missing_art().is_empty() {
         player(&mut manifest, skin);
     }
+    chrome(&mut manifest, skin.sheet(Sheet::Main).is_some());
     if skin.sheet(Sheet::PlEdit).is_some() {
         playlist(&mut manifest);
     }
@@ -112,6 +114,9 @@ fn colors(manifest: &mut String, palette: &Palette) {
         ("accent", palette.accent),
         ("scroll_thumb", palette.thumb),
         ("title_text", palette.title),
+        ("button_text", palette.button_text),
+        ("button_light", palette.button_hi),
+        ("button_dark", palette.button_lo),
     ];
     for (key, color) in colors {
         let _ = writeln!(manifest, "{key} = \"{}\"", hex(color));
@@ -250,6 +255,16 @@ fn player(manifest: &mut String, skin: &Skin) {
             ("pressed", s::VOLUME_THUMB_PRESSED),
         ],
     );
+}
+
+/// Text fields in the song's display box.
+fn chrome(manifest: &mut String, display: bool) {
+    if display {
+        let _ = writeln!(
+            manifest,
+            "\n[pieces.field]\nimage = \"display.png\"\nslice = [1, 1, 1, 1]\npadding = [4, 3, 4, 3]",
+        );
+    }
 }
 
 /// The title bars and the scrollbar, from the playlist editor.
@@ -698,7 +713,6 @@ mod tests {
                     | "row_selected"
                     | "button"
                     | "small_button"
-                    | "field"
                     | "switch"
                     | "radio"
             );

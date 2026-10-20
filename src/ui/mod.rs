@@ -21,6 +21,7 @@ use crate::browse::{Browse, Loadable};
 use crate::model::{EntryId, Library, Playlist, PlaylistId};
 use crate::playback::engine::PlayerSnapshot;
 use crate::playback::outputs::Output;
+use crate::skin::format::State;
 use crate::store::Settings;
 use theme::Palette;
 use widgets::text_button;
@@ -139,8 +140,10 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     }
     keys::help(ui, &palette, inputs);
     let full = ui.max_rect();
-    ui.painter().rect_filled(full, 0.0, palette.frame);
-    theme::bevel(ui.painter(), full, true, &palette);
+    if !skin_paint::chrome(ui.painter(), "window", State::Normal, full) {
+        ui.painter().rect_filled(full, 0.0, palette.frame);
+        theme::bevel(ui.painter(), full, true, &palette);
+    }
 
     let skinned = view.art.filter(|paint| paint.has("titlebar"));
     // A bar of stripes with a name: the window's title, and the separator
@@ -233,7 +236,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
         inputs.tab = 0;
         return;
     }
-    theme::inset(ui.painter(), body, palette.list_bg, &palette);
+    theme::panel(ui.painter(), body, &palette);
     let padding = if matches!(view.session, SessionState::Ready { .. }) {
         8.0
     } else {
@@ -358,13 +361,15 @@ fn status_bar(
 ) {
     let palette = view.palette;
     let painter = ui.painter();
-    painter.line_segment(
-        [
-            rect.left_top() + vec2(1.0, 0.0),
-            rect.right_top() - vec2(1.0, 0.0),
-        ],
-        egui::Stroke::new(1.0, palette.lo),
-    );
+    if !skin_paint::chrome(painter, "statusbar", State::Normal, rect) {
+        painter.line_segment(
+            [
+                rect.left_top() + vec2(1.0, 0.0),
+                rect.right_top() - vec2(1.0, 0.0),
+            ],
+            egui::Stroke::new(1.0, palette.lo),
+        );
+    }
     let (text, color) = match view.error {
         Some(error) => (error.to_string(), palette.current),
         None if view.notice.is_some() => (view.notice.unwrap_or_default().to_string(), palette.dim),

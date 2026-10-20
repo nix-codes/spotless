@@ -570,15 +570,7 @@ fn button(
     };
     let response = ui.interact(rect, Id::new(("skin-button", name)), sense);
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, label));
-    let on = state == State::On;
-    let state = match (response.is_pointer_button_down_on(), response.hovered(), on) {
-        _ if !enabled => State::Disabled,
-        (true, _, true) => State::OnPressed,
-        (true, _, false) => State::Pressed,
-        (false, true, true) => State::OnHover,
-        (false, true, false) => State::Hover,
-        (false, false, _) => state,
-    };
+    let state = super::skin_paint::state(&response, state == State::On, enabled);
     paint.paint_at(painter, name, state, at, unit);
     response
 }

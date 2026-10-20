@@ -32,7 +32,7 @@ pub struct App {
     palette: Palette,
     ctx: egui::Context,
     /// The skin's pieces, when it has any.
-    art: Option<SkinPaint>,
+    art: Option<Arc<SkinPaint>>,
     /// What the chosen skin lacks, or got wrong.
     skin_note: Option<String>,
     /// The skins folder's contents, while Settings shows them.
@@ -703,6 +703,9 @@ impl App {
     fn use_skin(&mut self, skin: Option<&str>) -> Result<(), String> {
         let loaded = match skin {
             None => format::built_in::spotless_classic().map_err(|error| error.to_string()),
+            Some(format::built_in::WINAMP_CLASSIC_KEY) => {
+                format::built_in::winamp_classic().map_err(|error| error.to_string())
+            }
             Some(name) => load_skin(&self.paths.skins().join(name)),
         }
         .map_err(|error| {
@@ -733,7 +736,8 @@ impl App {
                 ),
             );
         }
-        self.art = has_pieces.then_some(paint);
+        self.art = has_pieces.then(|| Arc::new(paint));
+        crate::ui::skin_paint::set_current(&self.ctx, self.art.clone());
         self.skin_note = (!notes.is_empty()).then(|| notes.join(" "));
         Ok(())
     }
@@ -865,7 +869,7 @@ impl eframe::App for App {
             skins: &self.skins,
             skins_dir: &self.paths.skins(),
             skin_error: self.skin_error.as_deref(),
-            art: self.art.as_ref(),
+            art: self.art.as_deref(),
             skin_note: self.skin_note.as_deref(),
         };
         ui::draw(ui, &view, &mut self.inputs, &mut actions);

@@ -1,11 +1,13 @@
 //! Small Winamp-style controls drawn with the painter.
 
 use egui::{
-    Align2, FontId, Pos2, Rect, Response, Sense, Shape, Ui, Vec2, WidgetInfo, WidgetType, pos2,
-    vec2,
+    Align2, FontId, Pos2, Rect, Response, Sense, Shape, TextEdit, Ui, Vec2, WidgetInfo, WidgetType,
+    pos2, vec2,
 };
 
+use super::skin_paint;
 use super::theme::{self, Palette};
+use crate::skin::format::State;
 
 /// The transport glyphs.
 #[derive(Clone, Copy, Debug)]
@@ -62,10 +64,34 @@ pub fn small_action(ui: &mut Ui, palette: &Palette, label: &str, enabled: bool) 
 
 /// A small square glyph button, for toolbars.
 pub fn small_glyph(ui: &mut Ui, palette: &Palette, glyph: Glyph, enabled: bool) -> Response {
-    let (rect, response) = button_frame(ui, palette, vec2(24.0, SMALL_HEIGHT), false, enabled);
+    let (rect, response, skinned) =
+        button_frame(ui, palette, vec2(24.0, SMALL_HEIGHT), false, enabled);
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, glyph.name()));
-    let color = label_color(&response, palette, false, enabled);
+    let color = label_color(&response, palette, false, enabled, skinned);
     paint_glyph(ui, rect.center(), glyph, color);
+    response
+}
+
+/// A text field: in the skin's frame when it has one, else egui's.
+pub fn field(ui: &mut Ui, edit: TextEdit) -> Response {
+    let Some(paint) = skin_paint::current(ui.ctx()).filter(|paint| paint.has("field")) else {
+        return ui.add(edit);
+    };
+    // The frame goes under the text, which is laid out first.
+    let slot = ui.painter().add(Shape::Noop);
+    let response =
+        ui.add(edit.frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(6, 4))));
+    let state = if response.has_focus() {
+        State::On
+    } else if response.hovered() {
+        State::Hover
+    } else {
+        State::Normal
+    };
+    let rect = response.rect;
+    if let Some(shapes) = paint.shapes("field", state, rect, paint.scale(), ui.pixels_per_point()) {
+        ui.painter().set(slot, Shape::Vec(shapes));
+    }
     response
 }
 
@@ -113,9 +139,9 @@ fn sized_button(
     let font = FontId::monospace(if small { 10.0 } else { 11.0 });
     let padding = if small { 14.0 } else { 20.0 };
     let size = vec2(label_width(ui, label, &font) + padding, height);
-    let (rect, response) = button_frame(ui, palette, size, on, enabled);
+    let (rect, response, skinned) = button_frame(ui, palette, size, on, enabled);
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, label));
-    let color = label_color(&response, palette, on, enabled);
+    let color = label_color(&response, palette, on, enabled, skinned);
     ui.painter()
         .text(rect.center(), Align2::CENTER_CENTER, label, font, color);
     response
@@ -134,20 +160,23 @@ pub fn glyph_toggle(
     on: bool,
     enabled: bool,
 ) -> Response {
-    let (rect, response) = button_frame(ui, palette, vec2(36.0, BUTTON_HEIGHT), on, enabled);
+    let (rect, response, skinned) =
+        button_frame(ui, palette, vec2(36.0, BUTTON_HEIGHT), on, enabled);
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, glyph.name()));
-    let color = label_color(&response, palette, on, enabled);
+    let color = label_color(&response, palette, on, enabled, skinned);
     paint_glyph(ui, rect.center(), glyph, color);
     response
 }
 
+/// A button's frame: the skin's when it has one (and then true), else
+/// Classic's bevel.
 fn button_frame(
     ui: &mut Ui,
     palette: &Palette,
     size: Vec2,
     on: bool,
     enabled: bool,
-) -> (Rect, Response) {
+) -> (Rect, Response, bool) {
     let sense = if enabled {
         Sense::click()
     } else {
@@ -155,22 +184,39 @@ fn button_frame(
     };
     let (rect, response) = ui.allocate_exact_size(size, sense);
     let painter = ui.painter();
-    painter.rect_filled(rect, 0.0, palette.button);
-    let pressed = on || response.is_pointer_button_down_on();
-    theme::bevel(painter, rect, !pressed, palette);
+    let piece = if size.y < BUTTON_HEIGHT {
+        "small_button"
+    } else {
+        "button"
+    };
+    let state = skin_paint::state(&response, on, enabled);
+    let skinned = skin_paint::chrome(painter, piece, state, rect);
+    if !skinned {
+        painter.rect_filled(rect, 0.0, palette.button);
+        let pressed = on || response.is_pointer_button_down_on();
+        theme::bevel(painter, rect, !pressed, &palette.for_buttons());
+    }
     if response.has_focus() {
         theme::focus_ring(painter, rect, palette);
     }
-    (rect, response)
+    (rect, response, skinned)
 }
 
-fn label_color(response: &Response, palette: &Palette, on: bool, enabled: bool) -> egui::Color32 {
+/// A label's colour: lit when on or under the pointer on Classic's
+/// buttons; on a skin's, whose face may be light, its button text.
+fn label_color(
+    response: &Response,
+    palette: &Palette,
+    on: bool,
+    enabled: bool,
+    skinned: bool,
+) -> egui::Color32 {
     if !enabled {
-        palette.chrome.gamma_multiply(0.4)
-    } else if on || response.hovered() {
+        palette.button_text.gamma_multiply(0.4)
+    } else if (on || response.hovered()) && !skinned {
         palette.accent
     } else {
-        palette.chrome
+        palette.button_text
     }
 }
 

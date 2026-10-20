@@ -1,0 +1,79 @@
+# Converted from a classic Winamp skin.
+format = 1
+name = "Winamp Classic"
+scale = 1.5
+filter = "pixel"
+
+[colors]
+desk = "#0d0d15"
+window = "#353553"
+edge_light = "#5d5d75"
+edge_dark = "#151521"
+chrome_text = "#cdcdd4"
+button = "#bdced6"
+lcd_bg = "#000000"
+lcd_text = "#00f800"
+list_bg = "#000000"
+list_text = "#00ff00"
+list_current = "#ffffff"
+list_selected_bg = "#0000c6"
+list_dim = "#00a600"
+accent = "#00f800"
+scroll_thumb = "#b0995e"
+title_text = "#cacad0"
+button_text = "#26292b"
+button_light = "#e1e9ed"
+button_dark = "#4c5256"
+
+[fonts.digits]
+bitmap = { image = "digits.png", cell = [9, 13], rows = ["0123456789"] }
+
+[fonts.display]
+bitmap = { image = "text.png", cell = [5, 6], rows = [
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZ\"@\u0001\u0001 ",
+  "0123456789….:()-'!_+\\/[]^&%,=$#",
+  "ÅÖÄ?*",
+] }
+
+[pieces]
+lcd = { image = "lcd.png", slice = [1, 1, 1, 1], padding = [1, 1, 1, 1], center = "tile" }
+display = { image = "display.png", slice = [1, 1, 1, 1], padding = [3, 3, 3, 3], center = "stretch" }
+small_display = { image = "small-display.png", slice = [1, 1, 1, 1], padding = [2, 3, 2, 3], center = "stretch" }
+previous = { normal = { image = "cbuttons.png", rect = [0, 0, 23, 18] }, pressed = { image = "cbuttons.png", rect = [0, 18, 23, 18] } }
+play = { normal = { image = "cbuttons.png", rect = [23, 0, 23, 18] }, pressed = { image = "cbuttons.png", rect = [23, 18, 23, 18] } }
+pause = { normal = { image = "cbuttons.png", rect = [46, 0, 23, 18] }, pressed = { image = "cbuttons.png", rect = [46, 18, 23, 18] } }
+stop = { normal = { image = "cbuttons.png", rect = [69, 0, 23, 18] }, pressed = { image = "cbuttons.png", rect = [69, 18, 23, 18] } }
+next = { normal = { image = "cbuttons.png", rect = [92, 0, 22, 18] }, pressed = { image = "cbuttons.png", rect = [92, 18, 22, 18] } }
+eject = { normal = { image = "cbuttons.png", rect = [114, 0, 22, 16] }, pressed = { image = "cbuttons.png", rect = [114, 16, 22, 16] } }
+shuffle = { normal = { image = "shufrep.png", rect = [28, 0, 47, 15] }, pressed = { image = "shufrep.png", rect = [28, 15, 47, 15] }, on = { image = "shufrep.png", rect = [28, 30, 47, 15] }, on_pressed = { image = "shufrep.png", rect = [28, 45, 47, 15] } }
+repeat = { normal = { image = "shufrep.png", rect = [0, 0, 28, 15] }, pressed = { image = "shufrep.png", rect = [0, 15, 28, 15] }, on = { image = "shufrep.png", rect = [0, 30, 28, 15] }, on_pressed = { image = "shufrep.png", rect = [0, 45, 28, 15] } }
+pl = { normal = { image = "shufrep.png", rect = [23, 61, 23, 12] }, pressed = { image = "shufrep.png", rect = [69, 61, 23, 12] }, on = { image = "shufrep.png", rect = [23, 73, 23, 12] }, on_pressed = { image = "shufrep.png", rect = [69, 73, 23, 12] } }
+status.playing = { image = { image = "playpaus.png", rect = [0, 0, 9, 9] } }
+status.paused = { image = { image = "playpaus.png", rect = [9, 0, 9, 9] } }
+status.stopped = { image = { image = "playpaus.png", rect = [18, 0, 9, 9] } }
+seek.track = { image = { image = "posbar.png", rect = [0, 0, 248, 10] }, slice = [31, 31] }
+seek.thumb = { normal = { image = "posbar.png", rect = [248, 0, 29, 10] }, pressed = { image = "posbar.png", rect = [278, 0, 29, 10] } }
+volume.track = { image = { image = "volume.png", rect = [0, 0, 68, 13] }, slice = [2, 2] }
+volume.fill = { image = { image = "volume.png", rect = [0, 405, 68, 13] }, slice = [2, 2] }
+volume.thumb = { normal = { image = "volume.png", rect = [15, 422, 14, 11] }, pressed = { image = "volume.png", rect = [0, 422, 14, 11] } }
+
+[pieces.field]
+image = "display.png"
+slice = [1, 1, 1, 1]
+padding = [4, 3, 4, 3]
+
+[pieces.titlebar]
+normal = { image = "titlebar.png", rect = [0, 0, 75, 14] }
+unlit = { image = "titlebar.png", rect = [0, 14, 75, 14] }
+slice = [25, 0, 25, 0]
+center = "tile"
+
+[pieces.title]
+normal = { image = "title.png", rect = [0, 0, 11, 14] }
+unlit = { image = "title.png", rect = [0, 14, 11, 14] }
+slice = [5, 5]
+title_gap = 8
+
+[pieces.scrollbar]
+track = { image = { image = "pledit.png", rect = [36, 42, 8, 29] }, slice = [0, 0], middle = "tile" }
+thumb = { normal = { image = "pledit.png", rect = [52, 53, 8, 18] }, pressed = { image = "pledit.png", rect = [61, 53, 8, 18] }, slice = [0, 0] }

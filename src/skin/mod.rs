@@ -344,6 +344,8 @@ const EVERYTHING: (u32, u32, u32, u32) = (0, 0, u32::MAX, u32::MAX);
 /// Plain body in every main window: the band between the seek bar and
 /// the buttons.
 const BODY_AREA: (u32, u32, u32, u32) = (16, 83, 248, 5);
+/// Inside the Stop button, clear of its edges: mostly its face.
+const BUTTON_FACE: (u32, u32, u32, u32) = (71, 2, 19, 14);
 /// The plain middle of the playlist editor's title piece, the name on it.
 const TITLE_AREA: (u32, u32, u32, u32) = (31, 0, 90, 14);
 
@@ -379,26 +381,35 @@ fn palette(sheets: &HashMap<Sheet, Bitmap>, list: PlaylistColors) -> Palette {
         .and_then(|b| Histogram::of(b.pixels(THUMB_AREA)).most_common(|_| true))
         .unwrap_or(classic.thumb);
 
-    // Text that reads on `background`.
-    let on = |background: Color32| {
-        if luminance(background) < 0.3 {
-            mix(background, Color32::WHITE, 0.75)
-        } else {
-            mix(background, Color32::BLACK, 0.8)
-        }
-    };
     let hi = mix(frame, Color32::WHITE, 0.2);
-    let chrome = on(frame);
+    let chrome = text_on(frame);
+    // Text buttons in the colours of the skin's own buttons.
+    let face = bitmap(Sheet::CButtons)
+        .and_then(|b| Histogram::of(b.pixels(BUTTON_FACE)).most_common(|_| true));
+    let (button, button_text, button_hi, button_lo) = match face {
+        Some(face) => (
+            face,
+            text_on(face),
+            mix(face, Color32::WHITE, 0.55),
+            mix(face, Color32::BLACK, 0.6),
+        ),
+        None => (
+            mix(frame, hi, 0.35),
+            chrome,
+            hi,
+            mix(frame, Color32::BLACK, 0.6),
+        ),
+    };
     let title = bitmap(Sheet::PlEdit)
         .and_then(|b| Histogram::of(b.pixels(TITLE_AREA)).most_common(|_| true))
-        .map_or(chrome, on);
+        .map_or(chrome, text_on);
     Palette {
         desk: mix(frame, Color32::BLACK, 0.75),
         frame,
         hi,
         lo: mix(frame, Color32::BLACK, 0.6),
         chrome,
-        button: mix(frame, hi, 0.35),
+        button,
         lcd_bg,
         lcd,
         list_bg: list.background,
@@ -409,6 +420,18 @@ fn palette(sheets: &HashMap<Sheet, Bitmap>, list: PlaylistColors) -> Palette {
         accent: lcd,
         thumb,
         title,
+        button_text,
+        button_hi,
+        button_lo,
+    }
+}
+
+/// Text that reads on `background`: a light or dark shade of it.
+fn text_on(background: Color32) -> Color32 {
+    if luminance(background) < 0.3 {
+        mix(background, Color32::WHITE, 0.75)
+    } else {
+        mix(background, Color32::BLACK, 0.8)
     }
 }
 
