@@ -1,6 +1,7 @@
 package dev.spotless
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.content.Intent
 import android.net.Uri
 import android.os.Handler
@@ -8,7 +9,11 @@ import android.os.Looper
 import android.util.Log
 import java.util.concurrent.atomic.AtomicBoolean
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import java.nio.ByteBuffer
 import androidx.compose.runtime.setValue
 import dev.spotless.core.Action
 import dev.spotless.core.Host
@@ -71,8 +76,19 @@ class Core(private val context: Context) : Host {
     var settings by mutableStateOf(spotless.settings())
         private set
 
+    /** Covers read so far, by URL; ones asked for and not read yet are missing. */
+    private val covers = mutableStateMapOf<String, ImageBitmap>()
+    private val asked = HashSet<String>()
+
     init {
         refresh()
+    }
+
+    /** The cover at [url], once read: asking reads it. */
+    fun cover(url: String?): ImageBitmap? {
+        if (url == null) return null
+        if (asked.add(url)) spotless.loadCover(url)
+        return covers[url]
     }
 
     fun apply(action: Action) {
@@ -113,7 +129,13 @@ class Core(private val context: Context) : Host {
         browse = spotless.browse()
         message = spotless.message()
         settings = spotless.settings()
-        media.update(player)
+        for (cover in spotless.takeCovers()) {
+            val image = cover.image ?: continue
+            val bitmap = Bitmap.createBitmap(image.width.toInt(), image.height.toInt(), Bitmap.Config.ARGB_8888)
+            bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(image.rgba))
+            covers[cover.url] = bitmap.asImageBitmap()
+        }
+        media.update(player, cover(player.track?.coverUrl))
         main.removeCallbacks(tick)
         if (player.status == Status.PLAYING) main.postDelayed(tick, 500)
         if (saveIn != null) {

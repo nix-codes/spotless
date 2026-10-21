@@ -1,5 +1,6 @@
 package dev.spotless.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -211,10 +212,14 @@ private fun ArtistBar(core: Core, page: BrowsePage.Artist) {
                 )
             }
         }
-        TextButton(
-            if (core.browse.newestFirst) "NEWEST FIRST" else "OLDEST FIRST",
-            { core.apply(Action.ToggleSort) },
-        )
+        Row {
+            TextButton(
+                if (core.browse.newestFirst) "NEWEST FIRST" else "OLDEST FIRST",
+                { core.apply(Action.ToggleSort) },
+            )
+            Box(Modifier.weight(1f))
+            TextButton("COVERS", { core.apply(Action.ToggleCovers) }, on = core.browse.covers)
+        }
     }
 }
 
@@ -240,6 +245,7 @@ private fun LazyListScope.releases(core: Core, rows: List<ReleaseRow>, withArtis
                 val glyph = if (row.expanded) Glyph.Open else Glyph.Closed
                 val tint = if (row.expanded) Classic.current else Classic.dim
                 Box(Modifier.size(14.dp).drawBehind { glyph(glyph, tint) })
+                if (core.browse.covers) Cover(core, release.coverUrl)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Line(release.title, body(color = if (row.expanded) Classic.current else Classic.list))
                     Line(sub, body(13.sp, if (row.expanded) Color(0xFFD6DCFF) else Classic.dim, FontWeight.Normal))
@@ -256,6 +262,17 @@ private fun LazyListScope.releases(core: Core, rows: List<ReleaseRow>, withArtis
                 }
             }
         }
+    }
+}
+
+/** A release's cover, a dark square until it's read. */
+@Composable
+private fun Cover(core: Core, url: String?) {
+    val image = core.cover(url)
+    if (image != null) {
+        Image(image, null, Modifier.size(40.dp))
+    } else {
+        Box(Modifier.size(40.dp).background(Classic.playingRow))
     }
 }
 

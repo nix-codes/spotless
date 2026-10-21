@@ -9,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.drawable.Icon
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -34,6 +36,7 @@ class Media(private val context: Context, private val act: (Action) -> Unit) {
     private val notifications = context.getSystemService(NotificationManager::class.java)
 
     private var player: Player? = null
+    private var art: ImageBitmap? = null
     private val status get() = player?.status ?: Status.STOPPED
 
     val session = MediaSession(context, "Spotless").apply {
@@ -94,13 +97,14 @@ class Media(private val context: Context, private val act: (Action) -> Unit) {
         )
     }
 
-    /** Takes in the player's news; call it whenever the player changed. */
-    fun update(now: Player) {
+    /** Takes in the player's news, and its song's cover once read. */
+    fun update(now: Player, cover: ImageBitmap?) {
         val was = player
         player = now
-        if (now.status == was?.status && now.track == was.track && now.positionMs == was.positionMs) return
         val track = now.track
-        if (track?.uri != was?.track?.uri) {
+        val newArt = cover != art
+        if (track?.uri != was?.track?.uri || newArt) {
+            art = cover
             session.setMetadata(
                 track?.let {
                     MediaMetadata.Builder()
@@ -108,6 +112,7 @@ class Media(private val context: Context, private val act: (Action) -> Unit) {
                         .putString(MediaMetadata.METADATA_KEY_ARTIST, it.artists)
                         .putString(MediaMetadata.METADATA_KEY_ALBUM, it.album)
                         .putLong(MediaMetadata.METADATA_KEY_DURATION, it.durationMs.toLong())
+                        .apply { cover?.let { art -> putBitmap(MediaMetadata.METADATA_KEY_ART, art.asAndroidBitmap()) } }
                         .build()
                 },
             )
@@ -133,7 +138,7 @@ class Media(private val context: Context, private val act: (Action) -> Unit) {
             resumeOnGain = false
         }
         listen(now.status == Status.PLAYING || now.status == Status.LOADING)
-        if (PlaybackService.running && (now.status != was?.status || track != was.track)) {
+        if (PlaybackService.running && (now.status != was?.status || track != was.track || newArt)) {
             notifications.notify(PlaybackService.NOTIFICATION, notification())
         }
     }
@@ -158,6 +163,7 @@ class Media(private val context: Context, private val act: (Action) -> Unit) {
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(track?.title ?: "Spotless")
             .setContentText(track?.artists)
+            .apply { art?.let { setLargeIcon(it.asAndroidBitmap()) } }
             .setContentIntent(open)
             .setOngoing(true)
             .setVisibility(Notification.VISIBILITY_PUBLIC)

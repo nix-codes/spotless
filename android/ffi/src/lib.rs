@@ -8,6 +8,7 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use spotless_core::backend::{Command, Event};
 use spotless_core::controller::Controller;
 use spotless_core::model::{EntryId, PlaylistId};
 use spotless_core::paths::Paths;
@@ -38,9 +39,27 @@ pub enum StartError {
     Folders { reason: String },
 }
 
+/// An album cover, read for [`Spotless::load_cover`].
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct Cover {
+    pub url: String,
+    /// Its pixels, or `None` if it couldn't be read.
+    pub image: Option<CoverImage>,
+}
+
+/// A cover's pixels, 8-bit RGBA row by row; opaque.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct CoverImage {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
 #[derive(uniffi::Object)]
 pub struct Spotless {
     controller: Mutex<Controller>,
+    /// Covers read since the app last took them.
+    covers: Mutex<Vec<Cover>>,
 }
 
 #[uniffi::export]
@@ -66,6 +85,7 @@ impl Spotless {
         );
         Ok(Arc::new(Self {
             controller: Mutex::new(controller),
+            covers: Mutex::new(Vec::new()),
         }))
     }
 
@@ -82,9 +102,36 @@ impl Spotless {
     /// the milliseconds after which to call it again, while a save is due.
     pub fn update(&self) -> Option<u64> {
         let mut controller = self.lock();
-        // Covers are left to the app, which loads them by their URL.
-        controller.receive();
+        let arrived = controller
+            .receive()
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::Cover { url, result } => Some(Cover {
+                    url,
+                    image: result.ok().map(|image| CoverImage {
+                        width: image.width,
+                        height: image.height,
+                        rgba: image.rgba,
+                    }),
+                }),
+                _ => None,
+            });
+        self.covers
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .extend(arrived);
         controller.tick().map(millis)
+    }
+
+    /// Reads a cover, from the disk cache or downloaded into it. It comes
+    /// back in [`Spotless::take_covers`] after a wake. Ask once per URL.
+    pub fn load_cover(&self, url: String) {
+        self.lock().send(Command::Cover(url));
+    }
+
+    /// The covers read since the last call.
+    pub fn take_covers(&self) -> Vec<Cover> {
+        std::mem::take(&mut *self.covers.lock().unwrap_or_else(|p| p.into_inner()))
     }
 
     /// Saves now, as the app goes to the background.
