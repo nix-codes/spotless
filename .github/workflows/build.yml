@@ -100,6 +100,11 @@ jobs:
       - name: Build
         run: cargo ndk -t arm64-v8a -P 29 build -p spotless-ffi --release
 
+      # The bindings are read off a build for the runner itself, whose cpal
+      # needs ALSA's headers.
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+
       # The app around it, which builds the library again for itself.
       - name: App
         working-directory: android
