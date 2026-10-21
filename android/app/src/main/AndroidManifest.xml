@@ -8,6 +8,7 @@
 
     <application
         android:name=".SpotlessApp"
+        android:icon="@mipmap/ic_launcher"
         android:label="Spotless"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity

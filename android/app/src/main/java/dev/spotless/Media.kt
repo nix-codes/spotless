@@ -160,7 +160,7 @@ class Media(private val context: Context, private val act: (Action) -> Unit) {
             button(android.R.drawable.ic_media_next, "Next", NEXT),
         )
         return Notification.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(track?.title ?: "Spotless")
             .setContentText(track?.artists)
             .apply { art?.let { setLargeIcon(it.asAndroidBitmap()) } }
