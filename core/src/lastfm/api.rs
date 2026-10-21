@@ -15,7 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 use super::listen::{Scrobble, Song};
-use crate::browser::Browser;
+use crate::browser::{self, Browser};
 
 const API_URL: &str = "https://ws.audioscrobbler.com/2.0/";
 const AUTH_URL: &str = "https://www.last.fm/api/auth";
@@ -99,17 +99,13 @@ async fn wait_for_token(listener: &TcpListener) -> Result<String> {
                     .find(|(name, _)| name == "token")
                     .map(|(_, value)| value.into_owned())
             });
-        let (status, text) = match &token {
+        let (status, page) = match &token {
             Some(_) => (
                 "200 OK",
-                "Spotless is connected to Last.fm. You can close this tab.",
+                browser::done_page("Spotless is connected to Last.fm."),
             ),
-            None => ("404 Not Found", "Not found."),
+            None => ("404 Not Found", "Not found.".to_string()),
         };
-        let page = format!(
-            "<!doctype html><meta charset=utf-8><title>Spotless</title>\
-             <p style=\"font:16px sans-serif;margin:3em\">{text}</p>"
-        );
         let response = format!(
             "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\n\
              Content-Length: {}\r\nConnection: close\r\n\r\n{page}",

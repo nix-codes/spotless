@@ -19,7 +19,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use librespot_oauth::{OAuthClient, OAuthClientBuilder, OAuthToken};
 use serde_json::Value;
 
-use crate::browser::Browser;
+use crate::browser::{self, Browser};
 use crate::model::catalog::{Release, ReleaseGroup, SearchResults};
 use crate::model::{AlbumRef, ArtistRef, TrackRef};
 use crate::store::save_private;
@@ -155,7 +155,7 @@ impl WebApi {
 
     fn builder(&self) -> OAuthClientBuilder {
         OAuthClientBuilder::new(&self.client_id, REDIRECT_URI, SCOPES.to_vec())
-            .with_custom_message("Spotless search is connected. You can close this tab.")
+            .with_custom_message(&browser::oauth_message("Spotless search is connected."))
     }
 
     pub fn keep(&mut self, token: OAuthToken) -> Result<()> {

@@ -18,7 +18,7 @@ use librespot_core::config::SessionConfig;
 use librespot_core::session::Session;
 use librespot_oauth::OAuthClientBuilder;
 
-use crate::browser::Browser;
+use crate::browser::{self, Browser};
 use crate::paths::Paths;
 use crate::store::Settings;
 
@@ -76,7 +76,7 @@ pub fn refused(error: &anyhow::Error) -> bool {
 pub async fn sign_in(paths: &Paths, browser: &Browser) -> Result<Session> {
     let browser = Arc::clone(browser);
     let client = OAuthClientBuilder::new(CLIENT_ID, REDIRECT_URI, SCOPES.to_vec())
-        .with_custom_message("Spotless is signed in. You can close this tab.")
+        .with_custom_message(&browser::oauth_message("Spotless is signed in."))
         .with_url_handler(move |url| browser(url))
         .build()
         .map_err(|e| anyhow!("unable to start sign-in: {e}"))?;
