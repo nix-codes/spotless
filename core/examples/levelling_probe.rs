@@ -6,7 +6,7 @@
 //! turns levelling on, then pauses and turns it off again, printing the
 //! state reported after each switch.
 //!
-//!   cargo run --example levelling_probe -- [album link]
+//!   cargo run -p spotless-core --example levelling_probe -- [album link]
 //!
 //! Sign in through the app first: this reuses its saved credential.
 
@@ -15,9 +15,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use librespot_core::SpotifyUri;
-use spotless::paths::Paths;
-use spotless::playback::engine::{Engine, EngineEvent, PlayerSnapshot, Status};
-use spotless::spotify::{catalog, session};
+use spotless_core::paths::Paths;
+use spotless_core::playback::engine::{Engine, EngineEvent, PlayerSnapshot, Status};
+use spotless_core::spotify::{catalog, session};
 use tokio::sync::mpsc;
 
 /// Boards of Canada, Music Has the Right to Children.

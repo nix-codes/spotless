@@ -1,9 +1,30 @@
-[package]
-name = "spotless"
+[workspace]
+members = ["core"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"
+
+# Versions the core and the desktop app share.
+[workspace.dependencies]
+spotless-core = { path = "core" }
+anyhow = "1"
+log = "0.4"
+fastrand = "2"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "fs"] }
+open = "5"
+image = { version = "0.25", default-features = false, features = ["bmp", "jpeg", "png"] }
+env_logger = "0.11"
+
+[package]
+name = "spotless"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 description = "A minimal Spotify player in the spirit of Winamp"
 default-run = "spotless"
 
@@ -16,41 +37,22 @@ name = "spotless"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1"
-log = "0.4"
-env_logger = "0.11"
-dirs = "6"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-fastrand = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "fs"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
+spotless-core.workspace = true
+anyhow.workspace = true
+log.workspace = true
+fastrand.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+open.workspace = true
+image.workspace = true
+env_logger.workspace = true
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "glow", "default_fonts", "wayland", "x11"] }
 egui = "0.36"
-rodio = { version = "0.21", default-features = false, features = ["playback"] }
-cpal = "0.16"
-thiserror = "2"
-# Last.fm: request signatures are MD5; the approval page opens in the browser.
-md-5 = "0.10"
-open = "5"
-image = { version = "0.25", default-features = false, features = ["bmp", "jpeg", "png"] }
 # Skins (src/skin/zip.rs) are inflated with the flate2 librespot already builds.
 flate2 = "1"
 # Spotless skins' manifests (src/skin/format/), keys kept in file order so
 # problems are listed as the author wrote them.
 toml = { version = "1", features = ["preserve_order"] }
-# librespot from the fork spotifast pins (crmne/librespot spotifast-dev):
-# librespot's dev branch plus fixes not yet released, among them recovery
-# after a session drop and a distinct error when Spotify refuses an audio
-# key. rustls everywhere, so there is one TLS stack and no OpenSSL.
-#
-# Audio goes through our own rodio sink (src/playback/sink.rs), not
-# librespot's, which panics when there is no output device. Same rodio and
-# cpal versions as librespot's backend.
-librespot-core = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
-librespot-playback = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
-librespot-metadata = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
-librespot-oauth = { git = "https://github.com/crmne/librespot", rev = "d04729018248f11c954b50ff6a3405801ff5af08", default-features = false, features = ["rustls-tls-native-roots"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Media keys (MPRIS): the zbus egui already builds for accessibility.

@@ -1,5 +1,7 @@
 # Builds and checks Spotless on every push, on Linux and on Windows, and
-# makes the Windows zip that packaging/windows/build.sh makes locally.
+# makes the Windows zip that packaging/windows/build.sh makes locally. The
+# core (core/, spotless-core) is also built for Android, which it is shared
+# with.
 #
 # Nothing here signs in to Spotify or plays audio: the runners have no
 # account and no sound device. The Windows job only checks that Spotless
@@ -45,13 +47,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Format
-        run: cargo fmt --check
+        run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --release --all-targets -- -D warnings
+        run: cargo clippy --workspace --release --all-targets -- -D warnings
 
       - name: Tests
-        run: cargo test --release
+        run: cargo test --workspace --release
 
       - name: llvm-mingw
         run: |
@@ -71,6 +73,32 @@ jobs:
           path: target/dist/*.zip
           if-no-files-found: error
 
+  android:
+    name: The core for Android
+    runs-on: ubuntu-24.04
+    env:
+      # The NDK that comes with the runner's Android SDK.
+      ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rust
+        run: rustup show active-toolchain && rustup target add aarch64-linux-android
+
+      # Points cargo at the NDK's compilers and linker for the target.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - uses: Swatinem/rust-cache@v2
+
+      # 64-bit ARM phones, from Android 10 (API 29), as the spike targets.
+      - name: Clippy
+        run: cargo ndk -t arm64-v8a -P 29 clippy -p spotless-core --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo ndk -t arm64-v8a -P 29 build -p spotless-core --release
+
   windows:
     name: Windows
     runs-on: windows-2025
@@ -88,10 +116,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Clippy
-        run: cargo clippy --release --all-targets -- -D warnings
+        run: cargo clippy --workspace --release --all-targets -- -D warnings
 
       - name: Tests
-        run: cargo test --release
+        run: cargo test --workspace --release
 
       - name: Build
         run: cargo build --release

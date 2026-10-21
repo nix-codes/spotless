@@ -2,7 +2,7 @@
 //! the choice is made first and the stream opens after, and when the stream
 //! is already open? Plays silence only.
 //!
-//!   cargo run --example output_probe -- [output name]
+//!   cargo run -p spotless-core --example output_probe -- [output name]
 //!
 //! Without a name it moves to the first output that isn't the default, and
 //! back to the default at the end.
@@ -11,7 +11,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use cpal::traits::HostTrait;
-use spotless::playback::outputs;
+use spotless_core::playback::outputs;
 
 fn main() {
     let Some(listed) = outputs::list() else {
