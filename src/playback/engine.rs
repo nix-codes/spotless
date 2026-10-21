@@ -273,22 +273,28 @@ async fn follow_songs(
         if event.get_play_request_id().is_some() && event.get_play_request_id() != current {
             continue;
         }
+        // The follow lock is let go before anything is told: a hook that
+        // answers with `Engine::follow` takes it too.
         match &event {
             PlayerEvent::TimeToPreloadNextTrack { .. } => {
-                if let Some((_, next)) = lock(&follow).clone() {
+                let next = lock(&follow).clone();
+                if let Some((_, next)) = next {
                     player.preload(next);
                 }
             }
-            PlayerEvent::EndOfTrack { .. } => match lock(&follow).take() {
-                Some((entry, next)) => {
-                    player.load(next, true, 0);
-                    notify(EngineEvent::Followed(entry));
+            PlayerEvent::EndOfTrack { .. } => {
+                let next = lock(&follow).take();
+                match next {
+                    Some((entry, next)) => {
+                        player.load(next, true, 0);
+                        notify(EngineEvent::Followed(entry));
+                    }
+                    None => {
+                        player.stop();
+                        notify(EngineEvent::Ended);
+                    }
                 }
-                None => {
-                    player.stop();
-                    notify(EngineEvent::Ended);
-                }
-            },
+            }
             PlayerEvent::Unavailable { .. } => notify(EngineEvent::Unavailable),
             _ => {}
         }
