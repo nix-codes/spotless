@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use librespot_core::session::Session;
+use spotless_core::browser;
 use spotless_core::paths::Paths;
 use spotless_core::spotify::session;
 
@@ -26,7 +27,7 @@ async fn main() -> Result<()> {
     let paths = Paths::from_dirs(folder.join("config"), folder.join("cache"))?;
 
     println!("signing in: approve in the browser");
-    let signed_in = session::sign_in(&paths).await?;
+    let signed_in = session::sign_in(&paths, &browser::system()).await?;
     watch("fresh sign-in", &signed_in, seconds).await;
     signed_in.shutdown();
 

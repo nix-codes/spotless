@@ -11,6 +11,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use super::api::{self, Failure, Keys};
 use super::listen::{Heard, Listens, Scrobble};
 use super::{LastFmState, LastFmStatus};
+use crate::browser::Browser;
 use crate::paths::Paths;
 use crate::playback::engine::PlayerSnapshot;
 use crate::store::save_private;
@@ -61,7 +62,7 @@ impl Scrobbler {
 }
 
 /// Must be called on the tokio runtime.
-pub fn start(paths: &Paths, notify: Notify) -> Scrobbler {
+pub fn start(paths: &Paths, browser: Browser, notify: Notify) -> Scrobbler {
     let (sender, receiver) = unbounded_channel();
     let task = Task {
         saved: Saved::load(paths),
@@ -72,6 +73,7 @@ pub fn start(paths: &Paths, notify: Notify) -> Scrobbler {
         retry: None,
         delay: FIRST_RETRY,
         http: reqwest::Client::new(),
+        browser,
         notify,
         sender: sender.clone(),
     };
@@ -129,6 +131,8 @@ struct Task {
     retry: Option<Instant>,
     delay: Duration,
     http: reqwest::Client,
+    /// Opens the approval page.
+    browser: Browser,
     notify: Notify,
     sender: UnboundedSender<Message>,
 }
@@ -189,9 +193,10 @@ impl Task {
                 self.signing_in = true;
                 self.report_state();
                 let http = self.http.clone();
+                let browser = Arc::clone(&self.browser);
                 let sender = self.sender.clone();
                 tokio::spawn(async move {
-                    let result = api::sign_in(&http, &keys)
+                    let result = api::sign_in(&http, &keys, &browser)
                         .await
                         .map_err(|e| format!("{e:#}"));
                     let _ = sender.send(Message::SignedIn(keys, result));

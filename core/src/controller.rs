@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState, Storage};
 use crate::browse::{Browse, Loadable, Page};
+use crate::browser::{self, Browser};
 use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
 use crate::model::{Library, Playback, PlaylistId, TrackRef};
 use crate::paths::Paths;
@@ -55,13 +56,24 @@ pub struct Controller {
 
 impl Controller {
     /// Loads the playlists and settings and starts the backend, which calls
-    /// `wake` from its own thread whenever it has news.
+    /// `wake` from its own thread whenever it has news. Approval pages open
+    /// in the system's browser.
     pub fn new(paths: Paths, wake: impl Fn() + Send + Sync + 'static) -> Self {
+        Self::with_browser(paths, browser::system(), wake)
+    }
+
+    /// Like [`Self::new`], with `browser` opening the approval pages.
+    pub fn with_browser(
+        paths: Paths,
+        browser: Browser,
+        wake: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
         let settings = Settings::load(&paths);
         let started = Backend::start(
             paths.clone(),
             volume_level(settings.volume),
             settings.levelling,
+            browser,
             wake,
         );
         Self::with_backend(paths, settings, started)

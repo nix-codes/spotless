@@ -6,6 +6,7 @@
 pub mod action;
 pub mod backend;
 pub mod browse;
+pub mod browser;
 pub mod controller;
 pub mod images;
 pub mod lastfm;

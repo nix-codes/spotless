@@ -16,6 +16,7 @@ use librespot_core::session::Session;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::time::MissedTickBehavior;
 
+use crate::browser::Browser;
 use crate::images::CoverImage;
 use crate::lastfm::{self, LastFmState, Scrobbler, api::Keys};
 use crate::model::catalog::{Discography, SearchResults};
@@ -144,10 +145,12 @@ pub struct Backend {
 
 impl Backend {
     /// `wake` is called after every event, from the worker's thread.
+    /// `browser` opens the approval pages.
     pub fn start(
         paths: Paths,
         volume: u16,
         levelling: bool,
+        browser: Browser,
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Result<Self> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -163,7 +166,8 @@ impl Backend {
         std::thread::Builder::new()
             .name("spotless-runtime".into())
             .spawn(move || {
-                runtime.block_on(Worker::new(paths, volume, levelling, emit).run(receiver));
+                runtime
+                    .block_on(Worker::new(paths, volume, levelling, browser, emit).run(receiver));
             })?;
         Ok(Self { commands, events })
     }
@@ -204,6 +208,7 @@ const RETRY_MOST: Duration = Duration::from_secs(120);
 async fn approve_search(
     web: &tokio::sync::Mutex<WebApi>,
     approval: &tokio::sync::Mutex<()>,
+    browser: &Browser,
     emit: &Emit,
 ) -> Result<(), String> {
     let _one = approval.lock().await;
@@ -212,7 +217,11 @@ async fn approve_search(
     }
     emit(Event::Search(SearchState::SigningIn));
     // Not holding the client: the approval waits as long as the user takes.
-    let client = web.lock().await.approval().map_err(|e| format!("{e:#}"));
+    let client = web
+        .lock()
+        .await
+        .approval(browser)
+        .map_err(|e| format!("{e:#}"));
     let result = match client {
         Ok(client) => match client.get_access_token_async().await {
             Ok(token) => web.lock().await.keep(token).map_err(|e| format!("{e:#}")),
@@ -232,6 +241,7 @@ struct Worker {
     paths: Paths,
     volume: u16,
     levelling: bool,
+    browser: Browser,
     emit: Emit,
     session: Option<Session>,
     engine: Option<Engine>,
@@ -253,11 +263,12 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(paths: Paths, volume: u16, levelling: bool, emit: Emit) -> Self {
+    fn new(paths: Paths, volume: u16, levelling: bool, browser: Browser, emit: Emit) -> Self {
         Self {
             paths,
             volume,
             levelling,
+            browser,
             emit,
             session: None,
             engine: None,
@@ -279,6 +290,7 @@ impl Worker {
         let emit = Arc::clone(&self.emit);
         self.scrobbler = Some(lastfm::start(
             &self.paths,
+            Arc::clone(&self.browser),
             Arc::new(move |report| {
                 emit(match report {
                     lastfm::Report::State(state) => Event::LastFm(state),
@@ -391,9 +403,10 @@ impl Worker {
     fn approve_search_now(&self) {
         let Some(web) = self.web.clone() else { return };
         let approval = Arc::clone(&self.search_approval);
+        let browser = Arc::clone(&self.browser);
         let emit = Arc::clone(&self.emit);
         tokio::spawn(async move {
-            if let Err(error) = approve_search(&web, &approval, &emit).await {
+            if let Err(error) = approve_search(&web, &approval, &browser, &emit).await {
                 emit(Event::Error(error));
             }
         });
@@ -439,7 +452,7 @@ impl Worker {
             Command::SignIn => {
                 self.starting = false;
                 (self.emit)(Event::Session(SessionState::SigningIn));
-                match session::sign_in(&self.paths).await {
+                match session::sign_in(&self.paths, &self.browser).await {
                     Ok(session) => {
                         self.ready(session);
                         // Search's approval follows at once, as one sign-in.
@@ -517,13 +530,14 @@ impl Worker {
             Command::Search(query) => {
                 let Some(web) = self.web.clone() else { return };
                 let approval = Arc::clone(&self.search_approval);
+                let browser = Arc::clone(&self.browser);
                 let emit = Arc::clone(&self.emit);
                 tokio::spawn(async move {
                     // A saved approval Spotify no longer takes is dropped by
                     // the search; approve again and retry once.
                     let mut results = Err(String::new());
                     for _ in 0..2 {
-                        if let Err(error) = approve_search(&web, &approval, &emit).await {
+                        if let Err(error) = approve_search(&web, &approval, &browser, &emit).await {
                             results = Err(error);
                             break;
                         }

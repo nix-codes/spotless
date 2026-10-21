@@ -9,6 +9,8 @@
 //!
 //! The credential is kept in a private file in the config folder.
 
+use std::sync::Arc;
+
 use anyhow::{Context, Result, anyhow};
 use librespot_core::authentication::Credentials;
 use librespot_core::cache::Cache;
@@ -16,6 +18,7 @@ use librespot_core::config::SessionConfig;
 use librespot_core::session::Session;
 use librespot_oauth::OAuthClientBuilder;
 
+use crate::browser::Browser;
 use crate::paths::Paths;
 use crate::store::Settings;
 
@@ -68,28 +71,13 @@ pub fn refused(error: &anyhow::Error) -> bool {
         .is_some_and(|e| e.kind == librespot_core::error::ErrorKind::PermissionDenied)
 }
 
-/// Opens the browser for Spotify's approval, then connects and saves the
-/// reusable credential.
-pub async fn sign_in(paths: &Paths) -> Result<Session> {
-    approve(paths, approval().open_in_browser()).await
-}
-
-/// Like [`sign_in`], but hands the approval page's URL to `open` instead of
-/// opening the browser: for a system where only the app can (Android).
-pub async fn sign_in_with(
-    paths: &Paths,
-    open: impl Fn(&str) + Send + Sync + 'static,
-) -> Result<Session> {
-    approve(paths, approval().with_url_handler(open)).await
-}
-
-fn approval() -> OAuthClientBuilder {
-    OAuthClientBuilder::new(CLIENT_ID, REDIRECT_URI, SCOPES.to_vec())
+/// Opens Spotify's approval page, then connects and saves the reusable
+/// credential.
+pub async fn sign_in(paths: &Paths, browser: &Browser) -> Result<Session> {
+    let browser = Arc::clone(browser);
+    let client = OAuthClientBuilder::new(CLIENT_ID, REDIRECT_URI, SCOPES.to_vec())
         .with_custom_message("Spotless is signed in. You can close this tab.")
-}
-
-async fn approve(paths: &Paths, approval: OAuthClientBuilder) -> Result<Session> {
-    let client = approval
+        .with_url_handler(move |url| browser(url))
         .build()
         .map_err(|e| anyhow!("unable to start sign-in: {e}"))?;
     let token = client

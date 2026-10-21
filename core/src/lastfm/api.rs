@@ -15,6 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 use super::listen::{Scrobble, Song};
+use crate::browser::Browser;
 
 const API_URL: &str = "https://ws.audioscrobbler.com/2.0/";
 const AUTH_URL: &str = "https://www.last.fm/api/auth";
@@ -51,7 +52,11 @@ impl std::fmt::Display for Failure {
 
 /// Opens Last.fm's approval page and waits for the user to allow
 /// Spotless. Returns the session key and the Last.fm user name.
-pub async fn sign_in(http: &reqwest::Client, keys: &Keys) -> Result<(String, String)> {
+pub async fn sign_in(
+    http: &reqwest::Client,
+    keys: &Keys,
+    browser: &Browser,
+) -> Result<(String, String)> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .context("unable to listen for Last.fm's answer")?;
@@ -64,7 +69,7 @@ pub async fn sign_in(http: &reqwest::Client, keys: &Keys) -> Result<(String, Str
             ("cb", callback.as_str()),
         ],
     )?;
-    open::that_detached(url.as_str()).context("unable to open the browser")?;
+    browser(url.as_str());
     let token = tokio::time::timeout(APPROVAL_WAIT, wait_for_token(&listener))
         .await
         .map_err(|_| anyhow!("Last.fm wasn't approved in time"))??;

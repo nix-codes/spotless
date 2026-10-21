@@ -12,12 +12,14 @@
 //! other app out.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use librespot_oauth::{OAuthClient, OAuthClientBuilder, OAuthToken};
 use serde_json::Value;
 
+use crate::browser::Browser;
 use crate::model::catalog::{Release, ReleaseGroup, SearchResults};
 use crate::model::{AlbumRef, ArtistRef, TrackRef};
 use crate::store::save_private;
@@ -61,10 +63,14 @@ impl WebApi {
         self.refresh_token.is_some()
     }
 
-    /// The browser approval, to run without holding the client: it waits
+    /// The approval page, to run without holding the client: it waits
     /// for as long as the user takes. Hand its token to [`Self::keep`].
-    pub fn approval(&self) -> Result<OAuthClient> {
-        self.client(true)
+    pub fn approval(&self, browser: &Browser) -> Result<OAuthClient> {
+        let browser = Arc::clone(browser);
+        self.builder()
+            .with_url_handler(move |url| browser(url))
+            .build()
+            .map_err(|e| anyhow!("{e}"))
     }
 
     pub fn sign_out(&mut self) {
@@ -120,7 +126,9 @@ impl WebApi {
             bail!("search isn't connected");
         };
         match self
-            .client(false)?
+            .builder()
+            .build()
+            .map_err(|e| anyhow!("{e}"))?
             .refresh_token_async(&refresh_token)
             .await
         {
@@ -145,13 +153,9 @@ impl WebApi {
         }
     }
 
-    fn client(&self, browser: bool) -> Result<OAuthClient> {
-        let mut builder = OAuthClientBuilder::new(&self.client_id, REDIRECT_URI, SCOPES.to_vec())
-            .with_custom_message("Spotless search is connected. You can close this tab.");
-        if browser {
-            builder = builder.open_in_browser();
-        }
-        builder.build().map_err(|e| anyhow!("{e}"))
+    fn builder(&self) -> OAuthClientBuilder {
+        OAuthClientBuilder::new(&self.client_id, REDIRECT_URI, SCOPES.to_vec())
+            .with_custom_message("Spotless search is connected. You can close this tab.")
     }
 
     pub fn keep(&mut self, token: OAuthToken) -> Result<()> {
