@@ -26,17 +26,18 @@ md-5 = "0.10"
 # It is the fork spotifast pins (crmne/librespot spotifast-dev: librespot's
 # dev branch plus fixes not yet released, among them recovery after a
 # session drop and a distinct error when Spotify refuses an audio key),
-# plus what the Android port needs: the android-as-linux feature and
-# OAuthClientBuilder::with_url_handler. rustls everywhere, so there is one
-# TLS stack and no OpenSSL.
+# plus what the Android port needs: the android-as-linux feature,
+# OAuthClientBuilder::with_url_handler, and audio keys asked for again when
+# their answer is late. rustls everywhere, so there is one TLS stack and no
+# OpenSSL.
 #
 # Audio goes through our own rodio sink (src/playback/sink.rs), not
 # librespot's, which panics when there is no output device. Same rodio and
 # cpal versions as librespot's backend.
-librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "1c54cc12a74bd016c459bd4b2991d692906bb13f", default-features = false, features = ["rustls-tls-native-roots"] }
-librespot-playback = { git = "https://github.com/nix-codes/librespot", rev = "1c54cc12a74bd016c459bd4b2991d692906bb13f", default-features = false, features = ["rustls-tls-native-roots"] }
-librespot-metadata = { git = "https://github.com/nix-codes/librespot", rev = "1c54cc12a74bd016c459bd4b2991d692906bb13f", default-features = false, features = ["rustls-tls-native-roots"] }
-librespot-oauth = { git = "https://github.com/nix-codes/librespot", rev = "1c54cc12a74bd016c459bd4b2991d692906bb13f", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "f35cee9bd1e68a050c2795db83ed25c3c37a9f98", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-playback = { git = "https://github.com/nix-codes/librespot", rev = "f35cee9bd1e68a050c2795db83ed25c3c37a9f98", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-metadata = { git = "https://github.com/nix-codes/librespot", rev = "f35cee9bd1e68a050c2795db83ed25c3c37a9f98", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-oauth = { git = "https://github.com/nix-codes/librespot", rev = "f35cee9bd1e68a050c2795db83ed25c3c37a9f98", default-features = false, features = ["rustls-tls-native-roots"] }
 
 [dev-dependencies]
 # The probes in examples/ log to the terminal.
@@ -46,4 +47,4 @@ env_logger.workspace = true
 # credential Spotless signs in with: as the Android client, Spotify takes the
 # sign-in and then refuses every request.
 [target.'cfg(target_os = "android")'.dependencies]
-librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "1c54cc12a74bd016c459bd4b2991d692906bb13f", default-features = false, features = ["rustls-tls-native-roots", "android-as-linux"] }
+librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "f35cee9bd1e68a050c2795db83ed25c3c37a9f98", default-features = false, features = ["rustls-tls-native-roots", "android-as-linux"] }
