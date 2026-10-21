@@ -8,10 +8,15 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import dev.spotless.core.Action
 import dev.spotless.core.Session
 import dev.spotless.ui.BrowseScreen
 import dev.spotless.ui.PlaylistsScreen
+import dev.spotless.ui.SettingsScreen
 import dev.spotless.ui.SignInScreen
 
 class MainActivity : ComponentActivity() {
@@ -38,6 +43,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun Screens(core: Core) {
+    var settings by rememberSaveable { mutableStateOf(false) }
     when (core.session) {
         Session.SignedOut, Session.SigningIn, is Session.Failed -> SignInScreen(core)
         else -> if (core.browse.open) {
@@ -45,8 +51,11 @@ private fun Screens(core: Core) {
                 core.apply(if (core.browse.canGoBack) Action.Back else Action.CloseBrowse)
             }
             BrowseScreen(core)
+        } else if (settings) {
+            BackHandler { settings = false }
+            SettingsScreen(core) { settings = false }
         } else {
-            PlaylistsScreen(core)
+            PlaylistsScreen(core) { settings = true }
         }
     }
 }

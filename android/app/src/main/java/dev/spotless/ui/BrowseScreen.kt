@@ -140,7 +140,7 @@ private fun LazyListScope.section(title: String) = item {
 private fun LazyListScope.home(core: Core, page: BrowsePage.Home) {
     when (core.browse.search) {
         SearchState.NO_APP -> note(
-            "Search needs your own Spotify app, which the desktop's settings set up. " +
+            "Search needs your own Spotify app, which Settings sets up. " +
                 "A pasted Spotify link adds its songs meanwhile.",
         )
         SearchState.SIGNING_IN -> note("Approve search in the browser page that opened.")

@@ -65,6 +65,8 @@ class Core(private val context: Context) : Host {
         private set
     var message by mutableStateOf<Message?>(null)
         private set
+    var settings by mutableStateOf(spotless.settings())
+        private set
 
     init {
         refresh()
@@ -107,6 +109,7 @@ class Core(private val context: Context) : Host {
         playlist = spotless.playlist(tabs.viewed)
         browse = spotless.browse()
         message = spotless.message()
+        settings = spotless.settings()
         main.removeCallbacks(tick)
         if (player.status == Status.PLAYING) main.postDelayed(tick, 500)
         if (saveIn != null) {

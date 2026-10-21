@@ -34,9 +34,9 @@ import dev.spotless.core.Song
 
 /** The main screen: the playlist tabs, the viewed playlist, and the player. */
 @Composable
-fun PlaylistsScreen(core: Core) {
+fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
     Column(Modifier.fillMaxSize().background(Classic.frame).safeDrawingPadding()) {
-        TopBar(core)
+        TopBar(core, openSettings)
         Tabs(core)
         Summary(core)
         Songs(core, Modifier.weight(1f))
@@ -45,7 +45,7 @@ fun PlaylistsScreen(core: Core) {
 }
 
 @Composable
-private fun TopBar(core: Core) {
+private fun TopBar(core: Core, openSettings: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().height(56.dp).padding(start = 16.dp, end = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -53,6 +53,7 @@ private fun TopBar(core: Core) {
     ) {
         BasicText("P L A Y L I S T S", Modifier.weight(1f), label(spacing = 0.3.em))
         GlyphButton(Glyph.Search, "Browse", { core.apply(Action.OpenBrowse) }, Modifier.width(48.dp))
+        GlyphButton(Glyph.Menu, "Settings", openSettings, Modifier.width(48.dp))
     }
 }
 
