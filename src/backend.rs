@@ -1,9 +1,10 @@
 //! The bridge between the UI thread and asynchronous work.
 //!
-//! egui runs on the main thread and must never block. A tokio runtime on its
-//! own thread hosts the session, the player and catalogue reads. The UI sends
-//! [`Command`]s; the worker answers with [`Event`]s and wakes the UI with
-//! `request_repaint`, so the app stays idle when nothing happens.
+//! The UI runs on the main thread and must never block. A tokio runtime on
+//! its own thread hosts the session, the player and catalogue reads. The UI
+//! sends [`Command`]s; the worker answers with [`Event`]s and wakes the UI
+//! with the callback it was started with (egui's `request_repaint` on the
+//! desktop), so the app stays idle when nothing happens.
 
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -15,6 +16,7 @@ use librespot_core::session::Session;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::time::MissedTickBehavior;
 
+use crate::images::CoverImage;
 use crate::lastfm::{self, LastFmState, Scrobbler, api::Keys};
 use crate::model::catalog::{Discography, SearchResults};
 use crate::model::{EntryId, PlaylistId, TrackRef};
@@ -121,7 +123,7 @@ pub enum Event {
     },
     Cover {
         url: String,
-        result: Result<egui::ColorImage, String>,
+        result: Result<CoverImage, String>,
     },
     Storage(Storage),
     LastFm(LastFmState),
@@ -141,7 +143,13 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn start(paths: Paths, volume: u16, levelling: bool, ctx: egui::Context) -> Result<Self> {
+    /// `wake` is called after every event, from the worker's thread.
+    pub fn start(
+        paths: Paths,
+        volume: u16,
+        levelling: bool,
+        wake: impl Fn() + Send + Sync + 'static,
+    ) -> Result<Self> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .thread_name("spotless-backend")
@@ -150,7 +158,7 @@ impl Backend {
         let (sender, events) = mpsc::channel();
         let emit: Emit = Arc::new(move |event| {
             let _ = sender.send(event);
-            ctx.request_repaint();
+            wake();
         });
         std::thread::Builder::new()
             .name("spotless-runtime".into())

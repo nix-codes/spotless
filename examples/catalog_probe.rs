@@ -101,8 +101,8 @@ async fn discography(session: &Session, artist: &str) -> Result<()> {
         match spotless::images::cover(&reqwest::Client::new(), &paths.covers(), &url).await {
             Ok(image) => println!(
                 "== First cover: {}x{} in {:.2}s ({url})",
-                image.size[0],
-                image.size[1],
+                image.width,
+                image.height,
                 started.elapsed().as_secs_f32()
             ),
             Err(error) => println!("== First cover FAILED: {error:#} ({url})"),

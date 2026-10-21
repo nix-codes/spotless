@@ -94,12 +94,10 @@ impl App {
         };
 
         let volume = volume_level(settings.volume);
-        let started = Backend::start(
-            paths.clone(),
-            volume,
-            settings.levelling,
-            cc.egui_ctx.clone(),
-        );
+        let started = Backend::start(paths.clone(), volume, settings.levelling, {
+            let ctx = cc.egui_ctx.clone();
+            move || ctx.request_repaint()
+        });
         let (backend, session) = match started {
             Ok(backend) => (Some(backend), SessionState::Connecting),
             Err(error) => (None, SessionState::Failed(format!("{error:#}"))),
@@ -198,7 +196,10 @@ impl App {
                     let cover = match result {
                         Ok(image) => Cover::Ready(ctx.load_texture(
                             &url,
-                            image,
+                            egui::ColorImage::from_rgba_unmultiplied(
+                                [image.width as usize, image.height as usize],
+                                &image.rgba,
+                            ),
                             egui::TextureOptions::LINEAR,
                         )),
                         Err(_) => Cover::Failed,
