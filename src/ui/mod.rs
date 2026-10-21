@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use egui::{Align2, FontId, Rect, RichText, Ui, UiBuilder, ViewportCommand, vec2};
 
-use crate::action::Action;
+use crate::action::{Action, Actions};
 use crate::backend::{SearchState, SessionState, Storage};
 use crate::browse::{Browse, Loadable};
 use crate::model::{EntryId, Library, Playlist, PlaylistId};
@@ -119,12 +119,12 @@ pub const MIN_WINDOW: egui::Vec2 = vec2(560.0, 360.0);
 /// The window's height for the playlists when none is known yet.
 const DEFAULT_HEIGHT: f32 = 600.0;
 
-pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let settings_open = inputs.settings.is_some();
     keys::global(ui, view, inputs, actions);
     // A key for another screen (Ctrl+B, J, Ctrl+T…) leaves the settings.
-    let elsewhere = actions.iter().any(|action| {
+    let elsewhere = actions.core().any(|action| {
         matches!(
             action,
             Action::ToggleBrowse | Action::SelectPlaylist(_) | Action::NewPlaylist
@@ -313,7 +313,7 @@ fn title_bar(ui: &Ui, rect: Rect, palette: &Palette, label: &str) {
     );
 }
 
-fn body_contents(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+fn body_contents(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let heading = |text: &str| RichText::new(text).size(15.0).color(palette.current);
     let dim = |text: &str| RichText::new(text).color(palette.dim);
@@ -347,13 +347,7 @@ fn body_contents(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Ve
     }
 }
 
-fn status_bar(
-    ui: &mut Ui,
-    rect: Rect,
-    view: &View,
-    inputs: &mut Inputs,
-    actions: &mut Vec<Action>,
-) {
+fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let painter = ui.painter();
     if !skin_paint::chrome(painter, "statusbar", State::Normal, rect) {
@@ -408,7 +402,7 @@ fn status_bar(
 }
 
 /// Shows the settings in place of the playlists or Browse.
-pub(super) fn open_settings(view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+pub(super) fn open_settings(view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     inputs.settings = Some(settings_view::open(view, inputs.settings_category));
     actions.push(Action::CloseBrowse);
     actions.push(Action::MeasureStorage);
@@ -423,7 +417,7 @@ fn close_settings(inputs: &mut Inputs) {
 }
 
 /// F10 and the SETTINGS button: open, or close when open.
-pub(super) fn toggle_settings(view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+pub(super) fn toggle_settings(view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     if inputs.settings.is_some() {
         close_settings(inputs);
     } else {

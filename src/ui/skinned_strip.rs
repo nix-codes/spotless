@@ -16,7 +16,7 @@ use super::player_strip::{
 };
 use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
-use crate::action::Action;
+use crate::action::{Action, Actions};
 use crate::backend::SessionState;
 use crate::playback::engine::Status;
 use crate::skin::format::{Role, State};
@@ -155,7 +155,7 @@ pub fn draw(
     view: &View,
     paint: &SkinPaint,
     inputs: &mut Inputs,
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) {
     let rect = ui.max_rect();
     let unit = unit(paint, rect.width());
@@ -338,7 +338,7 @@ fn info_row(
     paint: &SkinPaint,
     unit: f32,
     inputs: &mut Inputs,
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) {
     let palette = view.palette;
     let painter = ui.painter().clone();
@@ -411,7 +411,7 @@ fn seek_bar(
     paint: &SkinPaint,
     unit: f32,
     inputs: &mut Inputs,
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) {
     let painter = ui.painter().clone();
     let ready = matches!(view.session, SessionState::Ready { .. });
@@ -488,7 +488,7 @@ fn buttons_row(
     paint: &SkinPaint,
     unit: f32,
     inputs: &mut Inputs,
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) {
     let painter = ui.painter().clone();
     let ready = matches!(view.session, SessionState::Ready { .. });
@@ -585,7 +585,7 @@ fn volume(
     at: Pos2,
     unit: f32,
     inputs: &mut Inputs,
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) {
     let Some(size) = paint.size("volume.track", unit) else {
         return;

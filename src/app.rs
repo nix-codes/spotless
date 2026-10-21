@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::action::Action;
+use crate::action::{Action, Actions, AnyAction, Desktop};
 use crate::backend::{Command, Event};
 use crate::controller::Controller;
 use crate::media::{EventHook, MediaControls, MediaEvent, NowPlaying};
@@ -122,33 +122,14 @@ impl App {
         }
     }
 
-    /// The desktop's own actions; the rest go to the controller.
-    fn apply(&mut self, action: Action) {
+    /// Applies an action: the desktop's own here, the rest through the
+    /// controller, some with a step of the desktop's around them.
+    fn apply(&mut self, action: AnyAction) {
+        let action = match action {
+            AnyAction::Desktop(action) => return self.apply_desktop(action),
+            AnyAction::Core(action) => action,
+        };
         match action {
-            Action::Quit => self.quitting = true,
-            Action::SetTray(on) => {
-                self.controller.settings_mut().tray = on;
-                self.tray = if on {
-                    self.tray
-                        .take()
-                        .or_else(|| Tray::start(Arc::clone(&self.media_hook)))
-                } else {
-                    None
-                };
-            }
-            Action::SetSkin(skin) => match self.use_skin(skin.as_deref()) {
-                Ok(()) => {
-                    self.skin_error = None;
-                    self.controller.settings_mut().skin = skin;
-                }
-                Err(error) => self.skin_error = Some(error),
-            },
-            Action::LoadCover(url) => {
-                if !self.covers.contains_key(&url) {
-                    self.covers.insert(url.clone(), Cover::Loading);
-                    self.controller.send(Command::Cover(url));
-                }
-            }
             Action::NewPlaylist => {
                 self.controller.apply(action);
                 // Its name is ready to be typed over.
@@ -168,13 +149,42 @@ impl App {
         }
     }
 
+    fn apply_desktop(&mut self, action: Desktop) {
+        match action {
+            Desktop::Quit => self.quitting = true,
+            Desktop::SetTray(on) => {
+                self.controller.settings_mut().tray = on;
+                self.tray = if on {
+                    self.tray
+                        .take()
+                        .or_else(|| Tray::start(Arc::clone(&self.media_hook)))
+                } else {
+                    None
+                };
+            }
+            Desktop::SetSkin(skin) => match self.use_skin(skin.as_deref()) {
+                Ok(()) => {
+                    self.skin_error = None;
+                    self.controller.settings_mut().skin = skin;
+                }
+                Err(error) => self.skin_error = Some(error),
+            },
+            Desktop::LoadCover(url) => {
+                if !self.covers.contains_key(&url) {
+                    self.covers.insert(url.clone(), Cover::Loading);
+                    self.controller.send(Command::Cover(url));
+                }
+            }
+        }
+    }
+
     /// The desktop's media keys and controls, as the buttons would do.
-    fn media_actions(&mut self, ctx: &egui::Context) -> Vec<Action> {
+    fn media_actions(&mut self, ctx: &egui::Context) -> Actions {
         let player = &self.controller.state().player;
         let status = player.status;
         let position = i64::from(player.position_now());
         let length = i64::from(player.track.as_ref().map_or(0, |t| t.duration_ms));
-        let mut actions = Vec::new();
+        let mut actions = Actions::default();
         let events: Vec<MediaEvent> = self.media_events.try_iter().collect();
         for event in events {
             match event {
@@ -203,7 +213,7 @@ impl App {
                     actions.push(Action::Volume(percent));
                 }
                 MediaEvent::Raise => self.show_window(ctx),
-                MediaEvent::Quit => actions.push(Action::Quit),
+                MediaEvent::Quit => actions.push(Desktop::Quit),
                 MediaEvent::ToggleWindow if self.window_hidden => self.show_window(ctx),
                 MediaEvent::ToggleWindow => self.hide_window(ctx),
             }
@@ -334,7 +344,7 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let mut actions = Vec::new();
+        let mut actions = Actions::default();
         let state = self.controller.state();
         let web_client_id = state.settings.web_client_id();
         let playlist = state

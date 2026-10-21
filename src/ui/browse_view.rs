@@ -21,7 +21,7 @@ use super::widgets::{
     BUTTON_HEIGHT, SMALL_HEIGHT, field, small_button, small_button_width, text_button,
 };
 use super::{Inputs, View};
-use crate::action::Action;
+use crate::action::{Action, Actions, Desktop};
 use crate::backend::SearchState;
 use crate::browse::{Loadable, Page};
 use crate::model::catalog::{Release, ReleaseTab};
@@ -106,7 +106,7 @@ impl CatalogDrag {
     }
 }
 
-pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let slim_width = SLIM_WIDTH.min(rect.width() * 0.35);
     let catalog = Rect::from_min_max(
@@ -208,7 +208,7 @@ fn page_id(page: &Page) -> String {
     }
 }
 
-fn keyboard(ui: &Ui, view: &View, nav: &mut Nav, actions: &mut Vec<Action>) {
+fn keyboard(ui: &Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
     if ui.ctx().text_edit_focused() {
         return;
     }
@@ -273,7 +273,7 @@ fn keyboard(ui: &Ui, view: &View, nav: &mut Nav, actions: &mut Vec<Action>) {
     });
 }
 
-fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     ui.horizontal(|ui| {
         if text_button(ui, &palette, "BACK", false, view.browse.can_go_back()).clicked() {
@@ -325,7 +325,7 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<A
     });
 }
 
-fn home(ui: &mut Ui, view: &View, nav: &mut Nav, set_up: &mut bool, actions: &mut Vec<Action>) {
+fn home(ui: &mut Ui, view: &View, nav: &mut Nav, set_up: &mut bool, actions: &mut Actions) {
     if !search_prompt(ui, view, set_up) {
         note(ui, view, "Type an artist, album or song and press Enter.");
     }
@@ -384,7 +384,7 @@ fn search_page(
     nav: &mut Nav,
     query: &str,
     set_up: &mut bool,
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) {
     if search_prompt(ui, view, set_up) {
         return;
@@ -437,7 +437,7 @@ fn search_page(
     }
 }
 
-fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut Vec<Action>) {
+fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut Actions) {
     let discography = match view.browse.artists.get(uri) {
         None | Some(Loadable::Loading) => return note(ui, view, "Reading the discography…"),
         Some(Loadable::Failed(error)) => return note(ui, view, error),
@@ -528,7 +528,7 @@ fn album(
     nav: &mut Nav,
     release: &Release,
     by: bool,
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) {
     let palette = view.palette;
     let expanded = view.browse.expanded.contains(&release.uri);
@@ -615,7 +615,7 @@ fn album(
 
 /// Draws a release's cover in `rect`, asking for it when it comes into
 /// view; a framed square stands in until it arrives.
-fn cover(painter: &Painter, view: &View, release: &Release, rect: Rect, actions: &mut Vec<Action>) {
+fn cover(painter: &Painter, view: &View, release: &Release, rect: Rect, actions: &mut Actions) {
     let palette = view.palette;
     let texture = release
         .cover
@@ -625,7 +625,7 @@ fn cover(painter: &Painter, view: &View, release: &Release, rect: Rect, actions:
             Some(_) => None,
             None => {
                 if painter.clip_rect().intersects(rect) {
-                    actions.push(Action::LoadCover(url.clone()));
+                    actions.push(Desktop::LoadCover(url.clone()));
                 }
                 None
             }
@@ -655,7 +655,7 @@ fn song(
     number: usize,
     track: &TrackRef,
     full: bool,
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) {
     let palette = view.palette;
     let number = format!("{number:>2}");
@@ -709,7 +709,7 @@ fn song(
     }
 }
 
-fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Vec<Action>) {
+fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
     let palette = view.palette;
     let browse = view.browse;
     let Some(target) = view.library.get(browse.target) else {
@@ -760,7 +760,7 @@ fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Vec<Action
 
 /// The slim column's keys, when it is the active area: the arrows move the
 /// highlighted song, Enter plays it, Delete removes it.
-fn slim_keys(ui: &Ui, list: &Playlist, nav: &mut Nav, actions: &mut Vec<Action>) {
+fn slim_keys(ui: &Ui, list: &Playlist, nav: &mut Nav, actions: &mut Actions) {
     nav.slim = nav.slim.filter(|&id| list.index_of(id).is_some());
     if nav.area != Area::Slim || list.is_empty() || ui.ctx().text_edit_focused() {
         return;
@@ -809,7 +809,7 @@ fn slim_keys(ui: &Ui, list: &Playlist, nav: &mut Nav, actions: &mut Vec<Action>)
     }
 }
 
-fn slim_rows(ui: &mut Ui, view: &View, nav: &mut Nav, list: &Playlist, actions: &mut Vec<Action>) {
+fn slim_rows(ui: &mut Ui, view: &View, nav: &mut Nav, list: &Playlist, actions: &mut Actions) {
     let palette = view.palette;
     let dragging = egui::DragAndDrop::payload::<CatalogDrag>(ui.ctx());
     if let Some(drag) = &dragging {
@@ -941,7 +941,7 @@ fn slim_rows(ui: &mut Ui, view: &View, nav: &mut Nav, list: &Playlist, actions: 
 
 /// Takes a catalog drag released over the slim column, to add before the
 /// row at `index`.
-fn drop(ui: &Ui, over: bool, index: usize, actions: &mut Vec<Action>) {
+fn drop(ui: &Ui, over: bool, index: usize, actions: &mut Actions) {
     if !over || !ui.input(|i| i.pointer.any_released()) {
         return;
     }

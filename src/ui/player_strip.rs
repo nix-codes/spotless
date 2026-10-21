@@ -9,7 +9,7 @@ use egui::{Align, Align2, FontId, Layout, Rect, Slider, Ui, UiBuilder, pos2, vec
 
 use super::widgets::{Glyph, glyph_button, glyph_toggle, paint_glyph, small_button, text_button};
 use super::{Inputs, View, theme};
-use crate::action::Action;
+use crate::action::{Action, Actions};
 use crate::backend::SessionState;
 use crate::playback::engine::Status;
 
@@ -22,7 +22,7 @@ const SEEK_HEIGHT: f32 = 18.0;
 /// While paused, the time is shown this long, then hidden as long.
 const BLINK: Duration = Duration::from_secs(1);
 
-pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     if let Some(paint) = view.art.filter(|paint| paint.has_player()) {
         return super::skinned_strip::draw(ui, view, paint, inputs, actions);
     }
@@ -167,7 +167,7 @@ pub fn eject_clicked(
     response: egui::Response,
     view: &View,
     inputs: &mut Inputs,
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) {
     let tip = if view.browse.open {
         "Back to the playlists (Ctrl+B)"
@@ -184,7 +184,7 @@ pub fn eject_clicked(
 
 /// PL shows or hides the playlists below the player; in Browse or the
 /// settings it only sets what leaving them comes back to.
-pub(super) fn pl_clicked(response: egui::Response, view: &View, actions: &mut Vec<Action>) {
+pub(super) fn pl_clicked(response: egui::Response, view: &View, actions: &mut Actions) {
     let tip = if view.settings.playlists {
         "Hide the playlists"
     } else {
@@ -196,7 +196,7 @@ pub(super) fn pl_clicked(response: egui::Response, view: &View, actions: &mut Ve
 }
 
 /// The bitrate, then the volume and PL at the right end.
-fn info_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+fn info_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let label = |text: String| {
         egui::RichText::new(text)
@@ -223,7 +223,7 @@ fn info_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
 }
 
 /// Seek, across the strip, with the song's length at its end.
-fn seek_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+fn seek_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let ready = matches!(view.session, SessionState::Ready { .. });
     let player = view.player;
@@ -255,7 +255,7 @@ fn seek_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
 }
 
 /// Transport, eject, shuffle and repeat.
-fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let ready = matches!(view.session, SessionState::Ready { .. });
     ui.spacing_mut().item_spacing.x = 4.0;

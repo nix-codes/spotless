@@ -1,5 +1,6 @@
-//! What the interface asks for. Views only emit these; `App` applies them
-//! after the frame is drawn.
+//! What an interface asks for. It only emits these; the controller applies
+//! them. A desktop keeps actions of its own beside them (Spotless's: quitting,
+//! the tray, skins, covers).
 
 use crate::backend::Store;
 use crate::model::catalog::ReleaseTab;
@@ -9,12 +10,6 @@ use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 pub enum Action {
     SignIn,
     SignOut,
-    /// Quits, even with the tray keeping the window.
-    Quit,
-    /// The tray icon on or off.
-    SetTray(bool),
-    /// Draws with this built-in skin (None: Spotless Classic).
-    SetSkin(Option<String>),
     /// Search signs in with this personal app's client ID (empty: none).
     SetSearchApp(String),
     SetLevelling(bool),
@@ -77,8 +72,6 @@ pub enum Action {
     ToggleSort,
     SetTarget(PlaylistId),
     ToggleCovers,
-    /// Fetches a cover the catalog wants to show, unless it has it.
-    LoadCover(String),
     /// Appends songs to the target playlist.
     AddTracks(Vec<TrackRef>),
     /// Appends an album's songs to the target playlist.

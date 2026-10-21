@@ -216,8 +216,7 @@ impl Controller {
         theirs
     }
 
-    /// Does what the interface asked for. Actions only a desktop has (the
-    /// tray, the skin, covers, quitting) are left to it.
+    /// Does what the interface asked for.
     pub fn apply(&mut self, action: Action) {
         let paused = self.state.player.status == Status::Paused;
         let position = self.state.player.position_now();

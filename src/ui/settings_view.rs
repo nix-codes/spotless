@@ -15,7 +15,7 @@ use super::View;
 use super::skin_paint;
 use super::theme::{self, Palette};
 use super::widgets::{field, small_action, small_button, text_button};
-use crate::action::Action;
+use crate::action::{Action, Actions, Desktop};
 use crate::backend::{SearchState, SessionState, Store};
 use crate::browse::Loadable;
 use crate::lastfm::LastFmStatus;
@@ -134,7 +134,7 @@ pub fn draw(
     view: &View,
     form: &mut Form,
     tab: &mut isize,
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) -> bool {
     let palette = view.palette;
     let outputs = output_rows(view);
@@ -396,7 +396,7 @@ struct Controls<'a, 'v> {
     palette: &'a Palette,
     form: &'a mut Form,
     pressed: &'a dyn Fn(Item) -> bool,
-    actions: &'a mut Vec<Action>,
+    actions: &'a mut Actions,
     close: &'a mut bool,
 }
 
@@ -730,7 +730,7 @@ impl Controls<'_, '_> {
                 let choice = radio(ui, palette, on, &name);
                 self.ring(ui, Item::Skin(i), &choice);
                 if !on && (choice.clicked() || (self.pressed)(Item::Skin(i))) {
-                    self.actions.push(Action::SetSkin(skin));
+                    self.actions.push(Desktop::SetSkin(skin));
                 }
             }
             if let Some(error) = self.view.skin_error {
@@ -748,7 +748,7 @@ impl Controls<'_, '_> {
             let switch = toggle(ui, palette, settings.tray);
             self.ring(ui, Item::Tray, &switch);
             if switch.clicked() || (self.pressed)(Item::Tray) {
-                self.actions.push(Action::SetTray(!settings.tray));
+                self.actions.push(Desktop::SetTray(!settings.tray));
             }
             let text = if !settings.tray {
                 "Closing the window quits Spotless."

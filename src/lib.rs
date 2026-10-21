@@ -4,9 +4,10 @@
 //! `spotless-core`, whose modules are re-exported here as they were.
 
 pub use spotless_core::{
-    action, backend, browse, controller, images, lastfm, model, paths, playback, spotify, store,
+    backend, browse, controller, images, lastfm, model, paths, playback, spotify, store,
 };
 
+pub mod action;
 pub mod app;
 pub mod media;
 pub mod skin;

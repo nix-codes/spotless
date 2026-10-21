@@ -12,7 +12,7 @@ use egui::{
 use super::theme::{self, Palette};
 use super::widgets::text_button;
 use super::{Inputs, View};
-use crate::action::Action;
+use crate::action::{Action, Actions, Desktop};
 use crate::backend::SessionState;
 use crate::model::PlaylistId;
 use crate::playback::engine::Status;
@@ -92,7 +92,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
     ),
 ];
 
-pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let ctx = ui.ctx();
     // Typing in a field, or a question waiting for an answer: the keys
     // belong to them.
@@ -105,7 +105,7 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Actio
             return;
         }
         if take(i, Modifiers::COMMAND, Key::Q) {
-            actions.push(Action::Quit);
+            actions.push(Desktop::Quit);
             return;
         }
         // Ctrl+, too, as in most desktop apps.
@@ -126,7 +126,7 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Actio
     });
 }
 
-fn playback(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+fn playback(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let player = view.player;
     if take(i, Modifiers::NONE, Key::Space) {
         actions.push(match player.status {
@@ -195,7 +195,7 @@ fn playback(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut 
     }
 }
 
-fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let browsing = view.browse.open;
     // In Browse the playlist keys choose where + ADD adds to.
     let current = if browsing {
@@ -272,7 +272,7 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut V
     });
 }
 
-fn set_volume(inputs: &mut Inputs, volume: u8, actions: &mut Vec<Action>) {
+fn set_volume(inputs: &mut Inputs, volume: u8, actions: &mut Actions) {
     inputs.volume = volume;
     inputs.unmuted = None;
     actions.push(Action::Volume(volume));

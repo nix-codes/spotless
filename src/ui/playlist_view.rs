@@ -21,7 +21,7 @@ use super::skin_paint;
 use super::theme::{self, Palette};
 use super::widgets::{Glyph, drag_ghost, field, small_action, small_button, small_glyph};
 use super::{Inputs, View};
-use crate::action::Action;
+use crate::action::{Action, Actions};
 use crate::model::{EntryId, Playlist, PlaylistId};
 
 const ROW_HEIGHT: f32 = 18.0;
@@ -65,7 +65,7 @@ struct RowDrag(Vec<EntryId>);
 /// A tab being dragged.
 struct TabDrag(PlaylistId);
 
-pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     tab_bar(ui, view, inputs, actions);
     // The item spacing after the tabs makes up the rest of the gap.
     ui.add_space(LIST_GAP - ui.spacing().item_spacing.y);
@@ -110,7 +110,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
     confirm_close(ui, view, inputs, actions);
 }
 
-fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let mut tabs: Vec<(PlaylistId, Rect)> = Vec::new();
     let bar = ui
@@ -206,7 +206,7 @@ fn tab(
     view: &View,
     list: &Playlist,
     inputs: &mut Inputs,
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) -> Rect {
     let palette = view.palette;
     let shown = list.id == view.playlist.id;
@@ -329,7 +329,7 @@ fn rename_field(
     ui: &mut Ui,
     id: PlaylistId,
     renaming: &mut Option<(PlaylistId, String)>,
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) -> Rect {
     let Some((_, name)) = renaming.as_mut() else {
         return Rect::NOTHING;
@@ -352,7 +352,7 @@ fn rename_field(
     field.rect
 }
 
-fn confirm_close(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+fn confirm_close(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let Some(list) = inputs.closing.and_then(|id| view.library.get(id)) else {
         inputs.closing = None;
         return;
@@ -394,7 +394,7 @@ fn confirm_close(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Ac
     }
 }
 
-fn toolbar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+fn toolbar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let list = view.playlist;
     let selected = selected(list, &inputs.selection);
@@ -439,7 +439,7 @@ fn draw_rows(
     view: &View,
     selection: &mut Selection,
     (bar, slot): (&Scrollbar, Rect),
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) {
     let palette = view.palette;
     let list = view.playlist;
@@ -676,12 +676,7 @@ fn selected(list: &Playlist, selection: &Selection) -> Vec<EntryId> {
 }
 
 /// Removes the selection; the row after the last removed one is selected.
-fn remove(
-    list: &Playlist,
-    selection: &mut Selection,
-    rows: Vec<EntryId>,
-    actions: &mut Vec<Action>,
-) {
+fn remove(list: &Playlist, selection: &mut Selection, rows: Vec<EntryId>, actions: &mut Actions) {
     let Some(last) = rows.iter().filter_map(|&id| list.index_of(id)).max() else {
         return;
     };
@@ -702,7 +697,7 @@ fn move_by(
     selection: &mut Selection,
     rows: Vec<EntryId>,
     up: bool,
-    actions: &mut Vec<Action>,
+    actions: &mut Actions,
 ) {
     let indices: Vec<usize> = rows.iter().filter_map(|&id| list.index_of(id)).collect();
     let (Some(&first), Some(&last)) = (indices.first(), indices.last()) else {
@@ -718,7 +713,7 @@ fn move_by(
 }
 
 /// The editor's keys, unless a text field has the keyboard.
-fn keyboard(ui: &Ui, list: &Playlist, selection: &mut Selection, actions: &mut Vec<Action>) {
+fn keyboard(ui: &Ui, list: &Playlist, selection: &mut Selection, actions: &mut Actions) {
     if ui.ctx().text_edit_focused() || list.is_empty() {
         return;
     }
