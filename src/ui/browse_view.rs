@@ -15,6 +15,7 @@ use egui::{
     StrokeKind, TextEdit, Ui, UiBuilder, pos2, vec2,
 };
 
+use super::scrollbar::{self, Scrollbar};
 use super::settings_view::Category;
 use super::theme::{self, Palette};
 use super::widgets::{
@@ -143,10 +144,10 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
         ui.add_space(PAD);
         let nav = &mut inputs.nav;
         nav.drawn = 0;
-        ScrollArea::vertical()
-            .id_salt(page_id(page))
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
+        let id = Id::new(("browse-scrollbar", page_id(page)));
+        let area = ScrollArea::vertical().id_salt(page_id(page));
+        scrollbar::show(ui, view, id, area, |area, ui| {
+            area.show(ui, |ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 0.0);
                 match page {
                     Page::Home => home(ui, view, nav, &mut set_up, actions),
@@ -155,7 +156,8 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
                     }
                     Page::Artist(uri) => artist_page(ui, view, nav, uri, actions),
                 }
-            });
+            })
+        });
         // Keys for rows that aren't there are dropped.
         nav.rows = nav.drawn;
         nav.row = nav.row.map(|row| row.min(nav.rows.saturating_sub(1)));
@@ -742,9 +744,11 @@ fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
         ui.cursor().min,
         pos2(ui.max_rect().right(), ui.max_rect().bottom() - footer),
     );
+    let bar = Scrollbar::new(ui, view, Id::new("slim-scrollbar"));
+    let (rows, slot) = bar.split(rows);
     ui.scope_builder(UiBuilder::new().max_rect(rows), |ui| {
         slim_keys(ui, target, nav, actions);
-        slim_rows(ui, view, nav, target, actions);
+        slim_rows(ui, view, nav, target, (&bar, slot), actions);
     });
     ui.painter().text(
         pos2(ui.max_rect().left(), ui.max_rect().bottom()),
@@ -809,7 +813,14 @@ fn slim_keys(ui: &Ui, list: &Playlist, nav: &mut Nav, actions: &mut Actions) {
     }
 }
 
-fn slim_rows(ui: &mut Ui, view: &View, nav: &mut Nav, list: &Playlist, actions: &mut Actions) {
+fn slim_rows(
+    ui: &mut Ui,
+    view: &View,
+    nav: &mut Nav,
+    list: &Playlist,
+    (bar, slot): (&Scrollbar, Rect),
+    actions: &mut Actions,
+) {
     let palette = view.palette;
     let dragging = egui::DragAndDrop::payload::<CatalogDrag>(ui.ctx());
     if let Some(drag) = &dragging {
@@ -834,11 +845,16 @@ fn slim_rows(ui: &mut Ui, view: &View, nav: &mut Nav, list: &Playlist, actions: 
             );
         }
         drop(ui, dragging.is_some() && hovered, 0, actions);
+        bar.paint(ui, slot, 0.0, 0.0, false);
         return;
     }
     let height = 17.0;
-    let mut area = ScrollArea::vertical().auto_shrink([false, false]);
+    let mut area = ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
     let view_height = ui.available_height();
+    let furthest = (list.len() as f32 * height - view_height).max(0.0);
+    let thumb_to = bar.interact(ui, slot, nav.slim_offset, furthest);
     if let Some(index) = nav.slim_reveal.take() {
         let top = index as f32 * height;
         let offset = if top < nav.slim_offset {
@@ -856,6 +872,9 @@ fn slim_rows(ui: &mut Ui, view: &View, nav: &mut Nav, list: &Playlist, actions: 
         .rposition(|entry| view.browse.glow(entry.id) > 0.9)
     {
         area = area.vertical_scroll_offset(((last + 1) as f32 * height - view_height).max(0.0));
+    }
+    if let Some(offset) = thumb_to {
+        area = area.vertical_scroll_offset(offset);
     }
     let current = list.cursor().filter(|_| !list.detached());
     let mut drop_at: Option<(usize, f32)> = None;
@@ -922,6 +941,7 @@ fn slim_rows(ui: &mut Ui, view: &View, nav: &mut Nav, list: &Playlist, actions: 
         }
     });
     nav.slim_offset = output.state.offset.y;
+    bar.paint(ui, slot, nav.slim_offset, furthest, thumb_to.is_some());
     if dragging.is_none() || !hovered {
         return;
     }

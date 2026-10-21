@@ -29,8 +29,6 @@ const TAB_HEIGHT: f32 = 22.0;
 const TOOLBAR_HEIGHT: f32 = 18.0;
 /// Between the tabs and the rows, and between the rows and the toolbar.
 const LIST_GAP: f32 = 16.0;
-/// Between the rows and the scrollbar's slot.
-const SLOT_GAP: f32 = 4.0;
 /// Dragging this close to the list's top or bottom edge scrolls it.
 const SCROLL_EDGE: f32 = 24.0;
 
@@ -75,8 +73,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         Rect::from_min_max(pos2(full.left(), full.bottom() - TOOLBAR_HEIGHT), full.max);
     let rows = Rect::from_min_max(full.min, pos2(full.right(), toolbar_rect.top() - LIST_GAP));
     let bar = Scrollbar::new(ui, view, Id::new("playlist-scrollbar"));
-    let slot = Rect::from_min_max(pos2(rows.right() - bar.width(), rows.top()), rows.max);
-    let rows = rows.with_max_x(slot.left() - SLOT_GAP);
+    let (rows, slot) = bar.split(rows);
 
     if let Some((jump_list, entry)) = inputs.jump
         && jump_list == list.id

@@ -11,10 +11,10 @@ use egui::{
     UiBuilder, pos2, vec2,
 };
 
-use super::View;
 use super::skin_paint;
 use super::theme::{self, Palette};
 use super::widgets::{field, small_action, small_button, text_button};
+use super::{View, scrollbar};
 use crate::action::{Action, Actions, Desktop};
 use crate::backend::{SearchState, SessionState, Store};
 use crate::browse::Loadable;
@@ -238,9 +238,9 @@ pub fn draw(
         pos2(panel.right() - 8.0, panel.bottom() - 8.0),
     );
     ui.scope_builder(UiBuilder::new().max_rect(content), |ui| {
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
+        let id = Id::new("settings-scrollbar");
+        scrollbar::show(ui, view, id, egui::ScrollArea::vertical(), |area, ui| {
+            area.show(ui, |ui| {
                 ui.spacing_mut().item_spacing = vec2(8.0, 4.0);
                 let mut c = Controls {
                     view,
@@ -261,7 +261,8 @@ pub fn draw(
                     Category::Window => c.window(ui),
                     Category::Storage => c.storage(ui),
                 }
-            });
+            })
+        });
     });
     form.reveal = false;
     close
