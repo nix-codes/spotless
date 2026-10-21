@@ -163,7 +163,7 @@ most others; on GNOME, the AppIndicator extension).
       [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard).
    2. Add `http://127.0.0.1:8989/login` as its Redirect URI, and tick
       **Web API**.
-   3. Paste the app's Client ID in Spotless: *Settings (F10) > Search*.
+   3. Paste the app's Client ID in Spotless: *Settings (F10) > Account*.
       Your browser asks once more, to approve search.
 
    The steps are also in that settings page, with a button to copy the

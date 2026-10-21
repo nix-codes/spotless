@@ -403,7 +403,7 @@ fn status_bar(
 }
 
 /// Shows the settings in place of the playlists or Browse.
-fn open_settings(view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
+pub(super) fn open_settings(view: &View, inputs: &mut Inputs, actions: &mut Vec<Action>) {
     inputs.settings = Some(settings_view::open(view, inputs.settings_category));
     actions.push(Action::CloseBrowse);
     actions.push(Action::MeasureStorage);

@@ -15,6 +15,7 @@ use egui::{
     StrokeKind, TextEdit, Ui, UiBuilder, pos2, vec2,
 };
 
+use super::settings_view::Category;
 use super::theme::{self, Palette};
 use super::widgets::{
     BUTTON_HEIGHT, SMALL_HEIGHT, field, small_button, small_button_width, text_button,
@@ -120,13 +121,15 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
     if ui.input(|i| i.pointer.any_pressed()) {
         nav.keyboard = false;
     }
-    switch_area(ui, inputs);
+    switch_area(ui, view, inputs);
     keyboard(ui, view, &mut inputs.nav, actions);
     match inputs.nav.area {
         Area::Results if inputs.nav.keyboard => theme::focus_ring(ui.painter(), catalog, &palette),
         Area::Slim if inputs.nav.keyboard => theme::focus_ring(ui.painter(), slim, &palette),
         _ => {}
     }
+    // The search prompt's button, to set search up in the settings.
+    let mut set_up = false;
     ui.scope_builder(UiBuilder::new().max_rect(catalog.shrink(PAD)), |ui| {
         search_bar(ui, view, inputs, actions);
         ui.add_space(PAD);
@@ -138,8 +141,10 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 0.0);
                 match page {
-                    Page::Home => home(ui, view, nav, actions),
-                    Page::Search(query) => search_page(ui, view, nav, query, actions),
+                    Page::Home => home(ui, view, nav, &mut set_up, actions),
+                    Page::Search(query) => {
+                        search_page(ui, view, nav, query, &mut set_up, actions);
+                    }
                     Page::Artist(uri) => artist_page(ui, view, nav, uri, actions),
                 }
             });
@@ -153,18 +158,27 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
     ui.scope_builder(UiBuilder::new().max_rect(slim.shrink(8.0)), |ui| {
         slim_column(ui, view, &mut inputs.nav, actions);
     });
+    if set_up {
+        inputs.settings_category = Category::Account;
+        super::open_settings(view, inputs, actions);
+    }
 }
 
 /// Tab and Shift+Tab: the next or previous area. Into the search field
 /// puts the keyboard there; out of it takes the keyboard away.
-fn switch_area(ui: &Ui, inputs: &mut Inputs) {
+fn switch_area(ui: &Ui, view: &View, inputs: &mut Inputs) {
     if inputs.tab == 0 {
         return;
     }
     let nav = &mut inputs.nav;
     nav.keyboard = true;
-    let at = AREAS.iter().position(|&a| a == nav.area).unwrap_or(0) as isize;
-    nav.area = AREAS[(at + inputs.tab).rem_euclid(AREAS.len() as isize) as usize];
+    // The search field is passed over while search isn't set up.
+    let areas: Vec<Area> = AREAS
+        .into_iter()
+        .filter(|&a| a != Area::Search || searchable(view))
+        .collect();
+    let at = areas.iter().position(|&a| a == nav.area).unwrap_or(0) as isize;
+    nav.area = areas[(at + inputs.tab).rem_euclid(areas.len() as isize) as usize];
     inputs.tab = 0;
     if nav.area == Area::Search {
         inputs.focus_search = true;
@@ -258,15 +272,26 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<A
             actions.push(Action::Back);
         }
         let close_width = 210.0;
-        let field = field(
-            ui,
-            TextEdit::singleline(&mut inputs.query)
-                .id(Id::new(SEARCH_ID))
-                .hint_text("Search artists, albums, songs…")
-                .desired_width((ui.available_width() - close_width).max(80.0))
-                .min_size(vec2(0.0, BUTTON_HEIGHT)),
-        );
-        if std::mem::take(&mut inputs.focus_search) {
+        let enabled = searchable(view);
+        let hint = if enabled {
+            "Search artists, albums, songs…"
+        } else {
+            "Search isn't set up yet"
+        };
+        let width = (ui.available_width() - close_width).max(80.0);
+        let field = ui
+            .add_enabled_ui(enabled, |ui| {
+                field(
+                    ui,
+                    TextEdit::singleline(&mut inputs.query)
+                        .id(Id::new(SEARCH_ID))
+                        .hint_text(hint)
+                        .desired_width(width)
+                        .min_size(vec2(0.0, BUTTON_HEIGHT)),
+                )
+            })
+            .inner;
+        if std::mem::take(&mut inputs.focus_search) && enabled {
             field.request_focus();
         }
         if field.has_focus() {
@@ -292,8 +317,8 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<A
     });
 }
 
-fn home(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Vec<Action>) {
-    if !search_prompt(ui, view) {
+fn home(ui: &mut Ui, view: &View, nav: &mut Nav, set_up: &mut bool, actions: &mut Vec<Action>) {
+    if !search_prompt(ui, view, set_up) {
         note(ui, view, "Type an artist, album or song and press Enter.");
     }
     if !view.browse.recent.is_empty() {
@@ -313,15 +338,28 @@ fn home(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Vec<Action>) {
     }
 }
 
-/// Explains what stands in the way of search. False when nothing does.
-fn search_prompt(ui: &mut Ui, view: &View) -> bool {
+/// Whether search can be used: the field is disabled until it is set up.
+fn searchable(view: &View) -> bool {
+    *view.search != SearchState::NoApp
+}
+
+/// Explains what stands in the way of search, with a button to set it up
+/// when that is what it needs. False when nothing does.
+fn search_prompt(ui: &mut Ui, view: &View, set_up: &mut bool) -> bool {
     match view.search {
         SearchState::Ready | SearchState::SignedOut => return false,
-        SearchState::NoApp => note(
-            ui,
-            view,
-            "Search needs a Spotify app of your own. Set it up in Settings (Ctrl+,).",
-        ),
+        SearchState::NoApp => {
+            note(
+                ui,
+                view,
+                "Search isn't set up yet: besides signing in, it needs a Spotify app of \
+                 your own, which takes a minute to make.",
+            );
+            ui.add_space(6.0);
+            if text_button(ui, &view.palette, "SET UP SEARCH", false, true).clicked() {
+                *set_up = true;
+            }
+        }
         SearchState::SigningIn => note(
             ui,
             view,
@@ -332,8 +370,15 @@ fn search_prompt(ui: &mut Ui, view: &View) -> bool {
     true
 }
 
-fn search_page(ui: &mut Ui, view: &View, nav: &mut Nav, query: &str, actions: &mut Vec<Action>) {
-    if search_prompt(ui, view) {
+fn search_page(
+    ui: &mut Ui,
+    view: &View,
+    nav: &mut Nav,
+    query: &str,
+    set_up: &mut bool,
+    actions: &mut Vec<Action>,
+) {
+    if search_prompt(ui, view, set_up) {
         return;
     }
     let results = match view.browse.searches.get(query) {

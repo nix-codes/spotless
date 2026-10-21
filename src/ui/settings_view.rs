@@ -42,7 +42,6 @@ const PAD: f32 = 10.0;
 pub enum Category {
     #[default]
     Account,
-    Search,
     LastFm,
     Playback,
     Display,
@@ -50,9 +49,8 @@ pub enum Category {
     Storage,
 }
 
-const CATEGORIES: [(Category, &str); 7] = [
+const CATEGORIES: [(Category, &str); 6] = [
     (Category::Account, "Account"),
-    (Category::Search, "Search"),
     (Category::LastFm, "Last.fm"),
     (Category::Playback, "Playback"),
     (Category::Display, "Display"),
@@ -253,8 +251,10 @@ pub fn draw(
                     close: &mut close,
                 };
                 match c.form.category {
-                    Category::Account => c.account(ui),
-                    Category::Search => c.search(ui),
+                    Category::Account => {
+                        c.account(ui);
+                        c.search(ui);
+                    }
                     Category::LastFm => c.lastfm(ui),
                     Category::Playback => c.playback(ui, &outputs),
                     Category::Display => c.display(ui),
@@ -312,11 +312,14 @@ fn categories(ui: &mut Ui, rect: Rect, palette: &Palette, form: &mut Form) {
 /// The options of each category, in the order Tab and the arrows take.
 fn items(category: Category, view: &View, outputs: usize) -> Vec<Item> {
     match category {
-        Category::Account if matches!(view.session, SessionState::Ready { .. }) => {
-            vec![Item::SignOut]
+        Category::Account => {
+            let signed_in = matches!(view.session, SessionState::Ready { .. });
+            signed_in
+                .then_some(Item::SignOut)
+                .into_iter()
+                .chain([Item::ClientId, Item::Save, Item::Link, Item::Copy])
+                .collect()
         }
-        Category::Account => Vec::new(),
-        Category::Search => vec![Item::ClientId, Item::Save, Item::Link, Item::Copy],
         Category::LastFm => {
             let mut items = Vec::new();
             if matches!(view.lastfm.status, LastFmStatus::Connected { .. }) {
@@ -430,7 +433,7 @@ impl Controls<'_, '_> {
             SearchState::SigningIn => ("WAITING FOR YOUR BROWSER", false),
             SearchState::Ready => ("READY", true),
         };
-        row(ui, palette, "Status", |ui| {
+        row(ui, palette, "Search", |ui| {
             let color = if ready {
                 palette.accent
             } else {
@@ -440,7 +443,8 @@ impl Controls<'_, '_> {
             note(
                 ui,
                 palette,
-                "Spotify only lets Spotless search through a Spotify app of your own.",
+                "Besides signing in, Spotify only lets Spotless search through a Spotify \
+                 app of your own.",
             );
         });
         let current = view.web_client_id.unwrap_or_default();
