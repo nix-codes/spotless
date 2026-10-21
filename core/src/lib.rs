@@ -8,7 +8,6 @@ pub mod backend;
 pub mod browse;
 pub mod browser;
 pub mod controller;
-pub mod http;
 pub mod images;
 pub mod lastfm;
 pub mod model;

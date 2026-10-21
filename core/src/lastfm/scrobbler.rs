@@ -72,7 +72,7 @@ pub fn start(paths: &Paths, browser: Browser, notify: Notify) -> Scrobbler {
         listens: Listens::default(),
         retry: None,
         delay: FIRST_RETRY,
-        http: crate::http::client(),
+        http: reqwest::Client::new(),
         browser,
         notify,
         sender: sender.clone(),
