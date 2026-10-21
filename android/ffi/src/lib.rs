@@ -33,8 +33,9 @@ pub trait Host: Send + Sync {
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum StartError {
-    #[error("{message}")]
-    Folders { message: String },
+    // Not `message`, which Kotlin's exceptions have already.
+    #[error("{reason}")]
+    Folders { reason: String },
 }
 
 #[derive(uniffi::Object)]
@@ -54,7 +55,7 @@ impl Spotless {
     ) -> Result<Arc<Self>, StartError> {
         let paths = Paths::from_dirs(config_dir.into(), cache_dir.into()).map_err(|error| {
             StartError::Folders {
-                message: format!("{error:#}"),
+                reason: format!("{error:#}"),
             }
         })?;
         let opener = Arc::clone(&host);
