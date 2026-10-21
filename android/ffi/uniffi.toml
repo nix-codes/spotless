@@ -1,0 +1,4 @@
+[bindings.kotlin]
+# The app's own package, beside Native (src/android.rs).
+package_name = "dev.spotless.core"
+cdylib_name = "spotless_ffi"

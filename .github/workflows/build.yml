@@ -1,7 +1,7 @@
 # Builds and checks Spotless on every push, on Linux and on Windows, and
 # makes the Windows zip that packaging/windows/build.sh makes locally. The
 # core (core/, spotless-core) is also built for Android, which it is shared
-# with.
+# with, as the library the Android app loads (android/ffi, spotless-ffi).
 #
 # Nothing here signs in to Spotify or plays audio: the runners have no
 # account and no sound device. The Windows job only checks that Spotless
@@ -95,10 +95,10 @@ jobs:
 
       # 64-bit ARM phones, from Android 10 (API 29), as the spike targets.
       - name: Clippy
-        run: cargo ndk -t arm64-v8a -P 29 clippy -p spotless-core --all-targets -- -D warnings
+        run: cargo ndk -t arm64-v8a -P 29 clippy -p spotless-core -p spotless-ffi --all-targets -- -D warnings
 
       - name: Build
-        run: cargo ndk -t arm64-v8a -P 29 build -p spotless-core --release
+        run: cargo ndk -t arm64-v8a -P 29 build -p spotless-ffi --release
 
   windows:
     name: Windows
