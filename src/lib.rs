@@ -4,6 +4,7 @@ pub mod action;
 pub mod app;
 pub mod backend;
 pub mod browse;
+pub mod controller;
 pub mod images;
 pub mod lastfm;
 pub mod media;
