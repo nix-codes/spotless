@@ -21,6 +21,12 @@ pub extern "system" fn Java_dev_spotless_core_Native_init<'local>(
                 .with_max_level(log::LevelFilter::Info)
                 .with_tag("spotless"),
         );
+        // Android drops stderr: a panic would otherwise say nothing.
+        std::panic::set_hook(Box::new(|info| {
+            let thread = std::thread::current();
+            let name = thread.name().unwrap_or("unnamed");
+            log::error!("thread {name} panicked: {info}");
+        }));
         env.with_env(|env| -> jni::errors::Result<()> {
             // cpal's AAudio backend asks Java for the devices.
             let vm = env.get_java_vm()?;
