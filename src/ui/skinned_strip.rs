@@ -11,7 +11,9 @@ use egui::{
     vec2,
 };
 
-use super::player_strip::{HEIGHT, KBPS, KHZ, eject_clicked, now_lines, pl_clicked, time_shown};
+use super::player_strip::{
+    HEIGHT, eject_clicked, length, now_lines, pl_clicked, rates, time_shown,
+};
 use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
 use crate::action::Action;
@@ -345,7 +347,7 @@ fn info_row(
         let [_, top, _, bottom] = padding(paint, "small_display");
         top + bottom
     };
-    for (value, label) in [(KBPS, "kbps"), (KHZ, "kHz")] {
+    for (value, label) in rates(view).into_iter().zip(["kbps", "kHz"]) {
         let at = pos2(x, rect.center().y - small * unit / 2.0);
         let display = small_display(&painter, view, paint, at, value, unit);
         let text = painter.text(
@@ -415,8 +417,7 @@ fn seek_bar(
     let ready = matches!(view.session, SessionState::Ready { .. });
     let player = view.player;
     let duration = player.track.as_ref().map_or(0, |t| t.duration_ms) as f32 / 1000.0;
-    let total = duration as u32;
-    let length = format!("{}:{:02}", total / 60, total % 60);
+    let length = length(view);
 
     // The length's display first, from the right, so the track takes the
     // rest.

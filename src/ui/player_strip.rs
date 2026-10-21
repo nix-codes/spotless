@@ -137,9 +137,26 @@ pub(super) fn now_lines(view: &View) -> (String, String) {
     }
 }
 
-/// What every song streams at.
-pub(super) const KBPS: &str = "320";
-pub(super) const KHZ: &str = "44";
+/// What every song streams at, while one does: stopped, the displays are
+/// blank, as the time is, and keep their width.
+pub(super) fn rates(view: &View) -> [&'static str; 2] {
+    if view.player.status == Status::Stopped {
+        ["   ", "  "]
+    } else {
+        ["320", "44"]
+    }
+}
+
+/// The song's length, or blank, at its width, with no song.
+pub(super) fn length(view: &View) -> String {
+    match &view.player.track {
+        Some(track) => {
+            let total = track.duration_ms / 1000;
+            format!("{}:{:02}", total / 60, total % 60)
+        }
+        None => "    ".into(),
+    }
+}
 
 /// Eject opens Browse, as it opens files in Winamp, and stays pressed in
 /// until it is clicked again for the playlists.
@@ -185,7 +202,8 @@ fn info_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
             .color(palette.chrome)
     };
     ui.add_space(2.0);
-    ui.label(label(format!("{KBPS} KBPS · {KHZ} KHZ")));
+    let [kbps, khz] = rates(view);
+    ui.label(label(format!("{kbps} KBPS · {khz} KHZ")));
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
         let pl = small_button(ui, &palette, "PL", view.settings.playlists);
         pl_clicked(pl, view, actions);
@@ -223,10 +241,9 @@ fn seek_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Vec<Act
         actions.push(Action::Seek((position * 1000.0) as u32));
         inputs.seeking = None;
     }
-    let total = duration as u32;
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
         ui.label(
-            egui::RichText::new(format!("{}:{:02}", total / 60, total % 60))
+            egui::RichText::new(length(view))
                 .monospace()
                 .size(9.0)
                 .color(palette.chrome),
