@@ -118,7 +118,7 @@ fun TextButton(
 }
 
 /** The transport's and the bars' glyphs, drawn in [color] on a 24-unit square. */
-enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Back, Open, Closed }
+enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed }
 
 @Composable
 fun GlyphButton(
@@ -155,6 +155,10 @@ fun DrawScope.glyph(glyph: Glyph, color: Color) {
         }
         Glyph.Menu -> for (y in listOf(7f, 12f, 17f)) {
             drawLine(color, Offset(4f * u, y * u), Offset(20f * u, y * u), line.width)
+        }
+        Glyph.Close -> {
+            drawLine(color, Offset(6f * u, 6f * u), Offset(18f * u, 18f * u), line.width)
+            drawLine(color, Offset(18f * u, 6f * u), Offset(6f * u, 18f * u), line.width)
         }
         Glyph.Back -> {
             drawLine(color, Offset(15f * u, 5f * u), Offset(8f * u, 12f * u), line.width)
