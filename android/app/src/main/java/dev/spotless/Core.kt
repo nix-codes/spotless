@@ -45,6 +45,9 @@ class Core(private val context: Context) : Host {
         }
     }
 
+    /** Stops the service once it has been unneeded for a while ([keepAlive]). */
+    private val release = Runnable { service(start = false) }
+
     // After what wake() uses: the core's thread may call it before the
     // constructor is done.
     private val spotless = Spotless(context.filesDir.path, context.cacheDir.path, this)
@@ -119,15 +122,27 @@ class Core(private val context: Context) : Host {
      * redirect, and with the screen off it loses the network mid-song. It
      * also closes the app's connections about five seconds in: a session
      * made in the browser's time would drop before the app is back. The
-     * service keeps it going while any of that matters.
+     * service keeps it going while any of that matters, and while a song
+     * is loaded, paused too.
+     *
+     * It stops only once nothing has needed it for a while: Android doesn't
+     * let an app in the background start it again, and a song skipped with
+     * the screen off leaves the player stopped for a moment.
      */
     private fun keepAlive() {
-        val needed = approving || session == Session.SigningIn ||
-            player.status == Status.PLAYING || player.status == Status.LOADING
-        if (needed == PlaybackService.running) return
+        val needed = approving || session == Session.SigningIn || player.status != Status.STOPPED
+        if (needed) {
+            main.removeCallbacks(release)
+            if (!PlaybackService.running) service(start = true)
+        } else if (PlaybackService.running && !main.hasCallbacks(release)) {
+            main.postDelayed(release, 30_000)
+        }
+    }
+
+    private fun service(start: Boolean) {
         val intent = Intent(context, PlaybackService::class.java)
         try {
-            if (needed) context.startForegroundService(intent) else context.stopService(intent)
+            if (start) context.startForegroundService(intent) else context.stopService(intent)
         } catch (error: IllegalStateException) {
             // Not allowed from the background: the next action in front will.
             Log.w("spotless", "playback service: $error")
