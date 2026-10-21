@@ -88,6 +88,12 @@ class Core(private val context: Context) : Host {
         refresh()
     }
 
+    /** Removes every song from this playlist, viewed or not. */
+    fun clear(id: ULong) {
+        val entries = spotless.playlist(id)?.songs?.map { it.entry }.orEmpty()
+        if (entries.isNotEmpty()) apply(Action.Remove(id, entries))
+    }
+
     /** The cover at [url], once read: asking reads it. */
     fun cover(url: String?): ImageBitmap? {
         if (url == null) return null

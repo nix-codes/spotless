@@ -74,7 +74,7 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
     BackHandler(enabled = editing != null) { editing = null }
     Column(Modifier.fillMaxSize().background(Classic.frame).safeDrawingPadding()) {
         if (selecting) {
-            SelectBar(core, selected) { picked = emptySet() }
+            SelectBar(core, selected, { picked = entries.toSet() }) { picked = emptySet() }
         } else {
             TopBar(core, openSettings)
         }
@@ -105,7 +105,7 @@ private fun TopBar(core: Core, openSettings: () -> Unit) {
 
 /** In place of the top bar while songs are selected. */
 @Composable
-private fun SelectBar(core: Core, selected: List<ULong>, done: () -> Unit) {
+private fun SelectBar(core: Core, selected: List<ULong>, all: () -> Unit, done: () -> Unit) {
     val list = core.playlist ?: return
     Row(
         Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp),
@@ -118,6 +118,7 @@ private fun SelectBar(core: Core, selected: List<ULong>, done: () -> Unit) {
             Modifier.weight(1f).padding(start = 4.dp),
             body(15.sp, Classic.current, FontWeight.SemiBold),
         )
+        TextButton("ALL", all, enabled = selected.size < list.songs.size)
         TextButton("Q NEXT", { core.apply(Action.ToggleMarks(selected)) })
         TextButton("REM", {
             core.apply(Action.Remove(list.id, selected))
@@ -153,7 +154,7 @@ private fun Tabs(core: Core, edit: (ULong) -> Unit) {
     }
 }
 
-/** A held tab's name, place, and deleting it (never Default's). */
+/** A held tab's name, place, emptying it, and deleting it (never Default's). */
 @Composable
 private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
     val tabs = core.tabs.tabs
@@ -165,6 +166,8 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
     }
     val tab = tabs[at]
     var name by remember(id) { mutableStateOf(tab.name) }
+    // Clearing and deleting each ask once more, on the same button.
+    var clearing by remember(id) { mutableStateOf(false) }
     var deleting by remember(id) { mutableStateOf(false) }
     val focus = LocalFocusManager.current
     val save = {
@@ -198,7 +201,17 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
             TextButton("◀", { core.apply(Action.MovePlaylist(id, (at - 1).toUInt())) }, enabled = at > 0)
             TextButton("▶", { core.apply(Action.MovePlaylist(id, (at + 1).toUInt())) }, enabled = at < tabs.lastIndex)
             Box(Modifier.weight(1f))
-            if (id != 0UL) {
+            if (!deleting) {
+                TextButton(if (clearing) "CLEAR ${songs(tab.songs.toInt())}?" else "CLEAR", {
+                    if (clearing) {
+                        core.clear(id)
+                        done()
+                    } else {
+                        clearing = true
+                    }
+                }, enabled = tab.songs > 0u, lit = clearing)
+            }
+            if (id != 0UL && !clearing) {
                 TextButton(if (deleting) "DELETE ${songs(tab.songs.toInt())}?" else "DELETE", {
                     if (deleting) {
                         core.apply(Action.ClosePlaylist(id))
