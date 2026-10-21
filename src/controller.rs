@@ -588,12 +588,142 @@ fn seed() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::volume_level;
+    use std::sync::mpsc;
+
+    use tokio::sync::mpsc::UnboundedReceiver;
+
+    use super::*;
+    use crate::model::playlist::tests::entry;
+
+    /// A controller on empty folders, with a backend the test plays.
+    struct Rig {
+        controller: Controller,
+        commands: UnboundedReceiver<Command>,
+        events: mpsc::Sender<Event>,
+        root: std::path::PathBuf,
+    }
+
+    impl Rig {
+        fn new(name: &str) -> Self {
+            let root = std::env::temp_dir()
+                .join(format!("spotless-controller-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            let paths = Paths::from_dirs(root.join("config"), root.join("cache")).unwrap();
+            let (backend, commands, events) = Backend::detached();
+            let settings = Settings::load(&paths);
+            let controller = Controller::with_backend(paths, settings, Ok(backend));
+            Self {
+                controller,
+                commands,
+                events,
+                root,
+            }
+        }
+
+        /// The backend tells this, and the controller takes it in.
+        fn tell(&mut self, event: Event) {
+            self.events.send(event).unwrap();
+            self.controller.receive();
+        }
+
+        fn sent(&mut self) -> Vec<Command> {
+            std::iter::from_fn(|| self.commands.try_recv().ok()).collect()
+        }
+
+        /// The titles of the viewed playlist's songs.
+        fn songs(&self) -> Vec<String> {
+            let state = self.controller.state();
+            state
+                .library
+                .get(state.viewed)
+                .unwrap()
+                .entries()
+                .iter()
+                .map(|e| e.track.title.clone())
+                .collect()
+        }
+    }
+
+    impl Drop for Rig {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn tracks(ids: impl IntoIterator<Item = u64>) -> Vec<TrackRef> {
+        ids.into_iter().map(|id| entry(id).track).collect()
+    }
 
     #[test]
     fn volume_spans_librespots_range() {
         assert_eq!(volume_level(0), 0);
         assert_eq!(volume_level(100), u16::MAX);
         assert_eq!(volume_level(250), u16::MAX);
+    }
+
+    #[test]
+    fn an_album_dropped_before_it_is_read_lands_where_it_was_dropped() {
+        let mut rig = Rig::new("drop");
+        rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+        rig.controller
+            .apply(Action::DropAlbum("spotify:album:a".into(), 1));
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::Album(a) if a == "spotify:album:a"))
+        );
+        assert_eq!(rig.songs(), ["Song 1", "Song 2"]);
+        rig.tell(Event::Album {
+            album: "spotify:album:a".into(),
+            result: Ok(tracks([7, 8])),
+        });
+        assert_eq!(rig.songs(), ["Song 1", "Song 7", "Song 8", "Song 2"]);
+    }
+
+    #[test]
+    fn closing_a_tab_shows_the_one_before_it() {
+        let mut rig = Rig::new("close");
+        rig.controller.apply(Action::NewPlaylist);
+        let second = rig.controller.state().viewed;
+        rig.controller.apply(Action::NewPlaylist);
+        let third = rig.controller.state().viewed;
+        assert_ne!(second, third);
+        rig.controller.apply(Action::ClosePlaylist(third));
+        assert_eq!(rig.controller.state().viewed, second);
+        assert!(rig.controller.state().library.get(third).is_none());
+    }
+
+    #[test]
+    fn losing_the_session_stops_the_queue() {
+        let mut rig = Rig::new("session");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+        rig.controller.apply(Action::Play);
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::Player(Request::Load { .. })))
+        );
+        assert_eq!(
+            rig.controller.state().transport.playing_list(),
+            Some(PlaylistId::DEFAULT)
+        );
+        rig.tell(Event::Session(SessionState::SignedOut));
+        assert_eq!(rig.controller.state().transport.playing_list(), None);
+        assert_eq!(rig.controller.state().player, PlayerSnapshot::default());
+    }
+
+    #[test]
+    fn changes_are_saved_once_they_rest() {
+        let mut rig = Rig::new("save");
+        assert_eq!(rig.controller.tick(), None);
+        rig.controller.apply(Action::AddTracks(tracks([1])));
+        assert!(rig.controller.tick().is_some());
+        rig.controller.unsaved = Some(Instant::now() - SAVE_DELAY);
+        assert_eq!(rig.controller.tick(), None);
+        let (library, _) = store::load_library(&rig.controller.paths);
+        let saved = library.get(PlaylistId::DEFAULT).unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved.entries()[0].track.title, "Song 1");
     }
 }

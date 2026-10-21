@@ -168,6 +168,15 @@ impl Backend {
         Ok(Self { commands, events })
     }
 
+    /// A backend with no worker, for tests: the commands it is sent come out
+    /// of the receiver, and the events put in the sender come in.
+    #[cfg(test)]
+    pub fn detached() -> (Self, UnboundedReceiver<Command>, mpsc::Sender<Event>) {
+        let (commands, receiver) = unbounded_channel();
+        let (sender, events) = mpsc::channel();
+        (Self { commands, events }, receiver, sender)
+    }
+
     pub fn send(&self, command: Command) {
         if self.commands.send(command).is_err() {
             log::error!("the backend has stopped");
