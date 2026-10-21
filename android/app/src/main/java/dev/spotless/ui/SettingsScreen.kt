@@ -122,18 +122,26 @@ private fun Search(core: Core) {
     var typed by remember(settings.searchApp) { mutableStateOf(settings.searchApp) }
     val id = typed.trim()
     val valid = id.isEmpty() || isKey(id)
-    val changed = id != settings.searchApp
-    val save = { if (changed && valid) core.apply(Action.SetSearchApp(id)) }
+    // The saved app, approved or being approved: the button lets it go.
+    val connected = settings.searchApp.isNotEmpty() && id == settings.searchApp &&
+        settings.search != SearchState.SIGNED_OUT
+    val connect = { if (id.isNotEmpty() && valid && !connected) core.apply(Action.SetSearchApp(id)) }
     Section("SEARCH") {
         Item("Search") { Value(status, ready) }
         Note("Besides signing in, Spotify only lets Spotless search through a Spotify app of your own.")
-        Field(typed, { typed = it }, "Client ID", onDone = save)
-        Item("") { TextButton("SAVE", save, enabled = changed && valid) }
+        Field(typed, { typed = it }, "Client ID", onDone = connect)
+        Item("") {
+            if (connected) {
+                TextButton("DISCONNECT", { core.apply(Action.SetSearchApp("")) })
+            } else {
+                TextButton("CONNECT", connect, enabled = id.isNotEmpty() && valid)
+            }
+        }
         if (!valid) Note("That isn't a Client ID: it is 32 letters and digits, on the app's page.")
         Steps(
             "1." to { Link("Create an app at developer.spotify.com/dashboard", DASHBOARD) },
             "2." to { Copy("Add the Redirect URI", REDIRECT_URI) },
-            "3." to { Note("Tick Web API, then paste the app's Client ID above.", inset = false) },
+            "3." to { Note("Tick Web API, paste the app's Client ID above, then CONNECT and approve in your browser.", inset = false) },
         )
     }
 }
@@ -155,14 +163,17 @@ private fun LastFmSection(core: Core) {
     val ready = valid && lastfm != LastFm.SigningIn && (changed || !connected)
     val connect = { if (ready) core.apply(Action.ConnectLastFm(k, s)) }
     Section("LAST.FM") {
-        Item("Scrobbling") {
-            Value(status, connected)
-            if (connected) TextButton("DISCONNECT", { core.apply(Action.DisconnectLastFm) })
-        }
+        Item("Scrobbling") { Value(status, connected) }
         Note("Spotless scrobbles the songs you play through a Last.fm API account of your own.")
         Field(key, { key = it }, "API key", next = true)
         Field(secret, { secret = it }, "Shared secret", hidden = true, onDone = connect)
-        Item("") { TextButton("CONNECT", connect, enabled = ready) }
+        Item("") {
+            if (connected && !changed) {
+                TextButton("DISCONNECT", { core.apply(Action.DisconnectLastFm) })
+            } else {
+                TextButton("CONNECT", connect, enabled = ready)
+            }
+        }
         if ((k.isNotEmpty() || s.isNotEmpty()) && !valid) {
             Note("Both are 32 letters and digits, on your API account's page.")
         } else if (connected && changed) {
