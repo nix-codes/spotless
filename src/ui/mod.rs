@@ -133,7 +133,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     if settings_open && (elsewhere || inputs.renaming.is_some() || inputs.focus_search) {
         close_settings(inputs);
     }
-    keys::help(ui, &palette, inputs);
+    keys::help(ui, view, inputs);
     let full = ui.max_rect();
     if !skin_paint::chrome(ui.painter(), "window", State::Normal, full) {
         ui.painter().rect_filled(full, 0.0, palette.frame);

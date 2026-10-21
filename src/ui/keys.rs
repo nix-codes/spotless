@@ -9,6 +9,7 @@ use egui::{
     Align, Event, Id, InputState, Key, Layout, Modifiers, RichText, Sense, Stroke, Ui, vec2,
 };
 
+use super::scrollbar::{self, Scrollbar};
 use super::theme::{self, Palette};
 use super::widgets::text_button;
 use super::{Inputs, View};
@@ -330,15 +331,18 @@ const ROW_GAP: f32 = 5.0;
 /// when the window is wide enough, one under another otherwise. It takes
 /// the window's height, and scrolls when that isn't enough (about 700
 /// points show every key at once).
-pub fn help(ui: &Ui, palette: &Palette, inputs: &mut Inputs) {
+pub fn help(ui: &Ui, view: &View, inputs: &mut Inputs) {
     if !inputs.help {
         return;
     }
+    let palette = &view.palette;
+    let id = Id::new("keys-help-scrollbar");
+    let slot = Scrollbar::new(ui, view, id).width() + scrollbar::GAP;
     let panel = KEYS_WIDTH + COLUMN_GAP + WHAT_WIDTH + 2.0 * PAD;
     let screen = ui.ctx().content_rect();
     // The dialog's own margins and edge take the rest.
-    let two = screen.width() >= 2.0 * panel + GAP + 48.0;
-    let width = if two { 2.0 * panel + GAP } else { panel };
+    let two = screen.width() >= 2.0 * panel + GAP + slot + 48.0;
+    let width = if two { 2.0 * panel + GAP } else { panel } + slot;
     let modal = egui::Modal::new(Id::new("keys-help"))
         .frame(
             egui::Frame::new()
@@ -363,36 +367,38 @@ pub fn help(ui: &Ui, palette: &Palette, inputs: &mut Inputs) {
             // What's left of the window after the dialog's margins and title,
             // from the first frame on: the dialog's place isn't known yet then.
             let height = (screen.height() - 90.0).max(120.0);
-            egui::ScrollArea::vertical()
-                .max_height(height)
-                .min_scrolled_height(height)
-                .show(ui, |ui| {
-                    ui.spacing_mut().item_spacing = vec2(GAP, GAP);
-                    if two {
-                        // Keys for everywhere on the left, for one screen on
-                        // the right; the panels side by side are as tall as
-                        // each other, so the rows of panels line up.
-                        for (row, pair) in [[0, 2], [1, 3]].into_iter().enumerate() {
-                            let id = Id::new(("keys-help-row", row));
-                            let height = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or(0.0);
-                            let tallest = ui
-                                .horizontal_top(|ui| {
-                                    pair.map(|i| section(ui, palette, &HELP[i], height))
-                                        .into_iter()
-                                        .fold(0.0, f32::max)
-                                })
-                                .inner;
-                            if tallest != height {
-                                ui.data_mut(|d| d.insert_temp(id, tallest));
-                                ui.ctx().request_repaint();
+            let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+            ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                scrollbar::show(ui, view, id, egui::ScrollArea::vertical(), |area, ui| {
+                    area.show(ui, |ui| {
+                        ui.spacing_mut().item_spacing = vec2(GAP, GAP);
+                        if two {
+                            // Keys for everywhere on the left, for one screen on
+                            // the right; the panels side by side are as tall as
+                            // each other, so the rows of panels line up.
+                            for (row, pair) in [[0, 2], [1, 3]].into_iter().enumerate() {
+                                let id = Id::new(("keys-help-row", row));
+                                let height = ui.data(|d| d.get_temp::<f32>(id)).unwrap_or(0.0);
+                                let tallest = ui
+                                    .horizontal_top(|ui| {
+                                        pair.map(|i| section(ui, palette, &HELP[i], height))
+                                            .into_iter()
+                                            .fold(0.0, f32::max)
+                                    })
+                                    .inner;
+                                if tallest != height {
+                                    ui.data_mut(|d| d.insert_temp(id, tallest));
+                                    ui.ctx().request_repaint();
+                                }
+                            }
+                        } else {
+                            for entry in HELP {
+                                section(ui, palette, entry, 0.0);
                             }
                         }
-                    } else {
-                        for entry in HELP {
-                            section(ui, palette, entry, 0.0);
-                        }
-                    }
+                    })
                 });
+            });
             close
         });
     if modal.inner || modal.backdrop_response.clicked() {
