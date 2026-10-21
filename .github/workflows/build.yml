@@ -76,11 +76,12 @@ jobs:
   android:
     name: The core for Android
     runs-on: ubuntu-24.04
-    env:
-      # The NDK that comes with the runner's Android SDK.
-      ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
     steps:
       - uses: actions/checkout@v7
+
+      # The NDK that comes with the runner's Android SDK.
+      - name: NDK
+        run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
 
       - name: Rust
         run: rustup show active-toolchain && rustup target add aarch64-linux-android
