@@ -1,7 +1,7 @@
 package dev.spotless.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.defaultMinSize
@@ -85,6 +85,7 @@ fun ChromeButton(
     on: Boolean = false,
     enabled: Boolean = true,
     description: String? = null,
+    onLongClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     Box(
@@ -92,7 +93,7 @@ fun ChromeButton(
             .defaultMinSize(44.dp, 44.dp)
             .background(if (on) Color.Black else Classic.button)
             .bevel(raised = !on)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .combinedClickable(enabled = enabled, role = Role.Button, onLongClick = onLongClick, onClick = onClick)
             .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier)
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,

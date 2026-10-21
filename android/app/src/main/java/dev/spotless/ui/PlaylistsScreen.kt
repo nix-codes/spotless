@@ -22,7 +22,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +36,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -61,14 +69,17 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
     val entries = core.playlist?.songs?.map { it.entry }.orEmpty()
     val selected = entries.filter { it in picked }
     val selecting = selected.isNotEmpty()
+    var editing by remember { mutableStateOf<ULong?>(null) }
     BackHandler(enabled = selecting) { picked = emptySet() }
+    BackHandler(enabled = editing != null) { editing = null }
     Column(Modifier.fillMaxSize().background(Classic.frame).safeDrawingPadding()) {
         if (selecting) {
             SelectBar(core, selected) { picked = emptySet() }
         } else {
             TopBar(core, openSettings)
         }
-        Tabs(core)
+        Tabs(core) { editing = it }
+        editing?.let { TabEditor(core, it) { editing = null } }
         Summary(core, selecting)
         Songs(core, selected, { picked = it }, Modifier.weight(1f))
         if (selecting) {
@@ -115,8 +126,9 @@ private fun SelectBar(core: Core, selected: List<ULong>, done: () -> Unit) {
     }
 }
 
+/** The playlists' tabs; holding one opens its editor. */
 @Composable
-private fun Tabs(core: Core) {
+private fun Tabs(core: Core, edit: (ULong) -> Unit) {
     LazyRow(
         Modifier.fillMaxWidth().height(44.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -124,7 +136,12 @@ private fun Tabs(core: Core) {
     ) {
         items(core.tabs.tabs, key = { it.id.toLong() }) { tab ->
             val on = tab.id == core.tabs.viewed
-            ChromeButton({ core.apply(Action.SelectPlaylist(tab.id)) }, Modifier.fillMaxHeight(), on = on) {
+            ChromeButton(
+                { core.apply(Action.SelectPlaylist(tab.id)) },
+                Modifier.fillMaxHeight(),
+                on = on,
+                onLongClick = { edit(tab.id) },
+            ) {
                 BasicText(tab.name, style = body(14.sp, if (on) Classic.lcd else Classic.chrome))
             }
         }
@@ -132,6 +149,69 @@ private fun Tabs(core: Core) {
             ChromeButton({ core.apply(Action.NewPlaylist) }, Modifier.fillMaxHeight(), description = "New playlist") {
                 BasicText("+", style = label(20.sp))
             }
+        }
+    }
+}
+
+/** A held tab's name, place, and deleting it (never Default's). */
+@Composable
+private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
+    val tabs = core.tabs.tabs
+    val at = tabs.indexOfFirst { it.id == id }
+    if (at < 0) {
+        // Deleted meanwhile.
+        LaunchedEffect(id) { done() }
+        return
+    }
+    val tab = tabs[at]
+    var name by remember(id) { mutableStateOf(tab.name) }
+    var deleting by remember(id) { mutableStateOf(false) }
+    val focus = LocalFocusManager.current
+    val save = {
+        if (name.isNotBlank() && name.trim() != tab.name) core.apply(Action.RenamePlaylist(id, name))
+        focus.clearFocus()
+        done()
+    }
+    Column(
+        Modifier.fillMaxWidth().padding(8.dp).background(Classic.frame).bevel().padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            BasicTextField(
+                name,
+                { name = it },
+                Modifier
+                    .weight(1f)
+                    .height(44.dp)
+                    .lcd()
+                    .padding(horizontal = 12.dp, vertical = 12.dp)
+                    .semantics { contentDescription = "Playlist name" },
+                textStyle = body(16.sp, Classic.lcd),
+                singleLine = true,
+                cursorBrush = SolidColor(Classic.lcd),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { save() }),
+            )
+            TextButton("RENAME", save, enabled = name.isNotBlank() && name.trim() != tab.name)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton("◀", { core.apply(Action.MovePlaylist(id, (at - 1).toUInt())) }, enabled = at > 0)
+            TextButton("▶", { core.apply(Action.MovePlaylist(id, (at + 1).toUInt())) }, enabled = at < tabs.lastIndex)
+            Box(Modifier.weight(1f))
+            if (id != 0UL) {
+                TextButton(if (deleting) "DELETE ${songs(tab.songs.toInt())}?" else "DELETE", {
+                    if (deleting) {
+                        core.apply(Action.ClosePlaylist(id))
+                        done()
+                    } else {
+                        deleting = true
+                    }
+                }, lit = deleting)
+            }
+            GlyphButton(Glyph.Close, "Done", {
+                focus.clearFocus()
+                done()
+            }, Modifier.width(48.dp))
         }
     }
 }
