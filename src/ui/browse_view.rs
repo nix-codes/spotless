@@ -23,7 +23,7 @@ use super::widgets::{
 use super::{Inputs, View};
 use crate::action::Action;
 use crate::backend::SearchState;
-use crate::browse::{Cover, Loadable, Page};
+use crate::browse::{Loadable, Page};
 use crate::model::catalog::{Release, ReleaseTab};
 use crate::model::{EntryId, TrackRef, playlist::Playlist};
 
@@ -36,6 +36,14 @@ const COVER_ROW_HEIGHT: f32 = 34.0;
 const THUMB: f32 = 28.0;
 /// The cover beside an opened album's songs.
 const BIG_COVER: f32 = 140.0;
+
+/// An album cover, by image URL, as the interface holds it.
+#[derive(Clone)]
+pub enum Cover {
+    Loading,
+    Ready(egui::TextureHandle),
+    Failed,
+}
 
 /// PageUp and PageDown move this many rows.
 const PAGE_ROWS: usize = 10;
@@ -612,7 +620,7 @@ fn cover(painter: &Painter, view: &View, release: &Release, rect: Rect, actions:
     let texture = release
         .cover
         .as_ref()
-        .and_then(|url| match view.browse.covers.get(url) {
+        .and_then(|url| match view.covers.get(url) {
             Some(Cover::Ready(texture)) => Some(texture.id()),
             Some(_) => None,
             None => {

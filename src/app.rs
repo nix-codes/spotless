@@ -1,12 +1,13 @@
 //! The application: owns the state, draws the views, then applies their
 //! actions.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState, Storage};
-use crate::browse::{Browse, Cover, Loadable, Page};
+use crate::browse::{Browse, Loadable, Page};
 use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
 use crate::media::{EventHook, MediaControls, MediaEvent, NowPlaying};
 use crate::model::{Library, Playback, PlaylistId, TrackRef};
@@ -18,7 +19,7 @@ use crate::skin::format;
 use crate::store::{self, Settings, Tabs};
 use crate::tray::{Tray, TrayState};
 use crate::ui::skin_paint::SkinPaint;
-use crate::ui::{self, Inputs, View, theme::Palette};
+use crate::ui::{self, Cover, Inputs, View, theme::Palette};
 
 /// Changes are saved this long after the last one.
 const SAVE_DELAY: Duration = Duration::from_secs(1);
@@ -47,6 +48,8 @@ pub struct App {
     /// When the first unsaved change was made.
     unsaved: Option<Instant>,
     browse: Browse,
+    /// The album covers fetched or being fetched, by image URL.
+    covers: HashMap<String, Cover>,
     search: SearchState,
     lastfm: LastFmState,
     /// What the caches hold, once measured.
@@ -123,6 +126,7 @@ impl App {
             settings,
             unsaved: None,
             browse: Browse::new(viewed, covers),
+            covers: HashMap::new(),
             search: SearchState::SignedOut,
             lastfm: LastFmState::default(),
             storage: None,
@@ -204,7 +208,7 @@ impl App {
                         )),
                         Err(_) => Cover::Failed,
                     };
-                    self.browse.covers.insert(url, cover);
+                    self.covers.insert(url, cover);
                 }
                 Event::SearchResults { query, results } => {
                     let loaded = match results {
@@ -506,8 +510,8 @@ impl App {
                 self.mark_unsaved();
             }
             Action::LoadCover(url) => {
-                if !self.browse.covers.contains_key(&url) {
-                    self.browse.covers.insert(url.clone(), Cover::Loading);
+                if !self.covers.contains_key(&url) {
+                    self.covers.insert(url.clone(), Cover::Loading);
                     self.send(Command::Cover(url));
                 }
             }
@@ -825,6 +829,7 @@ impl eframe::App for App {
             library: &self.library,
             playing_list: self.transport.playing_list(),
             browse: &self.browse,
+            covers: &self.covers,
             search: &self.search,
             lastfm: &self.lastfm,
             web_client_id: web_client_id.as_deref(),
