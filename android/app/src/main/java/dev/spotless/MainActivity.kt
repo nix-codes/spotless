@@ -25,9 +25,14 @@ class MainActivity : ComponentActivity() {
         setContent { Screens(core) }
     }
 
+    override fun onStart() {
+        super.onStart()
+        (application as SpotlessApp).core.shown(true)
+    }
+
     override fun onStop() {
         super.onStop()
-        (application as SpotlessApp).core.save()
+        (application as SpotlessApp).core.shown(false)
     }
 }
 

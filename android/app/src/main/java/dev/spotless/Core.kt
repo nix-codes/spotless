@@ -40,6 +40,12 @@ class Core(private val context: Context) : Host {
     var message by mutableStateOf<Message?>(null)
         private set
 
+    /**
+     * An approval page was opened and the app hasn't been back in front
+     * since: Android would cut its network meanwhile (see [keepAlive]).
+     */
+    private var approving = false
+
     /** An update is posted, so wakes meanwhile need no other. */
     private val woken = AtomicBoolean(false)
     private val update = Runnable {
@@ -63,8 +69,15 @@ class Core(private val context: Context) : Host {
         refresh()
     }
 
-    /** Saves now, as the app goes to the background. */
-    fun save() = spotless.save()
+    /** The app is in front, or (false) in the background, where it is saved. */
+    fun shown(inFront: Boolean) {
+        if (inFront) {
+            approving = false
+            refresh()
+        } else {
+            spotless.save()
+        }
+    }
 
     override fun wake() {
         if (woken.compareAndSet(false, true)) main.post(update)
@@ -72,6 +85,8 @@ class Core(private val context: Context) : Host {
 
     override fun open(url: String) {
         main.post {
+            approving = true
+            keepAlive()
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
@@ -98,11 +113,13 @@ class Core(private val context: Context) : Host {
     /**
      * Android freezes an app in the background within seconds: while the
      * browser is in front for a sign-in, the frozen app never answers its
-     * redirect, and with the screen off it loses the network mid-song. The
-     * service keeps it going while either matters.
+     * redirect, and with the screen off it loses the network mid-song. It
+     * also closes the app's connections about five seconds in: a session
+     * made in the browser's time would drop before the app is back. The
+     * service keeps it going while any of that matters.
      */
     private fun keepAlive() {
-        val needed = session == Session.SigningIn ||
+        val needed = approving || session == Session.SigningIn ||
             player.status == Status.PLAYING || player.status == Status.LOADING
         if (needed == PlaybackService.running) return
         val intent = Intent(context, PlaybackService::class.java)
