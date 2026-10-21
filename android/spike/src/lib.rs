@@ -22,6 +22,7 @@ mod playback {
 }
 #[path = "../../../src/spotify"]
 mod spotify {
+    pub mod catalog;
     pub mod session;
 }
 
@@ -37,8 +38,9 @@ use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
 
 use crate::paths::Paths;
+use crate::model::EntryId;
 use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
-use crate::spotify::session;
+use crate::spotify::{catalog, session};
 
 /// Where Android keeps the system's certificate authorities: the updatable
 /// set first (Android 14 on), then the one in the system image.
@@ -52,6 +54,8 @@ struct Spike {
     paths: Paths,
     session: Mutex<Option<Session>>,
     engine: Mutex<Option<Engine>>,
+    /// The songs Play was given, in order; entry i is the song at index i.
+    queue: Mutex<Vec<SpotifyUri>>,
     /// One line for the screen.
     status: Mutex<String>,
     /// The sign-in page, until Java opens it.
@@ -131,6 +135,7 @@ pub extern "system" fn Java_dev_spotless_spike_Native_init(
         paths,
         session: Mutex::default(),
         engine: Mutex::default(),
+        queue: Mutex::default(),
         status: Mutex::new("Starting".into()),
         url: Mutex::default(),
     });
@@ -162,17 +167,14 @@ pub extern "system" fn Java_dev_spotless_spike_Native_play(
     link: JString,
 ) {
     let link: String = env.get_string(&link).map(Into::into).unwrap_or_default();
-    let uri = match SpotifyUri::from_uri(link.trim()) {
-        Ok(uri) => uri,
-        Err(error) => return say(format!("Not a track URI: {error}")),
-    };
     spike().runtime.spawn(async move {
         // Android cuts an idle app's network (screen off, app in the
         // background), and Spotify then drops the session: reconnect with
         // the saved credential first.
+        // Also when there is none: connecting at start may have failed.
         let dropped = lock(&spike().session)
             .as_ref()
-            .is_some_and(|s| s.is_invalid());
+            .is_none_or(|s| s.is_invalid());
         if dropped {
             say("Reconnecting");
             lock(&spike().engine).take();
@@ -182,9 +184,22 @@ pub extern "system" fn Java_dev_spotless_spike_Native_play(
                 Err(error) => return say(format!("Reconnecting failed: {error:#}")),
             }
         }
-        match lock(&spike().engine).as_ref() {
-            Some(engine) => engine.load(uri, 0),
-            None => say("Not signed in"),
+        let Some(session) = lock(&spike().session).clone() else {
+            return say("Not signed in");
+        };
+        // A track, an album or an artist, as the desktop's Add link reads it.
+        let uris: Vec<SpotifyUri> = match catalog::link_tracks(&session, &link).await {
+            Ok(tracks) => tracks
+                .iter()
+                .filter_map(|t| SpotifyUri::from_uri(&t.uri).ok())
+                .collect(),
+            Err(error) => return say(format!("Can't play that: {error:#}")),
+        };
+        log::info!("queue: {} songs", uris.len());
+        *lock(&spike().queue) = uris.clone();
+        if let Some(engine) = lock(&spike().engine).as_ref() {
+            engine.load(uris[0].clone(), 0);
+            follow(engine, 1);
         }
     });
 }
@@ -241,7 +256,17 @@ fn ready(session: Session) {
         EngineEvent::OutputError(message) => say(message),
         EngineEvent::Unavailable => say("That song can't be played"),
         EngineEvent::Ended => say("Ended"),
-        EngineEvent::Followed(_) => {}
+        // The engine started the song it was given to follow: give it the
+        // one after. Not from here: the engine tells this holding its
+        // follow lock, which `Engine::follow` takes too.
+        EngineEvent::Followed(EntryId(i)) => {
+            log::info!("queue: song {} of {}", i + 1, lock(&spike().queue).len());
+            spike().runtime.spawn(async move {
+                if let Some(engine) = lock(&spike().engine).as_ref() {
+                    follow(engine, i as usize + 1);
+                }
+            });
+        }
     });
     match Engine::new(&session, u16::MAX / 2, false, notify) {
         Ok(engine) => {
@@ -251,6 +276,12 @@ fn ready(session: Session) {
         }
         Err(error) => say(format!("No player: {error:#}")),
     }
+}
+
+/// Has the engine follow the playing song with the queue's song at `i`.
+fn follow(engine: &Engine, i: usize) {
+    let next = lock(&spike().queue).get(i).cloned();
+    engine.follow(next.map(|uri| (EntryId(i as u64), uri)));
 }
 
 fn describe(snapshot: &PlayerSnapshot) -> String {

@@ -3,17 +3,19 @@ package dev.spotless.spike;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-/** One screen: sign in, a track URI, Play, Pause, Resume, and the status. */
+/** One screen: sign in, a track, album or artist link, Play, Pause, Resume, and the status. */
 public final class SpikeActivity extends Activity {
     private static final String TRACK = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
 
@@ -42,11 +44,27 @@ public final class SpikeActivity extends Activity {
 
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(48, 160, 48, 48);
+        // Android 15 draws under the system bars: keep clear of them.
+        layout.setOnApplyWindowInsetsListener((view, insets) -> {
+            int top, bottom;
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = insets.getInsets(
+                    WindowInsets.Type.systemBars() | WindowInsets.Type.ime());
+                top = bars.top;
+                bottom = bars.bottom;
+            } else {
+                top = insets.getSystemWindowInsetTop();
+                bottom = insets.getSystemWindowInsetBottom();
+            }
+            view.setPadding(48, top + 48, 48, bottom + 48);
+            return insets;
+        });
         status = new TextView(this);
         status.setTextSize(18);
+        // The last link played, kept between starts.
+        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
         EditText track = new EditText(this);
-        track.setText(TRACK);
+        track.setText(prefs.getString("link", TRACK));
         track.setSingleLine();
         layout.addView(status);
         layout.addView(track);
@@ -60,7 +78,9 @@ public final class SpikeActivity extends Activity {
         }));
         layout.addView(button("Play", () -> {
             startForegroundService(new Intent(this, SpikeService.class));
-            Native.play(track.getText().toString());
+            String link = track.getText().toString();
+            prefs.edit().putString("link", link).apply();
+            Native.play(link);
         }));
         layout.addView(button("Pause", Native::pause));
         layout.addView(button("Resume", Native::resume));

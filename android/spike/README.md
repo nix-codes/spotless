@@ -44,8 +44,18 @@ All five work. Along the way:
   credential when the session is gone.
 - The sign-in page can't bring the app back: you switch to it yourself.
 
-Not checked: Doze with the phone unplugged (it was charging over USB), and
-fetching a second song after minutes with the screen off.
+Then on battery and in deep Doze, forced with `adb shell dumpsys battery
+unplug` and `dumpsys deviceidle force-idle` (undone with `battery reset`
+and `deviceidle unforce`): with the screen locked, an album played on song
+after song, each fetched over the network half a minute before the one
+playing ended, without a gap.
+
+- **`Engine` tells `Followed` holding its follow lock** (`engine.rs`,
+  `match lock(&follow).take()`), so answering it with `Engine::follow` from
+  the notify hook deadlocks. The desktop answers later, from the UI, but a
+  port that reacts in the hook has to do it on another task.
+- A forced Doze stays on after the phone is unlocked, network cut and all,
+  until `deviceidle unforce`.
 
 ## Stopgaps the port would replace
 
