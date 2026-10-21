@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -213,7 +214,8 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
             }
             if (id != 0UL && !clearing) {
                 TextButton(if (deleting) "DELETE ${songs(tab.songs.toInt())}?" else "DELETE", {
-                    if (deleting) {
+                    // An empty playlist has nothing to lose: no second ask.
+                    if (deleting || tab.songs == 0u) {
                         core.apply(Action.ClosePlaylist(id))
                         done()
                     } else {
@@ -237,8 +239,16 @@ private fun Summary(core: Core, selecting: Boolean) {
         list != null -> "${songs(list.songs.size)} · ${clock(list.durationMs.toLong())}"
         else -> ""
     }
+    // CLEAR asks once more, and stops asking after a while.
+    var clearing by remember(list?.id) { mutableStateOf(false) }
+    LaunchedEffect(clearing) {
+        if (clearing) {
+            delay(4000)
+            clearing = false
+        }
+    }
     Row(
-        Modifier.fillMaxWidth().height(32.dp).padding(horizontal = 16.dp),
+        Modifier.fillMaxWidth().height(40.dp).padding(start = 16.dp, end = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -247,11 +257,24 @@ private fun Summary(core: Core, selecting: Boolean) {
         val message = core.message
         val hint = if (list?.songs?.isNotEmpty() == true) "HOLD A SONG TO SELECT" else ""
         Line(
-            message?.text ?: hint,
+            if (clearing) "" else message?.text ?: hint,
             label(12.sp, if (message?.error == true) Color(0xFFFFB000) else Classic.label, 0.02.em)
                 .copy(textAlign = TextAlign.End),
             Modifier.weight(1f),
         )
+        if (list != null && list.songs.isNotEmpty()) {
+            ChromeButton({
+                if (clearing) {
+                    core.clear(list.id)
+                    clearing = false
+                } else {
+                    clearing = true
+                }
+            }, Modifier.height(32.dp), on = clearing) {
+                val words = if (clearing) "CLEAR ${songs(list.songs.size)}?" else "CLEAR"
+                BasicText(words, style = label(11.sp, if (clearing) Classic.lcd else Classic.chrome))
+            }
+        }
     }
 }
 
