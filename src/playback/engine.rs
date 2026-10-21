@@ -9,8 +9,9 @@
 //! it when librespot asks, and starts it the moment the playing song ends,
 //! so songs follow each other without a gap (`super::transport`).
 //!
-//! Volume levelling is fixed when a librespot player is made, so changing it
-//! makes a new player that picks up the song where the old one was.
+//! Volume levelling and the session are fixed when a librespot player is
+//! made, so changing either makes a new player that picks up the song where
+//! the old one was.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -142,6 +143,19 @@ impl Engine {
             return;
         }
         self.levelling = on;
+        self.restart_player();
+    }
+
+    /// Plays on a new session, for one that dropped, with a new player that
+    /// goes on as `set_levelling`'s does.
+    pub fn set_session(&mut self, session: &Session) {
+        self.session = session.clone();
+        self.restart_player();
+    }
+
+    /// Replaces the player with one that picks up the song where the old one
+    /// was, playing or paused, followed by the same song.
+    fn restart_player(&mut self) {
         let state = lock(&self.state).clone();
         self.live.store(false, Ordering::SeqCst);
         self.player.stop();
@@ -150,7 +164,7 @@ impl Engine {
         self.player = start_player(
             &self.session,
             &self.mixer,
-            on,
+            self.levelling,
             &self.follow,
             &self.state,
             &self.live,
