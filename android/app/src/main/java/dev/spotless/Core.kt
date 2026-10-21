@@ -24,21 +24,6 @@ import dev.spotless.core.Status
  */
 class Core(private val context: Context) : Host {
     private val main = Handler(Looper.getMainLooper())
-    private val spotless = Spotless(context.filesDir.path, context.cacheDir.path, this)
-
-    var session by mutableStateOf<Session>(Session.Connecting)
-        private set
-    var player by mutableStateOf(spotless.player())
-        private set
-    var tabs by mutableStateOf(spotless.tabs())
-        private set
-    /** The playlist the tabs show. */
-    var playlist by mutableStateOf<PlaylistView?>(null)
-        private set
-    var browse by mutableStateOf(spotless.browse())
-        private set
-    var message by mutableStateOf<Message?>(null)
-        private set
 
     /**
      * An approval page was opened and the app hasn't been back in front
@@ -59,6 +44,24 @@ class Core(private val context: Context) : Host {
             if (player.status == Status.PLAYING) main.postDelayed(this, 500)
         }
     }
+
+    // After what wake() uses: the core's thread may call it before the
+    // constructor is done.
+    private val spotless = Spotless(context.filesDir.path, context.cacheDir.path, this)
+
+    var session by mutableStateOf<Session>(Session.Connecting)
+        private set
+    var player by mutableStateOf(spotless.player())
+        private set
+    var tabs by mutableStateOf(spotless.tabs())
+        private set
+    /** The playlist the tabs show. */
+    var playlist by mutableStateOf<PlaylistView?>(null)
+        private set
+    var browse by mutableStateOf(spotless.browse())
+        private set
+    var message by mutableStateOf<Message?>(null)
+        private set
 
     init {
         refresh()
