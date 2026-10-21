@@ -52,6 +52,9 @@ class Core(private val context: Context) : Host {
     // constructor is done.
     private val spotless = Spotless(context.filesDir.path, context.cacheDir.path, this)
 
+    /** The media session, audio focus and the service's notification. */
+    val media = Media(context, ::apply)
+
     var session by mutableStateOf<Session>(Session.Connecting)
         private set
     var player by mutableStateOf(spotless.player())
@@ -110,6 +113,7 @@ class Core(private val context: Context) : Host {
         browse = spotless.browse()
         message = spotless.message()
         settings = spotless.settings()
+        media.update(player)
         main.removeCallbacks(tick)
         if (player.status == Status.PLAYING) main.postDelayed(tick, 500)
         if (saveIn != null) {
