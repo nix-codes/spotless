@@ -5,7 +5,7 @@
 //! 8 s before its end, hands over the second, and waits for the switch,
 //! then lets the second end with nothing to follow.
 //!
-//!   cargo run --example follow_probe -- [album link]
+//!   cargo run -p spotless-core --example follow_probe -- [album link]
 //!
 //! Sign in through the app first: this reuses its saved credential.
 
@@ -14,10 +14,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use librespot_core::SpotifyUri;
-use spotless::model::EntryId;
-use spotless::paths::Paths;
-use spotless::playback::engine::{Engine, EngineEvent, Status};
-use spotless::spotify::{catalog, session};
+use spotless_core::model::EntryId;
+use spotless_core::paths::Paths;
+use spotless_core::playback::engine::{Engine, EngineEvent, Status};
+use spotless_core::spotify::{catalog, session};
 use tokio::sync::mpsc;
 
 /// Boards of Canada, Music Has the Right to Children.

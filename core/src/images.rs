@@ -19,9 +19,17 @@ pub fn cache_path(dir: &Path, url: &str) -> Option<PathBuf> {
     safe.then(|| dir.join(format!("{id}.jpg")))
 }
 
+/// A cover's pixels, 8-bit RGBA row by row, not premultiplied.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CoverImage {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
 /// The cover at `url`, from the cache or downloaded into it, at
 /// [`COVER_SIZE`].
-pub async fn cover(http: &reqwest::Client, dir: &Path, url: &str) -> Result<egui::ColorImage> {
+pub async fn cover(http: &reqwest::Client, dir: &Path, url: &str) -> Result<CoverImage> {
     let path = cache_path(dir, url).context("not a cover URL")?;
     let bytes = match tokio::fs::read(&path).await {
         Ok(bytes) => bytes,
@@ -61,7 +69,7 @@ async fn save(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn shrink(bytes: &[u8]) -> Result<egui::ColorImage> {
+fn shrink(bytes: &[u8]) -> Result<CoverImage> {
     let image = image::load_from_memory(bytes).context("not an image")?;
     let image = image
         .resize_to_fill(
@@ -70,11 +78,11 @@ fn shrink(bytes: &[u8]) -> Result<egui::ColorImage> {
             image::imageops::FilterType::Triangle,
         )
         .to_rgba8();
-    let size = [image.width() as usize, image.height() as usize];
-    Ok(egui::ColorImage::from_rgba_unmultiplied(
-        size,
-        image.as_raw(),
-    ))
+    Ok(CoverImage {
+        width: image.width(),
+        height: image.height(),
+        rgba: image.into_raw(),
+    })
 }
 
 #[cfg(test)]
@@ -106,6 +114,7 @@ mod tests {
             .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
         let cover = shrink(&png).unwrap();
-        assert_eq!(cover.size, [COVER_SIZE as usize, COVER_SIZE as usize]);
+        assert_eq!((cover.width, cover.height), (COVER_SIZE, COVER_SIZE));
+        assert_eq!(cover.rgba.len(), (COVER_SIZE * COVER_SIZE * 4) as usize);
     }
 }

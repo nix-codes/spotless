@@ -1,17 +1,14 @@
 //! Spotless: a minimal Spotify player in the spirit of Winamp.
+//!
+//! The desktop app: the window, the tray, media keys and skins around
+//! `spotless-core`, whose modules are re-exported here as they were.
 
-pub mod action;
+pub use spotless_core::{
+    action, backend, browse, controller, images, lastfm, model, paths, playback, spotify, store,
+};
+
 pub mod app;
-pub mod backend;
-pub mod browse;
-pub mod images;
-pub mod lastfm;
 pub mod media;
-pub mod model;
-pub mod paths;
-pub mod playback;
 pub mod skin;
-pub mod spotify;
-pub mod store;
 pub mod tray;
 pub mod ui;

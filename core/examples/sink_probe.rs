@@ -4,7 +4,7 @@
 //! outputs are chosen by device (Windows), the sink reopens on each new
 //! choice; the log says which device it opened.
 //!
-//!   RUST_LOG=info cargo run --example sink_probe -- [output name]
+//!   RUST_LOG=info cargo run -p spotless-core --example sink_probe -- [output name]
 //!
 //! Without a name it chooses the first output listed.
 
@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use librespot_playback::audio_backend::Sink;
 use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
-use spotless::playback::outputs;
-use spotless::playback::sink::RodioSink;
+use spotless_core::playback::outputs;
+use spotless_core::playback::sink::RodioSink;
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();

@@ -9,16 +9,16 @@
 //!    `~/.config/spotless/settings.json`. Opens the browser for approval on
 //!    port 8989, so spotifast must be closed.
 //!
-//!   cargo run --example catalog_probe -- [artist URI or link] [search text]
-//!   cargo run --example catalog_probe -- --personal [search text]
+//!   cargo run -p spotless-core --example catalog_probe -- [artist URI or link] [search text]
+//!   cargo run -p spotless-core --example catalog_probe -- --personal [search text]
 //!
 //! Sign in through the app first: this reuses its saved credential.
 //! Tokens are never printed.
 
 use anyhow::{Context, Result, bail};
 use librespot_core::session::Session;
-use spotless::paths::Paths;
-use spotless::spotify::{catalog, session};
+use spotless_core::paths::Paths;
+use spotless_core::spotify::{catalog, session};
 
 /// Boards of Canada.
 const DEFAULT_ARTIST: &str = "spotify:artist:2VAvhf61GgLYmC6C8anyX1";
@@ -98,11 +98,11 @@ async fn discography(session: &Session, artist: &str) -> Result<()> {
     if let Some(url) = releases.iter().find_map(|r| r.cover.clone()) {
         let started = std::time::Instant::now();
         let paths = Paths::new()?;
-        match spotless::images::cover(&reqwest::Client::new(), &paths.covers(), &url).await {
+        match spotless_core::images::cover(&reqwest::Client::new(), &paths.covers(), &url).await {
             Ok(image) => println!(
                 "== First cover: {}x{} in {:.2}s ({url})",
-                image.size[0],
-                image.size[1],
+                image.width,
+                image.height,
                 started.elapsed().as_secs_f32()
             ),
             Err(error) => println!("== First cover FAILED: {error:#} ({url})"),

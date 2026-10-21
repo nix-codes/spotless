@@ -13,6 +13,7 @@ pub struct Paths {
 }
 
 impl Paths {
+    /// The user's own folders, in a `spotless` folder each.
     pub fn new() -> Result<Self> {
         let config = dirs::config_dir()
             .context("no configuration folder for this user")?
@@ -20,6 +21,12 @@ impl Paths {
         let cache = dirs::cache_dir()
             .context("no cache folder for this user")?
             .join("spotless");
+        Self::from_dirs(config, cache)
+    }
+
+    /// These folders, as they are: for a system that gives the app folders
+    /// of its own, such as Android. They are made if missing.
+    pub fn from_dirs(config: PathBuf, cache: PathBuf) -> Result<Self> {
         for dir in [&config, &cache] {
             std::fs::create_dir_all(dir)
                 .with_context(|| format!("unable to create {}", dir.display()))?;
@@ -61,5 +68,21 @@ impl Paths {
     /// librespot writes the reusable playback credential here.
     pub fn credentials(&self) -> PathBuf {
         self.config.join("credentials.json")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Paths;
+
+    #[test]
+    fn given_folders_are_used_as_they_are_and_made() {
+        let root = std::env::temp_dir().join(format!("spotless-paths-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let paths = Paths::from_dirs(root.join("files"), root.join("cache")).unwrap();
+        assert!(root.join("files").is_dir() && root.join("cache").is_dir());
+        assert_eq!(paths.settings(), root.join("files/settings.json"));
+        assert_eq!(paths.audio_cache(), root.join("cache/audio"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

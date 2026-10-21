@@ -19,14 +19,6 @@ pub enum Page {
     Artist(String),
 }
 
-/// An album cover, by image URL.
-#[derive(Clone)]
-pub enum Cover {
-    Loading,
-    Ready(egui::TextureHandle),
-    Failed,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum Loadable<T> {
     Loading,
@@ -53,7 +45,6 @@ pub struct Browse {
     pub flash: Vec<(EntryId, Instant)>,
     /// Covers show next to albums.
     pub show_covers: bool,
-    pub covers: HashMap<String, Cover>,
 }
 
 impl Browse {
@@ -71,7 +62,6 @@ impl Browse {
             target,
             flash: Vec::new(),
             show_covers,
-            covers: HashMap::new(),
         }
     }
 

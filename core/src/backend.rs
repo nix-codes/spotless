@@ -1,18 +1,22 @@
 //! The bridge between the UI thread and asynchronous work.
 //!
-//! egui runs on the main thread and must never block. A tokio runtime on its
-//! own thread hosts the session, the player and catalogue reads. The UI sends
-//! [`Command`]s; the worker answers with [`Event`]s and wakes the UI with
-//! `request_repaint`, so the app stays idle when nothing happens.
+//! The UI runs on the main thread and must never block. A tokio runtime on
+//! its own thread hosts the session, the player and catalogue reads. The UI
+//! sends [`Command`]s; the worker answers with [`Event`]s and wakes the UI
+//! with the callback it was started with (egui's `request_repaint` on the
+//! desktop), so the app stays idle when nothing happens.
 
 use std::sync::Arc;
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio::time::MissedTickBehavior;
 
+use crate::images::CoverImage;
 use crate::lastfm::{self, LastFmState, Scrobbler, api::Keys};
 use crate::model::catalog::{Discography, SearchResults};
 use crate::model::{EntryId, PlaylistId, TrackRef};
@@ -119,7 +123,7 @@ pub enum Event {
     },
     Cover {
         url: String,
-        result: Result<egui::ColorImage, String>,
+        result: Result<CoverImage, String>,
     },
     Storage(Storage),
     LastFm(LastFmState),
@@ -139,7 +143,13 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn start(paths: Paths, volume: u16, levelling: bool, ctx: egui::Context) -> Result<Self> {
+    /// `wake` is called after every event, from the worker's thread.
+    pub fn start(
+        paths: Paths,
+        volume: u16,
+        levelling: bool,
+        wake: impl Fn() + Send + Sync + 'static,
+    ) -> Result<Self> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .thread_name("spotless-backend")
@@ -148,7 +158,7 @@ impl Backend {
         let (sender, events) = mpsc::channel();
         let emit: Emit = Arc::new(move |event| {
             let _ = sender.send(event);
-            ctx.request_repaint();
+            wake();
         });
         std::thread::Builder::new()
             .name("spotless-runtime".into())
@@ -156,6 +166,15 @@ impl Backend {
                 runtime.block_on(Worker::new(paths, volume, levelling, emit).run(receiver));
             })?;
         Ok(Self { commands, events })
+    }
+
+    /// A backend with no worker, for tests: the commands it is sent come out
+    /// of the receiver, and the events put in the sender come in.
+    #[cfg(test)]
+    pub fn detached() -> (Self, UnboundedReceiver<Command>, mpsc::Sender<Event>) {
+        let (commands, receiver) = unbounded_channel();
+        let (sender, events) = mpsc::channel();
+        (Self { commands, events }, receiver, sender)
     }
 
     pub fn send(&self, command: Command) {
@@ -166,6 +185,16 @@ impl Backend {
 }
 
 type Emit = Arc<dyn Fn(Event) + Send + Sync>;
+
+/// How often the session is checked for having dropped. librespot notices
+/// a lost connection itself, within about a minute and a half, but says
+/// nothing.
+const CHECK_SESSION: Duration = Duration::from_secs(10);
+/// How long a reconnection may take before it is tried again later.
+const RECONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+/// The waits between reconnections that can't reach Spotify, doubling.
+const RETRY_FIRST: Duration = Duration::from_secs(5);
+const RETRY_MOST: Duration = Duration::from_secs(120);
 
 /// Search signs in with the personal app, a second approval besides
 /// playback's (see `spotify/webapi.rs`). It runs when Spotless signs in, or
@@ -215,6 +244,10 @@ struct Worker {
     http: reqwest::Client,
     /// Limits cover downloads running at once.
     cover_slots: Arc<tokio::sync::Semaphore>,
+    /// After a failed reconnection: no new one before then.
+    retry_at: Option<Instant>,
+    /// The wait after the next failed reconnection.
+    retry_wait: Duration,
 }
 
 impl Worker {
@@ -231,6 +264,8 @@ impl Worker {
             search_approval: Arc::default(),
             http: reqwest::Client::new(),
             cover_slots: Arc::new(tokio::sync::Semaphore::new(6)),
+            retry_at: None,
+            retry_wait: RETRY_FIRST,
         }
     }
 
@@ -254,9 +289,76 @@ impl Worker {
             Ok(None) => (self.emit)(Event::Session(SessionState::SignedOut)),
             Err(error) => (self.emit)(Event::Session(SessionState::Failed(format!("{error:#}")))),
         }
-        while let Some(command) = commands.recv().await {
-            self.handle(command).await;
+        let mut check = tokio::time::interval(CHECK_SESSION);
+        check.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                command = commands.recv() => {
+                    let Some(command) = command else { break };
+                    // Signing in or out makes a session dropped or not.
+                    if !matches!(command, Command::SignIn | Command::SignOut) {
+                        self.reconnect_if_dropped().await;
+                    }
+                    self.handle(command).await;
+                }
+                _ = check.tick() => self.reconnect_if_dropped().await,
+            }
         }
+    }
+
+    /// Replaces a session Spotify dropped (the network went, or the computer
+    /// slept) with a new one on the saved credential, and moves the engine
+    /// onto it, going on with the song. Quietly: the interface stays signed
+    /// in, unless Spotify refuses the credential.
+    async fn reconnect_if_dropped(&mut self) {
+        if !self.session.as_ref().is_some_and(Session::is_invalid)
+            || self.retry_at.is_some_and(|at| Instant::now() < at)
+        {
+            return;
+        }
+        log::info!("the session dropped; reconnecting");
+        let restored = tokio::time::timeout(RECONNECT_TIMEOUT, session::restore(&self.paths))
+            .await
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("Spotify took too long to answer")));
+        match restored {
+            Ok(Some(session)) => {
+                log::info!("reconnected");
+                self.retry_at = None;
+                self.retry_wait = RETRY_FIRST;
+                if let Some(engine) = &mut self.engine {
+                    engine.set_session(&session);
+                }
+                self.session = Some(session);
+            }
+            // The credential was removed meanwhile.
+            Ok(None) => self.drop_session(SessionState::SignedOut),
+            Err(error) if session::refused(&error) => {
+                log::warn!("reconnecting refused: {error:#}");
+                self.drop_session(SessionState::Failed(format!("{error:#}")));
+            }
+            Err(error) => {
+                log::warn!(
+                    "unable to reconnect, trying again in {}s: {error:#}",
+                    self.retry_wait.as_secs()
+                );
+                self.retry_at = Some(Instant::now() + self.retry_wait);
+                self.retry_wait = (self.retry_wait * 2).min(RETRY_MOST);
+            }
+        }
+    }
+
+    /// Stops playing and lets the session go, then tells the interface why.
+    fn drop_session(&mut self, why: SessionState) {
+        if let Some(engine) = self.engine.take() {
+            engine.stop();
+        }
+        if let Some(session) = self.session.take() {
+            session.shutdown();
+        }
+        self.retry_at = None;
+        self.retry_wait = RETRY_FIRST;
+        (self.emit)(Event::Player(PlayerSnapshot::default()));
+        (self.emit)(Event::Session(why));
     }
 
     /// Search signs in with this personal app from now on.
@@ -317,6 +419,8 @@ impl Worker {
                 }));
                 self.engine = Some(engine);
                 self.session = Some(session);
+                self.retry_at = None;
+                self.retry_wait = RETRY_FIRST;
             }
             Err(error) => (self.emit)(Event::Session(SessionState::Failed(format!("{error:#}")))),
         }
@@ -338,15 +442,8 @@ impl Worker {
                 }
             }
             Command::SignOut => {
-                if let Some(engine) = self.engine.take() {
-                    engine.stop();
-                }
-                if let Some(session) = self.session.take() {
-                    session.shutdown();
-                }
                 session::sign_out(&self.paths);
-                (self.emit)(Event::Player(PlayerSnapshot::default()));
-                (self.emit)(Event::Session(SessionState::SignedOut));
+                self.drop_session(SessionState::SignedOut);
             }
             Command::AddLink { text, playlist } => {
                 let Some(session) = self.session.clone() else {

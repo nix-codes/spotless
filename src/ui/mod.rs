@@ -13,6 +13,8 @@ mod skinned_strip;
 pub mod theme;
 pub mod widgets;
 
+use std::collections::HashMap;
+
 use egui::{Align2, FontId, Rect, RichText, Ui, UiBuilder, ViewportCommand, vec2};
 
 use crate::action::Action;
@@ -23,6 +25,7 @@ use crate::playback::engine::PlayerSnapshot;
 use crate::playback::outputs::Output;
 use crate::skin::format::State;
 use crate::store::Settings;
+pub use browse_view::Cover;
 use theme::Palette;
 use widgets::text_button;
 
@@ -43,6 +46,8 @@ pub struct View<'a> {
     /// The playlist a song of is loaded from.
     pub playing_list: Option<PlaylistId>,
     pub browse: &'a Browse,
+    /// The album covers fetched or being fetched, by image URL.
+    pub covers: &'a HashMap<String, Cover>,
     pub search: &'a SearchState,
     pub lastfm: &'a crate::lastfm::LastFmState,
     /// The personal app search signs in with.

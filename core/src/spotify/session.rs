@@ -4,7 +4,8 @@
 //! librespot streams with, through the browser (Authorization Code + PKCE on
 //! a loopback port). The one-time access token is exchanged by the session
 //! for a reusable credential, which librespot's cache stores in the config
-//! folder. Later starts reconnect with that credential and no browser.
+//! folder. Later starts reconnect with that credential and no browser, as
+//! does the backend when a session drops (librespot can't reuse one).
 //!
 //! The credential is kept in a private file in the config folder.
 
@@ -57,6 +58,14 @@ pub async fn restore(paths: &Paths) -> Result<Option<Session>> {
         .await
         .context("unable to connect to Spotify")?;
     Ok(Some(session))
+}
+
+/// Whether a failed `restore` was Spotify refusing the saved credential,
+/// rather than not being reached: signing in again is the only way on.
+pub fn refused(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<librespot_core::Error>()
+        .is_some_and(|e| e.kind == librespot_core::error::ErrorKind::PermissionDenied)
 }
 
 /// Opens the browser for Spotify's approval, then connects and saves the

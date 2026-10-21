@@ -1,31 +1,26 @@
-//! The application: owns the state, draws the views, then applies their
+//! The desktop application: the window, the tray, media keys and skins
+//! around the shared [`Controller`]. It draws the views, then applies their
 //! actions.
 
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::action::Action;
-use crate::backend::{Backend, Command, Event, SearchState, SessionState, Storage};
-use crate::browse::{Browse, Cover, Loadable, Page};
-use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
+use crate::backend::{Command, Event};
+use crate::controller::Controller;
 use crate::media::{EventHook, MediaControls, MediaEvent, NowPlaying};
-use crate::model::{Library, Playback, PlaylistId, TrackRef};
+use crate::model::PlaylistId;
 use crate::paths::Paths;
-use crate::playback::engine::{PlayerSnapshot, Status};
-use crate::playback::outputs::Output;
-use crate::playback::transport::{Request, Transport};
+use crate::playback::engine::Status;
 use crate::skin::format;
-use crate::store::{self, Settings, Tabs};
+use crate::store;
 use crate::tray::{Tray, TrayState};
 use crate::ui::skin_paint::SkinPaint;
-use crate::ui::{self, Inputs, View, theme::Palette};
-
-/// Changes are saved this long after the last one.
-const SAVE_DELAY: Duration = Duration::from_secs(1);
+use crate::ui::{self, Cover, Inputs, View, theme::Palette};
 
 pub struct App {
-    paths: Paths,
-    backend: Option<Backend>,
+    controller: Controller,
     palette: Palette,
     ctx: egui::Context,
     /// The skin's pieces, when it has any.
@@ -34,25 +29,9 @@ pub struct App {
     skin_note: Option<String>,
     /// Why the chosen skin couldn't be read.
     skin_error: Option<String>,
-    session: SessionState,
-    player: PlayerSnapshot,
-    error: Option<String>,
-    notice: Option<String>,
     inputs: Inputs,
-    library: Library,
-    transport: Transport,
-    /// The playlist shown in the editor.
-    viewed: PlaylistId,
-    settings: Settings,
-    /// When the first unsaved change was made.
-    unsaved: Option<Instant>,
-    browse: Browse,
-    search: SearchState,
-    lastfm: LastFmState,
-    /// What the caches hold, once measured.
-    storage: Option<Storage>,
-    /// The audio outputs, once listed; None when they can't be.
-    outputs: Loadable<Option<Vec<Output>>>,
+    /// The album covers fetched or being fetched, by image URL.
+    covers: HashMap<String, Cover>,
     media: MediaControls,
     media_events: std::sync::mpsc::Receiver<MediaEvent>,
     /// Where the media keys and the tray send their events.
@@ -62,23 +41,18 @@ pub struct App {
     window_hidden: bool,
     /// Quitting for real: closing the window doesn't hide it.
     quitting: bool,
-    /// Albums whose songs go to a playlist (at an index, or at the end)
-    /// once they are read.
-    pending_adds: Vec<(String, PlaylistId, Option<usize>)>,
 }
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, paths: Paths) -> Self {
-        let settings = Settings::load(&paths);
+        let controller = Controller::new(paths, {
+            let ctx = cc.egui_ctx.clone();
+            move || ctx.request_repaint()
+        });
+        let settings = &controller.state().settings;
         let palette = Palette::CLASSIC;
         palette.apply(&cc.egui_ctx);
         cc.egui_ctx.set_zoom_factor(settings.zoom);
-        let (library, tabs) = store::load_library(&paths);
-        let covers = settings.covers;
-        let viewed = tabs.viewed.or(tabs.playing).unwrap_or(PlaylistId::DEFAULT);
-        let mut playback = Playback::new(seed());
-        playback.repeat = settings.repeat;
-        playback.set_shuffle(settings.shuffle);
 
         let (media_sender, media_events) = std::sync::mpsc::channel();
         let ctx = cc.egui_ctx.clone();
@@ -92,179 +66,68 @@ impl App {
         } else {
             None
         };
-
-        let volume = volume_level(settings.volume);
-        let started = Backend::start(
-            paths.clone(),
-            volume,
-            settings.levelling,
-            cc.egui_ctx.clone(),
-        );
-        let (backend, session) = match started {
-            Ok(backend) => (Some(backend), SessionState::Connecting),
-            Err(error) => (None, SessionState::Failed(format!("{error:#}"))),
+        let inputs = Inputs {
+            volume: settings.volume,
+            ..Inputs::default()
         };
         let mut app = Self {
-            backend,
+            controller,
             palette,
             ctx: cc.egui_ctx.clone(),
             art: None,
             skin_note: None,
             skin_error: None,
-            session,
-            player: PlayerSnapshot::default(),
-            error: None,
-            notice: None,
-            inputs: Inputs {
-                volume: settings.volume,
-                ..Inputs::default()
-            },
-            library,
-            transport: Transport::new(playback),
-            viewed,
-            settings,
-            unsaved: None,
-            browse: Browse::new(viewed, covers),
-            search: SearchState::SignedOut,
-            lastfm: LastFmState::default(),
-            storage: None,
-            outputs: Loadable::Loading,
-            pending_adds: Vec::new(),
+            inputs,
+            covers: HashMap::new(),
             media,
             media_events,
             media_hook,
             tray,
             window_hidden: false,
             quitting: false,
-            paths,
         };
         // A skin from the skins folder of an older Spotless is gone:
         // Spotless Classic takes its place.
-        if app.settings.skin.as_deref() != Some(format::built_in::WINAMP_CLASSIC_KEY) {
-            app.settings.skin = None;
-        }
-        let skin = app.settings.skin.clone();
+        let skin = app.controller.state().settings.skin.clone();
+        let skin = match skin.as_deref() {
+            None | Some(format::built_in::WINAMP_CLASSIC_KEY) => skin,
+            Some(_) => {
+                app.controller.settings_mut().skin = None;
+                None
+            }
+        };
         if let Err(error) = app.use_skin(skin.as_deref()) {
             app.skin_error = Some(error);
         }
         app
     }
 
+    /// Takes in the backend's news; covers become textures here.
     fn receive(&mut self, ctx: &egui::Context) {
-        let Some(backend) = &self.backend else { return };
-        let events: Vec<Event> = backend.events.try_iter().collect();
-        for event in events {
-            match event {
-                Event::Session(state) => {
-                    self.error = None;
-                    if !matches!(state, SessionState::Ready { .. }) {
-                        // The engine is gone with the session.
-                        self.transport.stop(&mut self.library);
-                        self.player = PlayerSnapshot::default();
-                    }
-                    self.session = state;
-                }
-                Event::Player(snapshot) => {
-                    if snapshot.error.is_some() {
-                        self.error = snapshot.error.clone();
-                    }
-                    self.player = snapshot;
-                }
-                Event::Followed(entry) => {
-                    let requests = self.transport.followed(&mut self.library, entry);
-                    self.changed(requests);
-                }
-                Event::Ended => {
-                    let requests = self.transport.ended(&mut self.library);
-                    self.changed(requests);
-                }
-                Event::Unavailable => {
-                    let requests = self.transport.unavailable(&mut self.library);
-                    self.changed(requests);
-                }
-                Event::Tracks { playlist, tracks } => self.insert_tracks(playlist, None, tracks),
-                Event::Search(state) => self.search = state,
-                Event::LastFm(state) => {
-                    if self.lastfm.status == LastFmStatus::SigningIn
-                        && let LastFmStatus::Connected { user } = &state.status
-                    {
-                        self.notice = Some(format!("Scrobbling to Last.fm as {user}."));
-                    }
-                    self.lastfm = state;
-                }
-                Event::Storage(storage) => self.storage = Some(storage),
-                Event::Outputs(outputs) => self.outputs = Loadable::Ready(outputs),
-                Event::Cover { url, result } => {
-                    let cover = match result {
-                        Ok(image) => Cover::Ready(ctx.load_texture(
-                            &url,
-                            image,
-                            egui::TextureOptions::LINEAR,
-                        )),
-                        Err(_) => Cover::Failed,
-                    };
-                    self.browse.covers.insert(url, cover);
-                }
-                Event::SearchResults { query, results } => {
-                    let loaded = match results {
-                        Ok(results) => Loadable::Ready(results),
-                        Err(error) => Loadable::Failed(error),
-                    };
-                    self.browse.searches.insert(query, loaded);
-                }
-                Event::Discography { artist, result } => {
-                    let loaded = match result {
-                        Ok(discography) => {
-                            self.browse.visited(discography.artist.clone());
-                            Loadable::Ready(discography)
-                        }
-                        Err(error) => Loadable::Failed(error),
-                    };
-                    self.browse.artists.insert(artist, loaded);
-                }
-                Event::Album { album, result } => {
-                    let pending: Vec<(PlaylistId, Option<usize>)> = self
-                        .pending_adds
-                        .iter()
-                        .filter(|(uri, _, _)| *uri == album)
-                        .map(|(_, list, at)| (*list, *at))
-                        .collect();
-                    self.pending_adds.retain(|(uri, _, _)| *uri != album);
-                    match result {
-                        Ok(tracks) => {
-                            for (list, at) in pending {
-                                self.insert_tracks(list, at, tracks.clone());
-                            }
-                            self.browse.albums.insert(album, Loadable::Ready(tracks));
-                        }
-                        Err(error) => {
-                            if !pending.is_empty() {
-                                self.error = Some(error.clone());
-                            }
-                            self.browse.albums.insert(album, Loadable::Failed(error));
-                        }
-                    }
-                }
-                Event::Error(message) => self.error = Some(message),
+        for event in self.controller.receive() {
+            if let Event::Cover { url, result } = event {
+                let cover = match result {
+                    Ok(image) => Cover::Ready(ctx.load_texture(
+                        &url,
+                        egui::ColorImage::from_rgba_unmultiplied(
+                            [image.width as usize, image.height as usize],
+                            &image.rgba,
+                        ),
+                        egui::TextureOptions::LINEAR,
+                    )),
+                    Err(_) => Cover::Failed,
+                };
+                self.covers.insert(url, cover);
             }
         }
     }
 
+    /// The desktop's own actions; the rest go to the controller.
     fn apply(&mut self, action: Action) {
-        let paused = self.player.status == Status::Paused;
-        let position = self.player.position_now();
-        let library = &mut self.library;
-        let viewed = self.viewed;
-        let requests = match action {
-            Action::SignIn => return self.send(Command::SignIn),
-            Action::SignOut => return self.send(Command::SignOut),
-            Action::Quit => {
-                self.quitting = true;
-                return;
-            }
+        match action {
+            Action::Quit => self.quitting = true,
             Action::SetTray(on) => {
-                self.settings.tray = on;
-                self.mark_unsaved();
+                self.controller.settings_mut().tray = on;
                 self.tray = if on {
                     self.tray
                         .take()
@@ -272,329 +135,45 @@ impl App {
                 } else {
                     None
                 };
-                return;
             }
-            Action::SetSkin(skin) => {
-                match self.use_skin(skin.as_deref()) {
-                    Ok(()) => {
-                        self.skin_error = None;
-                        self.settings.skin = skin;
-                        self.mark_unsaved();
-                    }
-                    Err(error) => self.skin_error = Some(error),
+            Action::SetSkin(skin) => match self.use_skin(skin.as_deref()) {
+                Ok(()) => {
+                    self.skin_error = None;
+                    self.controller.settings_mut().skin = skin;
                 }
-                return;
-            }
-            Action::SetLevelling(on) => {
-                self.settings.levelling = on;
-                self.mark_unsaved();
-                return self.send(Command::Levelling(on));
-            }
-            Action::ConnectLastFm(api_key, secret) => {
-                self.error = None;
-                self.notice = Some("Allow Spotless in the Last.fm page that opens.".into());
-                return self.send(Command::LastFmConnect(Keys {
-                    api_key: api_key.trim().into(),
-                    secret: secret.trim().into(),
-                }));
-            }
-            Action::DisconnectLastFm => {
-                self.notice = Some("Last.fm disconnected.".into());
-                return self.send(Command::LastFmDisconnect);
-            }
-            Action::SetAudioCache(on) => {
-                self.settings.audio_cache = on;
-                return self.mark_unsaved();
-            }
-            Action::SetAudioCacheSize(mb) => {
-                self.settings.audio_cache_mb = mb;
-                return self.mark_unsaved();
-            }
-            Action::MeasureStorage => return self.send(Command::MeasureStorage),
-            Action::ListOutputs => return self.send(Command::ListOutputs),
-            Action::SetOutput(output) => {
-                self.settings.audio_output = output.clone();
-                self.mark_unsaved();
-                return self.send(Command::Output(output));
-            }
-            Action::ClearCache(store) => return self.send(Command::ClearCache(store)),
-            Action::SetSearchApp(client_id) => {
-                let client_id = Some(client_id.trim().to_string()).filter(|id| !id.is_empty());
-                self.error = None;
-                self.notice = Some(match (&client_id, &self.session) {
-                    (None, _) => "Search's app removed.".into(),
-                    (Some(_), SessionState::Ready { .. }) => {
-                        "Saved. Approve search in the browser page that opens.".into()
-                    }
-                    (Some(_), _) => "Saved. Search is approved when you sign in.".into(),
-                });
-                self.settings.set_web_client_id(client_id.clone());
-                self.mark_unsaved();
-                return self.send(Command::SearchApp(client_id));
-            }
-            Action::AddLink(text) => {
-                self.error = None;
-                self.notice = Some("Reading the link…".into());
-                let playlist = if self.browse.open {
-                    self.browse.target
-                } else {
-                    viewed
-                };
-                return self.send(Command::AddLink { text, playlist });
-            }
-            Action::SelectPlaylist(list) => {
-                if library.get(list).is_some() {
-                    self.viewed = list;
-                    self.mark_unsaved();
+                Err(error) => self.skin_error = Some(error),
+            },
+            Action::LoadCover(url) => {
+                if !self.covers.contains_key(&url) {
+                    self.covers.insert(url.clone(), Cover::Loading);
+                    self.controller.send(Command::Cover(url));
                 }
-                return;
             }
             Action::NewPlaylist => {
-                let name = library.fresh_name();
-                let list = library.create(name.clone());
-                self.viewed = list;
-                self.inputs.renaming = Some((list, name));
-                self.mark_unsaved();
-                return;
-            }
-            Action::ClosePlaylist(list) => {
-                let index = library.playlists().iter().position(|l| l.id == list);
-                let requests = self.transport.deleting(list);
-                if !self.library.delete(list) {
-                    return;
-                }
-                // The tab before it takes its place.
-                let neighbour = index
-                    .and_then(|i| self.library.playlists().get(i.saturating_sub(1)))
-                    .map_or(PlaylistId::DEFAULT, |l| l.id);
-                if self.viewed == list {
-                    self.viewed = neighbour;
-                }
-                if self.browse.target == list {
-                    self.browse.target = self.viewed;
-                }
-                self.pending_adds.retain(|(_, target, _)| *target != list);
-                requests
-            }
-            Action::RenamePlaylist(list, name) => {
-                library.rename(list, &name);
-                self.mark_unsaved();
-                return;
-            }
-            Action::MovePlaylist(list, index) => {
-                library.move_playlist(list, index);
-                self.mark_unsaved();
-                return;
-            }
-            Action::Seek(ms) => return self.send(Command::Seek(ms)),
-            Action::Volume(volume) => {
-                self.settings.volume = volume;
-                self.mark_unsaved();
-                return self.send(Command::Volume(volume_level(volume)));
-            }
-            Action::Play => self.transport.play(library, viewed, paused, position),
-            Action::TogglePause => self.transport.toggle_pause(paused),
-            Action::Stop => self.transport.stop(library),
-            Action::Next => self.transport.next(library, viewed),
-            Action::Previous => self.transport.prev(library, viewed, position),
-            Action::SetShuffle(on) => {
-                self.settings.shuffle = on;
-                self.transport.set_shuffle(library, on)
-            }
-            Action::SetRepeat(on) => {
-                self.settings.repeat = on;
-                self.transport.set_repeat(library, on)
-            }
-            Action::PlayEntry(list, entry) => {
-                self.error = None;
-                self.transport.play_entry(library, list, entry, position)
-            }
-            Action::Remove(list, entries) => {
-                if let Some(playlist) = library.get_mut(list) {
-                    playlist.remove(&entries);
-                }
-                self.transport.edited(library, list)
-            }
-            Action::Move(entries, index) => {
-                if let Some(list) = library.get_mut(viewed) {
-                    list.move_to(&entries, index);
-                }
-                self.transport.edited(library, viewed)
-            }
-            Action::ToggleMarks(entries) => {
-                if let Some(list) = library.get_mut(viewed) {
-                    for entry in entries {
-                        list.toggle_mark(entry);
-                    }
-                }
-                self.transport.edited(library, viewed)
-            }
-            Action::PlayNow(track) => self.play_now(track, position),
-            browse => return self.apply_browse(browse),
-        };
-        self.changed(requests);
-    }
-
-    fn apply_browse(&mut self, action: Action) {
-        match action {
-            Action::ToggleBrowse => {
-                self.browse.open = !self.browse.open;
-                if self.browse.open {
-                    self.browse.target = self.viewed;
+                self.controller.apply(action);
+                // Its name is ready to be typed over.
+                let state = self.controller.state();
+                if let Some(list) = state.library.get(state.viewed) {
+                    self.inputs.renaming = Some((list.id, list.name.clone()));
                 }
             }
-            Action::CloseBrowse => self.browse.open = false,
-            Action::Back => self.browse.back(),
-            Action::Search(query) => {
-                let query = query.trim().to_string();
-                if query.is_empty() {
-                    return;
-                }
-                // A pasted Spotify link adds its songs instead.
-                if crate::spotify::catalog::parse_uri(&query).is_ok() {
-                    self.inputs.query.clear();
-                    return self.apply(Action::AddLink(query));
-                }
-                self.browse.go(Page::Search(query.clone()));
-                let cached = matches!(self.browse.searches.get(&query), Some(Loadable::Ready(_)));
-                // Unapproved search asks for its approval first, by itself.
-                if !cached && self.search != SearchState::NoApp {
-                    self.browse
-                        .searches
-                        .insert(query.clone(), Loadable::Loading);
-                    self.send(Command::Search(query));
-                }
+            Action::Search(ref query)
+                if crate::spotify::catalog::parse_uri(query.trim()).is_ok() =>
+            {
+                // A pasted link adds its songs; the field is left empty.
+                self.inputs.query.clear();
+                self.controller.apply(action);
             }
-            Action::OpenArtist(artist) => {
-                self.browse.go(Page::Artist(artist.uri.clone()));
-                match self.browse.artists.get(&artist.uri) {
-                    Some(Loadable::Ready(_) | Loadable::Loading) => self.browse.visited(artist),
-                    _ => {
-                        self.browse
-                            .artists
-                            .insert(artist.uri.clone(), Loadable::Loading);
-                        self.send(Command::Discography(artist.uri));
-                    }
-                }
-            }
-            Action::ToggleAlbum(album) => {
-                if !self.browse.expanded.remove(&album) {
-                    self.browse.expanded.insert(album.clone());
-                    self.read_album(album);
-                }
-            }
-            Action::ExpandAlbums(albums) => {
-                if albums.is_empty() {
-                    self.browse.expanded.clear();
-                }
-                for album in albums {
-                    self.browse.expanded.insert(album.clone());
-                    self.read_album(album);
-                }
-            }
-            Action::SetTab(tab) => self.browse.tab = tab,
-            Action::ToggleSort => self.browse.newest_first = !self.browse.newest_first,
-            Action::SetTarget(list) => self.browse.target = list,
-            Action::TogglePlaylists => {
-                self.settings.playlists = !self.settings.playlists;
-                self.mark_unsaved();
-            }
-            Action::ToggleCovers => {
-                self.browse.show_covers = !self.browse.show_covers;
-                self.settings.covers = self.browse.show_covers;
-                self.mark_unsaved();
-            }
-            Action::LoadCover(url) => {
-                if !self.browse.covers.contains_key(&url) {
-                    self.browse.covers.insert(url.clone(), Cover::Loading);
-                    self.send(Command::Cover(url));
-                }
-            }
-            Action::AddTracks(tracks) => self.insert_tracks(self.browse.target, None, tracks),
-            Action::DropTracks(tracks, at) => {
-                self.insert_tracks(self.browse.target, Some(at), tracks)
-            }
-            Action::AddAlbum(album) => self.add_album(album, None),
-            Action::DropAlbum(album, at) => self.add_album(album, Some(at)),
-            _ => {}
+            action => self.controller.apply(action),
         }
-    }
-
-    fn add_album(&mut self, album: String, at: Option<usize>) {
-        let target = self.browse.target;
-        match self.browse.albums.get(&album) {
-            Some(Loadable::Ready(tracks)) => {
-                let tracks = tracks.clone();
-                self.insert_tracks(target, at, tracks);
-            }
-            _ => {
-                self.pending_adds.push((album.clone(), target, at));
-                self.notice = Some("Reading the album…".into());
-                self.read_album(album);
-            }
-        }
-    }
-
-    /// Reads an album's songs unless they are read or being read.
-    fn read_album(&mut self, album: String) {
-        if matches!(
-            self.browse.albums.get(&album),
-            Some(Loadable::Ready(_) | Loadable::Loading)
-        ) {
-            return;
-        }
-        self.browse.albums.insert(album.clone(), Loadable::Loading);
-        self.send(Command::Album(album));
-    }
-
-    /// Adds songs to a playlist before the row at `at`, or at the end.
-    fn insert_tracks(&mut self, playlist: PlaylistId, at: Option<usize>, tracks: Vec<TrackRef>) {
-        let entries: Vec<_> = tracks
-            .into_iter()
-            .map(|track| self.library.entry(track))
-            .collect();
-        let ids: Vec<_> = entries.iter().map(|entry| entry.id).collect();
-        let Some(list) = self.library.get_mut(playlist) else {
-            return;
-        };
-        list.insert(at.unwrap_or(usize::MAX), entries);
-        self.notice = Some(match ids.len() {
-            1 => format!("Added 1 song to {}", list.name),
-            n => format!("Added {n} songs to {}", list.name),
-        });
-        self.browse.flash(ids);
-        let requests = self.transport.edited(&mut self.library, playlist);
-        self.changed(requests);
-    }
-
-    /// Inserts `track` after the target playlist's current song and plays it.
-    fn play_now(&mut self, track: TrackRef, position: u32) -> Vec<Request> {
-        let target = self.browse.target;
-        let entry = self.library.entry(track);
-        let id = entry.id;
-        let Some(list) = self.library.get_mut(target) else {
-            return Vec::new();
-        };
-        let at = list
-            .cursor()
-            .and_then(|cursor| list.index_of(cursor))
-            .map_or(list.len(), |i| i + 1);
-        list.insert(at, vec![entry]);
-        self.browse.flash([id]);
-        self.error = None;
-        let mut requests = self.transport.edited(&mut self.library, target);
-        requests.extend(
-            self.transport
-                .play_entry(&mut self.library, target, id, position),
-        );
-        requests
     }
 
     /// The desktop's media keys and controls, as the buttons would do.
     fn media_actions(&mut self, ctx: &egui::Context) -> Vec<Action> {
-        let status = self.player.status;
-        let position = i64::from(self.player.position_now());
-        let length = i64::from(self.player.track.as_ref().map_or(0, |t| t.duration_ms));
+        let player = &self.controller.state().player;
+        let status = player.status;
+        let position = i64::from(player.position_now());
+        let length = i64::from(player.track.as_ref().map_or(0, |t| t.duration_ms));
         let mut actions = Vec::new();
         let events: Vec<MediaEvent> = self.media_events.try_iter().collect();
         for event in events {
@@ -670,18 +249,9 @@ impl App {
         if kept != zoom {
             ctx.set_zoom_factor(kept);
         }
-        if (kept - self.settings.zoom).abs() > 0.001 {
-            self.settings.zoom = kept;
-            self.mark_unsaved();
+        if (kept - self.controller.state().settings.zoom).abs() > 0.001 {
+            self.controller.settings_mut().zoom = kept;
         }
-    }
-
-    /// The model changed: send what the engine must do, and save soon.
-    fn changed(&mut self, requests: Vec<Request>) {
-        for request in requests {
-            self.send(Command::Player(request));
-        }
-        self.mark_unsaved();
     }
 
     /// Draws with Winamp Classic, or Spotless Classic for anything else.
@@ -724,45 +294,6 @@ impl App {
         self.skin_note = (!notes.is_empty()).then(|| notes.join(" "));
         Ok(())
     }
-
-    fn mark_unsaved(&mut self) {
-        self.unsaved.get_or_insert_with(Instant::now);
-    }
-
-    fn send(&self, command: Command) {
-        if let Some(backend) = &self.backend {
-            backend.send(command);
-        }
-    }
-
-    fn save(&mut self) {
-        self.unsaved = None;
-        self.transport
-            .remember_position(&mut self.library, self.player.position_now());
-        let tabs = Tabs {
-            playing: self.transport.playback.playing(),
-            viewed: Some(self.viewed),
-        };
-        if let Err(error) = store::save_library(&self.paths, &self.library, tabs) {
-            log::error!("{error:#}");
-            self.error = Some("Couldn't save the playlists.".into());
-        }
-        if let Err(error) = self.settings.save(&self.paths) {
-            log::error!("{error:#}");
-        }
-    }
-}
-
-/// The slider's 0–100 as librespot's 0–65535.
-fn volume_level(percent: u8) -> u16 {
-    (u32::from(percent.min(100)) * u32::from(u16::MAX) / 100) as u16
-}
-
-/// A different shuffle every run.
-fn seed() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos() as u64)
 }
 
 impl eframe::App for App {
@@ -777,59 +308,59 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         self.keep_in_tray(ctx);
+        let state = self.controller.state();
+        let player = &state.player;
         self.media
-            .update(NowPlaying::from_player(&self.player, self.settings.volume));
+            .update(NowPlaying::from_player(player, state.settings.volume));
         if let Some(tray) = &mut self.tray {
-            let now_playing = self
-                .player
+            let now_playing = player
                 .track
                 .as_ref()
                 .map(|t| format!("{} - {}", t.artists, t.title))
                 .unwrap_or_default();
             tray.update(TrayState {
-                playing: self.player.status == Status::Playing,
+                playing: player.status == Status::Playing,
                 now_playing,
                 window_hidden: self.window_hidden,
             });
         }
         // The clock moves on its own while a song plays.
-        if self.player.status == Status::Playing {
+        if player.status == Status::Playing {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
-        if let Some(since) = self.unsaved {
-            match SAVE_DELAY.checked_sub(since.elapsed()) {
-                Some(wait) if !wait.is_zero() => ctx.request_repaint_after(wait),
-                _ => self.save(),
-            }
+        if let Some(wait) = self.controller.tick() {
+            ctx.request_repaint_after(wait);
         }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let mut actions = Vec::new();
-        let web_client_id = self.settings.web_client_id();
-        let playlist = self
+        let state = self.controller.state();
+        let web_client_id = state.settings.web_client_id();
+        let playlist = state
             .library
-            .get(self.viewed)
-            .or_else(|| self.library.get(PlaylistId::DEFAULT))
+            .get(state.viewed)
+            .or_else(|| state.library.get(PlaylistId::DEFAULT))
             .expect("Default always exists");
         let view = View {
             palette: self.palette,
-            session: &self.session,
-            player: &self.player,
-            error: self.error.as_deref(),
-            notice: self.notice.as_deref(),
+            session: &state.session,
+            player: &state.player,
+            error: state.error.as_deref(),
+            notice: state.notice.as_deref(),
             playlist,
-            shuffle: self.transport.playback.shuffle(),
-            repeat: self.transport.playback.repeat,
-            library: &self.library,
-            playing_list: self.transport.playing_list(),
-            browse: &self.browse,
-            search: &self.search,
-            lastfm: &self.lastfm,
+            shuffle: state.transport.playback.shuffle(),
+            repeat: state.transport.playback.repeat,
+            library: &state.library,
+            playing_list: state.transport.playing_list(),
+            browse: &state.browse,
+            covers: &self.covers,
+            search: &state.search,
+            lastfm: &state.lastfm,
             web_client_id: web_client_id.as_deref(),
-            settings: &self.settings,
-            storage: self.storage,
-            outputs: &self.outputs,
+            settings: &state.settings,
+            storage: state.storage,
+            outputs: &state.outputs,
             tray_shown: self.tray.as_ref().is_some_and(Tray::shown),
             skin_error: self.skin_error.as_deref(),
             art: self.art.as_deref(),
@@ -868,22 +399,10 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.save();
+        self.controller.save();
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         self.palette.desk.to_normalized_gamma_f32()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::volume_level;
-
-    #[test]
-    fn volume_spans_librespots_range() {
-        assert_eq!(volume_level(0), 0);
-        assert_eq!(volume_level(100), u16::MAX);
-        assert_eq!(volume_level(250), u16::MAX);
     }
 }
