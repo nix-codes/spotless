@@ -2,9 +2,8 @@
 
 A throwaway app that answers one question: can Spotless's own core play
 Spotify on Android? It signs in, plays one song, and keeps playing with the
-screen off. It uses the desktop's `session.rs`, `engine.rs`, `sink.rs`,
-`store.rs`, `paths.rs` and `model/` unchanged (`src/lib.rs` includes them by
-path), with one screen and a foreground service in Java.
+screen off. It plays through `spotless-core` (`core/`), the crate the
+desktop app is built on, with one screen and a foreground service in Java.
 
 ## Build and run
 
@@ -38,7 +37,9 @@ All five work. Along the way:
   `config::OS` constant switches the client ID, version, client-token
   device data and user agent. Spotify takes the login with the desktop
   client's credential, then closes the connection and refuses every request
-  (`INVALID_CREDENTIALS`). `build.sh` patches the constant to `"linux"`.
+  (`INVALID_CREDENTIALS`). Spotless's librespot fork has an
+  `android-as-linux` feature that keeps it `"linux"`, and the core turns it
+  on for Android.
 - **Sessions drop on a phone**, and neither the spike at first nor the
   desktop backend reconnected. Play now reconnects with the saved
   credential when the session is gone.
@@ -60,10 +61,6 @@ playing ended, without a gap.
 ## Stopgaps the port would replace
 
 - `SSL_CERT_DIR` pointed at the system's CAs: `rustls-platform-verifier`.
-- stdout captured for librespot-oauth's "Browse to:" line: a way in the
-  fork to hand the URL to the caller.
-- librespot's `OS` constant patched in a local clone: the change carried in
-  the fork, or an option for it.
 - Java polls the status twice a second: callbacks or UniFFI.
 - The sign-in page's "you can close this tab": a redirect to a link the
   app registers, which brings it forward.

@@ -1,5 +1,7 @@
 [workspace]
 members = ["core"]
+# The Android spike builds as its own workspace (android/spike/build.sh).
+exclude = ["android"]
 
 [workspace.package]
 version = "0.1.0"

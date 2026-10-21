@@ -17,28 +17,6 @@ out=build
 
 rm -rf "$out" && mkdir -p "$out/classes" "$out/apk/lib/arm64-v8a"
 
-# librespot-core, patched to present itself as Linux on Android too: its
-# OS constant otherwise switches to the Android client ID and device data,
-# and Spotify refuses the desktop client's credential ("INVALID_CREDENTIALS").
-# Cargo.toml's [patch] points here.
-rev=d04729018248f11c954b50ff6a3405801ff5af08
-if [ ! -d librespot ]; then
-    git clone -q https://github.com/crmne/librespot librespot
-    git -C librespot checkout -q "$rev"
-    python3 - librespot/core/src/config.rs <<'EOF'
-import sys
-path = sys.argv[1]
-text = open(path).read()
-old = "pub const OS: &str = std::env::consts::OS;\n"
-new = ('#[cfg(not(target_os = "android"))]\n' + old +
-       '/// Spotless: Android presents itself as Linux, the desktop client its\n'
-       '/// credential is for.\n'
-       '#[cfg(target_os = "android")]\npub const OS: &str = "linux";\n')
-assert old in text, "librespot's OS constant moved"
-open(path, "w").write(text.replace(old, new))
-EOF
-fi
-
 cargo ndk -t arm64-v8a -P 29 build --release
 cp target/aarch64-linux-android/release/libspotless_spike.so "$out/apk/lib/arm64-v8a/"
 

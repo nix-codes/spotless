@@ -1,33 +1,10 @@
 //! Spotless on Android, the feasibility spike: signs in, plays one song and
 //! keeps playing in the background, with the desktop's own session, engine
-//! and audio output (included below as they are, not copied).
+//! and audio output, from `spotless-core`.
 //!
 //! Java asks through the `Native` class and polls [`status`] and the
 //! sign-in URL; nothing here calls back into Java.
 
-#![allow(dead_code, unused_imports)]
-
-// The desktop core, unchanged.
-#[path = "../../../src/model/mod.rs"]
-mod model;
-#[path = "../../../src/paths.rs"]
-mod paths;
-#[path = "../../../src/store.rs"]
-mod store;
-#[path = "../../../src/playback"]
-mod playback {
-    pub mod engine;
-    pub mod outputs;
-    pub mod sink;
-}
-#[path = "../../../src/spotify"]
-mod spotify {
-    pub mod catalog;
-    pub mod session;
-}
-
-use std::io::{BufRead, BufReader};
-use std::os::fd::FromRawFd;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -37,10 +14,10 @@ use jni::sys::jstring;
 use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
 
-use crate::paths::Paths;
-use crate::model::EntryId;
-use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
-use crate::spotify::{catalog, session};
+use spotless_core::model::EntryId;
+use spotless_core::paths::Paths;
+use spotless_core::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
+use spotless_core::spotify::{catalog, session};
 
 /// Where Android keeps the system's certificate authorities: the updatable
 /// set first (Android 14 on), then the one in the system image.
@@ -103,7 +80,6 @@ pub extern "system" fn Java_dev_spotless_spike_Native_init(
         unsafe { std::env::set_var("SSL_CERT_DIR", dir) };
         log::info!("certificates from {dir}");
     }
-    capture_stdout();
     // cpal's AAudio backend asks Java for the devices.
     let vm = env.get_java_vm().expect("no Java VM");
     let context = env.new_global_ref(context).expect("no global ref");
@@ -153,7 +129,9 @@ pub extern "system" fn Java_dev_spotless_spike_Native_init(
 pub extern "system" fn Java_dev_spotless_spike_Native_signIn(_env: JNIEnv, _class: JClass) {
     spike().runtime.spawn(async {
         say("Waiting for the browser");
-        match session::sign_in(&spike().paths).await {
+        // Java opens the page: the browser can't be reached from here.
+        let open = |url: &str| *lock(&spike().url) = Some(url.to_string());
+        match session::sign_in_with(&spike().paths, open).await {
             Ok(session) => ready(session),
             Err(error) => say(format!("Sign-in failed: {error:#}")),
         }
@@ -296,30 +274,4 @@ fn describe(snapshot: &PlayerSnapshot) -> String {
         position / 60,
         position % 60
     )
-}
-
-/// librespot-oauth only prints the sign-in page ("Browse to: …"), and on
-/// Android stdout goes nowhere. This sends it to the log instead and keeps
-/// the page for Java to open.
-fn capture_stdout() {
-    let mut fds = [0; 2];
-    // SAFETY: plain pipe and dup2 on descriptors we own.
-    unsafe {
-        if libc::pipe(fds.as_mut_ptr()) != 0 || libc::dup2(fds[1], libc::STDOUT_FILENO) < 0 {
-            log::warn!("unable to capture stdout");
-            return;
-        }
-    }
-    // SAFETY: the read end is ours alone from here.
-    let reader = unsafe { std::fs::File::from_raw_fd(fds[0]) };
-    std::thread::spawn(move || {
-        for line in BufReader::new(reader).lines().map_while(Result::ok) {
-            log::info!("stdout: {line}");
-            if let Some(url) = line.strip_prefix("Browse to: ")
-                && let Some(spike) = SPIKE.get()
-            {
-                *lock(&spike.url) = Some(url.to_string());
-            }
-        }
-    });
 }
