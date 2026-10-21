@@ -8,7 +8,8 @@ use spotless::paths::Paths;
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("warn,spotless=info,librespot=info"),
+        env_logger::Env::default()
+            .default_filter_or("warn,spotless=info,spotless_core=info,librespot=info"),
     )
     .init();
     // One Spotless at a time: they would share the sign-in ports and the

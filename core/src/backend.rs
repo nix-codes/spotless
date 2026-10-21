@@ -190,9 +190,9 @@ type Emit = Arc<dyn Fn(Event) + Send + Sync>;
 /// a lost connection itself, within about a minute and a half, but says
 /// nothing.
 const CHECK_SESSION: Duration = Duration::from_secs(10);
-/// How long a reconnection may take before it is tried again later.
+/// How long connecting may take before it is tried again later.
 const RECONNECT_TIMEOUT: Duration = Duration::from_secs(20);
-/// The waits between reconnections that can't reach Spotify, doubling.
+/// The waits between connections that can't reach Spotify, doubling.
 const RETRY_FIRST: Duration = Duration::from_secs(5);
 const RETRY_MOST: Duration = Duration::from_secs(120);
 
@@ -244,9 +244,11 @@ struct Worker {
     http: reqwest::Client,
     /// Limits cover downloads running at once.
     cover_slots: Arc<tokio::sync::Semaphore>,
-    /// After a failed reconnection: no new one before then.
+    /// Connecting on the saved credential at start-up, until Spotify answers.
+    starting: bool,
+    /// After a failed connection: no new one before then.
     retry_at: Option<Instant>,
-    /// The wait after the next failed reconnection.
+    /// The wait after the next failed connection.
     retry_wait: Duration,
 }
 
@@ -264,6 +266,7 @@ impl Worker {
             search_approval: Arc::default(),
             http: reqwest::Client::new(),
             cover_slots: Arc::new(tokio::sync::Semaphore::new(6)),
+            starting: false,
             retry_at: None,
             retry_wait: RETRY_FIRST,
         }
@@ -284,11 +287,8 @@ impl Worker {
             }),
         ));
         (self.emit)(Event::Session(SessionState::Connecting));
-        match session::restore(&self.paths).await {
-            Ok(Some(session)) => self.ready(session),
-            Ok(None) => (self.emit)(Event::Session(SessionState::SignedOut)),
-            Err(error) => (self.emit)(Event::Session(SessionState::Failed(format!("{error:#}")))),
-        }
+        self.starting = true;
+        self.reconnect_if_needed().await;
         let mut check = tokio::time::interval(CHECK_SESSION);
         check.set_missed_tick_behavior(MissedTickBehavior::Delay);
         loop {
@@ -297,30 +297,37 @@ impl Worker {
                     let Some(command) = command else { break };
                     // Signing in or out makes a session dropped or not.
                     if !matches!(command, Command::SignIn | Command::SignOut) {
-                        self.reconnect_if_dropped().await;
+                        self.reconnect_if_needed().await;
                     }
                     self.handle(command).await;
                 }
-                _ = check.tick() => self.reconnect_if_dropped().await,
+                _ = check.tick() => self.reconnect_if_needed().await,
             }
         }
     }
 
-    /// Replaces a session Spotify dropped (the network went, or the computer
-    /// slept) with a new one on the saved credential, and moves the engine
-    /// onto it, going on with the song. Quietly: the interface stays signed
-    /// in, unless Spotify refuses the credential.
-    async fn reconnect_if_dropped(&mut self) {
-        if !self.session.as_ref().is_some_and(Session::is_invalid)
-            || self.retry_at.is_some_and(|at| Instant::now() < at)
-        {
+    /// Connects on the saved credential at start-up, or replaces a session
+    /// Spotify dropped (the network went, or the computer slept) with a new
+    /// one and moves the engine onto it, going on with the song. While
+    /// Spotify can't be reached it tries again, waiting longer each time,
+    /// and the interface stays connecting or signed in, unless Spotify
+    /// refuses the credential.
+    async fn reconnect_if_needed(&mut self) {
+        let dropped = self.session.as_ref().is_some_and(Session::is_invalid);
+        if !(dropped || self.starting) || self.retry_at.is_some_and(|at| Instant::now() < at) {
             return;
         }
-        log::info!("the session dropped; reconnecting");
+        if dropped {
+            log::info!("the session dropped; reconnecting");
+        }
         let restored = tokio::time::timeout(RECONNECT_TIMEOUT, session::restore(&self.paths))
             .await
             .unwrap_or_else(|_| Err(anyhow::anyhow!("Spotify took too long to answer")));
         match restored {
+            Ok(Some(session)) if self.starting => {
+                self.starting = false;
+                self.ready(session);
+            }
             Ok(Some(session)) => {
                 log::info!("reconnected");
                 self.retry_at = None;
@@ -333,12 +340,12 @@ impl Worker {
             // The credential was removed meanwhile.
             Ok(None) => self.drop_session(SessionState::SignedOut),
             Err(error) if session::refused(&error) => {
-                log::warn!("reconnecting refused: {error:#}");
+                log::warn!("connecting refused: {error:#}");
                 self.drop_session(SessionState::Failed(format!("{error:#}")));
             }
             Err(error) => {
                 log::warn!(
-                    "unable to reconnect, trying again in {}s: {error:#}",
+                    "unable to connect, trying again in {}s: {error:#}",
                     self.retry_wait.as_secs()
                 );
                 self.retry_at = Some(Instant::now() + self.retry_wait);
@@ -355,6 +362,7 @@ impl Worker {
         if let Some(session) = self.session.take() {
             session.shutdown();
         }
+        self.starting = false;
         self.retry_at = None;
         self.retry_wait = RETRY_FIRST;
         (self.emit)(Event::Player(PlayerSnapshot::default()));
@@ -429,6 +437,7 @@ impl Worker {
     async fn handle(&mut self, command: Command) {
         match command {
             Command::SignIn => {
+                self.starting = false;
                 (self.emit)(Event::Session(SessionState::SigningIn));
                 match session::sign_in(&self.paths).await {
                     Ok(session) => {
