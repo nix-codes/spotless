@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import java.util.concurrent.atomic.AtomicBoolean
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -75,6 +76,9 @@ class Core(private val context: Context) : Host {
         private set
     var settings by mutableStateOf(spotless.settings())
         private set
+
+    /** Where each Browse page was scrolled to, by [browseKey], kept while Browse is closed. */
+    val browseScroll = HashMap<String, LazyListState>()
 
     /** Covers read so far, by URL; ones asked for and not read yet are missing. */
     private val covers = mutableStateMapOf<String, ImageBitmap>()

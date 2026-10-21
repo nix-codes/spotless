@@ -23,6 +23,10 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +42,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -77,12 +82,21 @@ fun BrowseScreen(core: Core) {
             } else {
                 BasicText("B R O W S E", Modifier.weight(1f).padding(start = 4.dp), label(spacing = 0.3.em))
             }
+            // Straight to the playlists; Browse opens on this page again.
+            GlyphButton(Glyph.Close, "Back to the playlists", { core.apply(Action.CloseBrowse) }, Modifier.width(48.dp))
         }
         val page = browse.page
+        val key = when (page) {
+            is BrowsePage.Home -> "home"
+            is BrowsePage.Search -> "search:${page.query}"
+            is BrowsePage.Artist -> "artist:${page.uri}"
+        }
+        val scroll = remember(key) { core.browseScroll.getOrPut(key) { LazyListState() } }
         if (page !is BrowsePage.Artist) SearchField(core, (page as? BrowsePage.Search)?.query ?: "")
         if (page is BrowsePage.Artist) ArtistBar(core, page)
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp).lcd().padding(2.dp),
+            state = scroll,
         ) {
             when (page) {
                 is BrowsePage.Home -> home(core, page)
@@ -250,7 +264,7 @@ private fun LazyListScope.releases(core: Core, rows: List<ReleaseRow>, withArtis
                     Line(release.title, body(color = if (row.expanded) Classic.current else Classic.list))
                     Line(sub, body(13.sp, if (row.expanded) Color(0xFFD6DCFF) else Classic.dim, FontWeight.Normal))
                 }
-                TextButton("ADD", { core.apply(Action.AddAlbum(release.uri)) })
+                AddButton("ADD", label(), "Add the album", Modifier.width(64.dp)) { core.apply(Action.AddAlbum(release.uri)) }
             }
         }
         if (row.expanded) {
@@ -313,8 +327,35 @@ private fun TrackRow(core: Core, track: Track, number: Int?, sub: String?) {
             if (sub != null) Line(sub, body(13.sp, Classic.dim, FontWeight.Normal))
         }
         BasicText(clock(track.durationMs.toLong()), style = mono())
-        ChromeButton({ core.apply(Action.AddTracks(listOf(track))) }, description = "Add the song") {
-            BasicText("+", style = label(18.sp))
+        AddButton("+", label(18.sp), "Add the song") { core.apply(Action.AddTracks(listOf(track))) }
+    }
+}
+
+/**
+ * ADD or +: stays in, lit with a tick, for a moment after each press, so a
+ * press shows even though it can be pressed again.
+ */
+@Composable
+private fun AddButton(
+    text: String,
+    style: TextStyle,
+    description: String,
+    modifier: Modifier = Modifier,
+    add: () -> Unit,
+) {
+    var presses by remember { mutableIntStateOf(0) }
+    var done by remember { mutableStateOf(false) }
+    LaunchedEffect(presses) {
+        if (presses == 0) return@LaunchedEffect
+        done = true
+        delay(1200)
+        done = false
+    }
+    ChromeButton({ add(); presses++ }, modifier, on = done, description = description) {
+        if (done) {
+            Box(Modifier.size(22.dp).drawBehind { glyph(Glyph.Check, Classic.lcd) })
+        } else {
+            BasicText(text, style = style)
         }
     }
 }
@@ -324,6 +365,18 @@ private fun TrackRow(core: Core, track: Track, number: Int?, sub: String?) {
 private fun Target(core: Core) {
     var choosing by remember { mutableStateOf(false) }
     val target = core.tabs.tabs.firstOrNull { it.id == core.browse.target }
+    // Songs just added to the target, shown for a moment instead of its count.
+    val count = target?.songs?.toInt()
+    var seen by remember(target?.id) { mutableStateOf(count) }
+    var added by remember(target?.id) { mutableIntStateOf(0) }
+    LaunchedEffect(target?.id, count) {
+        val before = seen
+        seen = count
+        if (count == null || before == null || count <= before) return@LaunchedEffect
+        added += count - before
+        delay(2000)
+        added = 0
+    }
     Box {
         ChromeButton({ choosing = !choosing }, Modifier.fillMaxWidth().height(48.dp)) {
             Row(
@@ -333,7 +386,11 @@ private fun Target(core: Core) {
             ) {
                 BasicText("ADD TO", style = label(12.sp, Classic.label, 0.14.em))
                 Line(target?.name ?: "", body(color = Classic.lcd), Modifier.weight(1f))
-                target?.let { BasicText(songs(it.songs.toInt()).lowercase(), style = body(13.sp, Classic.label)) }
+                if (added > 0) {
+                    BasicText("+$added", style = mono(14.sp, Classic.lcd))
+                } else {
+                    target?.let { BasicText(songs(it.songs.toInt()).lowercase(), style = body(13.sp, Classic.label)) }
+                }
                 Box(Modifier.size(16.dp).drawBehind { glyph(if (choosing) Glyph.Open else Glyph.Closed, Classic.chrome) })
             }
         }
