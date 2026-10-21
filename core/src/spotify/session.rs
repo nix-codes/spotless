@@ -71,9 +71,25 @@ pub fn refused(error: &anyhow::Error) -> bool {
 /// Opens the browser for Spotify's approval, then connects and saves the
 /// reusable credential.
 pub async fn sign_in(paths: &Paths) -> Result<Session> {
-    let client = OAuthClientBuilder::new(CLIENT_ID, REDIRECT_URI, SCOPES.to_vec())
-        .open_in_browser()
+    approve(paths, approval().open_in_browser()).await
+}
+
+/// Like [`sign_in`], but hands the approval page's URL to `open` instead of
+/// opening the browser: for a system where only the app can (Android).
+pub async fn sign_in_with(
+    paths: &Paths,
+    open: impl Fn(&str) + Send + Sync + 'static,
+) -> Result<Session> {
+    approve(paths, approval().with_url_handler(open)).await
+}
+
+fn approval() -> OAuthClientBuilder {
+    OAuthClientBuilder::new(CLIENT_ID, REDIRECT_URI, SCOPES.to_vec())
         .with_custom_message("Spotless is signed in. You can close this tab.")
+}
+
+async fn approve(paths: &Paths, approval: OAuthClientBuilder) -> Result<Session> {
+    let client = approval
         .build()
         .map_err(|e| anyhow!("unable to start sign-in: {e}"))?;
     let token = client
