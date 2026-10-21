@@ -88,13 +88,14 @@ impl Form {
 enum Item {
     SignOut,
     ClientId,
-    Save,
+    /// CONNECT, or DISCONNECT once connected.
+    SearchConnect,
     Link,
     Copy,
     LastFmKey,
     LastFmSecret,
+    /// CONNECT, or DISCONNECT once connected.
     LastFmConnect,
-    LastFmDisconnect,
     LastFmLink,
     Levelling,
     /// One of the outputs listed, 0 being the system's default.
@@ -318,22 +319,15 @@ fn items(category: Category, view: &View, outputs: usize) -> Vec<Item> {
             signed_in
                 .then_some(Item::SignOut)
                 .into_iter()
-                .chain([Item::ClientId, Item::Save, Item::Link, Item::Copy])
+                .chain([Item::ClientId, Item::SearchConnect, Item::Link, Item::Copy])
                 .collect()
         }
-        Category::LastFm => {
-            let mut items = Vec::new();
-            if matches!(view.lastfm.status, LastFmStatus::Connected { .. }) {
-                items.push(Item::LastFmDisconnect);
-            }
-            items.extend([
-                Item::LastFmKey,
-                Item::LastFmSecret,
-                Item::LastFmConnect,
-                Item::LastFmLink,
-            ]);
-            items
-        }
+        Category::LastFm => vec![
+            Item::LastFmKey,
+            Item::LastFmSecret,
+            Item::LastFmConnect,
+            Item::LastFmLink,
+        ],
         Category::Playback => std::iter::once(Item::Levelling)
             .chain((0..outputs).map(Item::Output))
             .collect(),
@@ -452,6 +446,9 @@ impl Controls<'_, '_> {
         let typed = self.form.client_id.trim().to_string();
         let valid = typed.is_empty() || is_client_id(&typed);
         let changed = typed != current;
+        // The saved app, approved or being approved: the button lets it go.
+        let connected = !current.is_empty() && !changed && *view.search != SearchState::SignedOut;
+        let connectable = !typed.is_empty() && valid && !connected;
         row(ui, palette, "Client ID", |ui| {
             ui.horizontal(|ui| {
                 let field = field(
@@ -471,11 +468,21 @@ impl Controls<'_, '_> {
                     self.form.item = Some(Item::ClientId);
                 }
                 let submitted = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                let button = small_action(ui, palette, "SAVE", changed && valid);
-                self.ring(ui, Item::Save, &button);
-                if changed && valid && (button.clicked() || (self.pressed)(Item::Save) || submitted)
-                {
-                    self.actions.push(Action::SetSearchApp(typed.clone()));
+                if connected {
+                    let button = small_button(ui, palette, "DISCONNECT", false);
+                    self.ring(ui, Item::SearchConnect, &button);
+                    if button.clicked() || (self.pressed)(Item::SearchConnect) {
+                        self.actions.push(Action::SetSearchApp(String::new()));
+                        self.form.client_id.clear();
+                    }
+                } else {
+                    let button = small_action(ui, palette, "CONNECT", connectable);
+                    self.ring(ui, Item::SearchConnect, &button);
+                    if connectable
+                        && (button.clicked() || (self.pressed)(Item::SearchConnect) || submitted)
+                    {
+                        self.actions.push(Action::SetSearchApp(typed.clone()));
+                    }
                 }
             });
             if !valid {
@@ -483,12 +490,6 @@ impl Controls<'_, '_> {
                     ui,
                     palette,
                     "That isn't a Client ID: it is 32 letters and digits, on the app's page.",
-                );
-            } else if *view.search == SearchState::SignedOut && !changed {
-                note(
-                    ui,
-                    palette,
-                    "Your browser asks once to approve search, at the first search.",
                 );
             }
         });
@@ -524,7 +525,7 @@ impl Controls<'_, '_> {
                 label(
                     ui,
                     palette,
-                    "Tick Web API, then paste the app's Client ID above.",
+                    "Tick Web API, paste the app's Client ID above, then CONNECT and approve in your browser.",
                 );
             });
         });
@@ -551,20 +552,6 @@ impl Controls<'_, '_> {
                 "Spotless scrobbles the songs you play through a Last.fm API account of your own.",
             );
         });
-        if connected {
-            row(ui, palette, "", |ui| {
-                let button = small_button(ui, palette, "DISCONNECT", false);
-                self.ring(ui, Item::LastFmDisconnect, &button);
-                if button.clicked() || (self.pressed)(Item::LastFmDisconnect) {
-                    self.actions.push(Action::DisconnectLastFm);
-                }
-                note(
-                    ui,
-                    palette,
-                    "Listens Last.fm can't take at once are kept and sent later.",
-                );
-            });
-        }
         let key = self.form.lastfm_key.trim().to_string();
         let secret = self.form.lastfm_secret.trim().to_string();
         let valid = is_key(&key) && is_key(&secret);
@@ -596,11 +583,21 @@ impl Controls<'_, '_> {
                 );
                 self.field_focus(&field, Item::LastFmSecret);
                 submitted |= field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                let button = small_action(ui, palette, "CONNECT", ready);
-                self.ring(ui, Item::LastFmConnect, &button);
-                if ready && (button.clicked() || (self.pressed)(Item::LastFmConnect) || submitted) {
-                    self.actions
-                        .push(Action::ConnectLastFm(key.clone(), secret.clone()));
+                if connected && !changed {
+                    let button = small_button(ui, palette, "DISCONNECT", false);
+                    self.ring(ui, Item::LastFmConnect, &button);
+                    if button.clicked() || (self.pressed)(Item::LastFmConnect) {
+                        self.actions.push(Action::DisconnectLastFm);
+                    }
+                } else {
+                    let button = small_action(ui, palette, "CONNECT", ready);
+                    self.ring(ui, Item::LastFmConnect, &button);
+                    if ready
+                        && (button.clicked() || (self.pressed)(Item::LastFmConnect) || submitted)
+                    {
+                        self.actions
+                            .push(Action::ConnectLastFm(key.clone(), secret.clone()));
+                    }
                 }
             });
             let typed = !key.is_empty() || !secret.is_empty();
@@ -615,6 +612,12 @@ impl Controls<'_, '_> {
                     ui,
                     palette,
                     "CONNECT to scrobble through this account instead.",
+                );
+            } else if connected {
+                note(
+                    ui,
+                    palette,
+                    "Listens Last.fm can't take at once are kept and sent later.",
                 );
             }
         });
