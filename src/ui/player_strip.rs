@@ -125,13 +125,16 @@ pub(super) fn time_shown(ui: &Ui, view: &View) -> bool {
     into < blink
 }
 
-/// The song's display: the artist and the song, or why nothing plays.
+/// The song's display: the artist and the song while one plays, else
+/// blank, unless not being signed in is why nothing can.
 pub(super) fn now_lines(view: &View) -> (String, String) {
     match (&view.player.track, view.player.status) {
         (_, Status::Loading) => ("Loading…".to_string(), String::new()),
-        (Some(track), _) => (track.artists.clone(), track.title.clone()),
-        (None, _) => match view.session {
-            SessionState::Ready { .. } => ("Nothing playing".into(), String::new()),
+        (Some(track), Status::Playing | Status::Paused) => {
+            (track.artists.clone(), track.title.clone())
+        }
+        _ => match view.session {
+            SessionState::Ready { .. } => (String::new(), String::new()),
             _ => ("Not signed in".into(), String::new()),
         },
     }
@@ -147,14 +150,14 @@ pub(super) fn rates(view: &View) -> [&'static str; 2] {
     }
 }
 
-/// The song's length, or blank, at its width, with no song.
+/// The song's length, or blank, at its width, while stopped.
 pub(super) fn length(view: &View) -> String {
     match &view.player.track {
-        Some(track) => {
+        Some(track) if view.player.status != Status::Stopped => {
             let total = track.duration_ms / 1000;
             format!("{}:{:02}", total / 60, total % 60)
         }
-        None => "    ".into(),
+        _ => "    ".into(),
     }
 }
 
