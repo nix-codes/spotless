@@ -2230,6 +2230,7 @@ dependencies = [
  "log",
  "rustls",
  "rustls-native-certs",
+ "rustls-platform-verifier",
  "tokio",
  "tokio-rustls",
  "tower-service",
@@ -2693,7 +2694,7 @@ dependencies = [
 [[package]]
 name = "librespot-audio"
 version = "0.8.0"
-source = "git+https://github.com/nix-codes/librespot?rev=f35cee9bd1e68a050c2795db83ed25c3c37a9f98#f35cee9bd1e68a050c2795db83ed25c3c37a9f98"
+source = "git+https://github.com/nix-codes/librespot?rev=ce680a0ab1d99324e9fdadb940e390d205b0064d#ce680a0ab1d99324e9fdadb940e390d205b0064d"
 dependencies = [
  "aes",
  "bytes",
@@ -2712,7 +2713,7 @@ dependencies = [
 [[package]]
 name = "librespot-core"
 version = "0.8.0"
-source = "git+https://github.com/nix-codes/librespot?rev=f35cee9bd1e68a050c2795db83ed25c3c37a9f98#f35cee9bd1e68a050c2795db83ed25c3c37a9f98"
+source = "git+https://github.com/nix-codes/librespot?rev=ce680a0ab1d99324e9fdadb940e390d205b0064d#ce680a0ab1d99324e9fdadb940e390d205b0064d"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -2749,6 +2750,8 @@ dependencies = [
  "rand 0.9.5",
  "rand_distr",
  "rsa",
+ "rustls",
+ "rustls-platform-verifier",
  "serde",
  "serde_json",
  "sha1",
@@ -2770,7 +2773,7 @@ dependencies = [
 [[package]]
 name = "librespot-metadata"
 version = "0.8.0"
-source = "git+https://github.com/nix-codes/librespot?rev=f35cee9bd1e68a050c2795db83ed25c3c37a9f98#f35cee9bd1e68a050c2795db83ed25c3c37a9f98"
+source = "git+https://github.com/nix-codes/librespot?rev=ce680a0ab1d99324e9fdadb940e390d205b0064d#ce680a0ab1d99324e9fdadb940e390d205b0064d"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2787,12 +2790,14 @@ dependencies = [
 [[package]]
 name = "librespot-oauth"
 version = "0.8.0"
-source = "git+https://github.com/nix-codes/librespot?rev=f35cee9bd1e68a050c2795db83ed25c3c37a9f98#f35cee9bd1e68a050c2795db83ed25c3c37a9f98"
+source = "git+https://github.com/nix-codes/librespot?rev=ce680a0ab1d99324e9fdadb940e390d205b0064d#ce680a0ab1d99324e9fdadb940e390d205b0064d"
 dependencies = [
  "log",
  "oauth2",
  "open",
  "reqwest",
+ "rustls",
+ "rustls-platform-verifier",
  "thiserror 2.0.21",
  "tokio",
  "url",
@@ -2801,7 +2806,7 @@ dependencies = [
 [[package]]
 name = "librespot-playback"
 version = "0.8.0"
-source = "git+https://github.com/nix-codes/librespot?rev=f35cee9bd1e68a050c2795db83ed25c3c37a9f98#f35cee9bd1e68a050c2795db83ed25c3c37a9f98"
+source = "git+https://github.com/nix-codes/librespot?rev=ce680a0ab1d99324e9fdadb940e390d205b0064d#ce680a0ab1d99324e9fdadb940e390d205b0064d"
 dependencies = [
  "form_urlencoded",
  "futures-util",
@@ -2822,7 +2827,7 @@ dependencies = [
 [[package]]
 name = "librespot-protocol"
 version = "0.8.0"
-source = "git+https://github.com/nix-codes/librespot?rev=f35cee9bd1e68a050c2795db83ed25c3c37a9f98#f35cee9bd1e68a050c2795db83ed25c3c37a9f98"
+source = "git+https://github.com/nix-codes/librespot?rev=ce680a0ab1d99324e9fdadb940e390d205b0064d#ce680a0ab1d99324e9fdadb940e390d205b0064d"
 dependencies = [
  "protobuf",
  "protobuf-codegen",
@@ -4419,6 +4424,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustls-platform-verifier"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1167586491e2b18b8bfbb293e8180ec17c201c4f076d7cb3070ca964e7598f98"
+dependencies = [
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "jni 0.22.4",
+ "log",
+ "once_cell",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-platform-verifier-android",
+ "rustls-webpki",
+ "security-framework",
+ "security-framework-sys",
+ "webpki-root-certs",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rustls-platform-verifier-android"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
+
+[[package]]
 name = "rustls-webpki"
 version = "0.103.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4894,6 +4926,8 @@ dependencies = [
  "open",
  "reqwest",
  "rodio",
+ "rustls",
+ "rustls-platform-verifier",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4905,9 +4939,10 @@ name = "spotless-ffi"
 version = "0.1.0"
 dependencies = [
  "android_logger",
- "jni 0.21.1",
+ "jni 0.22.4",
  "log",
  "ndk-context",
+ "rustls-platform-verifier",
  "spotless-core",
  "thiserror 2.0.21",
  "uniffi",
@@ -6009,6 +6044,15 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webpki-root-certs"
+version = "1.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]

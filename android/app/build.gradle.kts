@@ -30,6 +30,11 @@ android {
     }
 }
 
+/** rustls-platform-verifier's version, from Cargo.lock ([VerifierVersion]). */
+val verifierVersion = providers.of(VerifierVersion::class.java) {
+    parameters.lockFile.set(rootProject.layout.projectDirectory.file("../Cargo.lock"))
+}
+
 dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -37,7 +42,30 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.activity.compose)
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
+    // The Kotlin part of rustls-platform-verifier, which the library checks
+    // certificates through: its version must be the Rust crate's.
+    // (Minifying would need -keep class org.rustls.platformverifier.** { *; }.)
+    implementation(verifierVersion.map { "org.rustls:rustls-platform-verifier:$it" })
     debugImplementation(libs.compose.ui.tooling)
+}
+
+/**
+ * The version of rustls-platform-verifier-android in Cargo.lock: the one
+ * the Rust crate was released with.
+ */
+abstract class VerifierVersion : ValueSource<String, VerifierVersion.Params> {
+    interface Params : ValueSourceParameters {
+        val lockFile: RegularFileProperty
+    }
+
+    override fun obtain(): String {
+        val lines = parameters.lockFile.get().asFile.readLines()
+        val at = lines.indexOfFirst { it.trim() == "name = \"rustls-platform-verifier-android\"" }
+        return lines.drop(at + 1).takeIf { at >= 0 }
+            ?.firstOrNull { it.trimStart().startsWith("version = ") }
+            ?.substringAfter('"')?.substringBefore('"')
+            ?: error("rustls-platform-verifier-android isn't in Cargo.lock")
+    }
 }
 
 /** Runs cargo from the repository's root, where the Rust workspace is. */

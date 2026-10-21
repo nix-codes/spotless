@@ -275,7 +275,7 @@ impl Worker {
             scrobbler: None,
             web: None,
             search_approval: Arc::default(),
-            http: reqwest::Client::new(),
+            http: crate::http::client(),
             cover_slots: Arc::new(tokio::sync::Semaphore::new(6)),
             starting: false,
             retry_at: None,

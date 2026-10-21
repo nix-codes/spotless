@@ -54,7 +54,7 @@ impl WebApi {
             path,
             refresh_token,
             access: None,
-            http: reqwest::Client::new(),
+            http: crate::http::client(),
         }
     }
 

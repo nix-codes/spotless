@@ -28,7 +28,9 @@ thiserror.workspace = true
 uniffi = "0.32.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
-# The context cpal's AAudio backend asks Java for devices with, and the log.
-jni = "0.21"
+# The context cpal's AAudio backend asks Java for devices with, the
+# certificate verifier's (the same as the core's), and the log.
+jni = "0.22"
 ndk-context = "0.1"
 android_logger = "0.15"
+rustls-platform-verifier = "0.7"

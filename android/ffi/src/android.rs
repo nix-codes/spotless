@@ -2,23 +2,17 @@
 //! app's `Context`. Kotlin calls `dev.spotless.core.Native.init(context)`
 //! once, before it makes a `Spotless`.
 
-use jni::JNIEnv;
+use jni::EnvUnowned;
+use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::{JClass, JObject};
 
-/// Where Android keeps the system's certificate authorities: the updatable
-/// set first (Android 14 on), then the one in the system image.
-const CA_DIRS: [&str; 2] = [
-    "/apex/com.android.conscrypt/cacerts",
-    "/system/etc/security/cacerts",
-];
-
-/// Sets up the log (`adb logcat -s spotless`), the certificates and cpal's
-/// context.
+/// Sets up the log (`adb logcat -s spotless`), Android's certificate
+/// verifier and cpal's context.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_spotless_core_Native_init(
-    env: JNIEnv,
-    _class: JClass,
-    context: JObject,
+pub extern "system" fn Java_dev_spotless_core_Native_init<'local>(
+    mut env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    context: JObject<'local>,
 ) {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
@@ -27,24 +21,23 @@ pub extern "system" fn Java_dev_spotless_core_Native_init(
                 .with_max_level(log::LevelFilter::Info)
                 .with_tag("spotless"),
         );
-        // rustls-native-certs finds no certificates on Android by itself
-        // (openssl-probe only knows Termux's folders), but reads this.
-        if let Some(dir) = CA_DIRS.iter().find(|d| std::path::Path::new(d).is_dir()) {
-            // SAFETY: called before the core starts any thread.
-            unsafe { std::env::set_var("SSL_CERT_DIR", dir) };
-            log::info!("certificates from {dir}");
-        }
-        // cpal's AAudio backend asks Java for the devices.
-        let vm = env.get_java_vm().expect("no Java VM");
-        let context = env.new_global_ref(context).expect("no global ref");
-        // SAFETY: both stay valid for the life of the process (the
-        // reference is leaked below).
-        unsafe {
-            ndk_context::initialize_android_context(
-                vm.get_java_vm_pointer().cast(),
-                context.as_obj().as_raw().cast(),
-            );
-        }
-        std::mem::forget(context);
+        env.with_env(|env| -> jni::errors::Result<()> {
+            // cpal's AAudio backend asks Java for the devices.
+            let vm = env.get_java_vm()?;
+            let global = env.new_global_ref(&context)?;
+            // SAFETY: both stay valid for the life of the process (the
+            // reference is leaked below).
+            unsafe {
+                ndk_context::initialize_android_context(
+                    vm.get_raw().cast(),
+                    global.as_raw().cast(),
+                );
+            }
+            std::mem::forget(global);
+            // Every TLS connection is checked by Android's own verifier
+            // (rustls-platform-verifier), whose Kotlin part the app ships.
+            rustls_platform_verifier::android::init_with_env(env, context)
+        })
+        .resolve::<ThrowRuntimeExAndDefault>();
     });
 }
