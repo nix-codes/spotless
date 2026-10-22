@@ -184,7 +184,11 @@ impl Settings {
                 .map_or(70, |v| v.min(100) as u8),
             repeat: flag("repeat"),
             shuffle: flag("shuffle"),
-            covers: flag("covers"),
+            // On by default on phones, where the catalog is browsed by them.
+            covers: raw
+                .get("covers")
+                .and_then(Value::as_bool)
+                .unwrap_or(cfg!(target_os = "android")),
             playlists: raw
                 .get("playlists")
                 .and_then(Value::as_bool)
