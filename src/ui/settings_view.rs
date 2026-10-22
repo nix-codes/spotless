@@ -725,13 +725,13 @@ impl Controls<'_, '_> {
             });
             note(ui, palette, "Also Ctrl + / − / 0, anywhere.");
         });
-        row(ui, palette, "Album covers", |ui| {
+        row(ui, palette, "Pics", |ui| {
             let switch = toggle(ui, palette, self.view.browse.show_covers);
             self.ring(ui, Item::Covers, &switch);
             if switch.clicked() || (self.pressed)(Item::Covers) {
                 self.actions.push(Action::ToggleCovers);
             }
-            note(ui, palette, "Thumbnails next to albums in Browse.");
+            note(ui, palette, "Album covers and artist pictures in Browse.");
         });
         row(ui, palette, "Skin", |ui| {
             let chosen = self.view.settings.skin.as_deref();
@@ -838,7 +838,7 @@ impl Controls<'_, '_> {
                 }
             });
         });
-        row(ui, palette, "Covers in use", |ui| {
+        row(ui, palette, "Pics in use", |ui| {
             ui.horizontal(|ui| {
                 value(ui, palette, &used(storage.map(|s| s.covers)));
                 let button = small_button(ui, palette, "CLEAR", false);

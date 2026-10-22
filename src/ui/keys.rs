@@ -85,7 +85,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Alt+1 … 4", "All, Albums, Singles, Appears on"),
             ("Ctrl+S", "Oldest / newest first"),
             ("Ctrl+E", "Show / hide all songs"),
-            ("C", "Covers on / off"),
+            ("C", "Pics on / off"),
             ("Ctrl+Tab, Ctrl+1 … 9", "The playlist + ADD adds to"),
             ("Backspace / Alt+←", "Back"),
             ("Esc", "Leave the search, then Browse"),

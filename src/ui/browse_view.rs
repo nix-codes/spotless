@@ -6,8 +6,8 @@
 //! highlighted row; Enter opens it (an artist, an album's songs) or plays it
 //! (a song), Insert or A adds it. In the slim column, Enter plays and Delete
 //! removes. Alt+1…4 pick the release tab, Alt+5 shows similar artists,
-//! Ctrl+S the order, Ctrl+E shows or hides all songs, C the covers. Esc goes back to the playlists,
-//! Backspace or Alt+Left back a page. Ctrl+F (in `keys.rs`) jumps to the
+//! Ctrl+S the order, Ctrl+E shows or hides all songs, C the pics. Esc goes
+//! back to the playlists, Backspace or Alt+Left back a page. Ctrl+F (in `keys.rs`) jumps to the
 //! search field.
 
 use egui::{
@@ -324,7 +324,7 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actio
                 inputs.nav.keyboard = true;
             }
         }
-        if text_button(ui, &palette, "COVERS", view.browse.show_covers, true)
+        if text_button(ui, &palette, "PICS", view.browse.show_covers, true)
             .on_hover_text("Show album covers and artist pictures")
             .clicked()
         {
