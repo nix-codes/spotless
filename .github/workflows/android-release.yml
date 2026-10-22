@@ -1,0 +1,95 @@
+# Builds the Android app's release APK for a tag like android-v0.1.0, signs
+# it with the release key and puts it in a draft GitHub release, to look over
+# and publish by hand. The desktop app is released on its own.
+#
+# The key comes from the repository's secrets:
+#   ANDROID_KEYSTORE           the keystore file, base64-encoded
+#   ANDROID_KEYSTORE_PASSWORD  its password
+#   ANDROID_KEY_ALIAS          the key's alias in it
+#   ANDROID_KEY_PASSWORD       the key's password
+
+name: Android Release
+
+on:
+  push:
+    tags: ["android-v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Release APK
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      # The tag names the version the app says it is.
+      - name: Version
+        run: |
+          version=${GITHUB_REF_NAME#android-v}
+          declared=$(sed -n 's/^ *versionName = "\(.*\)"$/\1/p' android/app/build.gradle.kts)
+          if [ "$version" != "$declared" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match versionName $declared"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Rust
+        run: rustup show active-toolchain && rustup target add aarch64-linux-android
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      # The bindings are read off a build for the runner itself, whose cpal
+      # needs ALSA's headers.
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+
+      - name: Release key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::error::The ANDROID_KEYSTORE secret isn't set"
+            exit 1
+          fi
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "SPOTLESS_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: App
+        working-directory: android
+        env:
+          SPOTLESS_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SPOTLESS_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          SPOTLESS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon assembleRelease
+
+      # Fails if the APK isn't signed, and gives the key's fingerprint for
+      # the release notes.
+      - name: Check the signature
+        run: |
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          apk=spotless-android-$VERSION-arm64.apk
+          cp android/app/build/outputs/apk/release/app-release.apk "$apk"
+          "$apksigner" verify --print-certs "$apk" | tee certs.txt
+          echo "APK=$apk" >> "$GITHUB_ENV"
+          echo "CERT=$(sed -n 's/.*certificate SHA-256 digest: //p' certs.txt | head -1)" >> "$GITHUB_ENV"
+          echo "SHA=$(sha256sum "$apk" | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<EOF
+          Spotless for Android $VERSION, for 64-bit ARM phones on Android 10 or later.
+
+          APK SHA-256: \`$SHA\`
+          Signing certificate SHA-256: \`$CERT\`
+          EOF
+          gh release create "$GITHUB_REF_NAME" "$APK" --draft \
+            --title "Spotless for Android $VERSION" --notes-file notes.md

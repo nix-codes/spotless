@@ -20,6 +20,37 @@ android {
         versionName = "0.1.0"
         // 64-bit ARM phones only, for now.
         ndk { abiFilters += "arm64-v8a" }
+        manifestPlaceholders["appName"] = "Spotless"
+    }
+
+    signingConfigs {
+        // The release key, given by the environment (as the Android Release
+        // workflow does from the repository's secrets). Without it, release
+        // builds come out unsigned.
+        val keystore = System.getenv("SPOTLESS_KEYSTORE")
+        if (keystore != null) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("SPOTLESS_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("SPOTLESS_KEY_ALIAS")
+                keyPassword = System.getenv("SPOTLESS_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        // A separate app beside the released one, so trying a build keeps
+        // the released app's sign-in and playlists.
+        debug {
+            applicationIdSuffix = ".debug"
+            manifestPlaceholders["appName"] = "Spotless debug"
+        }
+        release {
+            // JNA and the UniFFI bindings find classes by reflection, which
+            // shrinking would need keep rules for.
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
+        }
     }
 
     buildFeatures { compose = true }
