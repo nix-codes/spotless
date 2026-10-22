@@ -46,6 +46,10 @@ impl Paths {
         self.config.join("settings.json")
     }
 
+    pub fn history(&self) -> PathBuf {
+        self.config.join("history.json")
+    }
+
     pub fn covers(&self) -> PathBuf {
         self.cache.join("covers")
     }

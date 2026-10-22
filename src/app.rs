@@ -145,6 +145,11 @@ impl App {
                 self.inputs.query.clear();
                 self.controller.apply(action);
             }
+            Action::Search(ref query) => {
+                // A recent search fills the field, as if typed.
+                self.inputs.query = query.trim().to_string();
+                self.controller.apply(action);
+            }
             action => self.controller.apply(action),
         }
     }

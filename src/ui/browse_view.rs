@@ -331,6 +331,26 @@ fn home(ui: &mut Ui, view: &View, nav: &mut Nav, set_up: &mut bool, actions: &mu
     if !search_prompt(ui, view, set_up) {
         note(ui, view, "Type an artist, album or song and press Enter.");
     }
+    if searchable(view) && !view.browse.recent_searches.is_empty() {
+        section(ui, view, "RECENT SEARCHES");
+        for query in &view.browse.recent_searches {
+            let row = row(
+                ui,
+                &view.palette,
+                nav,
+                ROW_HEIGHT,
+                Some("FORGET"),
+                |painter, rect| {
+                    spans(painter, rect, &[(query, body(), view.palette.list_fg)]);
+                },
+            );
+            if row.button {
+                actions.push(Action::ForgetSearch(Some(query.clone())));
+            } else if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
+                actions.push(Action::Search(query.clone()));
+            }
+        }
+    }
     if !view.browse.recent.is_empty() {
         section(ui, view, "RECENTLY VIEWED");
         for artist in &view.browse.recent {
