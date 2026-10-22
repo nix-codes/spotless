@@ -1136,7 +1136,13 @@ fn row(
     if lit {
         ui.painter().rect_filled(rect, 0.0, palette.selected_bg);
         if nav.reveal {
-            ui.scroll_to_rect(rect, None);
+            // The first row brings the page's top along: the artist's name
+            // and picture, a section's title.
+            let mut reveal = rect;
+            if index == 0 {
+                reveal.min.y = ui.min_rect().top();
+            }
+            ui.scroll_to_rect(reveal, None);
         }
     } else if response.hovered() {
         ui.painter()
