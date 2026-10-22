@@ -2,10 +2,14 @@ package dev.spotless.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -14,6 +18,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.Role
@@ -186,6 +191,64 @@ fun DrawScope.glyph(glyph: Glyph, color: Color) {
                 drawLine(color, Offset(x * u, 12.5f * u), Offset(x * u, 17.5f * u), 1.8f * u)
             }
         }
+    }
+}
+
+/**
+ * The name, as on the desktop's title bar: the icon's LCD, SPOTLESS, and
+ * the bar's grooves filling the rest of [modifier]'s width.
+ */
+@Composable
+fun Logo(modifier: Modifier = Modifier) {
+    Row(
+        modifier.semantics { contentDescription = "Spotless" },
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(26.dp).lcd().drawBehind { mark() })
+        BasicText(
+            "SPOTLESS",
+            style = TextStyle(
+                color = Classic.chrome,
+                fontSize = 17.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.18.em,
+            ),
+        )
+        Box(Modifier.weight(1f).height(10.dp).drawBehind { grooves() })
+    }
+}
+
+/** The launcher icon's play sign and bars, from its 56-unit LCD. */
+private fun DrawScope.mark() {
+    val u = size.minDimension / 56f
+    fun bar(color: Color, x: Float, top: Float) =
+        drawRect(color, Offset(x * u, top * u), androidx.compose.ui.geometry.Size(5.33f * u, (48f - top) * u))
+    // Pulled in a little, off the bevel.
+    translate(top = -1f * u) {
+        drawPath(
+            Path().apply {
+                moveTo(8.67f * u, 11.33f * u)
+                lineTo(28f * u, 22.67f * u)
+                lineTo(8.67f * u, 34f * u)
+                close()
+            },
+            Classic.lcd,
+        )
+        bar(Classic.lcd, 33.33f, 26f)
+        bar(Classic.lcd, 41.33f, 17.33f)
+        for ((x, top) in listOf(8.67f to 39.33f, 16.67f to 35.33f, 24.67f to 31.33f)) bar(Classic.dim, x, top)
+    }
+}
+
+/** The title bar's grooves: thin light lines, 3 dp apart. */
+private fun DrawScope.grooves() {
+    val step = 3.dp.toPx()
+    var y = 0.5f
+    while (y <= size.height) {
+        drawLine(Classic.hi, Offset(0f, y), Offset(size.width, y), 1.dp.toPx())
+        y += step
     }
 }
 

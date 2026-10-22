@@ -99,7 +99,7 @@ private fun TopBar(core: Core, openSettings: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BasicText("P L A Y L I S T S", Modifier.weight(1f), label(spacing = 0.3.em))
+        Logo(Modifier.weight(1f).padding(end = 4.dp))
         GlyphButton(Glyph.Search, "Browse", { core.apply(Action.OpenBrowse) }, Modifier.width(48.dp))
         GlyphButton(Glyph.Menu, "Settings", openSettings, Modifier.width(48.dp))
     }
