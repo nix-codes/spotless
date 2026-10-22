@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.KeyboardOptions
@@ -46,7 +45,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -55,14 +58,16 @@ import androidx.compose.ui.zIndex
 import dev.spotless.Core
 import dev.spotless.core.Action
 import dev.spotless.core.Song
-import kotlin.math.roundToInt
+import kotlin.math.abs
 
 private val ROW = 52.dp
+private val HEADER = 30.dp
 
 /**
  * The main screen: the playlist tabs, the viewed playlist, and the player.
  * Holding a song selects it, for Q NEXT, removing and moving; holding another
- * then selects every song from the last one picked up to it.
+ * then selects every song from the last one picked up to it. Each album's
+ * run of songs sits under a header with its name.
  */
 @Composable
 fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
@@ -288,6 +293,7 @@ private class Drag(val entry: ULong, val from: Int) {
 private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Unit, modifier: Modifier) {
     val list = core.playlist
     val row = with(LocalDensity.current) { ROW.toPx() }
+    val header = with(LocalDensity.current) { HEADER.toPx() }
     var drag by remember { mutableStateOf<Drag?>(null) }
     // The song a held one selects a range from: the last one picked on its own.
     var anchor by remember(list?.id) { mutableStateOf<ULong?>(null) }
@@ -300,73 +306,144 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
             )
             return@Box
         }
-        val last = list.songs.lastIndex
-        /** Where the dragged song would land. */
-        fun target(d: Drag) = (d.from + (d.offset / row).roundToInt()).coerceIn(0, last)
+        val songs = list.songs
+        // Where each album's run starts, and how far down each song sits.
+        val starts = songs.indices.filter { it == 0 || songs[it].track.album.uri != songs[it - 1].track.album.uri }
+        val tops = FloatArray(songs.size)
+        var y = 0f
+        for (i in songs.indices) {
+            if (i in starts) y += header
+            tops[i] = y
+            y += row
+        }
+        /** Where the dragged song would land: the song whose place is nearest. */
+        fun target(d: Drag): Int {
+            val at = tops[d.from] + d.offset
+            return songs.indices.minBy { abs(tops[it] - at) }
+        }
         LazyColumn(Modifier.fillMaxSize()) {
-            itemsIndexed(list.songs, key = { _, song -> song.entry.toLong() }) { index, song ->
-                val chosen = song.entry in selected
-                val d = drag
-                // The dragged song follows the finger; the ones it passes make way.
-                val shift = when {
-                    d == null -> 0f
-                    d.entry == song.entry -> d.offset
-                    index in (d.from + 1)..target(d) -> -row
-                    index in target(d) until d.from -> row
-                    else -> 0f
+            songs.forEachIndexed { index, song ->
+                if (index in starts) {
+                    val end = starts.firstOrNull { it > index } ?: songs.size
+                    val run = songs.subList(index, end).map { it.entry }
+                    val all = selected.containsAll(run)
+                    item(key = "album ${song.entry}") {
+                        AlbumHeader(
+                            song, all,
+                            tap = {
+                                when {
+                                    selected.isEmpty() -> core.apply(Action.PlayEntry(list.id, song.entry))
+                                    all -> select((selected - run.toSet()).toSet())
+                                    else -> select((selected + run).toSet())
+                                }
+                            },
+                            hold = {
+                                anchor = song.entry
+                                select((selected + run).toSet())
+                            },
+                        )
+                    }
                 }
-                SongRow(
-                    index, song,
-                    current = song.entry == list.cursor,
-                    chosen = chosen,
-                    selecting = selected.isNotEmpty(),
-                    lifted = d?.entry == song.entry,
-                    modifier = Modifier.zIndex(if (d?.entry == song.entry) 1f else 0f).graphicsLayer { translationY = shift },
-                    tap = {
-                        when {
-                            selected.isEmpty() -> core.apply(Action.PlayEntry(list.id, song.entry))
-                            chosen -> select((selected - song.entry).toSet())
-                            else -> {
+                item(key = song.entry.toLong()) {
+                    val chosen = song.entry in selected
+                    val d = drag
+                    // The dragged song follows the finger; the ones it passes take
+                    // the place next to theirs, over any header between.
+                    val shift = when {
+                        d == null -> 0f
+                        d.entry == song.entry -> d.offset
+                        index in (d.from + 1)..target(d) -> tops[index - 1] - tops[index]
+                        index in target(d) until d.from -> tops[index + 1] - tops[index]
+                        else -> 0f
+                    }
+                    SongRow(
+                        index, song,
+                        current = song.entry == list.cursor,
+                        chosen = chosen,
+                        selecting = selected.isNotEmpty(),
+                        lifted = d?.entry == song.entry,
+                        modifier = Modifier.zIndex(if (d?.entry == song.entry) 1f else 0f).graphicsLayer { translationY = shift },
+                        tap = {
+                            when {
+                                selected.isEmpty() -> core.apply(Action.PlayEntry(list.id, song.entry))
+                                chosen -> select((selected - song.entry).toSet())
+                                else -> {
+                                    anchor = song.entry
+                                    select((selected + song.entry).toSet())
+                                }
+                            }
+                        },
+                        hold = {
+                            val from = list.songs.indexOfFirst { it.entry == anchor }
+                            if (anchor in selected && from >= 0) {
+                                val range = list.songs.slice(minOf(from, index)..maxOf(from, index))
+                                select((selected + range.map { it.entry }).toSet())
+                            } else {
                                 anchor = song.entry
                                 select((selected + song.entry).toSet())
                             }
-                        }
-                    },
-                    hold = {
-                        val from = list.songs.indexOfFirst { it.entry == anchor }
-                        if (anchor in selected && from >= 0) {
-                            val range = list.songs.slice(minOf(from, index)..maxOf(from, index))
-                            select((selected + range.map { it.entry }).toSet())
-                        } else {
-                            anchor = song.entry
-                            select((selected + song.entry).toSet())
-                        }
-                    },
-                    handle = Modifier.pointerInput(song.entry, index, selected, last) {
-                        detectDragGestures(
-                            onDragStart = { drag = Drag(song.entry, index) },
-                            onDrag = { change, amount ->
-                                change.consume()
-                                drag?.let { it.offset += amount.y }
-                            },
-                            onDragEnd = {
-                                drag?.let { done ->
-                                    val to = target(done)
-                                    if (to != done.from) {
-                                        // A selected song takes the rest of the selection along.
-                                        val moved = if (chosen) selected else listOf(song.entry)
-                                        val before = if (to < done.from) to else to + 1
-                                        core.apply(Action.Move(moved, before.toUInt()))
+                        },
+                        handle = Modifier.pointerInput(song.entry, index, selected, starts, songs.size) {
+                            detectDragGestures(
+                                onDragStart = { drag = Drag(song.entry, index) },
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    drag?.let { it.offset += amount.y }
+                                },
+                                onDragEnd = {
+                                    drag?.let { done ->
+                                        val to = target(done)
+                                        if (to != done.from) {
+                                            // A selected song takes the rest of the selection along.
+                                            val moved = if (chosen) selected else listOf(song.entry)
+                                            val before = if (to < done.from) to else to + 1
+                                            core.apply(Action.Move(moved, before.toUInt()))
+                                        }
                                     }
-                                }
-                                drag = null
-                            },
-                            onDragCancel = { drag = null },
-                        )
-                    },
-                )
+                                    drag = null
+                                },
+                                onDragCancel = { drag = null },
+                            )
+                        },
+                    )
+                }
             }
         }
+    }
+}
+
+/** Above an album's run of songs: its name and the first song's artist. */
+@Composable
+private fun AlbumHeader(song: Song, chosen: Boolean, tap: () -> Unit, hold: () -> Unit) {
+    val album = song.track.album.name
+    val artist = song.track.artists.firstOrNull()?.name
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(HEADER)
+            .background(if (chosen) Classic.selected else Classic.playingRow)
+            .combinedClickable(onLongClick = hold, onClick = tap)
+            .semantics { contentDescription = listOfNotNull(album, artist).joinToString(", by ") }
+            .padding(start = 10.dp, end = 18.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(3.dp).height(14.dp).background(if (chosen) Classic.current else Classic.lcd))
+        val text = buildAnnotatedString {
+            withStyle(SpanStyle(color = if (chosen) Classic.current else Classic.lcd)) { append(album.uppercase()) }
+            if (artist != null) {
+                withStyle(SpanStyle(color = if (chosen) Color(0xFFD6DCFF) else Classic.dim)) {
+                    append("  ·  ${artist.uppercase()}")
+                }
+            }
+        }
+        BasicText(
+            text,
+            Modifier.weight(1f),
+            label(12.sp, spacing = 0.06.em),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
