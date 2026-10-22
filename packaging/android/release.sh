@@ -61,14 +61,16 @@ echo "Pushed $tag; the Android Release workflow builds it."
 printf 'Wait for the draft release? [Y/n] '
 read -r answer
 [ "$answer" != n ] || exit 0
+# This commit's run: an earlier, deleted release may have had the same tag.
 run=
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-    run=$(gh run list --workflow android-release.yml --branch "$tag" --json databaseId \
-        --jq '.[0].databaseId // empty')
+    run=$(gh run list --workflow android-release.yml --branch "$tag" --json databaseId,headSha \
+        --jq "[.[] | select(.headSha == \"$commit\")][0].databaseId // empty")
     [ -z "$run" ] || break
     sleep 3
 done
 [ -n "$run" ] || fail "The workflow hasn't started: see gh run list --workflow android-release.yml"
 gh run watch "$run" --exit-status >/dev/null || fail "The build failed: gh run view $run --log-failed"
-echo "Draft ready: $(gh release view "$tag" --json url --jq .url)"
+url=$(gh release view "$tag" --json url --jq .url) || fail "The build passed, but $tag has no release"
+echo "Draft ready: $url"
 echo "Try the APK, then publish it: gh release edit $tag --draft=false"
