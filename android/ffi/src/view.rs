@@ -3,7 +3,7 @@
 use spotless_core::backend::{self, SessionState};
 use spotless_core::browse::{Loadable, Page};
 use spotless_core::controller::State;
-use spotless_core::lastfm::LastFmStatus;
+use spotless_core::lastfm::{self, LastFmStatus};
 use spotless_core::model::catalog::{self, ReleaseGroup as CoreGroup, ReleaseTab as CoreTab};
 use spotless_core::model::{AlbumRef, ArtistRef, Playlist, PlaylistId, TrackRef};
 use spotless_core::playback::engine;
@@ -13,6 +13,8 @@ use spotless_core::store::AUDIO_CACHE_SIZES;
 pub struct Artist {
     pub uri: String,
     pub name: String,
+    /// The artist's picture's URL, where the catalogue gave one.
+    pub image: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
@@ -35,6 +37,7 @@ impl From<&ArtistRef> for Artist {
         Self {
             uri: artist.uri.clone(),
             name: artist.name.clone(),
+            image: artist.image.clone(),
         }
     }
 }
@@ -44,7 +47,7 @@ impl From<Artist> for ArtistRef {
         Self {
             uri: artist.uri,
             name: artist.name,
-            image: None,
+            image: artist.image,
         }
     }
 }
@@ -387,6 +390,20 @@ pub struct TabCounts {
     pub appears_on: u32,
 }
 
+/// Artists like the page's, from Last.fm.
+#[derive(Clone, Debug, PartialEq, uniffi::Enum)]
+pub enum SimilarArtists {
+    /// Not asked for yet (SIMILAR not opened).
+    NotRead,
+    Loading,
+    Ready {
+        names: Vec<String>,
+    },
+    Failed {
+        message: String,
+    },
+}
+
 #[derive(Clone, Debug, PartialEq, uniffi::Enum)]
 pub enum ArtistPage {
     Loading,
@@ -395,6 +412,9 @@ pub enum ArtistPage {
         counts: TabCounts,
         /// The tab's releases, in the order chosen.
         releases: Vec<ReleaseRow>,
+        /// SIMILAR is offered: a Last.fm API key is saved.
+        similar_offered: bool,
+        similar: SimilarArtists,
     },
     Failed {
         message: String,
@@ -426,6 +446,10 @@ pub struct BrowseView {
     /// The playlist ADD adds to.
     pub target: u64,
     pub tab: ReleaseTab,
+    /// The artist page shows similar artists instead of the tab.
+    pub similar: bool,
+    /// The similar artist being looked for on Spotify, by name.
+    pub finding: Option<String>,
     pub newest_first: bool,
     pub covers: bool,
     pub search: SearchState,
@@ -482,6 +506,18 @@ pub(crate) fn browse(state: &State) -> BrowseView {
                             appears_on: on(CoreTab::AppearsOn),
                         },
                         releases: shown,
+                        similar_offered: lastfm::api::is_key(&state.lastfm.api_key)
+                            || browse.similar_artists.contains_key(uri),
+                        similar: match browse.similar_artists.get(uri) {
+                            None => SimilarArtists::NotRead,
+                            Some(Loadable::Loading) => SimilarArtists::Loading,
+                            Some(Loadable::Ready(names)) => SimilarArtists::Ready {
+                                names: names.clone(),
+                            },
+                            Some(Loadable::Failed(message)) => SimilarArtists::Failed {
+                                message: message.clone(),
+                            },
+                        },
                     }
                 }
                 Some(Loadable::Failed(message)) => ArtistPage::Failed {
@@ -496,6 +532,8 @@ pub(crate) fn browse(state: &State) -> BrowseView {
         can_go_back: browse.can_go_back(),
         target: browse.target.0,
         tab: browse.tab.into(),
+        similar: browse.similar,
+        finding: browse.finding.as_ref().map(|(name, _)| name.clone()),
         newest_first: browse.newest_first,
         covers: browse.show_covers,
         search: search_state(&state.search),

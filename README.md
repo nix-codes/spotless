@@ -100,12 +100,14 @@ accounts.
   page is just the discography: All, Albums, Singles & EPs, Appears on;
   Albums first, oldest first, songs opening inline. **+ ADD** adds a whole
   album to the playlist shown alongside. Pasting a Spotify link adds it too.
-- **Covers are optional.** Off by default on the desktop, on by default on
-  Android; either way, they show in the catalogue only. Playlists stay text.
+- **Pics are optional**: album covers and artists' pictures. Off by default
+  on the desktop, on by default on Android; either way, they show in the
+  catalogue only. Playlists stay text.
 - **Last.fm scrobbling**, optional, sent by Spotless itself. Spotify's
   Last.fm link only hears of what plays through Spotify Connect, which
   Spotless stays out of so it never takes over your account's queue.
-  Listens made offline are sent later.
+  Listens made offline are sent later. The same API key gives an artist's
+  page **Similar**: the artists Last.fm's listeners play alongside it.
 - **Made for the keyboard.** Everything works without the mouse: playback,
   moving between tabs and through playlists, searching and browsing an
   artist's albums, adding them, and Settings. F1 lists the keys.

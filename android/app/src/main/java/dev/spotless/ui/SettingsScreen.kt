@@ -220,7 +220,7 @@ private fun Storage(core: Core) {
             Value(settings.audioBytes?.let { size(it.toLong()) } ?: "…")
             TextButton("CLEAR", { core.apply(Action.ClearCache(Store.AUDIO)) })
         }
-        Item("Covers") {
+        Item("Pics") {
             Value(settings.coverBytes?.let { size(it.toLong()) } ?: "…")
             TextButton("CLEAR", { core.apply(Action.ClearCache(Store.COVERS)) })
         }

@@ -57,6 +57,7 @@ import dev.spotless.core.ReleaseRow
 import dev.spotless.core.ReleaseTab
 import dev.spotless.core.SearchPage
 import dev.spotless.core.SearchState
+import dev.spotless.core.SimilarArtists
 import dev.spotless.core.Track
 
 /**
@@ -75,10 +76,11 @@ fun BrowseScreen(core: Core) {
             GlyphButton(Glyph.Back, "Back", {
                 core.apply(if (browse.canGoBack) Action.Back else Action.CloseBrowse)
             }, Modifier.width(48.dp))
-            val title = (browse.page as? BrowsePage.Artist)
-                ?.let { (it.page as? ArtistPage.Ready)?.artist?.name }
-            if (title != null) {
-                Line(title, body(18.sp, Classic.current, FontWeight.Bold), Modifier.weight(1f).padding(start = 4.dp))
+            val artist = (browse.page as? BrowsePage.Artist)
+                ?.let { (it.page as? ArtistPage.Ready)?.artist }
+            if (artist != null) {
+                if (browse.covers) Cover(core, artist.image)
+                Line(artist.name, body(18.sp, Classic.current, FontWeight.Bold), Modifier.weight(1f).padding(start = 4.dp))
             } else {
                 BasicText("B R O W S E", Modifier.weight(1f).padding(start = 4.dp), label(spacing = 0.3.em))
             }
@@ -210,8 +212,43 @@ private fun LazyListScope.artist(core: Core, page: ArtistPage) {
         ArtistPage.Loading -> note("Reading the discography…")
         is ArtistPage.Failed -> note(page.message)
         is ArtistPage.Ready -> {
+            if (core.browse.similar && page.similarOffered) {
+                similar(core, page.similar)
+                return
+            }
             if (page.releases.isEmpty()) note("Nothing on this tab.")
             releases(core, page.releases, withArtist = false)
+        }
+    }
+}
+
+/** Artists Last.fm's listeners play alongside this one; tap opens one. */
+private fun LazyListScope.similar(core: Core, similar: SimilarArtists) {
+    when (similar) {
+        SimilarArtists.NotRead, SimilarArtists.Loading -> note("Asking Last.fm…")
+        is SimilarArtists.Failed -> note(similar.message)
+        is SimilarArtists.Ready -> {
+            if (similar.names.isEmpty()) note("Last.fm knows no artists like this one.")
+            items(similar.names, key = { "similar:$it" }) { name ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .clickable { core.apply(Action.OpenSimilar(name)) }
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Line(name, body(), Modifier.weight(1f))
+                    if (core.browse.finding == name) {
+                        BasicText("FINDING…", style = label(12.sp, Classic.dim))
+                    } else {
+                        Box(Modifier.size(18.dp).drawBehind { glyph(Glyph.Closed, Classic.dim) })
+                    }
+                }
+            }
+            if (similar.names.isNotEmpty()) {
+                note("From Last.fm: what its listeners play alongside this artist.")
+            }
         }
     }
 }
@@ -219,7 +256,9 @@ private fun LazyListScope.artist(core: Core, page: ArtistPage) {
 /** The artist page's tabs and order. */
 @Composable
 private fun ArtistBar(core: Core, page: BrowsePage.Artist) {
-    val counts = (page.page as? ArtistPage.Ready)?.counts
+    val ready = page.page as? ArtistPage.Ready
+    val counts = ready?.counts
+    val similar = core.browse.similar && ready?.similarOffered == true
     val tabs = listOf(
         ReleaseTab.ALL to ("ALL" to counts?.all),
         ReleaseTab.ALBUMS to ("ALBUMS" to counts?.albums),
@@ -234,17 +273,22 @@ private fun ArtistBar(core: Core, page: BrowsePage.Artist) {
                     if (count != null) "$text $count" else text,
                     { core.apply(Action.SetTab(tab)) },
                     Modifier.weight(1f),
-                    on = core.browse.tab == tab,
+                    on = !similar && core.browse.tab == tab,
                 )
             }
         }
-        Row {
-            TextButton(
-                if (core.browse.newestFirst) "NEWEST FIRST" else "OLDEST FIRST",
-                { core.apply(Action.ToggleSort) },
-            )
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (!similar) {
+                TextButton(
+                    if (core.browse.newestFirst) "NEWEST FIRST" else "OLDEST FIRST",
+                    { core.apply(Action.ToggleSort) },
+                )
+            }
             Box(Modifier.weight(1f))
-            TextButton("COVERS", { core.apply(Action.ToggleCovers) }, on = core.browse.covers)
+            if (ready?.similarOffered == true) {
+                TextButton("SIMILAR", { core.apply(Action.ShowSimilar(ready.artist)) }, on = similar)
+            }
+            TextButton("PICS", { core.apply(Action.ToggleCovers) }, on = core.browse.covers)
         }
     }
 }
@@ -291,7 +335,7 @@ private fun LazyListScope.releases(core: Core, rows: List<ReleaseRow>, withArtis
     }
 }
 
-/** A release's cover, a dark square until it's read. */
+/** A release's cover or an artist's picture, a dark square until it's read. */
 @Composable
 private fun Cover(core: Core, url: String?) {
     val image = core.cover(url)
@@ -310,8 +354,10 @@ private fun ArtistRow(core: Core, artist: Artist) {
             .height(52.dp)
             .clickable { core.apply(Action.OpenArtist(artist)) }
             .padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (core.browse.covers) Cover(core, artist.image)
         Line(artist.name, body(), Modifier.weight(1f))
         Box(Modifier.size(18.dp).drawBehind { glyph(Glyph.Closed, Classic.dim) })
     }

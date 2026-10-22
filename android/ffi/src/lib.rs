@@ -294,6 +294,14 @@ pub enum Action {
     SetTab {
         tab: ReleaseTab,
     },
+    /// Shows artists like this one (the artist page's), from Last.fm.
+    ShowSimilar {
+        artist: Artist,
+    },
+    /// Opens a similar artist, by name, finding it on Spotify first.
+    OpenSimilar {
+        name: String,
+    },
     ToggleSort,
     /// The playlist ADD adds to.
     SetTarget {
@@ -365,6 +373,8 @@ impl From<Action> for spotless_core::action::Action {
             Action::OpenArtist { artist } => Core::OpenArtist(artist.into()),
             Action::ToggleAlbum { album } => Core::ToggleAlbum(album),
             Action::SetTab { tab } => Core::SetTab(tab.into()),
+            Action::ShowSimilar { artist } => Core::ShowSimilar(artist.into()),
+            Action::OpenSimilar { name } => Core::OpenSimilar(name),
             Action::ToggleSort => Core::ToggleSort,
             Action::SetTarget { playlist } => Core::SetTarget(PlaylistId(playlist)),
             Action::ToggleCovers => Core::ToggleCovers,
@@ -463,6 +473,7 @@ mod tests {
             artists: vec![Artist {
                 uri: "spotify:artist:1".into(),
                 name: "Boards of Canada".into(),
+                image: None,
             }],
             album: Album {
                 uri: "spotify:album:1".into(),
