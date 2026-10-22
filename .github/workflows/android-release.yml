@@ -45,10 +45,12 @@ jobs:
         with:
           tool: cargo-ndk
 
-      # Shared with the Build workflow's Android job, which builds the same.
+      # Shared with the Build workflow's Android job, which builds the same:
+      # one key for both jobs, without their names in it.
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: android
+          add-job-id-key: false
 
       # The bindings are read off a build for the runner itself, whose cpal
       # needs ALSA's headers.
