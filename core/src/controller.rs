@@ -13,7 +13,7 @@ use crate::backend::{Backend, Command, Event, SearchState, SessionState, Storage
 use crate::browse::{Browse, Loadable, Page};
 use crate::browser::{self, Browser};
 use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
-use crate::model::{Library, Playback, PlaylistId, TrackRef};
+use crate::model::{ArtistRef, Library, Playback, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status};
 use crate::playback::outputs::Output;
@@ -197,6 +197,14 @@ impl Controller {
                     };
                     self.state.browse.artists.insert(artist, loaded);
                 }
+                Event::SimilarArtists { artist, result } => {
+                    let loaded = match result {
+                        Ok(names) => Loadable::Ready(names),
+                        Err(error) => Loadable::Failed(error),
+                    };
+                    self.state.browse.similar_artists.insert(artist, loaded);
+                }
+                Event::ArtistFound { name, result } => self.artist_found(name, result),
                 Event::Album { album, result } => {
                     let pending: Vec<(PlaylistId, Option<usize>)> = self
                         .pending_adds
@@ -456,7 +464,42 @@ impl Controller {
                     self.read_album(album);
                 }
             }
-            Action::SetTab(tab) => browse.tab = tab,
+            Action::SetTab(tab) => {
+                browse.tab = tab;
+                browse.similar = false;
+            }
+            Action::ShowSimilar(artist) => {
+                browse.similar = true;
+                if matches!(
+                    browse.similar_artists.get(&artist.uri),
+                    Some(Loadable::Ready(_) | Loadable::Loading)
+                ) {
+                    return;
+                }
+                let api_key = self.state.lastfm.api_key.clone();
+                if !crate::lastfm::api::is_key(&api_key) {
+                    browse.similar_artists.insert(
+                        artist.uri,
+                        Loadable::Failed("Similar artists come from Last.fm: add its API key in Settings, Last.fm.".into()),
+                    );
+                    return;
+                }
+                browse
+                    .similar_artists
+                    .insert(artist.uri.clone(), Loadable::Loading);
+                self.send(Command::SimilarArtists { artist, api_key });
+            }
+            Action::OpenSimilar(name) => {
+                // Without search, the search page says how to set it up.
+                if self.state.search == SearchState::NoApp {
+                    return self.apply(Action::Search(name));
+                }
+                if browse.finding.as_ref().is_some_and(|(n, _)| *n == name) {
+                    return;
+                }
+                browse.finding = Some((name.clone(), browse.page().clone()));
+                self.send(Command::FindArtist(name));
+            }
             Action::ToggleSort => browse.newest_first = !browse.newest_first,
             Action::SetTarget(list) => browse.target = list,
             Action::TogglePlaylists => {
@@ -475,6 +518,28 @@ impl Controller {
             Action::AddAlbum(album) => self.add_album(album, None),
             Action::DropAlbum(album, at) => self.add_album(album, Some(at)),
             _ => {}
+        }
+    }
+
+    /// Opens the similar artist found, unless the user has gone elsewhere
+    /// since. Spotify knowing no artist by that name searches for it.
+    fn artist_found(&mut self, name: String, result: Result<Option<ArtistRef>, String>) {
+        let browse = &mut self.state.browse;
+        match browse.finding.take() {
+            Some((wanted, from)) if wanted == name => {
+                if *browse.page() != from {
+                    return;
+                }
+            }
+            other => {
+                browse.finding = other;
+                return;
+            }
+        }
+        match result {
+            Ok(Some(artist)) => self.apply(Action::OpenArtist(artist)),
+            Ok(None) => self.apply(Action::Search(name)),
+            Err(error) => self.state.error = Some(error),
         }
     }
 
@@ -716,6 +781,44 @@ mod tests {
             result: Ok(tracks([7, 8])),
         });
         assert_eq!(rig.songs(), ["Song 1", "Song 7", "Song 8", "Song 2"]);
+    }
+
+    #[test]
+    fn a_similar_artist_opens_once_found_unless_the_user_moved_on() {
+        let mut rig = Rig::new("similar");
+        let artist = |name: &str| ArtistRef {
+            uri: format!("spotify:artist:{name}"),
+            name: name.into(),
+        };
+        let page = |rig: &Rig| rig.controller.state().browse.page().clone();
+        rig.controller.apply(Action::OpenArtist(artist("boc")));
+        rig.controller.apply(Action::OpenSimilar("Tycho".into()));
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::FindArtist(n) if n == "Tycho"))
+        );
+        rig.tell(Event::ArtistFound {
+            name: "Tycho".into(),
+            result: Ok(Some(artist("tycho"))),
+        });
+        assert_eq!(page(&rig), Page::Artist("spotify:artist:tycho".into()));
+
+        rig.controller.apply(Action::OpenSimilar("Bibio".into()));
+        rig.controller.apply(Action::Back);
+        rig.tell(Event::ArtistFound {
+            name: "Bibio".into(),
+            result: Ok(Some(artist("bibio"))),
+        });
+        assert_eq!(page(&rig), Page::Artist("spotify:artist:boc".into()));
+
+        // Spotify has nobody by that name: search for it instead.
+        rig.controller.apply(Action::OpenSimilar("Ulrich Schnauss".into()));
+        rig.tell(Event::ArtistFound {
+            name: "Ulrich Schnauss".into(),
+            result: Ok(None),
+        });
+        assert_eq!(page(&rig), Page::Search("Ulrich Schnauss".into()));
     }
 
     #[test]

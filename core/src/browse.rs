@@ -33,10 +33,17 @@ pub struct Browse {
     history: Vec<Page>,
     pub searches: HashMap<String, Loadable<SearchResults>>,
     pub artists: HashMap<String, Loadable<Discography>>,
+    /// Artists like an artist, by its URI: names from Last.fm.
+    pub similar_artists: HashMap<String, Loadable<Vec<String>>>,
     pub albums: HashMap<String, Loadable<Vec<TrackRef>>>,
     /// Albums shown with their songs.
     pub expanded: HashSet<String>,
     pub tab: ReleaseTab,
+    /// The artist page shows similar artists instead of the releases.
+    pub similar: bool,
+    /// A similar artist being looked for on Spotify, and the page it was
+    /// opened from.
+    pub finding: Option<(String, Page)>,
     pub newest_first: bool,
     /// Artists opened lately, newest first.
     pub recent: Vec<ArtistRef>,
@@ -57,9 +64,12 @@ impl Browse {
             history: vec![Page::Home],
             searches: HashMap::new(),
             artists: HashMap::new(),
+            similar_artists: HashMap::new(),
             albums: HashMap::new(),
             expanded: HashSet::new(),
             tab: ReleaseTab::default(),
+            similar: false,
+            finding: None,
             newest_first: false,
             recent: Vec::new(),
             recent_searches: Vec::new(),
@@ -91,6 +101,7 @@ impl Browse {
         }
         if matches!(page, Page::Artist(_)) {
             self.tab = ReleaseTab::default();
+            self.similar = false;
             self.newest_first = false;
         }
         self.history.push(page);
@@ -154,9 +165,11 @@ mod tests {
     fn an_artist_page_starts_on_albums_oldest_first() {
         let mut browse = Browse::new(PlaylistId::DEFAULT, false);
         browse.tab = ReleaseTab::All;
+        browse.similar = true;
         browse.newest_first = true;
         browse.go(Page::Artist("spotify:artist:a".into()));
         assert_eq!(browse.tab, ReleaseTab::Albums);
+        assert!(!browse.similar);
         assert!(!browse.newest_first);
     }
 

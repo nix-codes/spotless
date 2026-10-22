@@ -80,15 +80,30 @@ impl WebApi {
     }
 
     pub async fn search(&mut self, query: &str) -> Result<SearchResults> {
-        let token = self.access_token().await?;
-        let response = self
-            .http
-            .get("https://api.spotify.com/v1/search")
-            .query(&[
+        let body = self
+            .search_for(&[
                 ("q", query),
                 ("type", "artist,album,track"),
                 ("limit", RESULT_LIMIT),
             ])
+            .await?;
+        Ok(parse_search(&body))
+    }
+
+    /// The artist Spotify knows by this name (one Last.fm named), if any.
+    pub async fn find_artist(&mut self, name: &str) -> Result<Option<ArtistRef>> {
+        let body = self
+            .search_for(&[("q", name), ("type", "artist"), ("limit", RESULT_LIMIT)])
+            .await?;
+        Ok(named_artist(&body, name))
+    }
+
+    async fn search_for(&mut self, query: &[(&str, &str)]) -> Result<Value> {
+        let token = self.access_token().await?;
+        let response = self
+            .http
+            .get("https://api.spotify.com/v1/search")
+            .query(query)
             .bearer_auth(token)
             .send()
             .await
@@ -113,7 +128,7 @@ impl WebApi {
             let message = body["error"]["message"].as_str().unwrap_or("no message");
             bail!("search failed: HTTP {status}: {message}");
         }
-        Ok(parse_search(&body))
+        Ok(body)
     }
 
     async fn access_token(&mut self) -> Result<String> {
@@ -186,6 +201,46 @@ fn parse_search(body: &Value) -> SearchResults {
             .collect(),
         albums: items("albums").iter().filter_map(release).collect(),
         songs: items("tracks").iter().filter_map(track_ref).collect(),
+    }
+}
+
+/// The first artist in the results whose name is `name`, give or take
+/// case, accents, punctuation and a leading "The".
+fn named_artist(body: &Value, name: &str) -> Option<ArtistRef> {
+    let wanted = plain_name(name);
+    body["artists"]["items"]
+        .as_array()?
+        .iter()
+        .filter_map(artist_ref)
+        .find(|artist| plain_name(&artist.name) == wanted)
+}
+
+/// A name in lowercase letters and digits, "&" read as "and".
+fn plain_name(name: &str) -> String {
+    let name = name.to_lowercase().replace('&', " and ");
+    let words: Vec<String> = name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| w.chars().map(unaccented).collect())
+        .collect();
+    let words = match words.split_first() {
+        Some((first, rest)) if first == "the" && !rest.is_empty() => rest,
+        _ => &words[..],
+    };
+    words.concat()
+}
+
+fn unaccented(c: char) -> char {
+    match c {
+        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' => 'a',
+        'ç' => 'c',
+        'è' | 'é' | 'ê' | 'ë' => 'e',
+        'ì' | 'í' | 'î' | 'ï' => 'i',
+        'ñ' => 'n',
+        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' => 'o',
+        'ù' | 'ú' | 'û' | 'ü' => 'u',
+        'ý' | 'ÿ' => 'y',
+        c => c,
     }
 }
 
@@ -291,6 +346,24 @@ mod tests {
         // A file saved empty by the old bug counts as not approved.
         std::fs::write(&path, br#"{"refresh_token":""}"#).unwrap();
         assert!(!WebApi::new("id".into(), path).signed_in());
+    }
+
+    #[test]
+    fn an_artist_is_found_by_its_name_alone() {
+        let body = serde_json::json!({"artists": {"items": [
+            {"uri": "spotify:artist:tribute", "name": "Sigur Rós Tribute Band"},
+            {"uri": "spotify:artist:sr", "name": "Sigur Rós"}
+        ]}});
+        let found = named_artist(&body, "sigur ros").unwrap();
+        assert_eq!(found.uri, "spotify:artist:sr");
+        assert!(named_artist(&body, "Sigur").is_none());
+        assert_eq!(plain_name("The Beatles"), plain_name("Beatles"));
+        assert_eq!(
+            plain_name("Simon & Garfunkel"),
+            plain_name("Simon and Garfunkel")
+        );
+        assert_eq!(plain_name("AC/DC"), plain_name("ACDC"));
+        assert_eq!(plain_name("The"), "the");
     }
 
     #[test]

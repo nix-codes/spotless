@@ -21,6 +21,8 @@ const API_URL: &str = "https://ws.audioscrobbler.com/2.0/";
 const AUTH_URL: &str = "https://www.last.fm/api/auth";
 /// Last.fm takes up to this many scrobbles in one call.
 pub const BATCH: usize = 50;
+/// Similar artists asked for at once.
+const SIMILAR_LIMIT: &str = "20";
 /// How long the browser approval may take.
 const APPROVAL_WAIT: Duration = Duration::from_secs(300);
 
@@ -165,6 +167,45 @@ pub async fn scrobble(
         .map(drop)
 }
 
+/// Artists Last.fm's listeners play alongside `artist`, closest first, by
+/// name. Needs only the API key: nothing is signed.
+pub async fn similar_artists(
+    http: &reqwest::Client,
+    api_key: &str,
+    artist: &str,
+) -> Result<Vec<String>, Failure> {
+    let answered = answer(http.get(API_URL).query(&[
+        ("method", "artist.getSimilar"),
+        ("artist", artist),
+        ("autocorrect", "1"),
+        ("limit", SIMILAR_LIMIT),
+        ("api_key", api_key),
+        ("format", "json"),
+    ]))
+    .await;
+    match answered {
+        Ok(body) => Ok(similar_names(&body, artist)),
+        // Error 6: Last.fm has no such artist, so none like it.
+        Err(Failure::Refused(message)) if message.starts_with("Last.fm error 6:") => Ok(Vec::new()),
+        Err(failure) => Err(failure),
+    }
+}
+
+/// The names in an `artist.getSimilar` answer, once each, without the
+/// artist asked about.
+fn similar_names(body: &Value, artist: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::from([artist.to_lowercase()]);
+    body["similarartists"]["artist"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|a| a["name"].as_str())
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && seen.insert(name.to_lowercase()))
+        .map(String::from)
+        .collect()
+}
+
 /// A signed POST to the API.
 async fn call(
     http: &reqwest::Client,
@@ -182,9 +223,12 @@ async fn call(
     form.insert("api_sig", signature(&form, &keys.secret));
     form.insert("format", "json".into());
 
-    let response = http
-        .post(API_URL)
-        .form(&form)
+    answer(http.post(API_URL).form(&form)).await
+}
+
+/// Sends a request and reads Last.fm's answer, or its error.
+async fn answer(request: reqwest::RequestBuilder) -> Result<Value, Failure> {
+    let response = request
         .timeout(Duration::from_secs(20))
         .send()
         .await
@@ -278,6 +322,20 @@ mod tests {
         assert!(matches!(failure(13, String::new()), Failure::SignedOut(_)));
         assert!(matches!(failure(29, String::new()), Failure::Later(_)));
         assert!(matches!(failure(6, String::new()), Failure::Refused(_)));
+    }
+
+    #[test]
+    fn similar_artists_come_once_each_without_the_artist() {
+        let body = serde_json::json!({"similarartists": {"artist": [
+            {"name": "Tycho", "match": "1"},
+            {"name": "boards of canada", "match": "0.9"},
+            {"name": "Bibio", "match": "0.8"},
+            {"name": "tycho", "match": "0.7"},
+            {"name": " ", "match": "0.6"},
+            {"match": "0.5"}
+        ]}});
+        assert_eq!(similar_names(&body, "Boards of Canada"), ["Tycho", "Bibio"]);
+        assert!(similar_names(&serde_json::json!({}), "x").is_empty());
     }
 
     #[test]

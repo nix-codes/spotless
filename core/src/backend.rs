@@ -20,7 +20,7 @@ use crate::browser::Browser;
 use crate::images::CoverImage;
 use crate::lastfm::{self, LastFmState, Scrobbler, api::Keys};
 use crate::model::catalog::{Discography, SearchResults};
-use crate::model::{EntryId, PlaylistId, TrackRef};
+use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
 use crate::playback::outputs::{self, Output};
@@ -44,6 +44,13 @@ pub enum Command {
     Search(String),
     /// An artist's discography, by artist URI.
     Discography(String),
+    /// Artists like this one, from Last.fm with this API key.
+    SimilarArtists {
+        artist: ArtistRef,
+        api_key: String,
+    },
+    /// The Spotify artist with this name, for a similar artist opened.
+    FindArtist(String),
     /// An album's songs, by album URI.
     Album(String),
     /// An album cover, by image URL.
@@ -121,6 +128,16 @@ pub enum Event {
     Album {
         album: String,
         result: Result<Vec<TrackRef>, String>,
+    },
+    /// Similar artists' names, for an artist's URI.
+    SimilarArtists {
+        artist: String,
+        result: Result<Vec<String>, String>,
+    },
+    /// The artist a `FindArtist` name is on Spotify (None: none by it).
+    ArtistFound {
+        name: String,
+        result: Result<Option<ArtistRef>, String>,
     },
     Cover {
         url: String,
@@ -563,6 +580,37 @@ impl Worker {
                     };
                     let result = result.map_err(|e| format!("{e:#}"));
                     emit(Event::Discography { artist, result });
+                });
+            }
+            Command::SimilarArtists { artist, api_key } => {
+                let http = self.http.clone();
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = lastfm::api::similar_artists(&http, &api_key, &artist.name)
+                        .await
+                        .map_err(|e| e.to_string());
+                    emit(Event::SimilarArtists {
+                        artist: artist.uri,
+                        result,
+                    });
+                });
+            }
+            Command::FindArtist(name) => {
+                let Some(web) = self.web.clone() else { return };
+                let approval = Arc::clone(&self.search_approval);
+                let browser = Arc::clone(&self.browser);
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = match approve_search(&web, &approval, &browser, &emit).await {
+                        Ok(()) => web
+                            .lock()
+                            .await
+                            .find_artist(&name)
+                            .await
+                            .map_err(|e| format!("{e:#}")),
+                        Err(error) => Err(error),
+                    };
+                    emit(Event::ArtistFound { name, result });
                 });
             }
             Command::Cover(url) => {

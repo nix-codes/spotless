@@ -5,8 +5,8 @@
 //! results and the slim column. In the results, the arrows move a
 //! highlighted row; Enter opens it (an artist, an album's songs) or plays it
 //! (a song), Insert or A adds it. In the slim column, Enter plays and Delete
-//! removes. Alt+1…4 pick the release tab, Ctrl+S the order, Ctrl+E shows or
-//! hides all songs, C the covers. Esc goes back to the playlists,
+//! removes. Alt+1…4 pick the release tab, Alt+5 shows similar artists,
+//! Ctrl+S the order, Ctrl+E shows or hides all songs, C the covers. Esc goes back to the playlists,
 //! Backspace or Alt+Left back a page. Ctrl+F (in `keys.rs`) jumps to the
 //! search field.
 
@@ -25,8 +25,9 @@ use super::{Inputs, View};
 use crate::action::{Action, Actions, Desktop};
 use crate::backend::SearchState;
 use crate::browse::{Loadable, Page};
+use crate::lastfm;
 use crate::model::catalog::{Release, ReleaseTab};
-use crate::model::{EntryId, TrackRef, playlist::Playlist};
+use crate::model::{ArtistRef, EntryId, TrackRef, playlist::Playlist};
 
 const SLIM_WIDTH: f32 = 250.0;
 const ROW_HEIGHT: f32 = 22.0;
@@ -234,6 +235,12 @@ fn keyboard(ui: &Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
                 if i.modifiers.alt && i.key_pressed(key) {
                     actions.push(Action::SetTab(tab));
                 }
+            }
+            if i.modifiers.alt
+                && i.key_pressed(Key::Num5)
+                && let Some(artist) = page_artist(view)
+            {
+                actions.push(Action::ShowSimilar(artist));
             }
             if i.modifiers.command && i.key_pressed(Key::S) {
                 actions.push(Action::ToggleSort);
@@ -482,6 +489,9 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
     });
     ui.add_space(8.0);
 
+    let similar_tab =
+        lastfm::api::is_key(&view.lastfm.api_key) || browse.similar_artists.contains_key(uri);
+    let similar = browse.similar && similar_tab;
     let mut releases: Vec<&Release> = discography
         .releases
         .iter()
@@ -499,9 +509,19 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
                 .filter(|r| tab.includes(r.group))
                 .count();
             let label = format!("{} {count}", tab.label());
-            if small_button(ui, &palette, &label, tab == browse.tab).clicked() {
+            if small_button(ui, &palette, &label, !similar && tab == browse.tab).clicked() {
                 actions.push(Action::SetTab(tab));
             }
+        }
+        if similar_tab
+            && small_button(ui, &palette, "SIMILAR", similar)
+                .on_hover_text("Artists Last.fm's listeners play alongside this one")
+                .clicked()
+        {
+            actions.push(Action::ShowSimilar(discography.artist.clone()));
+        }
+        if similar {
+            return;
         }
         ui.add_space(12.0);
         let sort = if browse.newest_first {
@@ -528,6 +548,9 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
         }
     });
     ui.add_space(8.0);
+    if similar {
+        return similar_artists(ui, view, nav, uri, actions);
+    }
     if releases.is_empty() {
         note(ui, view, "Nothing here.");
     }
@@ -540,6 +563,54 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
             browse.tab == ReleaseTab::AppearsOn,
             actions,
         );
+    }
+}
+
+/// The artist page's similar artists, each opened on Spotify by name.
+fn similar_artists(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut Actions) {
+    let names = match view.browse.similar_artists.get(uri) {
+        None | Some(Loadable::Loading) => return note(ui, view, "Asking Last.fm…"),
+        Some(Loadable::Failed(error)) => return note(ui, view, error),
+        Some(Loadable::Ready(names)) => names,
+    };
+    if names.is_empty() {
+        return note(ui, view, "Last.fm knows no artists like this one.");
+    }
+    let palette = view.palette;
+    let finding = view.browse.finding.as_ref().map(|(name, _)| name.as_str());
+    for name in names {
+        let row = row(ui, &palette, nav, ROW_HEIGHT, None, |painter, rect| {
+            let state = if finding == Some(name.as_str()) {
+                "FINDING…"
+            } else {
+                ""
+            };
+            spans(
+                painter,
+                rect,
+                &[(name, body(), palette.list_fg), (state, tag(), palette.dim)],
+            );
+        });
+        if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
+            actions.push(Action::OpenSimilar(name.clone()));
+        }
+    }
+    ui.add_space(8.0);
+    note(
+        ui,
+        view,
+        "From Last.fm: what its listeners play alongside this artist.",
+    );
+}
+
+/// The artist whose page is open, once its discography is read.
+fn page_artist(view: &View) -> Option<ArtistRef> {
+    let Page::Artist(uri) = view.browse.page() else {
+        return None;
+    };
+    match view.browse.artists.get(uri) {
+        Some(Loadable::Ready(discography)) => Some(discography.artist.clone()),
+        _ => None,
     }
 }
 

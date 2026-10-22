@@ -71,6 +71,11 @@ pub enum Action {
     /// Shows these albums' songs, or hides them all with an empty list.
     ExpandAlbums(Vec<String>),
     SetTab(ReleaseTab),
+    /// Shows artists like this one (the artist page's), reading them from
+    /// Last.fm if needed.
+    ShowSimilar(ArtistRef),
+    /// Opens a similar artist, by name, finding it on Spotify first.
+    OpenSimilar(String),
     ToggleSort,
     SetTarget(PlaylistId),
     ToggleCovers,
