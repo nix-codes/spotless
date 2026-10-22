@@ -122,10 +122,10 @@ private fun SelectBar(core: Core, selected: List<ULong>, all: () -> Unit, done: 
         )
         TextButton("ALL", all, enabled = selected.size < list.songs.size)
         TextButton("Q NEXT", { core.apply(Action.ToggleMarks(selected)) })
-        TextButton("REM", {
+        GlyphButton(Glyph.Trash, "Remove from the playlist", {
             core.apply(Action.Remove(list.id, selected))
             done()
-        })
+        }, Modifier.width(48.dp))
     }
 }
 

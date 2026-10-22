@@ -119,7 +119,7 @@ fun TextButton(
 }
 
 /** The transport's and the bars' glyphs, drawn in [color] on a 24-unit square. */
-enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check }
+enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check, Trash }
 
 @Composable
 fun GlyphButton(
@@ -170,6 +170,21 @@ fun DrawScope.glyph(glyph: Glyph, color: Color) {
         Glyph.Check -> {
             drawLine(color, Offset(5f * u, 12.5f * u), Offset(10f * u, 17.5f * u), line.width)
             drawLine(color, Offset(10f * u, 17.5f * u), Offset(19f * u, 6.5f * u), line.width)
+        }
+        Glyph.Trash -> {
+            // The lid and its handle, the can, and two ribs down it.
+            drawLine(color, Offset(4f * u, 6.5f * u), Offset(20f * u, 6.5f * u), line.width)
+            val handle = Path().apply {
+                moveTo(9.5f * u, 6.5f * u)
+                lineTo(9.5f * u, 3.5f * u)
+                lineTo(14.5f * u, 3.5f * u)
+                lineTo(14.5f * u, 6.5f * u)
+            }
+            drawPath(handle, color, style = line)
+            drawPath(path(6.5f to 9.5f, 7.5f to 20.5f, 16.5f to 20.5f, 17.5f to 9.5f), color, style = line)
+            for (x in listOf(10.5f, 13.5f)) {
+                drawLine(color, Offset(x * u, 12.5f * u), Offset(x * u, 17.5f * u), 1.8f * u)
+            }
         }
     }
 }
