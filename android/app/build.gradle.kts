@@ -22,17 +22,6 @@ android {
         ndk { abiFilters += "arm64-v8a" }
     }
 
-    // One debug key for every machine, so a build from any of them can
-    // replace the app another one installed.
-    signingConfigs {
-        getByName("debug") {
-            storeFile = rootProject.file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-        }
-    }
-
     buildFeatures { compose = true }
 
     compileOptions {
