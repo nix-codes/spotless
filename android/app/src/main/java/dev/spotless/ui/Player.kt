@@ -77,12 +77,14 @@ fun PlayerPanel(core: Core) {
             GlyphButton(Glyph.Next, "Next", { core.apply(Action.Next) }, wide, ready)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            TextButton(
-                "SHUF", { core.apply(Action.SetShuffle(!player.shuffle)) },
+            GlyphButton(
+                Glyph.Shuffle, if (player.shuffle) "Shuffle, on" else "Shuffle, off",
+                { core.apply(Action.SetShuffle(!player.shuffle)) },
                 Modifier.weight(1f), lit = player.shuffle,
             )
-            TextButton(
-                "REP", { core.apply(Action.SetRepeat(!player.repeat)) },
+            GlyphButton(
+                Glyph.Repeat, if (player.repeat) "Repeat, on" else "Repeat, off",
+                { core.apply(Action.SetRepeat(!player.repeat)) },
                 Modifier.weight(1f), lit = player.repeat,
             )
         }

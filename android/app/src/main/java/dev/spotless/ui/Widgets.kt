@@ -124,7 +124,7 @@ fun TextButton(
 }
 
 /** The transport's and the bars' glyphs, drawn in [color] on a 24-unit square. */
-enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check, Trash }
+enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check, Trash, Repeat, Shuffle }
 
 @Composable
 fun GlyphButton(
@@ -133,8 +133,13 @@ fun GlyphButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    lit: Boolean = false,
 ) {
-    val color = if (enabled) Classic.chrome else Classic.label
+    val color = when {
+        !enabled -> Classic.label
+        lit -> Classic.lcd
+        else -> Classic.chrome
+    }
     ChromeButton(onClick, modifier, enabled = enabled, description = description) {
         Box(Modifier.defaultMinSize(22.dp, 22.dp).drawBehind { glyph(glyph, color) })
     }
@@ -145,6 +150,10 @@ fun DrawScope.glyph(glyph: Glyph, color: Color) {
     fun path(vararg points: Pair<Float, Float>) = Path().apply {
         points.forEachIndexed { i, (x, y) -> if (i == 0) moveTo(x * u, y * u) else lineTo(x * u, y * u) }
         close()
+    }
+    /** The same, left open, to stroke. */
+    fun arm(vararg points: Pair<Float, Float>) = Path().apply {
+        points.forEachIndexed { i, (x, y) -> if (i == 0) moveTo(x * u, y * u) else lineTo(x * u, y * u) }
     }
     fun bar(x: Float, y: Float, w: Float, h: Float) =
         drawRect(color, Offset(x * u, y * u), androidx.compose.ui.geometry.Size(w * u, h * u))
@@ -190,6 +199,20 @@ fun DrawScope.glyph(glyph: Glyph, color: Color) {
             for (x in listOf(10.5f, 13.5f)) {
                 drawLine(color, Offset(x * u, 12.5f * u), Offset(x * u, 17.5f * u), 1.8f * u)
             }
+        }
+        Glyph.Repeat -> {
+            // Two arrows chasing each other round a loop.
+            drawPath(arm(4.5f to 13f, 4.5f to 8f, 16f to 8f), color, style = line)
+            drawPath(path(15.5f to 4f, 20.5f to 8f, 15.5f to 12f), color)
+            drawPath(arm(19.5f to 11f, 19.5f to 16f, 8f to 16f), color, style = line)
+            drawPath(path(8.5f to 12f, 3.5f to 16f, 8.5f to 20f), color)
+        }
+        Glyph.Shuffle -> {
+            // Two arrows crossing on their way right.
+            drawPath(arm(3.5f to 7f, 8f to 7f, 14.5f to 17f, 17f to 17f), color, style = line)
+            drawPath(path(16f to 13f, 21f to 17f, 16f to 21f), color)
+            drawPath(arm(3.5f to 17f, 8f to 17f, 14.5f to 7f, 17f to 7f), color, style = line)
+            drawPath(path(16f to 3f, 21f to 7f, 16f to 11f), color)
         }
     }
 }
