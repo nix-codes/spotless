@@ -6,6 +6,20 @@ the way.
 
 Spotless runs on Linux and Windows and needs a Spotify Premium account.
 
+![Spotless playing a playlist, in the Spotless Classic look](docs/screenshots/playlist.png)
+
+## Screenshots
+
+The Winamp Classic look, playing a playlist and browsing an artist's albums:
+
+![A playlist in the Winamp Classic look](docs/screenshots/playlist-winamp.png)
+
+![Browsing an artist's albums, with covers, beside the playlist they're added to](docs/screenshots/browse-winamp.png)
+
+The Android app:
+
+<img src="docs/screenshots/android.png" width="320" alt="The Android app playing a playlist, with an album's name above its songs">
+
 ## The name
 
 **Spotless** is *Spotify* with *less*:
