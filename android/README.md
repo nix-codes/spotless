@@ -15,3 +15,6 @@ later, `cargo install cargo-ndk` and `rustup target add aarch64-linux-android`.
 ./gradlew installDebug      # onto the connected phone
 adb logcat -s spotless      # the Rust side's log
 ```
+
+Debug builds are signed with `debug.keystore`, checked in, so a build from
+any machine can replace one from another. It is only for debug builds.
