@@ -40,9 +40,12 @@ private fun title(core: Core): String {
     return when {
         track != null -> "${track.artists} - ${track.title}"
         core.session == Session.Connecting -> "CONNECTING…"
-        else -> "S P O T L E S S"
+        else -> ""
     }
 }
+
+/** The display's time: where the song is, or dashes with none loaded. */
+private fun time(player: Player) = if (player.track == null) "-:--" else clock(player.positionMs.toLong())
 
 private fun playing(player: Player) = player.status == Status.PLAYING || player.status == Status.LOADING
 
@@ -60,11 +63,11 @@ fun PlayerPanel(core: Core) {
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BasicText(clock(player.positionMs.toLong()), style = mono(40.sp, Classic.lcd))
+            BasicText(time(player), style = mono(40.sp, Classic.lcd))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Line(title(core), body(color = Classic.lcd))
-                val length = player.track?.let { " · " + clock(it.durationMs.toLong()) } ?: ""
-                Line("320 KBPS · 44 KHZ$length", mono(13.sp, Classic.dim))
+                val info = player.track?.let { "320 KBPS · 44 KHZ · " + clock(it.durationMs.toLong()) } ?: ""
+                Line(info, mono(13.sp, Classic.dim))
             }
         }
         SeekBar(player) { core.apply(Action.Seek(it)) }
@@ -147,7 +150,7 @@ fun MiniPlayer(core: Core) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BasicText(clock(player.positionMs.toLong()), style = mono(24.sp, Classic.lcd))
+        BasicText(time(player), style = mono(24.sp, Classic.lcd))
         Line(title(core), body(14.sp, Classic.lcd), Modifier.weight(1f))
         if (playing(player)) {
             GlyphButton(Glyph.Pause, "Pause", { core.apply(Action.TogglePause) })
