@@ -81,6 +81,7 @@ impl Controller {
 
     fn with_backend(paths: Paths, settings: Settings, started: anyhow::Result<Backend>) -> Self {
         let (library, tabs) = store::load_library(&paths);
+        let history = store::load_history(&paths);
         let viewed = tabs.viewed.or(tabs.playing).unwrap_or(PlaylistId::DEFAULT);
         let mut playback = Playback::new(seed());
         playback.repeat = settings.repeat;
@@ -89,6 +90,9 @@ impl Controller {
             Ok(backend) => (Some(backend), SessionState::Connecting),
             Err(error) => (None, SessionState::Failed(format!("{error:#}"))),
         };
+        let mut browse = Browse::new(viewed, settings.covers);
+        browse.recent_searches = history.searches;
+        browse.recent = history.artists;
         Self {
             paths,
             backend,
@@ -100,7 +104,7 @@ impl Controller {
                 library,
                 transport: Transport::new(playback),
                 viewed,
-                browse: Browse::new(viewed, settings.covers),
+                browse,
                 settings,
                 search: SearchState::SignedOut,
                 lastfm: LastFmState::default(),
@@ -186,6 +190,7 @@ impl Controller {
                     let loaded = match result {
                         Ok(discography) => {
                             self.state.browse.visited(discography.artist.clone());
+                            self.mark_unsaved();
                             Loadable::Ready(discography)
                         }
                         Err(error) => Loadable::Failed(error),
@@ -404,17 +409,32 @@ impl Controller {
                     return self.apply(Action::AddLink(query));
                 }
                 browse.go(Page::Search(query.clone()));
+                if self.state.search == SearchState::NoApp {
+                    return;
+                }
+                browse.searched(&query);
                 let cached = matches!(browse.searches.get(&query), Some(Loadable::Ready(_)));
                 // Unapproved search asks for its approval first, by itself.
-                if !cached && self.state.search != SearchState::NoApp {
+                if !cached {
                     browse.searches.insert(query.clone(), Loadable::Loading);
                     self.send(Command::Search(query));
                 }
+                self.mark_unsaved();
+            }
+            Action::ForgetSearch(query) => {
+                match query {
+                    Some(query) => browse.forget_search(&query),
+                    None => browse.recent_searches.clear(),
+                }
+                self.mark_unsaved();
             }
             Action::OpenArtist(artist) => {
                 browse.go(Page::Artist(artist.uri.clone()));
                 match browse.artists.get(&artist.uri) {
-                    Some(Loadable::Ready(_) | Loadable::Loading) => browse.visited(artist),
+                    Some(Loadable::Ready(_) | Loadable::Loading) => {
+                        browse.visited(artist);
+                        self.mark_unsaved();
+                    }
                     _ => {
                         browse.artists.insert(artist.uri.clone(), Loadable::Loading);
                         self.send(Command::Discography(artist.uri));
@@ -582,6 +602,13 @@ impl Controller {
         if let Err(error) = state.settings.save(&self.paths) {
             log::error!("{error:#}");
         }
+        let history = store::History {
+            searches: state.browse.recent_searches.clone(),
+            artists: state.browse.recent.clone(),
+        };
+        if let Err(error) = store::save_history(&self.paths, &history) {
+            log::error!("{error:#}");
+        }
     }
 }
 
@@ -722,6 +749,32 @@ mod tests {
         rig.tell(Event::Session(SessionState::SignedOut));
         assert_eq!(rig.controller.state().transport.playing_list(), None);
         assert_eq!(rig.controller.state().player, PlayerSnapshot::default());
+    }
+
+    #[test]
+    fn searches_are_remembered_across_starts_but_links_are_not() {
+        let mut rig = Rig::new("history");
+        rig.controller.apply(Action::Search(" boards ".into()));
+        rig.controller.apply(Action::Search("autechre".into()));
+        rig.controller.apply(Action::Search(
+            "spotify:track:4uLU6hMCjMI75M1A2tKUQC".into(),
+        ));
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::Search(q) if q == "boards"))
+        );
+        rig.controller
+            .apply(Action::ForgetSearch(Some("autechre".into())));
+        rig.controller.apply(Action::Search("aphex".into()));
+        rig.controller.save();
+        let history = store::load_history(&rig.controller.paths);
+        assert_eq!(history.searches, ["aphex", "boards"]);
+        let (backend, _, _) = Backend::detached();
+        let paths = rig.controller.paths.clone();
+        let settings = Settings::load(&paths);
+        let again = Controller::with_backend(paths, settings, Ok(backend));
+        assert_eq!(again.state().browse.recent_searches, ["aphex", "boards"]);
     }
 
     #[test]

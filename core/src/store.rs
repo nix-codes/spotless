@@ -1,6 +1,7 @@
-//! The playlists and settings on disk, in the config folder.
+//! The playlists, settings and Browse's history on disk, in the config
+//! folder.
 //!
-//! Both files are written whole to a temporary file and renamed over the
+//! The files are written whole to a temporary file and renamed over the
 //! old one, so a crash mid-write never leaves half a file. A file that can't
 //! be read is moved aside as `*.bad` rather than overwritten.
 
@@ -10,7 +11,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::model::{Library, PlaylistId};
+use crate::model::{ArtistRef, Library, PlaylistId};
 use crate::paths::Paths;
 
 const LIBRARY_VERSION: u32 = 1;
@@ -75,6 +76,33 @@ pub fn save_library(paths: &Paths, library: &Library, tabs: Tabs) -> Result<()> 
         viewed: tabs.viewed,
     };
     write_atomically(&paths.playlists(), &serde_json::to_vec(&file)?)
+}
+
+/// What Browse's home page lists: recent searches and artists, newest first.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct History {
+    #[serde(default)]
+    pub searches: Vec<String>,
+    #[serde(default)]
+    pub artists: Vec<ArtistRef>,
+}
+
+/// The saved history, or an empty one.
+pub fn load_history(paths: &Paths) -> History {
+    let path = paths.history();
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(_) => return History::default(),
+    };
+    serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+        log::error!("unable to read {}: {error}", path.display());
+        move_aside(&path);
+        History::default()
+    })
+}
+
+pub fn save_history(paths: &Paths, history: &History) -> Result<()> {
+    write_atomically(&paths.history(), &serde_json::to_vec(history)?)
 }
 
 /// The settings. `web_client_id` goes through its own methods; keys

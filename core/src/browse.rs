@@ -10,6 +10,7 @@ use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 /// How long rows just added light up in the slim column.
 pub const FLASH: Duration = Duration::from_millis(1200);
 const RECENT_LIMIT: usize = 8;
+const SEARCHES_LIMIT: usize = 8;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Page {
@@ -39,6 +40,8 @@ pub struct Browse {
     pub newest_first: bool,
     /// Artists opened lately, newest first.
     pub recent: Vec<ArtistRef>,
+    /// Searches made lately, newest first.
+    pub recent_searches: Vec<String>,
     /// The playlist + ADD adds to.
     pub target: PlaylistId,
     /// Entries just added, and when.
@@ -59,6 +62,7 @@ impl Browse {
             tab: ReleaseTab::default(),
             newest_first: false,
             recent: Vec::new(),
+            recent_searches: Vec::new(),
             target,
             flash: Vec::new(),
             show_covers,
@@ -96,6 +100,16 @@ impl Browse {
         self.recent.retain(|a| a.uri != artist.uri);
         self.recent.insert(0, artist);
         self.recent.truncate(RECENT_LIMIT);
+    }
+
+    pub fn searched(&mut self, query: &str) {
+        self.recent_searches.retain(|q| q != query);
+        self.recent_searches.insert(0, query.to_string());
+        self.recent_searches.truncate(SEARCHES_LIMIT);
+    }
+
+    pub fn forget_search(&mut self, query: &str) {
+        self.recent_searches.retain(|q| q != query);
     }
 
     pub fn flash(&mut self, entries: impl IntoIterator<Item = EntryId>) {
@@ -144,5 +158,21 @@ mod tests {
         browse.go(Page::Artist("spotify:artist:a".into()));
         assert_eq!(browse.tab, ReleaseTab::Albums);
         assert!(!browse.newest_first);
+    }
+
+    #[test]
+    fn searches_are_kept_newest_first_once_each() {
+        let mut browse = Browse::new(PlaylistId::DEFAULT, false);
+        for query in ["a", "b", "a"] {
+            browse.searched(query);
+        }
+        assert_eq!(browse.recent_searches, ["a", "b"]);
+        for i in 0..SEARCHES_LIMIT {
+            browse.searched(&i.to_string());
+        }
+        assert_eq!(browse.recent_searches.len(), SEARCHES_LIMIT);
+        assert_eq!(browse.recent_searches[0], (SEARCHES_LIMIT - 1).to_string());
+        browse.forget_search("7");
+        assert!(!browse.recent_searches.contains(&"7".to_string()));
     }
 }

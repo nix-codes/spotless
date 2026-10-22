@@ -63,6 +63,8 @@ pub enum Action {
     CloseBrowse,
     Back,
     Search(String),
+    /// Drops a search from the recent ones, or all of them with None.
+    ForgetSearch(Option<String>),
     OpenArtist(ArtistRef),
     /// Shows or hides an album's songs, reading them if needed.
     ToggleAlbum(String),
