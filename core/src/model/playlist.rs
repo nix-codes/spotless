@@ -27,6 +27,10 @@ impl PlaylistId {
 pub struct ArtistRef {
     pub uri: String,
     pub name: String,
+    /// The artist's picture's URL, about 300 px, where the catalog gave one
+    /// (never for a song's artists).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

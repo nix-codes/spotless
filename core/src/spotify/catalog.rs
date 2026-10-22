@@ -3,7 +3,7 @@
 use anyhow::{Context, Result, anyhow, bail};
 use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
-use librespot_metadata::image::ImageSize;
+use librespot_metadata::image::{ImageSize, Images};
 use librespot_metadata::{Album, Artist, Metadata, Track};
 
 use crate::model::catalog::{Discography, Release, ReleaseGroup, tidy};
@@ -83,6 +83,7 @@ fn track_ref(track: &Track) -> TrackRef {
             .map(|artist| ArtistRef {
                 uri: artist.id.to_uri(),
                 name: artist.name.clone(),
+                image: None,
             })
             .collect(),
         album: AlbumRef {
@@ -172,6 +173,7 @@ pub async fn discography(session: &Session, artist: &SpotifyUri) -> Result<Disco
         artist: ArtistRef {
             uri: artist.id.to_uri(),
             name: artist.name.clone(),
+            image: image_url(&artist.portrait_group),
         },
         releases: tidy(releases.into_iter().map(|(_, r)| r).collect()),
     })
@@ -179,7 +181,11 @@ pub async fn discography(session: &Session, artist: &SpotifyUri) -> Result<Disco
 
 /// The album's cover at Spotify's default size (300 px), else any.
 fn cover_url(album: &Album) -> Option<String> {
-    let covers = &album.covers;
+    image_url(&album.covers)
+}
+
+/// An image at Spotify's default size (about 300 px), else any.
+fn image_url(covers: &Images) -> Option<String> {
     covers
         .iter()
         .find(|image| image.size == ImageSize::DEFAULT)

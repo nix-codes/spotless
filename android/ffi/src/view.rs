@@ -44,6 +44,7 @@ impl From<Artist> for ArtistRef {
         Self {
             uri: artist.uri,
             name: artist.name,
+            image: None,
         }
     }
 }

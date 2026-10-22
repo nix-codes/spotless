@@ -789,6 +789,7 @@ mod tests {
         let artist = |name: &str| ArtistRef {
             uri: format!("spotify:artist:{name}"),
             name: name.into(),
+            image: None,
         };
         let page = |rig: &Rig| rig.controller.state().browse.page().clone();
         rig.controller.apply(Action::OpenArtist(artist("boc")));
@@ -813,7 +814,8 @@ mod tests {
         assert_eq!(page(&rig), Page::Artist("spotify:artist:boc".into()));
 
         // Spotify has nobody by that name: search for it instead.
-        rig.controller.apply(Action::OpenSimilar("Ulrich Schnauss".into()));
+        rig.controller
+            .apply(Action::OpenSimilar("Ulrich Schnauss".into()));
         rig.tell(Event::ArtistFound {
             name: "Ulrich Schnauss".into(),
             result: Ok(None),

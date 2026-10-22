@@ -36,6 +36,8 @@ const PAD: f32 = 10.0;
 /// Album rows with covers shown, and their thumbnails.
 const COVER_ROW_HEIGHT: f32 = 34.0;
 const THUMB: f32 = 28.0;
+/// The artist's picture beside the name on its page.
+const PORTRAIT: f32 = 64.0;
 /// The cover beside an opened album's songs.
 const BIG_COVER: f32 = 140.0;
 
@@ -323,7 +325,7 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actio
             }
         }
         if text_button(ui, &palette, "COVERS", view.browse.show_covers, true)
-            .on_hover_text("Show album covers")
+            .on_hover_text("Show album covers and artist pictures")
             .clicked()
         {
             actions.push(Action::ToggleCovers);
@@ -361,16 +363,7 @@ fn home(ui: &mut Ui, view: &View, nav: &mut Nav, set_up: &mut bool, actions: &mu
     if !view.browse.recent.is_empty() {
         section(ui, view, "RECENTLY VIEWED");
         for artist in &view.browse.recent {
-            let row = row(ui, &view.palette, nav, ROW_HEIGHT, None, |painter, rect| {
-                spans(
-                    painter,
-                    rect,
-                    &[(&artist.name, body(), view.palette.list_fg)],
-                );
-            });
-            if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
-                actions.push(Action::OpenArtist(artist.clone()));
-            }
+            artist_row(ui, view, nav, artist, None, actions);
         }
     }
 }
@@ -433,23 +426,10 @@ fn search_page(
     if results.is_empty() {
         return note(ui, view, &format!("No matches for “{query}”."));
     }
-    let palette = view.palette;
     if !results.artists.is_empty() {
         section(ui, view, "ARTISTS");
         for artist in &results.artists {
-            let row = row(ui, &palette, nav, ROW_HEIGHT, None, |painter, rect| {
-                spans(
-                    painter,
-                    rect,
-                    &[
-                        (&artist.name, body(), palette.list_fg),
-                        ("ARTIST", tag(), palette.dim),
-                    ],
-                );
-            });
-            if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
-                actions.push(Action::OpenArtist(artist.clone()));
-            }
+            artist_row(ui, view, nav, artist, Some("ARTIST"), actions);
         }
     }
     if !results.albums.is_empty() {
@@ -475,6 +455,17 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
     let palette = view.palette;
     let browse = view.browse;
     ui.horizontal(|ui| {
+        if browse.show_covers {
+            let (rect, _) = ui.allocate_exact_size(vec2(PORTRAIT, PORTRAIT), Sense::hover());
+            cover(
+                ui.painter(),
+                view,
+                discography.artist.image.as_ref(),
+                rect,
+                actions,
+            );
+            ui.add_space(6.0);
+        }
         ui.label(
             RichText::new(&discography.artist.name)
                 .size(22.0)
@@ -566,6 +557,41 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
     }
 }
 
+/// An artist's row, with its picture when covers are shown; opens the
+/// artist's page.
+fn artist_row(
+    ui: &mut Ui,
+    view: &View,
+    nav: &mut Nav,
+    artist: &ArtistRef,
+    label: Option<&str>,
+    actions: &mut Actions,
+) {
+    let palette = view.palette;
+    let covers = view.browse.show_covers;
+    let height = if covers { COVER_ROW_HEIGHT } else { ROW_HEIGHT };
+    let row = row(ui, &palette, nav, height, None, |painter, rect| {
+        let mut left = rect.left();
+        if covers {
+            let thumb = Rect::from_min_size(
+                pos2(left, rect.center().y - THUMB / 2.0),
+                vec2(THUMB, THUMB),
+            );
+            cover(painter, view, artist.image.as_ref(), thumb, actions);
+            left = thumb.right() + 10.0;
+        }
+        let text = Rect::from_min_max(pos2(left, rect.top()), rect.max);
+        let mut parts = vec![(artist.name.as_str(), body(), palette.list_fg)];
+        if let Some(label) = label {
+            parts.push((label, tag(), palette.dim));
+        }
+        spans(painter, text, &parts);
+    });
+    if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
+        actions.push(Action::OpenArtist(artist.clone()));
+    }
+}
+
 /// The artist page's similar artists, each opened on Spotify by name.
 fn similar_artists(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut Actions) {
     let names = match view.browse.similar_artists.get(uri) {
@@ -649,7 +675,7 @@ fn album(
                 pos2(left, rect.center().y - THUMB / 2.0),
                 vec2(THUMB, THUMB),
             );
-            cover(painter, view, release, thumb, actions);
+            cover(painter, view, release.cover.as_ref(), thumb, actions);
             left = thumb.right() + 10.0;
         }
         let text = Rect::from_min_max(pos2(left, rect.top()), rect.max);
@@ -686,7 +712,7 @@ fn album(
             ui.horizontal_top(|ui| {
                 ui.add_space(16.0);
                 let (rect, _) = ui.allocate_exact_size(vec2(BIG_COVER, BIG_COVER), Sense::hover());
-                cover(ui.painter(), view, release, rect, actions);
+                cover(ui.painter(), view, release.cover.as_ref(), rect, actions);
                 ui.add_space(8.0);
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
@@ -706,23 +732,20 @@ fn album(
     }
 }
 
-/// Draws a release's cover in `rect`, asking for it when it comes into
-/// view; a framed square stands in until it arrives.
-fn cover(painter: &Painter, view: &View, release: &Release, rect: Rect, actions: &mut Actions) {
+/// Draws a cover or an artist's picture in `rect`, asking for it when it
+/// comes into view; a framed square stands in until it arrives.
+fn cover(painter: &Painter, view: &View, url: Option<&String>, rect: Rect, actions: &mut Actions) {
     let palette = view.palette;
-    let texture = release
-        .cover
-        .as_ref()
-        .and_then(|url| match view.covers.get(url) {
-            Some(Cover::Ready(texture)) => Some(texture.id()),
-            Some(_) => None,
-            None => {
-                if painter.clip_rect().intersects(rect) {
-                    actions.push(Desktop::LoadCover(url.clone()));
-                }
-                None
+    let texture = url.and_then(|url| match view.covers.get(url) {
+        Some(Cover::Ready(texture)) => Some(texture.id()),
+        Some(_) => None,
+        None => {
+            if painter.clip_rect().intersects(rect) {
+                actions.push(Desktop::LoadCover(url.clone()));
             }
-        });
+            None
+        }
+    });
     match texture {
         Some(id) => {
             painter.image(

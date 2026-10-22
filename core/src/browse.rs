@@ -107,8 +107,13 @@ impl Browse {
         self.history.push(page);
     }
 
-    pub fn visited(&mut self, artist: ArtistRef) {
-        self.recent.retain(|a| a.uri != artist.uri);
+    /// Puts an artist first among the recent ones, keeping the picture
+    /// it had if this visit came without one.
+    pub fn visited(&mut self, mut artist: ArtistRef) {
+        if let Some(at) = self.recent.iter().position(|a| a.uri == artist.uri) {
+            let before = self.recent.remove(at);
+            artist.image = artist.image.or(before.image);
+        }
         self.recent.insert(0, artist);
         self.recent.truncate(RECENT_LIMIT);
     }
@@ -171,6 +176,25 @@ mod tests {
         assert_eq!(browse.tab, ReleaseTab::Albums);
         assert!(!browse.similar);
         assert!(!browse.newest_first);
+    }
+
+    #[test]
+    fn a_revisited_artist_keeps_its_picture() {
+        let mut browse = Browse::new(PlaylistId::DEFAULT, false);
+        let artist = |uri: &str, image: Option<&str>| ArtistRef {
+            uri: uri.into(),
+            name: uri.into(),
+            image: image.map(String::from),
+        };
+        browse.visited(artist("a", Some("https://i.scdn.co/image/a")));
+        browse.visited(artist("b", None));
+        browse.visited(artist("a", None));
+        assert_eq!(browse.recent.len(), 2);
+        assert_eq!(browse.recent[0].uri, "a");
+        assert_eq!(
+            browse.recent[0].image.as_deref(),
+            Some("https://i.scdn.co/image/a")
+        );
     }
 
     #[test]

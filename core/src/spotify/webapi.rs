@@ -248,6 +248,7 @@ fn artist_ref(item: &Value) -> Option<ArtistRef> {
     Some(ArtistRef {
         uri: item["uri"].as_str()?.into(),
         name: item["name"].as_str()?.into(),
+        image: cover_url(item),
     })
 }
 
@@ -369,7 +370,10 @@ mod tests {
     #[test]
     fn search_results_parse_into_three_sections() {
         let body = serde_json::json!({
-            "artists": {"items": [{"uri": "spotify:artist:a", "name": "Boards of Canada"}]},
+            "artists": {"items": [{
+                "uri": "spotify:artist:a", "name": "Boards of Canada",
+                "images": [{"url": "https://i.scdn.co/image/boc", "width": 320}]
+            }]},
             "albums": {"items": [{
                 "uri": "spotify:album:b", "name": "Twoism", "album_type": "single",
                 "total_tracks": 8, "release_date": "1995-11-01",
@@ -388,6 +392,10 @@ mod tests {
         });
         let results = parse_search(&body);
         assert_eq!(results.artists[0].name, "Boards of Canada");
+        assert_eq!(
+            results.artists[0].image.as_deref(),
+            Some("https://i.scdn.co/image/boc")
+        );
         let album = &results.albums[0];
         assert_eq!((album.year, album.kind.as_str()), (1995, "EP"));
         assert_eq!(album.group, ReleaseGroup::Single);
