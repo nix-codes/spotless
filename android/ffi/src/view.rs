@@ -402,8 +402,9 @@ pub enum ArtistPage {
 
 #[derive(Clone, Debug, PartialEq, uniffi::Enum)]
 pub enum BrowsePage {
-    /// Artists opened lately, newest first.
+    /// Searches made and artists opened lately, newest first.
     Home {
+        searches: Vec<String>,
         recent: Vec<Artist>,
     },
     Search {
@@ -433,6 +434,7 @@ pub(crate) fn browse(state: &State) -> BrowseView {
     let browse = &state.browse;
     let page = match browse.page() {
         Page::Home => BrowsePage::Home {
+            searches: browse.recent_searches.clone(),
             recent: browse.recent.iter().map(Into::into).collect(),
         },
         Page::Search(query) => BrowsePage::Search {

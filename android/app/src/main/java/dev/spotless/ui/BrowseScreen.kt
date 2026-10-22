@@ -161,6 +161,18 @@ private fun LazyListScope.home(core: Core, page: BrowsePage.Home) {
         SearchState.SIGNING_IN -> note("Approve search in the browser page that opened.")
         else -> {}
     }
+    if (core.browse.search != SearchState.NO_APP && page.searches.isNotEmpty()) {
+        item {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 12.dp, end = 6.dp, top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BasicText("RECENT SEARCHES", Modifier.weight(1f), label(12.sp, Classic.label, 0.14.em))
+                TextButton("CLEAR", { core.apply(Action.ForgetSearch(null)) }, Modifier.height(36.dp))
+            }
+        }
+        items(page.searches, key = { "search:$it" }) { SearchRow(core, it) }
+    }
     if (page.recent.isNotEmpty()) {
         section("RECENT ARTISTS")
         items(page.recent, key = { it.uri }) { ArtistRow(core, it) }
@@ -302,6 +314,32 @@ private fun ArtistRow(core: Core, artist: Artist) {
     ) {
         Line(artist.name, body(), Modifier.weight(1f))
         Box(Modifier.size(18.dp).drawBehind { glyph(Glyph.Closed, Classic.dim) })
+    }
+}
+
+/** A recent search: tap runs it again, ✕ forgets it. */
+@Composable
+private fun SearchRow(core: Core, query: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .clickable { core.apply(Action.Search(query)) }
+            .padding(start = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(16.dp).drawBehind { glyph(Glyph.Search, Classic.dim) })
+        Line(query, body(), Modifier.weight(1f))
+        Box(
+            Modifier
+                .size(48.dp)
+                .clickable { core.apply(Action.ForgetSearch(query)) }
+                .semantics { contentDescription = "Forget $query" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(14.dp).drawBehind { glyph(Glyph.Close, Classic.dim) })
+        }
     }
 }
 

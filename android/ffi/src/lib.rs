@@ -280,6 +280,10 @@ pub enum Action {
     Search {
         query: String,
     },
+    /// Drops a search from the recent ones, or all of them with None.
+    ForgetSearch {
+        query: Option<String>,
+    },
     OpenArtist {
         artist: Artist,
     },
@@ -357,6 +361,7 @@ impl From<Action> for spotless_core::action::Action {
             Action::CloseBrowse => Core::CloseBrowse,
             Action::Back => Core::Back,
             Action::Search { query } => Core::Search(query),
+            Action::ForgetSearch { query } => Core::ForgetSearch(query),
             Action::OpenArtist { artist } => Core::OpenArtist(artist.into()),
             Action::ToggleAlbum { album } => Core::ToggleAlbum(album),
             Action::SetTab { tab } => Core::SetTab(tab.into()),
@@ -437,7 +442,13 @@ mod tests {
         spotless.apply(Action::OpenBrowse);
         let browse = spotless.browse();
         assert!(browse.open);
-        assert_eq!(browse.page, BrowsePage::Home { recent: Vec::new() });
+        assert_eq!(
+            browse.page,
+            BrowsePage::Home {
+                searches: Vec::new(),
+                recent: Vec::new()
+            }
+        );
         spotless.apply(Action::CloseBrowse);
         assert!(!spotless.browse().open);
         let _ = std::fs::remove_dir_all(root);
