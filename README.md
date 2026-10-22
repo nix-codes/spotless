@@ -37,22 +37,19 @@ The Android app:
 Spotify's own app has frustrated me for years:
 
 - **It's slow.**
-- **It's noisy.** It's cluttered with things I don't need or rarely use.
+- **It's noisy.** It's cluttered with things I don't need or rarely use:
+  artist promotions, recommendations, recent listens and more.
 - **What I do use is hard to reach.** Listening to albums means going back and
   forth between screens, and coming back often loses the place you scrolled
   to.
 - **It can't be navigated with the keyboard.** There are a few shortcuts,
   but getting around (searching, opening an artist, picking an album,
   adding it) takes the mouse.
-- **The queue works against you.** It's one queue, synced across all your
-  devices. I understand why, but I rarely want that, and often I want the
-  opposite: a computer playing its own queue without overwriting what my
-  phone plays. "Play" and "Add to queue" also behave in confusing ways. Press
-  Play on an album and its first song starts right away, while the rest go
-  behind your queue, where they stay until another Play button replaces
-  them. There's no way to clear them, to the point that someone made a
-  silent track just so it can be played to clear them. And there's no way to put an album at the top for a
-  while without wrecking the queue you had.
+- **The queue works against you.** It's one queue for all your devices, so
+  a computer can't play its own without overwriting your phone's. Press Play
+  on an album and the rest of its songs go behind your queue, where nothing
+  clears them (someone made a silent track just for that). And you can't put
+  an album first for a while without wrecking the queue you had.
 
 Spotless is the player I wanted instead.
 
