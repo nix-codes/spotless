@@ -61,7 +61,8 @@ private val ROW = 52.dp
 
 /**
  * The main screen: the playlist tabs, the viewed playlist, and the player.
- * Holding a song selects it, for Q NEXT, REM and moving.
+ * Holding a song selects it, for Q NEXT, removing and moving; holding another
+ * then selects every song from the last one picked up to it.
  */
 @Composable
 fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
@@ -235,7 +236,7 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
 private fun Summary(core: Core, selecting: Boolean) {
     val list = core.playlist
     val text = when {
-        selecting -> "TAP TO ADD OR DROP · DRAG ≡ TO MOVE"
+        selecting -> "TAP ADD/DROP · HOLD RANGE · DRAG ≡ MOVE"
         list != null -> "${songs(list.songs.size)} · ${clock(list.durationMs.toLong())}"
         else -> ""
     }
@@ -288,6 +289,8 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
     val list = core.playlist
     val row = with(LocalDensity.current) { ROW.toPx() }
     var drag by remember { mutableStateOf<Drag?>(null) }
+    // The song a held one selects a range from: the last one picked on its own.
+    var anchor by remember(list?.id) { mutableStateOf<ULong?>(null) }
     Box(modifier.fillMaxWidth().padding(horizontal = 8.dp).lcd().padding(2.dp)) {
         if (list == null || list.songs.isEmpty()) {
             BasicText(
@@ -323,10 +326,22 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
                         when {
                             selected.isEmpty() -> core.apply(Action.PlayEntry(list.id, song.entry))
                             chosen -> select((selected - song.entry).toSet())
-                            else -> select((selected + song.entry).toSet())
+                            else -> {
+                                anchor = song.entry
+                                select((selected + song.entry).toSet())
+                            }
                         }
                     },
-                    hold = { if (!chosen) select((selected + song.entry).toSet()) },
+                    hold = {
+                        val from = list.songs.indexOfFirst { it.entry == anchor }
+                        if (anchor in selected && from >= 0) {
+                            val range = list.songs.slice(minOf(from, index)..maxOf(from, index))
+                            select((selected + range.map { it.entry }).toSet())
+                        } else {
+                            anchor = song.entry
+                            select((selected + song.entry).toSet())
+                        }
+                    },
                     handle = Modifier.pointerInput(song.entry, index, selected, last) {
                         detectDragGestures(
                             onDragStart = { drag = Drag(song.entry, index) },
