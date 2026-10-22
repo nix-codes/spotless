@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use egui::{Align, Align2, FontId, Layout, Rect, Slider, Ui, UiBuilder, pos2, vec2};
 
-use super::widgets::{Glyph, glyph_button, glyph_toggle, paint_glyph, small_button, text_button};
+use super::widgets::{Glyph, glyph_button, glyph_toggle, paint_glyph, small_button};
 use super::{Inputs, View, theme};
 use crate::action::{Action, Actions};
 use crate::backend::SessionState;
@@ -278,10 +278,10 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
     let eject = glyph_toggle(ui, &palette, Glyph::Eject, view.browse.open, ready);
     eject_clicked(eject, view, inputs, actions);
     ui.add_space(6.0);
-    if text_button(ui, &palette, "SHUF", view.shuffle, true).clicked() {
+    if glyph_toggle(ui, &palette, Glyph::Shuffle, view.shuffle, true).clicked() {
         actions.push(Action::SetShuffle(!view.shuffle));
     }
-    if text_button(ui, &palette, "REP", view.repeat, true).clicked() {
+    if glyph_toggle(ui, &palette, Glyph::Repeat, view.repeat, true).clicked() {
         actions.push(Action::SetRepeat(!view.repeat));
     }
 }

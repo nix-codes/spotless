@@ -20,6 +20,8 @@ pub enum Glyph {
     Eject,
     Up,
     Down,
+    Shuffle,
+    Repeat,
 }
 
 impl Glyph {
@@ -33,6 +35,8 @@ impl Glyph {
             Self::Eject => "Browse",
             Self::Up => "Move up",
             Self::Down => "Move down",
+            Self::Shuffle => "Shuffle",
+            Self::Repeat => "Repeat",
         }
     }
 }
@@ -278,6 +282,32 @@ pub fn paint_glyph(ui: &Ui, c: Pos2, glyph: Glyph, color: egui::Color32) {
                 color,
                 egui::Stroke::NONE,
             ));
+        }
+        // As the Android app draws them, on a 24-unit square.
+        Glyph::Shuffle | Glyph::Repeat => {
+            let at = |(x, y): (f32, f32)| pos2(c.x + (x - 12.0) * 0.6, c.y + (y - 12.0) * 0.6);
+            let arm = |points: &[(f32, f32)]| {
+                Shape::line(
+                    points.iter().copied().map(at).collect(),
+                    egui::Stroke::new(1.5, color),
+                )
+            };
+            let head = |points: [(f32, f32); 3]| {
+                Shape::convex_polygon(points.map(at).to_vec(), color, egui::Stroke::NONE)
+            };
+            if let Glyph::Shuffle = glyph {
+                // Two arrows crossing on their way right.
+                painter.add(arm(&[(3.5, 7.0), (8.0, 7.0), (14.5, 17.0), (17.0, 17.0)]));
+                painter.add(head([(16.0, 13.0), (21.0, 17.0), (16.0, 21.0)]));
+                painter.add(arm(&[(3.5, 17.0), (8.0, 17.0), (14.5, 7.0), (17.0, 7.0)]));
+                painter.add(head([(16.0, 3.0), (21.0, 7.0), (16.0, 11.0)]));
+            } else {
+                // Two arrows chasing each other round a loop.
+                painter.add(arm(&[(4.5, 13.0), (4.5, 8.0), (16.0, 8.0)]));
+                painter.add(head([(15.5, 4.0), (20.5, 8.0), (15.5, 12.0)]));
+                painter.add(arm(&[(19.5, 11.0), (19.5, 16.0), (8.0, 16.0)]));
+                painter.add(head([(8.5, 12.0), (3.5, 16.0), (8.5, 20.0)]));
+            }
         }
     }
 }
