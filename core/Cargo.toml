@@ -38,6 +38,10 @@ librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "f35cee
 librespot-playback = { git = "https://github.com/nix-codes/librespot", rev = "f35cee9bd1e68a050c2795db83ed25c3c37a9f98", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-metadata = { git = "https://github.com/nix-codes/librespot", rev = "f35cee9bd1e68a050c2795db83ed25c3c37a9f98", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-oauth = { git = "https://github.com/nix-codes/librespot", rev = "f35cee9bd1e68a050c2795db83ed25c3c37a9f98", default-features = false, features = ["rustls-tls-native-roots"] }
+# The metadata service's own messages, to read many albums or songs in one
+# request (librespot's Metadata::get asks for one at a time).
+librespot-protocol = { git = "https://github.com/nix-codes/librespot", rev = "f35cee9bd1e68a050c2795db83ed25c3c37a9f98", default-features = false }
+protobuf = "3.7"
 
 [dev-dependencies]
 # The probes in examples/ log to the terminal.
