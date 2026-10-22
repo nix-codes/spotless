@@ -1,10 +1,12 @@
 # Spotless
 
-A small, fast Spotify player for the desktop, in the spirit of Winamp.
+A small, fast Spotify player for the desktop and Android phones, in the
+spirit of Winamp.
 Local playlists, a straight path to any artist's albums, and nothing else in
 the way.
 
-Spotless runs on Linux and Windows and needs a Spotify Premium account.
+Spotless runs on Linux, Windows and Android, and needs a Spotify Premium
+account.
 
 ![Spotless playing a playlist, in the Spotless Classic look](docs/screenshots/playlist.png)
 
@@ -101,8 +103,8 @@ accounts.
   page is just the discography: All, Albums, Singles & EPs, Appears on;
   Albums first, oldest first, songs opening inline. **+ ADD** adds a whole
   album to the playlist shown alongside. Pasting a Spotify link adds it too.
-- **Covers are optional.** Off by default; when on, they show in the
-  catalogue only. Playlists stay text.
+- **Covers are optional.** Off by default on the desktop, on by default on
+  Android; either way, they show in the catalogue only. Playlists stay text.
 - **Last.fm scrobbling**, optional, sent by Spotless itself. Spotify's
   Last.fm link only hears of what plays through Spotify Connect, which
   Spotless stays out of so it never takes over your account's queue.
@@ -167,7 +169,29 @@ On Linux, choosing the audio output needs PipeWire or PulseAudio (`pactl`),
 and the tray icon needs a panel that shows StatusNotifierItem icons (KDE,
 most others; on GNOME, the AppIndicator extension).
 
+### Android
+
+For 64-bit phones on Android 10 or later.
+
+1. On your phone, download `spotless-android-<version>-arm64.apk` from the
+   [Releases](https://github.com/nix-codes/spotless/releases) page (the
+   releases named *Spotless for Android*).
+2. Open it to install it. Android asks once to allow installing apps from
+   your browser or file manager.
+3. Spotless isn't on Google Play, so Play Protect may warn that it doesn't
+   know the app: choose to install it anyway.
+
+To update, install a newer release's APK over it; your playlists and
+sign-in stay. [Obtainium](https://github.com/ImranR98/Obtainium) can watch
+the Releases page and install new versions for you.
+
+Each release lists the SHA-256 fingerprint of the certificate it's signed
+with; every release is signed with the same one.
+
 ## First start
+
+On Android, *Settings* is the ☰ button at the top, and the Client ID goes
+under *Search* there, with **CONNECT** to approve it.
 
 1. **Sign in.** Click *Sign in with Spotify*: your browser opens once for
    Spotify's approval, and Spotless remembers it.
@@ -246,7 +270,8 @@ then publish the release. The tag is the only place the version is set.
 ## Status
 
 Spotless is young. Linux is its main platform; the Windows build is new and
-has only been tested under Wine and on GitHub's build machines so far.
+has only been tested under Wine and on GitHub's build machines so far. The
+Android app is newer still, and has been tried on one phone.
 
 Not there on purpose: Spotify's own playlists and queue, Spotify Connect,
 podcasts, and anything social. Maybe later: an equalizer, importing Spotify
