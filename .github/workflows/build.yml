@@ -11,7 +11,9 @@
 name: Build
 
 on:
+  # Branches only: a release tag points at a commit already built on main.
   push:
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
 
