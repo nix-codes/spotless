@@ -5,6 +5,22 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+/**
+ * The version, from SPOTLESS_VERSION (x.y.z, which the Android Release
+ * workflow takes from the android-v tag), or 0.0.0-dev without it. The
+ * version code is made from it, x * 10000 + y * 100 + z, so it goes up
+ * with every release.
+ */
+data class Version(val name: String, val code: Int)
+
+val appVersion: Version = System.getenv("SPOTLESS_VERSION").let { name ->
+    if (name == null) return@let Version("0.0.0-dev", 1)
+    val parts = Regex("""(\d+)\.(\d{1,2})\.(\d{1,2})""").matchEntire(name)?.destructured
+        ?: throw GradleException("SPOTLESS_VERSION $name isn't x.y.z, with y and z below 100")
+    val (major, minor, patch) = parts.toList().map { it.toInt() }
+    Version(name, major * 10000 + minor * 100 + patch)
+}
+
 android {
     namespace = "dev.spotless"
     compileSdk = 37
@@ -16,8 +32,8 @@ android {
         // Android 10, as the library is built for.
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersion.code
+        versionName = appVersion.name
         // 64-bit ARM phones only, for now.
         ndk { abiFilters += "arm64-v8a" }
         manifestPlaceholders["appName"] = "Spotless"

@@ -91,7 +91,10 @@ jobs:
         with:
           tool: cargo-ndk
 
+      # Shared with the Android Release workflow, which builds the same.
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: android
 
       # 64-bit ARM phones, from Android 10 (API 29), as the spike targets.
       - name: Clippy

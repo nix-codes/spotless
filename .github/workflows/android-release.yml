@@ -1,6 +1,11 @@
 # Builds the Android app's release APK for a tag like android-v0.1.0, signs
 # it with the release key and puts it in a draft GitHub release, to look over
-# and publish by hand. The desktop app is released on its own.
+# and publish by hand. packaging/android/release.sh makes the tag. The
+# desktop app is released on its own.
+#
+# The tag gives the version; the app's build reads it from SPOTLESS_VERSION.
+# The release notes list the commits since the previous android-v tag that
+# touch the app or the core it shares with the desktop.
 #
 # The key comes from the repository's secrets:
 #   ANDROID_KEYSTORE           the keystore file, base64-encoded
@@ -25,18 +30,13 @@ jobs:
     name: Release APK
     runs-on: ubuntu-24.04
     steps:
+      # The whole history, for the commits since the previous release.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-      # The tag names the version the app says it is.
       - name: Version
-        run: |
-          version=${GITHUB_REF_NAME#android-v}
-          declared=$(sed -n 's/^ *versionName = "\(.*\)"$/\1/p' android/app/build.gradle.kts)
-          if [ "$version" != "$declared" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME doesn't match versionName $declared"
-            exit 1
-          fi
-          echo "VERSION=$version" >> "$GITHUB_ENV"
+        run: echo "SPOTLESS_VERSION=${GITHUB_REF_NAME#android-v}" >> "$GITHUB_ENV"
 
       - name: Rust
         run: rustup show active-toolchain && rustup target add aarch64-linux-android
@@ -44,6 +44,11 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-ndk
+
+      # Shared with the Build workflow's Android job, which builds the same.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: android
 
       # The bindings are read off a build for the runner itself, whose cpal
       # needs ALSA's headers.
@@ -74,7 +79,7 @@ jobs:
       - name: Check the signature
         run: |
           apksigner=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
-          apk=spotless-android-$VERSION-arm64.apk
+          apk=spotless-android-$SPOTLESS_VERSION-arm64.apk
           cp android/app/build/outputs/apk/release/app-release.apk "$apk"
           "$apksigner" verify --print-certs "$apk" | tee certs.txt
           echo "APK=$apk" >> "$GITHUB_ENV"
@@ -85,11 +90,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cat > notes.md <<EOF
-          Spotless for Android $VERSION, for 64-bit ARM phones on Android 10 or later.
-
-          APK SHA-256: \`$SHA\`
-          Signing certificate SHA-256: \`$CERT\`
-          EOF
+          previous=$(git describe --tags --abbrev=0 --match 'android-v*' HEAD^ 2>/dev/null || true)
+          {
+            echo "Spotless for Android $SPOTLESS_VERSION, for 64-bit ARM phones on Android 10 or later."
+            echo
+            if [ -n "$previous" ]; then
+              echo "## Changes since ${previous#android-v}"
+              echo
+              git log --no-merges --format='- %s' "$previous..HEAD" -- android core
+              echo
+            fi
+            echo "APK SHA-256: \`$SHA\`"
+            echo "Signing certificate SHA-256: \`$CERT\`"
+          } > notes.md
           gh release create "$GITHUB_REF_NAME" "$APK" --draft \
-            --title "Spotless for Android $VERSION" --notes-file notes.md
+            --title "Spotless for Android $SPOTLESS_VERSION" --notes-file notes.md

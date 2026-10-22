@@ -215,6 +215,20 @@ The Windows zip can be built from Linux with `packaging/windows/build.sh`,
 using Rust's `x86_64-pc-windows-gnullvm` target and
 [llvm-mingw](https://github.com/mstorsjo/llvm-mingw).
 
+## Releasing
+
+The Android app is released from `main` with a tag, `android-v<version>`:
+
+```sh
+packaging/android/release.sh 0.2.0
+```
+
+The script checks that `main` matches GitHub's, that CI passed on it and
+that the version goes up, then pushes the tag. GitHub Actions builds the APK,
+signs it with the release key in the repository's secrets and makes a draft
+release with the changes since the last one. Install the draft's APK, try it,
+then publish the release. The tag is the only place the version is set.
+
 ## Status
 
 Spotless is young. Linux is its main platform; the Windows build is new and
