@@ -25,6 +25,7 @@ use crate::spotify::webapi::REDIRECT_URI;
 use crate::store::AUDIO_CACHE_SIZES;
 
 const DASHBOARD: &str = "https://developer.spotify.com/dashboard";
+const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 const LASTFM_CREATE: &str = "https://www.last.fm/api/account/create";
 const FIELD_ID: &str = "settings-client-id";
 const KEY_FIELD_ID: &str = "settings-lastfm-key";
@@ -47,15 +48,17 @@ pub enum Category {
     Display,
     Window,
     Storage,
+    About,
 }
 
-const CATEGORIES: [(Category, &str); 6] = [
+const CATEGORIES: [(Category, &str); 7] = [
     (Category::Account, "Account"),
     (Category::LastFm, "Last.fm"),
     (Category::Playback, "Playback"),
     (Category::Display, "Display"),
     (Category::Window, "Window"),
     (Category::Storage, "Storage"),
+    (Category::About, "About"),
 ];
 
 /// The screen's state while it is open.
@@ -111,6 +114,7 @@ enum Item {
     CacheUp,
     ClearAudio,
     ClearCovers,
+    Source,
 }
 
 pub fn open(view: &View, category: Category) -> Form {
@@ -261,6 +265,7 @@ pub fn draw(
                     Category::Display => c.display(ui),
                     Category::Window => c.window(ui),
                     Category::Storage => c.storage(ui),
+                    Category::About => c.about(ui),
                 }
             })
         });
@@ -343,6 +348,7 @@ fn items(category: Category, view: &View, outputs: usize) -> Vec<Item> {
             Item::ClearAudio,
             Item::ClearCovers,
         ],
+        Category::About => vec![Item::Source],
     }
 }
 
@@ -762,6 +768,22 @@ impl Controls<'_, '_> {
                 "No panel shows tray icons here, so closing the window quits."
             };
             note(ui, palette, text);
+        });
+    }
+
+    fn about(&mut self, ui: &mut Ui) {
+        let palette = self.palette;
+        row(ui, palette, "Version", |ui| {
+            value(ui, palette, concat!("Spotless ", env!("CARGO_PKG_VERSION")));
+        });
+        row(ui, palette, "Source code", |ui| {
+            let address = REPOSITORY.trim_start_matches("https://");
+            let link = ui.link(RichText::new(address).color(palette.accent));
+            self.ring(ui, Item::Source, &link);
+            if link.clicked() || (self.pressed)(Item::Source) {
+                open_in_browser(REPOSITORY);
+            }
+            note(ui, palette, "Free software, under the MIT License.");
         });
     }
 

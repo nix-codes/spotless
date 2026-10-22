@@ -58,10 +58,11 @@ import dev.spotless.core.Store
 
 private const val DASHBOARD = "https://developer.spotify.com/dashboard"
 private const val LASTFM_CREATE = "https://www.last.fm/api/account/create"
+private const val REPOSITORY = "https://github.com/nix-codes/spotless"
 /** The redirect a personal app registers (core/src/spotify/webapi.rs). */
 private const val REDIRECT_URI = "http://127.0.0.1:8989/login"
 
-/** The account, search's app, Last.fm, levelling and the caches. */
+/** The account, search's app, Last.fm, levelling, the caches and the version. */
 @Composable
 fun SettingsScreen(core: Core, close: () -> Unit) {
     LaunchedEffect(Unit) { core.apply(Action.MeasureStorage) }
@@ -92,6 +93,7 @@ fun SettingsScreen(core: Core, close: () -> Unit) {
             LastFmSection(core)
             Playback(core)
             Storage(core)
+            About()
         }
     }
 }
@@ -222,6 +224,18 @@ private fun Storage(core: Core) {
             Value(settings.coverBytes?.let { size(it.toLong()) } ?: "…")
             TextButton("CLEAR", { core.apply(Action.ClearCache(Store.COVERS)) })
         }
+    }
+}
+
+/** The version, as the release's tag gave it (0.0.0-dev in a local build). */
+@Composable
+private fun About() {
+    val context = LocalContext.current
+    val version = remember { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
+    Section("ABOUT") {
+        Item("Version") { Value("Spotless $version") }
+        Item("Source code") { Link(REPOSITORY.removePrefix("https://"), REPOSITORY) }
+        Note("Free software, under the MIT License.")
     }
 }
 

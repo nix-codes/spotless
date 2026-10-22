@@ -6,6 +6,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"
+repository = "https://github.com/nix-codes/spotless"
 
 # Versions the core and the desktop app share.
 [workspace.dependencies]
@@ -25,6 +26,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "A minimal Spotify player in the spirit of Winamp"
 default-run = "spotless"
 
