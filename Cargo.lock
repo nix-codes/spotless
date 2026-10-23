@@ -4892,6 +4892,7 @@ dependencies = [
  "librespot-protocol",
  "log",
  "md-5",
+ "ndk",
  "open",
  "protobuf",
  "reqwest",

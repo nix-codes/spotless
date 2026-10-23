@@ -25,6 +25,9 @@ use librespot_playback::config::{Bitrate, NormalisationType, PlayerConfig, Volum
 use librespot_playback::mixer::{self, Mixer, MixerConfig};
 use librespot_playback::player::{Player, PlayerEvent};
 
+#[cfg(target_os = "android")]
+use super::aaudio::AAudioSink;
+#[cfg(not(target_os = "android"))]
 use super::sink::RodioSink;
 use crate::model::EntryId;
 
@@ -224,6 +227,7 @@ fn start_player(
 ) -> Arc<Player> {
     // A device by name, for testing without one: any name that doesn't
     // exist acts as a missing output.
+    #[cfg(not(target_os = "android"))]
     let device = std::env::var("SPOTLESS_AUDIO_DEVICE").ok();
     let on_error = {
         let notify = Arc::clone(notify);
@@ -247,7 +251,10 @@ fn start_player(
         config,
         session.clone(),
         mixer.get_soft_volume(),
+        #[cfg(not(target_os = "android"))]
         move || Box::new(RodioSink::new(device, on_error)),
+        #[cfg(target_os = "android")]
+        move || Box::new(AAudioSink::new(on_error)),
     );
     // Subscribed before the first load, so its events are seen.
     let events = player.get_player_event_channel();

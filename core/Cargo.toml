@@ -52,3 +52,7 @@ env_logger.workspace = true
 # sign-in and then refuses every request.
 [target.'cfg(target_os = "android")'.dependencies]
 librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "f35cee9bd1e68a050c2795db83ed25c3c37a9f98", default-features = false, features = ["rustls-tls-native-roots", "android-as-linux"] }
+# Audio goes straight to AAudio (src/playback/aaudio.rs), through the same
+# ndk crate cpal uses (API 28 for the usage and content type; the app needs
+# 29).
+ndk = { version = "0.9", default-features = false, features = ["audio", "api-level-28"] }
