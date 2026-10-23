@@ -256,12 +256,13 @@ impl Controller {
     /// The playing song stopped at `position_ms`, or didn't load, for want
     /// of a connection: it waits there, shown paused, until reconnected or
     /// played.
+    /// librespot may say so twice: the second finds it waiting already.
     fn wait_offline(&mut self, position_ms: u32) {
         let state = &mut self.state;
         let track = state.transport.current(&state.library).map(|entry| {
-            match state.player.track.take() {
+            match &state.player.track {
                 // The engine's has the cover.
-                Some(track) if track.uri == entry.track.uri => track,
+                Some(track) if track.uri == entry.track.uri => track.clone(),
                 _ => TrackInfo::from(&entry.track),
             }
         });
@@ -978,7 +979,11 @@ mod tests {
         rig.tell(Event::Cut {
             position_ms: 95_000,
         });
-        // The engine's own news of stopping doesn't undo it.
+        // librespot's second word of it, and the engine's own news of
+        // stopping, don't undo it.
+        rig.tell(Event::Cut {
+            position_ms: 95_000,
+        });
         rig.tell(Event::Player(PlayerSnapshot::default()));
         let state = rig.controller.state();
         assert!(state.offline);
