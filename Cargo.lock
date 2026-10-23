@@ -4884,6 +4884,7 @@ dependencies = [
  "dirs",
  "env_logger",
  "fastrand",
+ "futures-util",
  "image",
  "librespot-audio",
  "librespot-core",
