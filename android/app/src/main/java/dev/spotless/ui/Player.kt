@@ -1,6 +1,7 @@
 package dev.spotless.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +28,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.spotless.Core
@@ -70,6 +72,17 @@ private fun shownTime(player: Player): String {
 
 private const val BLINK_MS = 1000L
 
+/** A line of the display that, too long to fit, scrolls slowly round and round. */
+@Composable
+private fun Scrolling(text: String, style: TextStyle, modifier: Modifier = Modifier) {
+    BasicText(
+        text,
+        modifier.basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 2000, velocity = 20.dp),
+        style,
+        maxLines = 1,
+    )
+}
+
 private fun playing(player: Player) = player.status == Status.PLAYING || player.status == Status.LOADING
 
 /** The player under the playlists: display, seek bar, transport, SHUF and REP. */
@@ -88,7 +101,7 @@ fun PlayerPanel(core: Core) {
         ) {
             BasicText(shownTime(player), style = mono(40.sp, Classic.lcd))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Line(title(core), body(color = Classic.lcd))
+                Scrolling(title(core), body(color = Classic.lcd))
                 if (player.offline) {
                     Line("NO CONNECTION · PAUSED", mono(13.sp, Classic.warning))
                 } else {
@@ -178,7 +191,7 @@ fun MiniPlayer(core: Core) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicText(shownTime(player), style = mono(24.sp, Classic.lcd))
-        Line(title(core), body(14.sp, Classic.lcd), Modifier.weight(1f))
+        Scrolling(title(core), body(14.sp, Classic.lcd), Modifier.weight(1f))
         if (playing(player)) {
             GlyphButton(Glyph.Pause, "Pause", { core.apply(Action.TogglePause) })
         } else {
