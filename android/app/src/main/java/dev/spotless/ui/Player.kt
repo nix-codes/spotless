@@ -77,7 +77,7 @@ private const val BLINK_MS = 1000L
 private fun Scrolling(text: String, style: TextStyle, modifier: Modifier = Modifier) {
     BasicText(
         text,
-        modifier.basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 2000, velocity = 20.dp),
+        modifier.basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 3500, velocity = 20.dp),
         style,
         maxLines = 1,
     )
