@@ -316,6 +316,14 @@ async fn follow_songs(
         if event.get_play_request_id().is_some() && event.get_play_request_id() != current {
             continue;
         }
+        // librespot reports a song it failed to load ahead, to follow the
+        // playing one, as unavailable too, under the playing song's
+        // request. The playing song goes on; the next one is loaded again
+        // when it is due, and only a failure then counts.
+        if matches!(event, PlayerEvent::Unavailable { .. }) && state.status != Status::Loading {
+            log::info!("the next song didn't load ahead; it is tried again when due");
+            continue;
+        }
         let offline = matches!(event, PlayerEvent::Unavailable { .. }) && session.is_invalid();
         // librespot ends a song whose audio stops coming, as if it were
         // over; offline, the next would fail too.
