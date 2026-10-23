@@ -82,7 +82,7 @@ impl AAudioSink {
             let written = unsafe {
                 stream.write(left.as_ptr().cast(), frames, STALL_LIMIT.as_nanos() as i64)
             };
-            match written {
+            match counted(written) {
                 Ok(0) if last_progress.elapsed() >= STALL_LIMIT => {
                     return Err(self.fail(STALLED, "the device stopped taking audio"));
                 }
@@ -158,9 +158,10 @@ fn open() -> Result<AudioStream, AudioError> {
         .buffer_capacity_in_frames(BUFFER_FRAMES)
         .open_stream()?;
     let capacity = stream.buffer_capacity_in_frames();
-    let size = stream
-        .set_buffer_size_in_frames(capacity)
-        .unwrap_or_else(|_| stream.buffer_size_in_frames());
+    if let Err(error) = counted(stream.set_buffer_size_in_frames(capacity)) {
+        log::warn!("audio output: unable to use the whole buffer: {error}");
+    }
+    let size = stream.buffer_size_in_frames();
     log::info!(
         "audio output: device {}, {} Hz, {:?}, buffer {size} of {capacity} frames, bursts of {}",
         stream.device_id(),
@@ -169,4 +170,16 @@ fn open() -> Result<AudioStream, AudioError> {
         stream.frames_per_burst(),
     );
     Ok(stream)
+}
+
+/// The ndk crate (0.9) takes any result but 0 from AAudio for an error,
+/// so a count AAudio returns (the frames written, the buffer's new size)
+/// comes back as an unknown error with that count.
+fn counted<T: TryFrom<i32>>(result: Result<T, AudioError>) -> Result<T, AudioError> {
+    match result {
+        Err(AudioError::__Unknown(count)) if count > 0 => {
+            T::try_from(count).map_err(|_| AudioError::__Unknown(count))
+        }
+        other => other,
+    }
 }
