@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import dev.spotless.core.Action
 import dev.spotless.core.Player
 import dev.spotless.core.Session
 import dev.spotless.core.Status
+import kotlinx.coroutines.delay
 
 /** The display's title line: the song, or what the player is doing. */
 private fun title(core: Core): String {
@@ -46,6 +48,27 @@ private fun title(core: Core): String {
 
 /** The display's time: where the song is, or dashes with none loaded. */
 private fun time(player: Player) = if (player.track == null) "-:--" else clock(player.positionMs.toLong())
+
+/**
+ * The time, whose digits blink while paused, as in Winamp (and the
+ * desktop); the colon stays.
+ */
+@Composable
+private fun shownTime(player: Player): String {
+    val text = time(player)
+    val paused = player.status == Status.PAUSED && player.track != null
+    var lit by remember { mutableStateOf(true) }
+    LaunchedEffect(paused) {
+        lit = true
+        while (paused) {
+            delay(BLINK_MS)
+            lit = !lit
+        }
+    }
+    return if (!paused || lit) text else text.map { if (it == ':') it else ' ' }.joinToString("")
+}
+
+private const val BLINK_MS = 1000L
 
 private fun playing(player: Player) = player.status == Status.PLAYING || player.status == Status.LOADING
 
@@ -63,7 +86,7 @@ fun PlayerPanel(core: Core) {
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BasicText(time(player), style = mono(40.sp, Classic.lcd))
+            BasicText(shownTime(player), style = mono(40.sp, Classic.lcd))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Line(title(core), body(color = Classic.lcd))
                 if (player.offline) {
@@ -154,7 +177,7 @@ fun MiniPlayer(core: Core) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BasicText(time(player), style = mono(24.sp, Classic.lcd))
+        BasicText(shownTime(player), style = mono(24.sp, Classic.lcd))
         Line(title(core), body(14.sp, Classic.lcd), Modifier.weight(1f))
         if (playing(player)) {
             GlyphButton(Glyph.Pause, "Pause", { core.apply(Action.TogglePause) })
