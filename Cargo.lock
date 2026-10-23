@@ -2710,6 +2710,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "librespot-connect"
+version = "0.8.0"
+source = "git+https://github.com/nix-codes/librespot?rev=028d4e6c7a9cd70b846dcea0457408bd45029974#028d4e6c7a9cd70b846dcea0457408bd45029974"
+dependencies = [
+ "futures-util",
+ "librespot-core",
+ "librespot-playback",
+ "librespot-protocol",
+ "log",
+ "protobuf",
+ "rand 0.9.5",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-stream",
+ "uuid",
+]
+
+[[package]]
 name = "librespot-core"
 version = "0.8.0"
 source = "git+https://github.com/nix-codes/librespot?rev=028d4e6c7a9cd70b846dcea0457408bd45029974#028d4e6c7a9cd70b846dcea0457408bd45029974"
@@ -4887,6 +4906,7 @@ dependencies = [
  "futures-util",
  "image",
  "librespot-audio",
+ "librespot-connect",
  "librespot-core",
  "librespot-metadata",
  "librespot-oauth",
