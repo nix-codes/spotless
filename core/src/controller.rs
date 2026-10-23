@@ -170,7 +170,15 @@ impl Controller {
                 // Offline, every song would fail in turn: wait on this one
                 // instead of skipping through the playlist.
                 Event::Unavailable { offline: true } => {
-                    let requests = self.state.transport.offline(&mut self.state.library);
+                    let requests = self.state.transport.offline(&mut self.state.library, 0);
+                    self.resume_online = !requests.is_empty();
+                    self.changed(requests);
+                }
+                Event::Cut { position_ms } => {
+                    let requests = self
+                        .state
+                        .transport
+                        .offline(&mut self.state.library, position_ms);
                     self.resume_online = !requests.is_empty();
                     self.changed(requests);
                 }
@@ -914,6 +922,28 @@ mod tests {
         // Only once.
         rig.tell(Event::Reconnected);
         assert!(rig.sent().is_empty());
+    }
+
+    #[test]
+    fn a_song_cut_offline_goes_on_where_it_stopped_once_reconnected() {
+        let mut rig = Rig::new("cut");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        rig.controller.apply(Action::AddTracks(tracks([1, 2, 3])));
+        rig.controller.apply(Action::Play);
+        rig.sent();
+        rig.tell(Event::Cut {
+            position_ms: 95_000,
+        });
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::Player(Request::Stop)))
+        );
+        rig.tell(Event::Reconnected);
+        assert!(rig.sent().iter().any(|c| matches!(
+            c,
+            Command::Player(Request::Load { uri, position_ms: 95_000, .. }) if uri.ends_with(":1")
+        )));
     }
 
     #[test]

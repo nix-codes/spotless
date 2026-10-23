@@ -123,6 +123,10 @@ pub enum Event {
     Unavailable {
         offline: bool,
     },
+    /// The playing song stopped short here for want of a connection.
+    Cut {
+        position_ms: u32,
+    },
     /// The session dropped and a new one took its place.
     Reconnected,
     Search(SearchState),
@@ -461,6 +465,7 @@ impl Worker {
                     EngineEvent::Followed(entry) => Event::Followed(entry),
                     EngineEvent::Ended => Event::Ended,
                     EngineEvent::Unavailable { offline } => Event::Unavailable { offline },
+                    EngineEvent::Cut { position_ms } => Event::Cut { position_ms },
                     EngineEvent::OutputError(message) => Event::Error(message),
                 })
             }),

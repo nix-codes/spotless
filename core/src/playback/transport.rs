@@ -204,14 +204,14 @@ impl Transport {
         }
     }
 
-    /// The loaded song didn't load for want of a connection: stop on it,
-    /// to play it from the start with `resume`.
-    pub fn offline(&mut self, library: &mut Library) -> Vec<Request> {
+    /// The loaded song didn't load, or stopped at `position_ms`, for want
+    /// of a connection: stop on it, to go on from there with `resume`.
+    pub fn offline(&mut self, library: &mut Library, position_ms: u32) -> Vec<Request> {
         if !self.active {
             return Vec::new();
         }
         if let Some(list) = self.playing_mut(library) {
-            list.resume_ms = 0;
+            list.resume_ms = position_ms;
         }
         self.halt()
     }
@@ -469,9 +469,17 @@ mod tests {
         let (mut library, mut transport) = setup(30);
         transport.play_entry(&mut library, DEFAULT, EntryId(3), 0);
         transport.remember_position(&mut library, 61_000);
-        assert_eq!(transport.offline(&mut library), [Request::Stop]);
-        assert!(transport.offline(&mut library).is_empty());
+        assert_eq!(transport.offline(&mut library, 0), [Request::Stop]);
+        assert!(transport.offline(&mut library, 0).is_empty());
         assert_eq!(transport.resume(&mut library)[0], load(3, 0));
+    }
+
+    #[test]
+    fn a_song_cut_offline_goes_on_where_it_stopped() {
+        let (mut library, mut transport) = setup(30);
+        transport.play_entry(&mut library, DEFAULT, EntryId(3), 0);
+        assert_eq!(transport.offline(&mut library, 95_000), [Request::Stop]);
+        assert_eq!(transport.resume(&mut library)[0], load(3, 95_000));
     }
 
     #[test]

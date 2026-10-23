@@ -31,8 +31,11 @@ use super::aaudio::AAudioSink;
 use super::sink::RodioSink;
 use crate::model::EntryId;
 
-/// Said when a song didn't load for want of a connection.
+/// Said when a song didn't load, or stopped short, for want of a
+/// connection.
 const OFFLINE: &str = "No connection to Spotify. The song plays when it's back.";
+/// A song that ends further than this from its end was cut short.
+const CUT_MARGIN_MS: u32 = 5_000;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Status {
@@ -93,6 +96,11 @@ pub enum EngineEvent {
     /// had dropped, so it may well play once there is one again.
     Unavailable {
         offline: bool,
+    },
+    /// The playing song ran out of audio here, short of its end, with the
+    /// session to Spotify dropped: it stopped, to go on from here later.
+    Cut {
+        position_ms: u32,
     },
     /// The audio output is missing or failed; the player paused.
     OutputError(String),
@@ -303,6 +311,13 @@ async fn follow_songs(
             continue;
         }
         let offline = matches!(event, PlayerEvent::Unavailable { .. }) && session.is_invalid();
+        // librespot ends a song whose audio stops coming, as if it were
+        // over; offline, the next would fail too.
+        let cut = matches!(event, PlayerEvent::EndOfTrack { .. })
+            && session.is_invalid()
+            && state.track.as_ref().is_some_and(|track| {
+                state.position_ms.saturating_add(CUT_MARGIN_MS) < track.duration_ms
+            });
         // The follow lock is let go before anything is told: a hook that
         // answers with `Engine::follow` takes it too.
         match &event {
@@ -311,6 +326,12 @@ async fn follow_songs(
                 if let Some((_, next)) = next {
                     player.preload(next);
                 }
+            }
+            PlayerEvent::EndOfTrack { .. } if cut => {
+                player.stop();
+                notify(EngineEvent::Cut {
+                    position_ms: state.position_ms,
+                });
             }
             PlayerEvent::EndOfTrack { .. } => {
                 let next = lock(&follow).take();
@@ -328,8 +349,8 @@ async fn follow_songs(
             PlayerEvent::Unavailable { .. } => notify(EngineEvent::Unavailable { offline }),
             _ => {}
         }
-        if apply(&mut state, event) {
-            if offline {
+        if apply(&mut state, event) || cut {
+            if offline || cut {
                 state.error = Some(OFFLINE.into());
             }
             *lock(&shared) = state.clone();

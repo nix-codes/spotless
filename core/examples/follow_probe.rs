@@ -75,6 +75,9 @@ async fn main() -> Result<()> {
             EngineEvent::Unavailable { offline } => {
                 println!("{t:6.1}s  unavailable (offline: {offline})")
             }
+            EngineEvent::Cut { position_ms } => {
+                println!("{t:6.1}s  cut offline at {position_ms} ms")
+            }
             EngineEvent::OutputError(message) => println!("{t:6.1}s  output error: {message}"),
             EngineEvent::Snapshot(snapshot) => {
                 let title = snapshot.track.as_ref().map_or("-", |t| t.title.as_str());
