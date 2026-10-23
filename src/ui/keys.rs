@@ -187,7 +187,7 @@ fn playback(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut 
         actions.push(Action::SetRepeat(!view.repeat));
     }
     if take(i, Modifiers::NONE, Key::J)
-        && let Some(list) = view.playing_list.and_then(|id| view.library.get(id))
+        && let Some(list) = view.playing_list.and_then(|id| view.list(id))
         && let Some(entry) = list.cursor()
     {
         actions.push(Action::CloseBrowse);
@@ -204,7 +204,12 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     } else {
         view.playlist.id
     };
-    let lists = view.library.playlists();
+    // In the tabs' order: the Spotify tab's first.
+    let spotify = view.spotify.map(|_| PlaylistId::SPOTIFY);
+    let lists: Vec<PlaylistId> = spotify
+        .into_iter()
+        .chain(view.library.playlists().iter().map(|l| l.id))
+        .collect();
     let choose = |list: PlaylistId| {
         if browsing {
             Action::SetTarget(list)
@@ -212,12 +217,12 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
             Action::SelectPlaylist(list)
         }
     };
-    let at = lists.iter().position(|l| l.id == current).unwrap_or(0);
+    let at = lists.iter().position(|&id| id == current).unwrap_or(0);
     let step = held(i, Modifiers::COMMAND, Key::Tab) as isize
         - held(i, Modifiers::COMMAND | Modifiers::SHIFT, Key::Tab) as isize;
     if step != 0 {
         let to = (at as isize + step).rem_euclid(lists.len() as isize) as usize;
-        actions.push(choose(lists[to].id));
+        actions.push(choose(lists[to]));
     }
     const NUMBERS: [Key; 9] = [
         Key::Num1,
@@ -232,9 +237,9 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     ];
     for (n, key) in NUMBERS.into_iter().enumerate() {
         if take(i, Modifiers::COMMAND, key)
-            && let Some(list) = lists.get(n)
+            && let Some(&list) = lists.get(n)
         {
-            actions.push(choose(list.id));
+            actions.push(choose(list));
         }
     }
 

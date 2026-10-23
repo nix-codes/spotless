@@ -23,6 +23,7 @@ use super::widgets::{Glyph, drag_ghost, field, small_action, small_button, small
 use super::{Inputs, View, spotify_view};
 use crate::action::{Action, Actions};
 use crate::model::{EntryId, Playlist, PlaylistId};
+use crate::playback::engine::Status;
 
 const ROW_HEIGHT: f32 = 18.0;
 const TAB_HEIGHT: f32 = 22.0;
@@ -285,7 +286,10 @@ fn tab(ui: &mut Ui, view: &View, list: Tab, inputs: &mut Inputs, actions: &mut A
         (false, false) => (palette.dim, palette.dim),
     };
     let mut x = rect.left() + 10.0;
-    if playing {
+    if playing && view.player.status == Status::Playing {
+        dancing_bars(ui, painter, pos2(x + 3.0, rect.center().y), &palette);
+        x += play_width;
+    } else if playing {
         let c = pos2(x + 3.0, rect.center().y);
         painter.add(egui::Shape::convex_polygon(
             vec![
@@ -370,6 +374,20 @@ fn tab(ui: &mut Ui, view: &View, list: Tab, inputs: &mut Inputs, actions: &mut A
     };
     response.on_hover_text_at_pointer(hint);
     rect
+}
+
+/// Three bars bouncing like a level meter, centred on `c`: the playing
+/// tab's mark while a song plays (paused, it is ▶).
+fn dancing_bars(ui: &Ui, painter: &egui::Painter, c: egui::Pos2, palette: &Palette) {
+    let time = ui.input(|i| i.time);
+    for (n, (speed, phase)) in [(7.0, 0.0), (9.5, 1.3), (6.0, 2.4)].into_iter().enumerate() {
+        let height = 2.0 + 7.0 * (time * speed + phase).sin().abs() as f32;
+        let x = c.x - 3.5 + n as f32 * 3.0;
+        let bar = Rect::from_min_max(pos2(x, c.y + 4.0 - height), pos2(x + 2.0, c.y + 4.0));
+        painter.rect_filled(bar, 0.0, palette.accent);
+    }
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_millis(60));
 }
 
 /// The tab being renamed: Enter or clicking away keeps the name, Esc
