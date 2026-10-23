@@ -4885,6 +4885,7 @@ dependencies = [
  "env_logger",
  "fastrand",
  "image",
+ "librespot-audio",
  "librespot-core",
  "librespot-metadata",
  "librespot-oauth",

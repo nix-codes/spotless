@@ -46,6 +46,8 @@ protobuf = "3.7"
 [dev-dependencies]
 # The probes in examples/ log to the terminal.
 env_logger.workspace = true
+# download_probe reads a song's file the way the player does.
+librespot-audio = { git = "https://github.com/nix-codes/librespot", rev = "f35cee9bd1e68a050c2795db83ed25c3c37a9f98", default-features = false, features = ["rustls-tls-native-roots"] }
 
 # On Android, librespot presents itself as the Linux desktop client, whose
 # credential Spotless signs in with: as the Android client, Spotify takes the
