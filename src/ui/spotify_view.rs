@@ -2,9 +2,12 @@
 //!
 //! What played before, dimmed; the song playing; then the songs queued and
 //! the rest of the album or playlist. While another device plays, it only
-//! shows, with PLAY HERE to take playback over; while Spotless plays it,
-//! Delete or REM removes songs to come. Rows drag onto a playlist's tab to
-//! copy them there.
+//! shows, with PLAY HERE (or Enter, or a double-click) to take playback
+//! over; while Spotless plays it, Delete or REM removes songs to come. Rows
+//! drag onto a playlist's tab to copy them there.
+//!
+//! Keys as in a playlist: Up/Down, PageUp/PageDown and Home/End move the
+//! selection, with Shift they extend it; Ctrl+A selects all.
 
 use std::collections::BTreeSet;
 
@@ -27,6 +30,21 @@ const HEADING_HEIGHT: f32 = 24.0;
 const TOOLBAR_HEIGHT: f32 = 18.0;
 const GAP: f32 = 12.0;
 
+/// Where the keys move from, kept between frames.
+#[derive(Clone, Copy, Default)]
+struct Keys {
+    /// Where Shift extends from.
+    anchor: Option<EntryId>,
+    /// The row the arrows move from.
+    cursor: Option<EntryId>,
+    /// The row to bring into view.
+    reveal: Option<EntryId>,
+}
+
+fn keys_id() -> Id {
+    Id::new("spotify-keys")
+}
+
 pub fn draw(
     ui: &mut Ui,
     view: &View,
@@ -41,7 +59,13 @@ pub fn draw(
     let rows = Rect::from_min_max(full.min, pos2(full.right(), toolbar_rect.top() - GAP));
     let selection = &mut inputs.selection.rows;
     selection.retain(|&id| queue.row(id).is_some());
-    keyboard(ui, queue, selection, inputs.renaming.is_some(), actions);
+    let mut keys: Keys = ui.data(|d| d.get_temp(keys_id())).unwrap_or_default();
+    let page = ((rows.height() / ROW_HEIGHT) as usize)
+        .saturating_sub(3)
+        .max(1);
+    if inputs.renaming.is_none() && inputs.closing.is_none() {
+        keyboard(ui, queue, selection, &mut keys, page, actions);
+    }
 
     ui.scope_builder(UiBuilder::new().max_rect(rows), |ui| {
         ui.label(RichText::new(where_it_plays(queue)).color(palette.chrome));
@@ -59,7 +83,7 @@ pub fn draw(
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let mut index = 0;
                 let mut row = |ui: &mut Ui, row: Row, index: &mut usize| {
-                    draw_row(ui, view, queue, row, *index, selection, actions);
+                    draw_row(ui, view, queue, row, *index, (selection, &mut keys), actions);
                     *index += 1;
                 };
                 for track in &queue.before {
@@ -78,6 +102,8 @@ pub fn draw(
             })
         });
     });
+    keys.reveal = None;
+    ui.data_mut(|d| d.insert_temp(keys_id(), keys));
     ui.scope_builder(UiBuilder::new().max_rect(toolbar_rect), |ui| {
         toolbar(ui, view, queue, selection, actions);
     });
@@ -118,7 +144,7 @@ fn draw_row(
     queue: &SpotifyQueue,
     row: Row,
     index: usize,
-    selection: &mut BTreeSet<EntryId>,
+    (selection, keys): (&mut BTreeSet<EntryId>, &mut Keys),
     actions: &mut Actions,
 ) {
     let palette = view.palette;
@@ -166,16 +192,31 @@ fn draw_row(
             color,
         );
 
+    if keys.reveal == Some(id) {
+        response.scroll_to_me(None);
+    }
     if response.double_clicked() && !queue.here {
         actions.push(Action::PlaySpotifyHere);
     } else if response.clicked() {
-        if ui.input(|i| i.modifiers.command) {
+        let modifiers = ui.input(|i| i.modifiers);
+        if modifiers.shift
+            && let Some(anchor) = keys.anchor.and_then(|a| index_of(queue, a))
+        {
+            *selection = (anchor.min(index)..=anchor.max(index))
+                .map(SpotifyQueue::row_id)
+                .collect();
+            keys.cursor = Some(id);
+            return;
+        }
+        if modifiers.command {
             if !selection.remove(&id) {
                 selection.insert(id);
             }
         } else {
             *selection = BTreeSet::from([id]);
         }
+        keys.anchor = Some(id);
+        keys.cursor = Some(id);
     }
     if response.drag_started() {
         if !selected {
@@ -233,20 +274,89 @@ fn toolbar(
     });
 }
 
+/// The place of the row with this ID.
+fn index_of(queue: &SpotifyQueue, id: EntryId) -> Option<usize> {
+    (0..queue.rows().count()).find(|&i| SpotifyQueue::row_id(i) == id)
+}
+
+/// The tab's keys, unless a text field has the keyboard.
 fn keyboard(
     ui: &Ui,
     queue: &SpotifyQueue,
-    selection: &BTreeSet<EntryId>,
-    renaming: bool,
+    selection: &mut BTreeSet<EntryId>,
+    keys: &mut Keys,
+    page: usize,
     actions: &mut Actions,
 ) {
-    if renaming || ui.ctx().text_edit_focused() || !queue.playing_here() {
+    let count = queue.rows().count();
+    if ui.ctx().text_edit_focused() || count == 0 {
         return;
     }
-    if ui.input(|i| i.key_pressed(Key::Delete)) {
-        let rows = removable(queue, selection);
-        if !rows.is_empty() {
-            actions.push(Action::Remove(PlaylistId::SPOTIFY, rows));
+    let (pressed, modifiers) = ui.input(|i| {
+        let keys = [
+            Key::Enter,
+            Key::Delete,
+            Key::A,
+            Key::ArrowUp,
+            Key::ArrowDown,
+            Key::Home,
+            Key::End,
+            Key::PageUp,
+            Key::PageDown,
+        ];
+        (
+            keys.into_iter().find(|&key| i.key_pressed(key)),
+            i.modifiers,
+        )
+    });
+    let Some(key) = pressed else { return };
+    match key {
+        Key::Enter if !queue.here => actions.push(Action::PlaySpotifyHere),
+        Key::Delete if queue.playing_here() => {
+            let rows = removable(queue, selection);
+            if !rows.is_empty() {
+                actions.push(Action::Remove(PlaylistId::SPOTIFY, rows));
+            }
         }
+        Key::A if modifiers.command => {
+            *selection = (0..count).map(SpotifyQueue::row_id).collect();
+        }
+        Key::ArrowUp | Key::ArrowDown | Key::Home | Key::End | Key::PageUp | Key::PageDown
+            if !modifiers.alt && !modifiers.command =>
+        {
+            // From the row last moved to, or the song playing.
+            let from = keys
+                .cursor
+                .or(keys.anchor)
+                .and_then(|id| index_of(queue, id));
+            let last = count - 1;
+            let to = match (key, from) {
+                (Key::Home, _) => 0,
+                (Key::End, _) => last,
+                (_, None) => queue.before.len().min(last),
+                (Key::ArrowUp, Some(i)) => i.saturating_sub(1),
+                (Key::ArrowDown, Some(i)) => (i + 1).min(last),
+                (Key::PageUp, Some(i)) => i.saturating_sub(page),
+                (Key::PageDown, Some(i)) => (i + page).min(last),
+                _ => 0,
+            };
+            let id = SpotifyQueue::row_id(to);
+            if modifiers.shift {
+                let anchor = keys
+                    .anchor
+                    .and_then(|id| index_of(queue, id))
+                    .unwrap_or(from.unwrap_or(to));
+                keys.anchor = Some(SpotifyQueue::row_id(anchor));
+                *selection = (anchor.min(to)..=anchor.max(to))
+                    .map(SpotifyQueue::row_id)
+                    .collect();
+            } else {
+                *selection = BTreeSet::from([id]);
+                keys.anchor = Some(id);
+            }
+            keys.cursor = Some(id);
+            keys.reveal = Some(id);
+        }
+        _ => {}
     }
 }
