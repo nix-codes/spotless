@@ -55,6 +55,9 @@ pub struct Controller {
     /// Albums whose songs go to a playlist (at an index, or at the end)
     /// once they are read.
     pending_adds: Vec<(String, PlaylistId, Option<usize>)>,
+    /// The song that waited offline is loading again: it stays shown until
+    /// the engine has it (the new player starts out knowing no song).
+    resuming: bool,
 }
 
 impl Controller {
@@ -117,6 +120,7 @@ impl Controller {
             },
             unsaved: None,
             pending_adds: Vec::new(),
+            resuming: false,
         }
     }
 
@@ -152,7 +156,15 @@ impl Controller {
                 }
                 // The engine holds nothing while a song waits offline.
                 Event::Player(_) if self.state.offline => {}
+                Event::Player(snapshot)
+                    if self.resuming && snapshot.track.is_none() && snapshot.error.is_none() =>
+                {
+                    if snapshot.status == Status::Playing {
+                        self.state.player.status = Status::Playing;
+                    }
+                }
                 Event::Player(snapshot) => {
+                    self.resuming = false;
                     if snapshot.error.is_some() {
                         self.state.error = snapshot.error.clone();
                     }
@@ -174,6 +186,7 @@ impl Controller {
                 Event::Unavailable { offline: true } => self.wait_offline(0),
                 Event::Cut { position_ms } => self.wait_offline(position_ms),
                 Event::Unavailable { offline: false } => {
+                    self.resuming = false;
                     let requests = self.state.transport.unavailable(&mut self.state.library);
                     self.changed(requests);
                 }
@@ -258,6 +271,7 @@ impl Controller {
     /// played.
     /// librespot may say so twice: the second finds it waiting already.
     fn wait_offline(&mut self, position_ms: u32) {
+        self.resuming = false;
         let state = &mut self.state;
         let track = state.transport.current(&state.library).map(|entry| {
             match &state.player.track {
@@ -284,6 +298,8 @@ impl Controller {
     /// Plays the song that waited offline, from where it stopped.
     fn resume_offline(&mut self) {
         self.state.offline = false;
+        self.resuming = true;
+        self.state.player.status = Status::Loading;
         let requests = self.state.transport.resume(&mut self.state.library);
         self.changed(requests);
     }
@@ -304,6 +320,16 @@ impl Controller {
                 }
                 _ => {}
             }
+        }
+        if matches!(
+            action,
+            Action::Stop
+                | Action::Release
+                | Action::Next
+                | Action::Previous
+                | Action::PlayEntry(..)
+        ) {
+            self.resuming = false;
         }
         let paused = self.state.player.status == Status::Paused;
         let position = self.state.player.position_now();
@@ -1000,6 +1026,25 @@ mod tests {
         )));
         rig.tell(Event::Reconnected);
         assert!(rig.sent().is_empty());
+        // Until the new player knows the song, the song stays shown.
+        rig.tell(Event::Player(PlayerSnapshot {
+            status: Status::Loading,
+            ..PlayerSnapshot::default()
+        }));
+        let player = &rig.controller.state().player;
+        assert_eq!(player.status, Status::Loading);
+        assert_eq!(player.position_ms, 95_000);
+        assert_eq!(player.track.as_ref().unwrap().title, "Song 1");
+        let known = PlayerSnapshot {
+            status: Status::Playing,
+            track: player.track.clone(),
+            position_ms: 95_100,
+            ..PlayerSnapshot::default()
+        };
+        rig.tell(Event::Player(known.clone()));
+        assert_eq!(rig.controller.state().player, known);
+        rig.tell(Event::Player(PlayerSnapshot::default()));
+        assert_eq!(rig.controller.state().player, PlayerSnapshot::default());
     }
 
     #[test]
