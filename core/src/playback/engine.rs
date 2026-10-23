@@ -224,6 +224,11 @@ impl Engine {
         self.player.pause();
     }
 
+    /// Whether a song is playing, or loading to play.
+    pub fn playing(&self) -> bool {
+        matches!(lock(&self.state).status, Status::Playing | Status::Loading)
+    }
+
     pub fn stop(&self) {
         *lock(&self.follow) = None;
         self.player.stop();

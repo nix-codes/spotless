@@ -181,6 +181,12 @@ impl Controller {
                     let requests = self.state.transport.ended(&mut self.state.library);
                     self.changed(requests);
                 }
+                Event::PlayingElsewhere(device) => {
+                    self.state.notice = Some(format!("Paused: Spotify is playing on {device}."));
+                }
+                Event::PausedElsewhere(device) => {
+                    self.state.notice = Some(format!("Paused Spotify on {device}."));
+                }
                 // Offline, every song would fail in turn: wait on this one
                 // instead of skipping through the playlist.
                 Event::Unavailable { offline: true } => self.wait_offline(0),

@@ -25,6 +25,7 @@ use crate::paths::Paths;
 use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
 use crate::playback::outputs::{self, Output};
 use crate::playback::transport::Request;
+use crate::spotify::devices::{self, Playing, Watch};
 use crate::spotify::webapi::WebApi;
 use crate::spotify::{catalog, session};
 use crate::store::Settings;
@@ -118,6 +119,11 @@ pub enum Event {
     Followed(EntryId),
     /// The engine finished a song with nothing to follow, and stopped.
     Ended,
+    /// Another of the account's devices started playing, by name, so
+    /// Spotless paused: Spotify allows one at a time.
+    PlayingElsewhere(String),
+    /// Spotless started playing and paused the other device, by name.
+    PausedElsewhere(String),
     /// The loaded song can't be played; `offline`: for want of a
     /// connection.
     Unavailable {
@@ -277,6 +283,13 @@ struct Worker {
     engine: Option<Engine>,
     /// Follows the player and scrobbles, once `run` has started it.
     scrobbler: Option<Scrobbler>,
+    /// Follows the account's other devices on the session.
+    watch: Option<Watch>,
+    /// The other device playing, as the watch last told.
+    elsewhere: Option<Playing>,
+    /// Where the watches tell, and where `run` hears it.
+    devices: UnboundedSender<Option<Playing>>,
+    device_reports: Option<UnboundedReceiver<Option<Playing>>>,
     /// Shared with the searches running in the background.
     web: Option<Arc<tokio::sync::Mutex<WebApi>>>,
     /// Held while search's browser approval runs, so it runs once.
@@ -294,6 +307,7 @@ struct Worker {
 
 impl Worker {
     fn new(paths: Paths, volume: u16, levelling: bool, browser: Browser, emit: Emit) -> Self {
+        let (devices, device_reports) = unbounded_channel();
         Self {
             paths,
             volume,
@@ -303,6 +317,10 @@ impl Worker {
             session: None,
             engine: None,
             scrobbler: None,
+            watch: None,
+            elsewhere: None,
+            devices,
+            device_reports: Some(device_reports),
             web: None,
             search_approval: Arc::default(),
             http: reqwest::Client::new(),
@@ -333,6 +351,7 @@ impl Worker {
         self.reconnect_if_needed().await;
         let mut check = tokio::time::interval(CHECK_SESSION);
         check.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut device_reports = self.device_reports.take().expect("run once");
         loop {
             tokio::select! {
                 command = commands.recv() => {
@@ -348,6 +367,7 @@ impl Worker {
                     self.handle(command).await;
                 }
                 _ = check.tick() => self.reconnect_if_needed().await,
+                Some(playing) = device_reports.recv() => self.elsewhere_changed(playing),
             }
         }
     }
@@ -381,6 +401,7 @@ impl Worker {
                 if let Some(engine) = &mut self.engine {
                     engine.set_session(&session);
                 }
+                self.watch(&session);
                 self.session = Some(session);
                 (self.emit)(Event::Reconnected);
             }
@@ -406,6 +427,7 @@ impl Worker {
         if let Some(engine) = self.engine.take() {
             engine.stop();
         }
+        self.unwatch();
         if let Some(session) = self.session.take() {
             session.shutdown();
         }
@@ -414,6 +436,61 @@ impl Worker {
         self.retry_wait = RETRY_FIRST;
         (self.emit)(Event::Player(PlayerSnapshot::default()));
         (self.emit)(Event::Session(why));
+    }
+
+    /// Follows the other devices on `session` from now on.
+    fn watch(&mut self, session: &Session) {
+        self.unwatch();
+        let devices = self.devices.clone();
+        match Watch::start(session, move |playing| {
+            let _ = devices.send(playing);
+        }) {
+            Ok(watch) => self.watch = Some(watch),
+            Err(error) => log::warn!("unable to watch the other devices: {error:#}"),
+        }
+    }
+
+    fn unwatch(&mut self) {
+        if let Some(watch) = self.watch.take() {
+            tokio::spawn(watch.close());
+        }
+        self.elsewhere = None;
+    }
+
+    /// Pauses when another device starts playing.
+    fn elsewhere_changed(&mut self, playing: Option<Playing>) {
+        let started = playing.as_ref().filter(|now| {
+            self.elsewhere
+                .as_ref()
+                .is_none_or(|before| before.device != now.device)
+        });
+        if let (Some(other), Some(engine)) = (started, &self.engine)
+            && engine.playing()
+        {
+            engine.pause();
+            (self.emit)(Event::PlayingElsewhere(other.name.clone()));
+        }
+        self.elsewhere = playing;
+    }
+
+    /// Pauses the other device playing, if one is, as Spotless starts.
+    fn pause_elsewhere(&self) {
+        let (Some(other), Some(session)) = (self.elsewhere.clone(), self.session.clone()) else {
+            return;
+        };
+        let emit = Arc::clone(&self.emit);
+        tokio::spawn(async move {
+            match devices::pause(&session, &other.device).await {
+                Ok(()) => emit(Event::PausedElsewhere(other.name)),
+                Err(error) => {
+                    log::warn!("unable to pause {}: {error:#}", other.name);
+                    emit(Event::Error(format!(
+                        "Couldn't pause Spotify on {}.",
+                        other.name
+                    )));
+                }
+            }
+        });
     }
 
     /// Search signs in with this personal app from now on.
@@ -475,6 +552,7 @@ impl Worker {
                     user: session.username(),
                 }));
                 self.engine = Some(engine);
+                self.watch(&session);
                 self.session = Some(session);
                 self.retry_at = None;
                 self.retry_wait = RETRY_FIRST;
@@ -683,13 +761,19 @@ impl Worker {
                 position_ms,
                 ..
             } => match uri(&text) {
-                Some(track) => engine.load(track, position_ms),
+                Some(track) => {
+                    self.pause_elsewhere();
+                    engine.load(track, position_ms);
+                }
                 None => (self.emit)(Event::Unavailable { offline: false }),
             },
             Request::Follow(next) => {
                 engine.follow(next.and_then(|(entry, text)| Some((entry, uri(&text)?))));
             }
-            Request::Resume => engine.play(),
+            Request::Resume => {
+                self.pause_elsewhere();
+                engine.play();
+            }
             Request::Pause => engine.pause(),
             Request::Restart => engine.seek(0),
             Request::Stop => engine.stop(),

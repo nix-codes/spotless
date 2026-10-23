@@ -96,6 +96,10 @@ accounts.
 - **Shuffle and Repeat**, where Previous goes back through what actually
   played.
 - **Gapless playback** at 320 kbps, with optional volume levelling.
+- **One stream at a time**, as Spotify allows. Start playing on your phone
+  and Spotless pauses; press play in Spotless and it pauses your phone.
+  Spotless watches your devices through Spotify Connect without showing up
+  in their lists, and its own playback stays out of your account's queue.
 - **Browse**: search shows Artists, Albums and Songs separately. An artist's
   page is just the discography: All, Albums, Singles & EPs, Appears on;
   Albums first, oldest first, songs opening inline. **+ ADD** adds a whole
