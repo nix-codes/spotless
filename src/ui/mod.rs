@@ -10,6 +10,7 @@ mod scrollbar;
 mod settings_view;
 pub mod skin_paint;
 mod skinned_strip;
+mod spotify_view;
 pub mod theme;
 pub mod widgets;
 
@@ -24,6 +25,7 @@ use crate::model::{EntryId, Library, Playlist, PlaylistId};
 use crate::playback::engine::PlayerSnapshot;
 use crate::playback::outputs::Output;
 use crate::skin::format::State;
+use crate::spotify::queue::SpotifyQueue;
 use crate::store::Settings;
 pub use browse_view::Cover;
 use theme::Palette;
@@ -45,6 +47,10 @@ pub struct View<'a> {
     pub library: &'a Library,
     /// The playlist a song of is loaded from.
     pub playing_list: Option<PlaylistId>,
+    /// The account's queue, while Spotless is in Spotify Connect.
+    pub spotify: Option<&'a SpotifyQueue>,
+    /// The queue as a playlist.
+    pub spotify_list: &'a Playlist,
     pub browse: &'a Browse,
     /// The album covers fetched or being fetched, by image URL.
     pub covers: &'a HashMap<String, Cover>,
@@ -65,6 +71,17 @@ pub struct View<'a> {
     pub skin_note: Option<&'a str>,
     /// Why the chosen skin couldn't be read.
     pub skin_error: Option<&'a str>,
+}
+
+impl View<'_> {
+    /// A playlist by ID, the Spotify tab's included.
+    pub fn list(&self, id: PlaylistId) -> Option<&Playlist> {
+        if id == PlaylistId::SPOTIFY {
+            self.spotify.map(|_| self.spotify_list)
+        } else {
+            self.library.get(id)
+        }
+    }
 }
 
 /// Values the views edit in place: text fields and sliders.

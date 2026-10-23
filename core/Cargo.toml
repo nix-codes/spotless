@@ -39,6 +39,7 @@ md-5 = "0.10"
 librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "028d4e6c7a9cd70b846dcea0457408bd45029974", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-playback = { git = "https://github.com/nix-codes/librespot", rev = "028d4e6c7a9cd70b846dcea0457408bd45029974", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-metadata = { git = "https://github.com/nix-codes/librespot", rev = "028d4e6c7a9cd70b846dcea0457408bd45029974", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-connect = { git = "https://github.com/nix-codes/librespot", rev = "028d4e6c7a9cd70b846dcea0457408bd45029974", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-oauth = { git = "https://github.com/nix-codes/librespot", rev = "028d4e6c7a9cd70b846dcea0457408bd45029974", default-features = false, features = ["rustls-tls-native-roots"] }
 # The metadata service's own messages, to read many albums or songs in one
 # request (librespot's Metadata::get asks for one at a time).
@@ -51,8 +52,6 @@ futures-util = "0.3"
 env_logger.workspace = true
 # download_probe reads a song's file the way the player does.
 librespot-audio = { git = "https://github.com/nix-codes/librespot", rev = "028d4e6c7a9cd70b846dcea0457408bd45029974", default-features = false, features = ["rustls-tls-native-roots"] }
-# connect_probe tries Spotless as a full Spotify Connect device.
-librespot-connect = { git = "https://github.com/nix-codes/librespot", rev = "028d4e6c7a9cd70b846dcea0457408bd45029974", default-features = false, features = ["rustls-tls-native-roots"] }
 
 # On Android, librespot presents itself as the Linux desktop client, whose
 # credential Spotless signs in with: as the Android client, Spotify takes the

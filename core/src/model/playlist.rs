@@ -21,6 +21,9 @@ pub struct PlaylistId(pub u64);
 impl PlaylistId {
     /// The playlist that always exists.
     pub const DEFAULT: Self = Self(0);
+    /// The Spotify tab's, which shows the account's queue: no playlist of
+    /// the library has it.
+    pub const SPOTIFY: Self = Self(u64::MAX);
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

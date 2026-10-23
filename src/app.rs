@@ -185,7 +185,7 @@ impl App {
 
     /// The desktop's media keys and controls, as the buttons would do.
     fn media_actions(&mut self, ctx: &egui::Context) -> Actions {
-        let player = &self.controller.state().player;
+        let player = self.controller.state().now_playing();
         let status = player.status;
         let position = i64::from(player.position_now());
         let length = i64::from(player.track.as_ref().map_or(0, |t| t.duration_ms));
@@ -324,7 +324,7 @@ impl eframe::App for App {
         }
         self.keep_in_tray(ctx);
         let state = self.controller.state();
-        let player = &state.player;
+        let player = &state.now_playing();
         self.media
             .update(NowPlaying::from_player(player, state.settings.volume));
         if let Some(tray) = &mut self.tray {
@@ -353,21 +353,23 @@ impl eframe::App for App {
         let state = self.controller.state();
         let web_client_id = state.settings.web_client_id();
         let playlist = state
-            .library
-            .get(state.viewed)
+            .list(state.viewed)
             .or_else(|| state.library.get(PlaylistId::DEFAULT))
             .expect("Default always exists");
+        let player = state.now_playing();
         let view = View {
             palette: self.palette,
             session: &state.session,
-            player: &state.player,
+            player: &player,
             error: state.error.as_deref(),
             notice: state.notice.as_deref(),
             playlist,
             shuffle: state.transport.playback.shuffle(),
             repeat: state.transport.playback.repeat,
             library: &state.library,
-            playing_list: state.transport.playing_list(),
+            playing_list: state.playing_list(),
+            spotify: state.spotify.as_ref(),
+            spotify_list: &state.spotify_list,
             browse: &state.browse,
             covers: &self.covers,
             search: &state.search,

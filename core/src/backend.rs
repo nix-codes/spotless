@@ -26,6 +26,8 @@ use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
 use crate::playback::outputs::{self, Output};
 use crate::playback::transport::Request;
 use crate::spotify::devices::{self, Playing, Watch};
+use crate::spotify::queue::SpotifyQueue;
+use crate::spotify::remote::Remote;
 use crate::spotify::webapi::WebApi;
 use crate::spotify::{catalog, session};
 use crate::store::Settings;
@@ -74,7 +76,30 @@ pub enum Command {
     /// Saves this Last.fm API account and approves it in the browser.
     LastFmConnect(Keys),
     LastFmDisconnect,
+    /// For the Spotify tab.
+    Spotify(SpotifyRequest),
 }
+
+/// What the Spotify tab asks of the account's queue.
+#[derive(Debug)]
+pub enum SpotifyRequest {
+    Play,
+    Pause,
+    TogglePause,
+    Next,
+    Previous,
+    Seek(u32),
+    /// Adds songs, or an album, by URI to the end of the queue.
+    Add(Vec<String>),
+    /// Removes songs to come, by their place in Spotify's list and URI.
+    Remove(Vec<(usize, String)>),
+    /// Takes playback over from the device playing the queue.
+    PlayHere,
+}
+
+/// The Spotify tab is on: Spotless joins Spotify Connect as a device and
+/// shows the account's queue. Not on Android yet.
+pub const SPOTIFY_TAB: bool = !cfg!(target_os = "android");
 
 /// What Spotless keeps on disk that can be thrown away.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,6 +149,9 @@ pub enum Event {
     PlayingElsewhere(String),
     /// Spotless started playing and paused the other device, by name.
     PausedElsewhere(String),
+    /// The account's queue, for the Spotify tab; None while Spotless isn't
+    /// in Spotify Connect.
+    Spotify(Option<SpotifyQueue>),
     /// The loaded song can't be played; `offline`: for want of a
     /// connection.
     Unavailable {
@@ -226,6 +254,12 @@ impl Backend {
 
 type Emit = Arc<dyn Fn(Event) + Send + Sync>;
 
+/// What the Spotify tab's device tells the worker.
+enum RemoteReport {
+    Started(Result<Remote>),
+    Queue(SpotifyQueue),
+}
+
 /// How often the session is checked for having dropped. librespot notices
 /// a lost connection itself, within about a minute and a half, but says
 /// nothing.
@@ -290,6 +324,15 @@ struct Worker {
     /// Where the watches tell, and where `run` hears it.
     devices: UnboundedSender<Option<Playing>>,
     device_reports: Option<UnboundedReceiver<Option<Playing>>>,
+    /// Spotless's Connect device for the Spotify tab, once started.
+    remote: Option<Remote>,
+    /// A remote is being started.
+    remote_starting: bool,
+    /// The queue as the remote last told.
+    queue: SpotifyQueue,
+    /// Where remotes are handed over once started, and tell the queue.
+    remotes: UnboundedSender<RemoteReport>,
+    remote_reports: Option<UnboundedReceiver<RemoteReport>>,
     /// Shared with the searches running in the background.
     web: Option<Arc<tokio::sync::Mutex<WebApi>>>,
     /// Held while search's browser approval runs, so it runs once.
@@ -308,6 +351,7 @@ struct Worker {
 impl Worker {
     fn new(paths: Paths, volume: u16, levelling: bool, browser: Browser, emit: Emit) -> Self {
         let (devices, device_reports) = unbounded_channel();
+        let (remotes, remote_reports) = unbounded_channel();
         Self {
             paths,
             volume,
@@ -321,6 +365,11 @@ impl Worker {
             elsewhere: None,
             devices,
             device_reports: Some(device_reports),
+            remote: None,
+            remote_starting: false,
+            queue: SpotifyQueue::default(),
+            remotes,
+            remote_reports: Some(remote_reports),
             web: None,
             search_approval: Arc::default(),
             http: reqwest::Client::new(),
@@ -352,6 +401,7 @@ impl Worker {
         let mut check = tokio::time::interval(CHECK_SESSION);
         check.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut device_reports = self.device_reports.take().expect("run once");
+        let mut remote_reports = self.remote_reports.take().expect("run once");
         loop {
             tokio::select! {
                 command = commands.recv() => {
@@ -366,8 +416,12 @@ impl Worker {
                     }
                     self.handle(command).await;
                 }
-                _ = check.tick() => self.reconnect_if_needed().await,
+                _ = check.tick() => {
+                    self.reconnect_if_needed().await;
+                    self.restart_remote_if_needed();
+                }
                 Some(playing) = device_reports.recv() => self.elsewhere_changed(playing),
+                Some(report) = remote_reports.recv() => self.remote_report(report),
             }
         }
     }
@@ -428,6 +482,7 @@ impl Worker {
             engine.stop();
         }
         self.unwatch();
+        self.stop_remote();
         if let Some(session) = self.session.take() {
             session.shutdown();
         }
@@ -468,13 +523,27 @@ impl Worker {
             && engine.playing()
         {
             engine.pause();
-            (self.emit)(Event::PlayingElsewhere(other.name.clone()));
+            // The Spotify tab playing needs no word.
+            if !self.is_remote(&other.device) {
+                (self.emit)(Event::PlayingElsewhere(other.name.clone()));
+            }
         }
         self.elsewhere = playing;
     }
 
-    /// Pauses the other device playing, if one is, as Spotless starts.
+    /// Pauses the other device playing, if one is, as Spotless starts. The
+    /// Spotify tab lets playback go instead, so the player is local again.
     fn pause_elsewhere(&self) {
+        if let Some(remote) = &self.remote
+            && (self.queue.playing_here()
+                || self
+                    .elsewhere
+                    .as_ref()
+                    .is_some_and(|o| self.is_remote(&o.device)))
+        {
+            remote.leave();
+            return;
+        }
         let (Some(other), Some(session)) = (self.elsewhere.clone(), self.session.clone()) else {
             return;
         };
@@ -491,6 +560,90 @@ impl Worker {
                 }
             }
         });
+    }
+
+    fn is_remote(&self, device: &str) -> bool {
+        self.remote
+            .as_ref()
+            .is_some_and(|r| r.device_id() == device)
+    }
+
+    /// Starts the Spotify tab's device, unless it runs or is starting.
+    fn start_remote(&mut self) {
+        if !SPOTIFY_TAB || self.remote.is_some() || self.remote_starting || self.session.is_none() {
+            return;
+        }
+        self.remote_starting = true;
+        let paths = self.paths.clone();
+        let (volume, levelling) = (self.volume, self.levelling);
+        let remotes = self.remotes.clone();
+        tokio::spawn(async move {
+            let queues = remotes.clone();
+            let report = move |queue| {
+                let _ = queues.send(RemoteReport::Queue(queue));
+            };
+            let started = Remote::start(&paths, volume, levelling, report).await;
+            let _ = remotes.send(RemoteReport::Started(started));
+        });
+    }
+
+    /// Starts the Spotify tab's device again when Spotify dropped its
+    /// session.
+    fn restart_remote_if_needed(&mut self) {
+        if self.remote.as_ref().is_some_and(Remote::is_invalid) {
+            log::info!("the Spotify tab's session dropped; joining again");
+            self.stop_remote();
+        }
+        self.start_remote();
+    }
+
+    fn stop_remote(&mut self) {
+        if let Some(remote) = self.remote.take() {
+            remote.shut_down();
+            (self.emit)(Event::Spotify(None));
+        }
+        self.queue = SpotifyQueue::default();
+    }
+
+    fn remote_report(&mut self, report: RemoteReport) {
+        match report {
+            RemoteReport::Started(Ok(remote)) => {
+                self.remote_starting = false;
+                // Signed out meanwhile.
+                if self.session.is_none() {
+                    remote.shut_down();
+                    return;
+                }
+                self.remote = Some(remote);
+                (self.emit)(Event::Spotify(Some(self.queue.clone())));
+            }
+            RemoteReport::Started(Err(error)) => {
+                self.remote_starting = false;
+                log::warn!("unable to start the Spotify tab: {error:#}");
+            }
+            RemoteReport::Queue(queue) => {
+                if self.remote.is_none() && !self.remote_starting {
+                    return;
+                }
+                self.queue = queue.clone();
+                (self.emit)(Event::Spotify(Some(queue)));
+            }
+        }
+    }
+
+    fn spotify(&self, request: SpotifyRequest) {
+        let Some(remote) = &self.remote else { return };
+        match request {
+            SpotifyRequest::Play => remote.play(),
+            SpotifyRequest::Pause => remote.pause(),
+            SpotifyRequest::TogglePause => remote.toggle_pause(),
+            SpotifyRequest::Next => remote.next(),
+            SpotifyRequest::Previous => remote.previous(),
+            SpotifyRequest::Seek(position) => remote.seek(position),
+            SpotifyRequest::Add(uris) => remote.add(&uris),
+            SpotifyRequest::Remove(songs) => remote.remove(songs),
+            SpotifyRequest::PlayHere => remote.play_here(),
+        }
     }
 
     /// Search signs in with this personal app from now on.
@@ -553,6 +706,7 @@ impl Worker {
                 }));
                 self.engine = Some(engine);
                 self.watch(&session);
+                self.start_remote();
                 self.session = Some(session);
                 self.retry_at = None;
                 self.retry_wait = RETRY_FIRST;
@@ -744,7 +898,11 @@ impl Worker {
             Command::Volume(volume) => {
                 self.volume = volume;
                 self.with_engine(|e| e.set_volume(volume));
+                if let Some(remote) = &self.remote {
+                    remote.set_volume(volume);
+                }
             }
+            Command::Spotify(request) => self.spotify(request),
         }
     }
 

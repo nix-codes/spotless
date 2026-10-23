@@ -9,15 +9,16 @@
 use std::time::{Duration, Instant};
 
 use crate::action::Action;
-use crate::backend::{Backend, Command, Event, SearchState, SessionState, Storage};
+use crate::backend::{Backend, Command, Event, SearchState, SessionState, SpotifyRequest, Storage};
 use crate::browse::{Browse, Loadable, Page};
 use crate::browser::{self, Browser};
 use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
-use crate::model::{ArtistRef, Library, Playback, PlaylistId, TrackRef};
+use crate::model::{ArtistRef, Library, Playback, Playlist, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
 use crate::playback::outputs::Output;
 use crate::playback::transport::{Request, Transport};
+use crate::spotify::queue::{Row, SpotifyQueue};
 use crate::store::{self, Settings, Tabs};
 
 /// Changes are saved this long after the last one.
@@ -44,6 +45,46 @@ pub struct State {
     pub storage: Option<Storage>,
     /// The audio outputs, once listed; None when they can't be.
     pub outputs: Loadable<Option<Vec<Output>>>,
+    /// The account's queue, for the Spotify tab; None while Spotless isn't
+    /// in Spotify Connect.
+    pub spotify: Option<SpotifyQueue>,
+    /// The queue as a playlist, for what lists playlists' songs.
+    pub spotify_list: Playlist,
+}
+
+impl State {
+    /// The Spotify tab plays here, or is paused here: the player is its.
+    pub fn spotify_playing(&self) -> bool {
+        self.spotify
+            .as_ref()
+            .is_some_and(SpotifyQueue::playing_here)
+    }
+
+    /// What the player shows: the Spotify tab's song while it plays here.
+    pub fn now_playing(&self) -> PlayerSnapshot {
+        match &self.spotify {
+            Some(queue) if queue.playing_here() => queue.snapshot(),
+            _ => self.player.clone(),
+        }
+    }
+
+    /// The playlist a song plays from, the Spotify tab's included.
+    pub fn playing_list(&self) -> Option<PlaylistId> {
+        if self.spotify_playing() {
+            Some(PlaylistId::SPOTIFY)
+        } else {
+            self.transport.playing_list()
+        }
+    }
+
+    /// A playlist by ID, the Spotify tab's included.
+    pub fn list(&self, id: PlaylistId) -> Option<&Playlist> {
+        if id == PlaylistId::SPOTIFY {
+            self.spotify.as_ref().map(|_| &self.spotify_list)
+        } else {
+            self.library.get(id)
+        }
+    }
 }
 
 pub struct Controller {
@@ -117,6 +158,8 @@ impl Controller {
                 lastfm: LastFmState::default(),
                 storage: None,
                 outputs: Loadable::Loading,
+                spotify: None,
+                spotify_list: Playlist::new(PlaylistId::SPOTIFY, "Spotify"),
             },
             unsaved: None,
             pending_adds: Vec::new(),
@@ -180,6 +223,13 @@ impl Controller {
                 Event::Ended => {
                     let requests = self.state.transport.ended(&mut self.state.library);
                     self.changed(requests);
+                }
+                Event::Spotify(queue) => {
+                    self.state.spotify_list = queue.as_ref().map_or_else(
+                        || Playlist::new(PlaylistId::SPOTIFY, "Spotify"),
+                        SpotifyQueue::as_playlist,
+                    );
+                    self.state.spotify = queue;
                 }
                 Event::PlayingElsewhere(device) => {
                     self.state.notice = Some(format!("Paused: Spotify is playing on {device}."));
@@ -337,11 +387,22 @@ impl Controller {
         ) {
             self.resuming = false;
         }
+        let Some(action) = self.apply_spotify(action) else {
+            return;
+        };
         let paused = self.state.player.status == Status::Paused;
         let position = self.state.player.position_now();
         let state = &mut self.state;
         let library = &mut state.library;
-        let viewed = state.viewed;
+        // With the Spotify tab shown, local playback goes on in the
+        // playlist it played.
+        let viewed = match state.viewed {
+            PlaylistId::SPOTIFY => state
+                .transport
+                .playing_list()
+                .unwrap_or(PlaylistId::DEFAULT),
+            viewed => viewed,
+        };
         let requests = match action {
             Action::SignIn => return self.send(Command::SignIn),
             Action::SignOut => return self.send(Command::SignOut),
@@ -490,6 +551,55 @@ impl Controller {
             browse => return self.apply_browse(browse),
         };
         self.changed(requests);
+    }
+
+    /// Does what the Spotify tab, or the player while the tab plays, asked
+    /// for. Hands back any other action.
+    fn apply_spotify(&mut self, action: Action) -> Option<Action> {
+        let state = &mut self.state;
+        let here = state.spotify_playing();
+        let shown = state.viewed == PlaylistId::SPOTIFY;
+        let request = match action {
+            Action::Play if here => SpotifyRequest::Play,
+            Action::Play if shown => SpotifyRequest::PlayHere,
+            Action::PlaySpotifyHere => SpotifyRequest::PlayHere,
+            Action::TogglePause if here => SpotifyRequest::TogglePause,
+            Action::Stop if here => SpotifyRequest::Pause,
+            Action::Next if here => SpotifyRequest::Next,
+            Action::Previous if here => SpotifyRequest::Previous,
+            Action::Seek(position) if here => SpotifyRequest::Seek(position),
+            Action::SelectPlaylist(PlaylistId::SPOTIFY) => {
+                if state.spotify.is_some() {
+                    state.viewed = PlaylistId::SPOTIFY;
+                }
+                return None;
+            }
+            Action::PlayEntry(PlaylistId::SPOTIFY, _) if !here => SpotifyRequest::PlayHere,
+            Action::PlayEntry(PlaylistId::SPOTIFY, _) => return None,
+            Action::Remove(PlaylistId::SPOTIFY, rows) => {
+                let queue = state.spotify.as_ref()?;
+                let songs = rows
+                    .iter()
+                    .filter_map(|&id| match queue.row(id) {
+                        Some(Row::Next(song)) => Some((song.index, song.track.uri.clone())),
+                        _ => None,
+                    })
+                    .collect();
+                SpotifyRequest::Remove(songs)
+            }
+            Action::Move(..) | Action::ToggleMarks(_) if shown => return None,
+            Action::CopyTo(list, tracks) => {
+                self.insert_tracks(list, None, tracks);
+                return None;
+            }
+            Action::PlayNow(track) if state.browse.target == PlaylistId::SPOTIFY => {
+                self.insert_tracks(PlaylistId::SPOTIFY, None, vec![track]);
+                return None;
+            }
+            other => return Some(other),
+        };
+        self.send(Command::Spotify(request));
+        None
     }
 
     fn apply_browse(&mut self, action: Action) {
@@ -669,8 +779,12 @@ impl Controller {
         self.send(Command::Album(album));
     }
 
-    /// Adds songs to a playlist before the row at `at`, or at the end.
+    /// Adds songs to a playlist before the row at `at`, or at the end. The
+    /// Spotify tab's go to the end of the queue.
     fn insert_tracks(&mut self, playlist: PlaylistId, at: Option<usize>, tracks: Vec<TrackRef>) {
+        if playlist == PlaylistId::SPOTIFY {
+            return self.queue_tracks(tracks);
+        }
         let state = &mut self.state;
         let entries: Vec<_> = tracks
             .into_iter()
@@ -688,6 +802,22 @@ impl Controller {
         state.browse.flash(ids);
         let requests = state.transport.edited(&mut state.library, playlist);
         self.changed(requests);
+    }
+
+    /// Adds songs to the end of the account's queue, while Spotless plays it.
+    fn queue_tracks(&mut self, tracks: Vec<TrackRef>) {
+        if !self.state.spotify_playing() {
+            self.state.error = Some(
+                "Spotify only takes songs for the queue from the device playing it: press PLAY HERE first.".into(),
+            );
+            return;
+        }
+        self.state.notice = Some(match tracks.len() {
+            1 => "Added 1 song to Spotify's queue".to_string(),
+            n => format!("Added {n} songs to Spotify's queue"),
+        });
+        let uris = tracks.into_iter().map(|track| track.uri).collect();
+        self.send(Command::Spotify(SpotifyRequest::Add(uris)));
     }
 
     /// Inserts `track` after the target playlist's current song and plays it.

@@ -828,7 +828,7 @@ fn song(
 fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
     let palette = view.palette;
     let browse = view.browse;
-    let Some(target) = view.library.get(browse.target) else {
+    let Some(target) = view.list(browse.target) else {
         return;
     };
     ui.horizontal(|ui| {
@@ -842,7 +842,8 @@ fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
             .selected_text(&target.name)
             .width(ui.available_width())
             .show_ui(ui, |ui| {
-                for list in view.library.playlists() {
+                let spotify = view.spotify.map(|_| view.spotify_list);
+                for list in spotify.into_iter().chain(view.library.playlists()) {
                     if ui
                         .selectable_label(list.id == target.id, &list.name)
                         .clicked()

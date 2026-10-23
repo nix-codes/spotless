@@ -50,6 +50,17 @@ fn new_session(paths: &Paths) -> Result<Session> {
     ))
 }
 
+/// A session that isn't connected yet, with `config` and the saved
+/// credential, for Spotify Connect, which connects it itself. None when
+/// signed out.
+pub fn unconnected(paths: &Paths, config: SessionConfig) -> Result<Option<(Session, Credentials)>> {
+    let cache = open_cache(paths)?;
+    let Some(credentials) = cache.credentials() else {
+        return Ok(None);
+    };
+    Ok(Some((Session::new(config, Some(cache)), credentials)))
+}
+
 /// Reconnects with the saved credential, if there is one.
 pub async fn restore(paths: &Paths) -> Result<Option<Session>> {
     let Some(credentials) = open_cache(paths)?.credentials() else {

@@ -69,6 +69,11 @@ impl Paths {
         self.config.join("lastfm-queue.json")
     }
 
+    /// The Spotify tab's device ID, the same every start.
+    pub fn connect_device(&self) -> PathBuf {
+        self.config.join("connect-device")
+    }
+
     /// librespot writes the reusable playback credential here.
     pub fn credentials(&self) -> PathBuf {
         self.config.join("credentials.json")

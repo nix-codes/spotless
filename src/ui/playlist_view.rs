@@ -20,7 +20,7 @@ use super::scrollbar::Scrollbar;
 use super::skin_paint;
 use super::theme::{self, Palette};
 use super::widgets::{Glyph, drag_ghost, field, small_action, small_button, small_glyph};
-use super::{Inputs, View};
+use super::{Inputs, View, spotify_view};
 use crate::action::{Action, Actions};
 use crate::model::{EntryId, Playlist, PlaylistId};
 
@@ -57,8 +57,9 @@ impl Selection {
     }
 }
 
-/// Rows being dragged, in list order.
-struct RowDrag(Vec<EntryId>);
+/// Rows being dragged, in list order. Dropped on another tab, they are
+/// copied there.
+pub(super) struct RowDrag(pub Vec<EntryId>);
 
 /// A tab being dragged.
 struct TabDrag(PlaylistId);
@@ -67,6 +68,11 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     tab_bar(ui, view, inputs, actions);
     // The item spacing after the tabs makes up the rest of the gap.
     ui.add_space(LIST_GAP - ui.spacing().item_spacing.y);
+    if view.playlist.id == PlaylistId::SPOTIFY
+        && let Some(queue) = view.spotify
+    {
+        return spotify_view::draw(ui, view, queue, inputs, actions);
+    }
     let list = view.playlist;
     let full = ui.available_rect_before_wrap();
     let toolbar_rect =
@@ -110,9 +116,19 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
 fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let mut tabs: Vec<(PlaylistId, Rect)> = Vec::new();
+    let mut spotify_tab = None;
     let bar = ui
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 3.0;
+            if let Some(queue) = view.spotify {
+                let spotify = Tab {
+                    id: PlaylistId::SPOTIFY,
+                    name: "Spotify",
+                    count: queue.len(),
+                    own: false,
+                };
+                spotify_tab = Some((PlaylistId::SPOTIFY, tab(ui, view, spotify, inputs, actions)));
+            }
             for list in view.library.playlists() {
                 let rect = if inputs
                     .renaming
@@ -121,7 +137,13 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
                 {
                     rename_field(ui, list.id, &mut inputs.renaming, actions)
                 } else {
-                    tab(ui, view, list, inputs, actions)
+                    let own = Tab {
+                        id: list.id,
+                        name: &list.name,
+                        count: list.len(),
+                        own: true,
+                    };
+                    tab(ui, view, own, inputs, actions)
                 };
                 tabs.push((list.id, rect));
             }
@@ -134,7 +156,11 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
         })
         .response
         .rect;
-    baseline(ui, view, &tabs, bar);
+    let all: Vec<_> = spotify_tab
+        .into_iter()
+        .chain(tabs.iter().copied())
+        .collect();
+    baseline(ui, view, &all, bar);
 
     // Reordering: drop a dragged tab between two others.
     let Some(dragged) = DragAndDrop::payload::<TabDrag>(ui.ctx()) else {
@@ -197,21 +223,26 @@ fn tab_edge(palette: &Palette) -> Color32 {
     palette.button.gamma_multiply(0.6)
 }
 
+/// A tab's playlist.
+struct Tab<'a> {
+    id: PlaylistId,
+    name: &'a str,
+    count: usize,
+    /// A playlist of Spotless's own, rather than Spotify's queue: it can be
+    /// renamed, moved and closed (not Default).
+    own: bool,
+}
+
 /// One tab: ▶ if playing, the name, the song count, ✕ unless Default.
-fn tab(
-    ui: &mut Ui,
-    view: &View,
-    list: &Playlist,
-    inputs: &mut Inputs,
-    actions: &mut Actions,
-) -> Rect {
+/// Rows dropped on it are copied there.
+fn tab(ui: &mut Ui, view: &View, list: Tab, inputs: &mut Inputs, actions: &mut Actions) -> Rect {
     let palette = view.palette;
     let shown = list.id == view.playlist.id;
     let playing = view.playing_list == Some(list.id);
-    let closable = list.id != PlaylistId::DEFAULT;
+    let closable = list.own && list.id != PlaylistId::DEFAULT;
     let name_font = FontId::proportional(12.5);
     let count_font = FontId::monospace(9.0);
-    let count = list.len().to_string();
+    let count = list.count.to_string();
     let width = |text: &str, font: &FontId| {
         ui.painter()
             .layout_no_wrap(text.to_string(), font.clone(), palette.chrome)
@@ -222,7 +253,7 @@ fn tab(
     let close_width = if closable { 14.0 } else { 0.0 };
     let total = 10.0
         + play_width
-        + width(&list.name, &name_font)
+        + width(list.name, &name_font)
         + 6.0
         + width(&count, &count_font)
         + close_width
@@ -270,7 +301,7 @@ fn tab(
     let name = painter.text(
         pos2(x, rect.center().y),
         Align2::LEFT_CENTER,
-        &list.name,
+        list.name,
         name_font,
         text_color,
     );
@@ -297,21 +328,42 @@ fn tab(
         painter.line_segment([c.right_top(), c.left_bottom()], stroke);
     }
 
+    // Rows dragged from another tab: copied here when dropped.
+    if !shown && response.dnd_hover_payload::<RowDrag>().is_some() {
+        painter.rect_stroke(
+            rect.shrink(1.0),
+            0.0,
+            Stroke::new(2.0, palette.accent),
+            egui::StrokeKind::Inside,
+        );
+    }
+    if !shown && let Some(rows) = response.dnd_release_payload::<RowDrag>() {
+        let tracks = rows
+            .0
+            .iter()
+            .filter_map(|&id| view.playlist.get(id))
+            .map(|entry| entry.track.clone())
+            .collect();
+        actions.push(Action::CopyTo(list.id, tracks));
+    }
+
     if response.clicked() && over_close {
-        if list.is_empty() {
+        if list.count == 0 {
             actions.push(Action::ClosePlaylist(list.id));
         } else {
             inputs.closing = Some(list.id);
         }
-    } else if response.double_clicked() {
-        inputs.renaming = Some((list.id, list.name.clone()));
+    } else if response.double_clicked() && list.own {
+        inputs.renaming = Some((list.id, list.name.to_string()));
     } else if response.clicked() {
         actions.push(Action::SelectPlaylist(list.id));
     }
-    if response.drag_started() {
+    if response.drag_started() && list.own {
         response.dnd_set_drag_payload(TabDrag(list.id));
     }
-    let hint = if closable {
+    let hint = if !list.own {
+        "The account's queue, as Spotify plays it"
+    } else if closable {
         "Double-click to rename, drag to move"
     } else {
         "Double-click to rename"
