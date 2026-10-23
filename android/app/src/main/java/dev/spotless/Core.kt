@@ -53,6 +53,13 @@ class Core(private val context: Context) : Host {
 
     /** Stops the service once it has been unneeded for a while ([keepAlive]). */
     private val release = Runnable { service(start = false) }
+    /**
+     * The app was swiped away with the song paused: the service stays off
+     * until something plays, though the player takes a moment to stop.
+     */
+    private var closedPaused = false
+    /** Lets the player go once it has been paused for long ([keepAlive]). */
+    private val putAway = Runnable { apply(Action.Release) }
 
     // After what wake() uses: the core's thread may call it before the
     // constructor is done.
@@ -104,6 +111,21 @@ class Core(private val context: Context) : Host {
     fun apply(action: Action) {
         spotless.apply(action)
         refresh()
+    }
+
+    /**
+     * The app was swiped away. A song playing goes on; a paused one is let
+     * go (Play later goes on where it was), and the service, its
+     * notification and the media controls with it, so Android can end the
+     * app and another player gets the headset's buttons.
+     */
+    fun closed() {
+        if (player.status == Status.PLAYING || player.status == Status.LOADING) return
+        closedPaused = true
+        if (player.status != Status.STOPPED) apply(Action.Release)
+        spotless.save()
+        main.removeCallbacks(release)
+        service(start = false)
     }
 
     /** The app is in front, or (false) in the background, where it is saved. */
@@ -166,10 +188,20 @@ class Core(private val context: Context) : Host {
      *
      * It stops only once nothing has needed it for a while: Android doesn't
      * let an app in the background start it again, and a song skipped with
-     * the screen off leaves the player stopped for a moment.
+     * the screen off leaves the player stopped for a moment. A song paused
+     * for long is let go, so that the service, and the app, don't stay
+     * forever.
      */
     private fun keepAlive() {
-        val needed = approving || session == Session.SigningIn || player.status != Status.STOPPED
+        if (player.status != Status.PAUSED) {
+            main.removeCallbacks(putAway)
+        } else if (!main.hasCallbacks(putAway)) {
+            main.postDelayed(putAway, PAUSED_FOR)
+        }
+        val playing = player.status == Status.PLAYING || player.status == Status.LOADING
+        if (playing) closedPaused = false
+        val needed = approving || session == Session.SigningIn ||
+            (player.status != Status.STOPPED && !closedPaused)
         if (needed) {
             main.removeCallbacks(release)
             if (!PlaybackService.running) service(start = true)
@@ -186,5 +218,10 @@ class Core(private val context: Context) : Host {
             // Not allowed from the background: the next action in front will.
             Log.w("spotless", "playback service: $error")
         }
+    }
+
+    companion object {
+        /** How long a song stays paused before the player is let go. */
+        private const val PAUSED_FOR = 10 * 60 * 1000L
     }
 }

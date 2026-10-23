@@ -23,6 +23,11 @@ class PlaybackService : Service() {
         return START_NOT_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        (application as SpotlessApp).core.closed()
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         running = false
         super.onDestroy()

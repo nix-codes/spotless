@@ -356,6 +356,7 @@ impl Controller {
             Action::Play => state.transport.play(library, viewed, paused, position),
             Action::TogglePause => state.transport.toggle_pause(paused),
             Action::Stop => state.transport.stop(library),
+            Action::Release => state.transport.release(library, position),
             Action::Next => state.transport.next(library, viewed),
             Action::Previous => state.transport.prev(library, viewed, position),
             Action::SetShuffle(on) => {

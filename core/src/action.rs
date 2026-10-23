@@ -31,6 +31,9 @@ pub enum Action {
     Play,
     TogglePause,
     Stop,
+    /// Stops, keeping where the song was, so Play goes on from there: for
+    /// letting the player go when the app is put away (Android).
+    Release,
     Next,
     Previous,
     Seek(u32),

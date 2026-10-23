@@ -223,6 +223,8 @@ pub enum Action {
     Play,
     TogglePause,
     Stop,
+    /// Stops, keeping where the song was: the app was put away.
+    Release,
     Next,
     Previous,
     Seek {
@@ -338,6 +340,7 @@ impl From<Action> for spotless_core::action::Action {
             Action::Play => Core::Play,
             Action::TogglePause => Core::TogglePause,
             Action::Stop => Core::Stop,
+            Action::Release => Core::Release,
             Action::Next => Core::Next,
             Action::Previous => Core::Previous,
             Action::Seek { position_ms } => Core::Seek(position_ms),

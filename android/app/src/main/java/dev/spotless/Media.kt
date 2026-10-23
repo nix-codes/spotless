@@ -74,10 +74,12 @@ class Media(private val context: Context, private val act: (Action) -> Unit) {
                     resumeOnGain = true
                     pause()
                 }
+                // Another app plays now: let the player go, so the media
+                // controls and the headset's buttons are that app's.
                 AudioManager.AUDIOFOCUS_LOSS -> {
                     focused = false
                     resumeOnGain = false
-                    pause()
+                    if (status != Status.STOPPED) act(Action.Release)
                 }
             }
         }, main)

@@ -138,6 +138,12 @@ impl Transport {
         self.halt()
     }
 
+    /// Stop, but Play goes on where the song was.
+    pub fn release(&mut self, library: &mut Library, position_ms: u32) -> Vec<Request> {
+        self.remember_position(library, position_ms);
+        self.halt()
+    }
+
     pub fn next(&mut self, library: &mut Library, viewed: PlaylistId) -> Vec<Request> {
         let target = self.target(viewed);
         let Some(list) = library.get_mut(target) else {
@@ -393,6 +399,15 @@ mod tests {
         let (mut library, mut transport) = setup(3);
         assert!(transport.next(&mut library, DEFAULT).is_empty());
         assert_eq!(library.get(DEFAULT).unwrap().cursor(), Some(EntryId(2)));
+    }
+
+    #[test]
+    fn play_goes_on_where_the_player_was_released() {
+        let (mut library, mut transport) = setup(3);
+        transport.play_entry(&mut library, DEFAULT, EntryId(2), 0);
+        assert_eq!(transport.release(&mut library, 42_000), vec![Request::Stop]);
+        let requests = transport.play(&mut library, DEFAULT, false, 0);
+        assert_eq!(requests[0], load(2, 42_000));
     }
 
     #[test]
