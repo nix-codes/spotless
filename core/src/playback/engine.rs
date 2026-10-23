@@ -31,6 +31,9 @@ use super::aaudio::AAudioSink;
 use super::sink::RodioSink;
 use crate::model::EntryId;
 
+/// Said when a song didn't load for want of a connection.
+const OFFLINE: &str = "No connection to Spotify. The song plays when it's back.";
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Status {
     #[default]
@@ -86,8 +89,11 @@ pub enum EngineEvent {
     Followed(EntryId),
     /// The playing song ended with nothing to follow it: stopped.
     Ended,
-    /// The loaded song can't be played.
-    Unavailable,
+    /// The loaded song can't be played. `offline`: the session to Spotify
+    /// had dropped, so it may well play once there is one again.
+    Unavailable {
+        offline: bool,
+    },
     /// The audio output is missing or failed; the player paused.
     OutputError(String),
 }
@@ -259,6 +265,7 @@ fn start_player(
     // Subscribed before the first load, so its events are seen.
     let events = player.get_player_event_channel();
     tokio::spawn(follow_songs(
+        session.clone(),
         Arc::clone(&player),
         events,
         Arc::clone(follow),
@@ -273,6 +280,7 @@ fn start_player(
 /// one ends, and reports the player's state. Ends, letting the player go,
 /// once the player has been replaced.
 async fn follow_songs(
+    session: Session,
     player: Arc<Player>,
     mut events: librespot_playback::player::PlayerEventChannel,
     follow: Follow,
@@ -294,6 +302,7 @@ async fn follow_songs(
         if event.get_play_request_id().is_some() && event.get_play_request_id() != current {
             continue;
         }
+        let offline = matches!(event, PlayerEvent::Unavailable { .. }) && session.is_invalid();
         // The follow lock is let go before anything is told: a hook that
         // answers with `Engine::follow` takes it too.
         match &event {
@@ -316,10 +325,13 @@ async fn follow_songs(
                     }
                 }
             }
-            PlayerEvent::Unavailable { .. } => notify(EngineEvent::Unavailable),
+            PlayerEvent::Unavailable { .. } => notify(EngineEvent::Unavailable { offline }),
             _ => {}
         }
         if apply(&mut state, event) {
+            if offline {
+                state.error = Some(OFFLINE.into());
+            }
             *lock(&shared) = state.clone();
             notify(EngineEvent::Snapshot(state.clone()));
         }

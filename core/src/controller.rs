@@ -52,6 +52,9 @@ pub struct Controller {
     /// Albums whose songs go to a playlist (at an index, or at the end)
     /// once they are read.
     pending_adds: Vec<(String, PlaylistId, Option<usize>)>,
+    /// A song didn't load for want of a connection: play it once
+    /// reconnected, unless playback was told otherwise meanwhile.
+    resume_online: bool,
 }
 
 impl Controller {
@@ -113,6 +116,7 @@ impl Controller {
             },
             unsaved: None,
             pending_adds: Vec::new(),
+            resume_online: false,
         }
     }
 
@@ -163,9 +167,23 @@ impl Controller {
                     let requests = self.state.transport.ended(&mut self.state.library);
                     self.changed(requests);
                 }
-                Event::Unavailable => {
+                // Offline, every song would fail in turn: wait on this one
+                // instead of skipping through the playlist.
+                Event::Unavailable { offline: true } => {
+                    let requests = self.state.transport.offline(&mut self.state.library);
+                    self.resume_online = !requests.is_empty();
+                    self.changed(requests);
+                }
+                Event::Unavailable { offline: false } => {
                     let requests = self.state.transport.unavailable(&mut self.state.library);
                     self.changed(requests);
+                }
+                Event::Reconnected => {
+                    if std::mem::take(&mut self.resume_online) {
+                        self.state.error = None;
+                        let requests = self.state.transport.resume(&mut self.state.library);
+                        self.changed(requests);
+                    }
                 }
                 Event::Tracks { playlist, tracks } => self.insert_tracks(playlist, None, tracks),
                 Event::Search(search) => self.state.search = search,
@@ -243,6 +261,18 @@ impl Controller {
 
     /// Does what the interface asked for.
     pub fn apply(&mut self, action: Action) {
+        if matches!(
+            action,
+            Action::Play
+                | Action::TogglePause
+                | Action::Stop
+                | Action::Release
+                | Action::Next
+                | Action::Previous
+                | Action::PlayEntry(..)
+        ) {
+            self.resume_online = false;
+        }
         let paused = self.state.player.status == Status::Paused;
         let position = self.state.player.position_now();
         let state = &mut self.state;
@@ -855,6 +885,47 @@ mod tests {
         rig.tell(Event::Session(SessionState::SignedOut));
         assert_eq!(rig.controller.state().transport.playing_list(), None);
         assert_eq!(rig.controller.state().player, PlayerSnapshot::default());
+    }
+
+    #[test]
+    fn offline_waits_on_the_song_and_plays_it_once_reconnected() {
+        let mut rig = Rig::new("offline");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        rig.controller.apply(Action::AddTracks(tracks([1, 2, 3])));
+        rig.controller.apply(Action::Play);
+        rig.sent();
+        rig.tell(Event::Unavailable { offline: true });
+        let sent = rig.sent();
+        assert!(
+            sent.iter()
+                .any(|c| matches!(c, Command::Player(Request::Stop)))
+        );
+        assert!(
+            !sent
+                .iter()
+                .any(|c| matches!(c, Command::Player(Request::Load { .. })))
+        );
+        rig.tell(Event::Reconnected);
+        assert!(rig.sent().iter().any(|c| matches!(
+            c,
+            Command::Player(Request::Load { uri, position_ms: 0, .. }) if uri.ends_with(":1")
+        )));
+        // Only once.
+        rig.tell(Event::Reconnected);
+        assert!(rig.sent().is_empty());
+    }
+
+    #[test]
+    fn a_stop_while_offline_stays_stopped_when_reconnected() {
+        let mut rig = Rig::new("offline-stop");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+        rig.controller.apply(Action::Play);
+        rig.tell(Event::Unavailable { offline: true });
+        rig.controller.apply(Action::Stop);
+        rig.sent();
+        rig.tell(Event::Reconnected);
+        assert!(rig.sent().is_empty());
     }
 
     #[test]

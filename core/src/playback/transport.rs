@@ -204,6 +204,26 @@ impl Transport {
         }
     }
 
+    /// The loaded song didn't load for want of a connection: stop on it,
+    /// to play it from the start with `resume`.
+    pub fn offline(&mut self, library: &mut Library) -> Vec<Request> {
+        if !self.active {
+            return Vec::new();
+        }
+        if let Some(list) = self.playing_mut(library) {
+            list.resume_ms = 0;
+        }
+        self.halt()
+    }
+
+    /// Plays the playlist that was playing, from where it stopped.
+    pub fn resume(&mut self, library: &mut Library) -> Vec<Request> {
+        match self.playback.playing() {
+            Some(list) => self.play(library, list, false, 0),
+            None => Vec::new(),
+        }
+    }
+
     /// Call after any change to playlist `list`, so what follows the
     /// playing song stays right.
     pub fn edited(&mut self, library: &mut Library, list: PlaylistId) -> Vec<Request> {
@@ -442,6 +462,16 @@ mod tests {
             transport.unavailable(&mut library);
         }
         assert_eq!(transport.unavailable(&mut library), [Request::Stop]);
+    }
+
+    #[test]
+    fn offline_stops_on_the_song_and_resume_plays_it() {
+        let (mut library, mut transport) = setup(30);
+        transport.play_entry(&mut library, DEFAULT, EntryId(3), 0);
+        transport.remember_position(&mut library, 61_000);
+        assert_eq!(transport.offline(&mut library), [Request::Stop]);
+        assert!(transport.offline(&mut library).is_empty());
+        assert_eq!(transport.resume(&mut library)[0], load(3, 0));
     }
 
     #[test]

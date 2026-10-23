@@ -115,7 +115,13 @@ pub enum Event {
     Followed(EntryId),
     /// The engine finished a song with nothing to follow, and stopped.
     Ended,
-    Unavailable,
+    /// The loaded song can't be played; `offline`: for want of a
+    /// connection.
+    Unavailable {
+        offline: bool,
+    },
+    /// The session dropped and a new one took its place.
+    Reconnected,
     Search(SearchState),
     SearchResults {
         query: String,
@@ -365,6 +371,7 @@ impl Worker {
                     engine.set_session(&session);
                 }
                 self.session = Some(session);
+                (self.emit)(Event::Reconnected);
             }
             // The credential was removed meanwhile.
             Ok(None) => self.drop_session(SessionState::SignedOut),
@@ -446,7 +453,7 @@ impl Worker {
                     }
                     EngineEvent::Followed(entry) => Event::Followed(entry),
                     EngineEvent::Ended => Event::Ended,
-                    EngineEvent::Unavailable => Event::Unavailable,
+                    EngineEvent::Unavailable { offline } => Event::Unavailable { offline },
                     EngineEvent::OutputError(message) => Event::Error(message),
                 })
             }),
@@ -663,7 +670,7 @@ impl Worker {
                 ..
             } => match uri(&text) {
                 Some(track) => engine.load(track, position_ms),
-                None => (self.emit)(Event::Unavailable),
+                None => (self.emit)(Event::Unavailable { offline: false }),
             },
             Request::Follow(next) => {
                 engine.follow(next.and_then(|(entry, text)| Some((entry, uri(&text)?))));

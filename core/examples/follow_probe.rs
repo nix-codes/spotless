@@ -72,7 +72,9 @@ async fn main() -> Result<()> {
                 println!("{t:6.1}s  ended, nothing followed");
                 break;
             }
-            EngineEvent::Unavailable => println!("{t:6.1}s  unavailable"),
+            EngineEvent::Unavailable { offline } => {
+                println!("{t:6.1}s  unavailable (offline: {offline})")
+            }
             EngineEvent::OutputError(message) => println!("{t:6.1}s  output error: {message}"),
             EngineEvent::Snapshot(snapshot) => {
                 let title = snapshot.track.as_ref().map_or("-", |t| t.title.as_str());
