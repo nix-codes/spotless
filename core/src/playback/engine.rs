@@ -29,11 +29,11 @@ use librespot_playback::player::{Player, PlayerEvent};
 use super::aaudio::AAudioSink;
 #[cfg(not(target_os = "android"))]
 use super::sink::RodioSink;
-use crate::model::EntryId;
+use crate::model::{EntryId, TrackRef};
 
-/// Said when a song didn't load, or stopped short, for want of a
-/// connection.
-const OFFLINE: &str = "No connection to Spotify. The song plays when it's back.";
+/// Position reports come every second while a song plays (see
+/// `position_update_interval`); this one's beyond that.
+const REPORTS_DUE: Duration = Duration::from_millis(1_500);
 /// A song that ends further than this from its end was cut short.
 const CUT_MARGIN_MS: u32 = 5_000;
 
@@ -70,13 +70,16 @@ pub struct PlayerSnapshot {
 }
 
 impl PlayerSnapshot {
-    /// The position now, counting on from the last report while playing.
+    /// The position now, counting on from the last report while playing,
+    /// but not past the next report's due: a song whose audio stops coming
+    /// is still playing to librespot, and reports no more.
     pub fn position_now(&self) -> u32 {
         let mut position = self.position_ms;
         if self.status == Status::Playing
             && let Some(at) = self.reported_at
         {
-            position = position.saturating_add(at.elapsed().as_millis() as u32);
+            let since = at.elapsed().min(REPORTS_DUE);
+            position = position.saturating_add(since.as_millis() as u32);
         }
         match &self.track {
             Some(track) => position.min(track.duration_ms),
@@ -382,10 +385,7 @@ async fn follow_songs(
             PlayerEvent::Unavailable { .. } => notify(EngineEvent::Unavailable { offline }),
             _ => {}
         }
-        if apply(&mut state, event) || cut {
-            if offline || cut {
-                state.error = Some(OFFLINE.into());
-            }
+        if apply(&mut state, event) {
             *lock(&shared) = state.clone();
             notify(EngineEvent::Snapshot(state.clone()));
         }
@@ -447,6 +447,30 @@ fn apply(state: &mut PlayerSnapshot, event: PlayerEvent) -> bool {
     *state != before
 }
 
+/// A playlist's song, as the player shows it, for one it doesn't hold.
+impl From<&TrackRef> for TrackInfo {
+    fn from(track: &TrackRef) -> Self {
+        Self {
+            uri: track.uri.clone(),
+            title: track.title.clone(),
+            artists: track
+                .artists
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+            main_artist: track
+                .artists
+                .first()
+                .map(|a| a.name.clone())
+                .unwrap_or_default(),
+            album: track.album.name.clone(),
+            duration_ms: track.duration_ms,
+            cover_url: None,
+        }
+    }
+}
+
 fn track_info(item: &AudioItem) -> TrackInfo {
     let (artists, main_artist, album) = match &item.unique_fields {
         UniqueFields::Track { artists, album, .. } => (
@@ -479,5 +503,21 @@ fn track_info(item: &AudioItem) -> TrackInfo {
             .find(|cover| cover.size == librespot_metadata::image::ImageSize::DEFAULT)
             .or_else(|| item.covers.first())
             .map(|cover| cover.url.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_position_stops_counting_when_reports_stop() {
+        let snapshot = PlayerSnapshot {
+            status: Status::Playing,
+            position_ms: 60_000,
+            reported_at: Some(Instant::now() - Duration::from_secs(10)),
+            ..PlayerSnapshot::default()
+        };
+        assert_eq!(snapshot.position_now(), 61_500);
     }
 }

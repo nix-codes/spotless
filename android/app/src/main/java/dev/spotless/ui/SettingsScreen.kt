@@ -77,7 +77,7 @@ fun SettingsScreen(core: Core, close: () -> Unit) {
         }
         core.message?.let {
             Line(
-                it.text, label(12.sp, if (it.error) Color(0xFFFFB000) else Classic.label, 0.02.em),
+                it.text, label(12.sp, if (it.error) Classic.warning else Classic.label, 0.02.em),
                 Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }

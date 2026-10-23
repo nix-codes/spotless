@@ -8,7 +8,7 @@
 //! The transport never talks to the engine. Every method edits the model
 //! and returns the [`Request`]s that make playback match, in order.
 
-use crate::model::{EntryId, Library, Playback, Playlist, PlaylistId, Step};
+use crate::model::{Entry, EntryId, Library, Playback, Playlist, PlaylistId, Step};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
@@ -214,6 +214,12 @@ impl Transport {
             list.resume_ms = position_ms;
         }
         self.halt()
+    }
+
+    /// The playing playlist's current song, playing or not.
+    pub fn current<'a>(&self, library: &'a Library) -> Option<&'a Entry> {
+        let list = library.get(self.playback.playing()?)?;
+        list.get(list.cursor()?)
     }
 
     /// Plays the playlist that was playing, from where it stopped.

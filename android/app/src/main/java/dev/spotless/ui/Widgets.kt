@@ -50,6 +50,8 @@ object Classic {
     /** Labels on the frame. */
     val label = Color(0xFF9D9DB3)
     val playingRow = Color(0xFF101A12)
+    /** Something went wrong, or waits: messages and the player's NO CONNECTION. */
+    val warning = Color(0xFFFFB000)
 }
 
 /** A Winamp bevel: light top and left edges, dark bottom and right, or the other way in. */

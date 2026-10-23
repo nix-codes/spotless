@@ -264,7 +264,7 @@ private fun Summary(core: Core, selecting: Boolean) {
         val hint = if (list?.songs?.isNotEmpty() == true) "HOLD A SONG TO SELECT" else ""
         Line(
             if (clearing) "" else message?.text ?: hint,
-            label(12.sp, if (message?.error == true) Color(0xFFFFB000) else Classic.label, 0.02.em)
+            label(12.sp, if (message?.error == true) Classic.warning else Classic.label, 0.02.em)
                 .copy(textAlign = TextAlign.End),
             Modifier.weight(1f),
         )

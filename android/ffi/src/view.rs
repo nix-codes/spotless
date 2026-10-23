@@ -141,6 +141,9 @@ pub struct Player {
     pub volume: u8,
     /// The playlist a song of is loaded, if any.
     pub playlist: Option<u64>,
+    /// Paused for want of a connection to Spotify; it goes on when there
+    /// is one again.
+    pub offline: bool,
 }
 
 pub(crate) fn player(state: &State) -> Player {
@@ -164,7 +167,12 @@ pub(crate) fn player(state: &State) -> Player {
         shuffle: state.settings.shuffle,
         repeat: state.settings.repeat,
         volume: state.settings.volume,
-        playlist: state.transport.playing_list().map(|id| id.0),
+        playlist: state
+            .transport
+            .playing_list()
+            .or(state.transport.playback.playing().filter(|_| state.offline))
+            .map(|id| id.0),
+        offline: state.offline,
     }
 }
 

@@ -66,8 +66,12 @@ fun PlayerPanel(core: Core) {
             BasicText(time(player), style = mono(40.sp, Classic.lcd))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Line(title(core), body(color = Classic.lcd))
-                val info = player.track?.let { "320 KBPS · 44 KHZ · " + clock(it.durationMs.toLong()) } ?: ""
-                Line(info, mono(13.sp, Classic.dim))
+                if (player.offline) {
+                    Line("NO CONNECTION · PAUSED", mono(13.sp, Classic.warning))
+                } else {
+                    val info = player.track?.let { "320 KBPS · 44 KHZ · " + clock(it.durationMs.toLong()) } ?: ""
+                    Line(info, mono(13.sp, Classic.dim))
+                }
             }
         }
         SeekBar(player) { core.apply(Action.Seek(it)) }

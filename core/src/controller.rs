@@ -15,7 +15,7 @@ use crate::browser::{self, Browser};
 use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
 use crate::model::{ArtistRef, Library, Playback, PlaylistId, TrackRef};
 use crate::paths::Paths;
-use crate::playback::engine::{PlayerSnapshot, Status};
+use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
 use crate::playback::outputs::Output;
 use crate::playback::transport::{Request, Transport};
 use crate::store::{self, Settings, Tabs};
@@ -27,6 +27,9 @@ const SAVE_DELAY: Duration = Duration::from_secs(1);
 pub struct State {
     pub session: SessionState,
     pub player: PlayerSnapshot,
+    /// The song waits, paused where it stopped, for the connection to
+    /// Spotify: `player` shows it so, while the engine holds nothing.
+    pub offline: bool,
     pub error: Option<String>,
     pub notice: Option<String>,
     pub library: Library,
@@ -52,9 +55,6 @@ pub struct Controller {
     /// Albums whose songs go to a playlist (at an index, or at the end)
     /// once they are read.
     pending_adds: Vec<(String, PlaylistId, Option<usize>)>,
-    /// A song didn't load for want of a connection: play it once
-    /// reconnected, unless playback was told otherwise meanwhile.
-    resume_online: bool,
 }
 
 impl Controller {
@@ -102,6 +102,7 @@ impl Controller {
             state: State {
                 session,
                 player: PlayerSnapshot::default(),
+                offline: false,
                 error: None,
                 notice: None,
                 library,
@@ -116,7 +117,6 @@ impl Controller {
             },
             unsaved: None,
             pending_adds: Vec::new(),
-            resume_online: false,
         }
     }
 
@@ -150,6 +150,8 @@ impl Controller {
                     }
                     self.state.session = session;
                 }
+                // The engine holds nothing while a song waits offline.
+                Event::Player(_) if self.state.offline => {}
                 Event::Player(snapshot) => {
                     if snapshot.error.is_some() {
                         self.state.error = snapshot.error.clone();
@@ -169,30 +171,14 @@ impl Controller {
                 }
                 // Offline, every song would fail in turn: wait on this one
                 // instead of skipping through the playlist.
-                Event::Unavailable { offline: true } => {
-                    let requests = self.state.transport.offline(&mut self.state.library, 0);
-                    self.resume_online = !requests.is_empty();
-                    self.changed(requests);
-                }
-                Event::Cut { position_ms } => {
-                    let requests = self
-                        .state
-                        .transport
-                        .offline(&mut self.state.library, position_ms);
-                    self.resume_online = !requests.is_empty();
-                    self.changed(requests);
-                }
+                Event::Unavailable { offline: true } => self.wait_offline(0),
+                Event::Cut { position_ms } => self.wait_offline(position_ms),
                 Event::Unavailable { offline: false } => {
                     let requests = self.state.transport.unavailable(&mut self.state.library);
                     self.changed(requests);
                 }
-                Event::Reconnected => {
-                    if std::mem::take(&mut self.resume_online) {
-                        self.state.error = None;
-                        let requests = self.state.transport.resume(&mut self.state.library);
-                        self.changed(requests);
-                    }
-                }
+                Event::Reconnected if self.state.offline => self.resume_offline(),
+                Event::Reconnected => {}
                 Event::Tracks { playlist, tracks } => self.insert_tracks(playlist, None, tracks),
                 Event::Search(search) => self.state.search = search,
                 Event::LastFm(lastfm) => {
@@ -267,19 +253,56 @@ impl Controller {
         theirs
     }
 
+    /// The playing song stopped at `position_ms`, or didn't load, for want
+    /// of a connection: it waits there, shown paused, until reconnected or
+    /// played.
+    fn wait_offline(&mut self, position_ms: u32) {
+        let state = &mut self.state;
+        let track = state.transport.current(&state.library).map(|entry| {
+            match state.player.track.take() {
+                // The engine's has the cover.
+                Some(track) if track.uri == entry.track.uri => track,
+                _ => TrackInfo::from(&entry.track),
+            }
+        });
+        let requests = state.transport.offline(&mut state.library, position_ms);
+        if requests.is_empty() {
+            return;
+        }
+        state.offline = true;
+        state.error = None;
+        state.player = PlayerSnapshot {
+            status: Status::Paused,
+            track,
+            position_ms,
+            ..PlayerSnapshot::default()
+        };
+        self.changed(requests);
+    }
+
+    /// Plays the song that waited offline, from where it stopped.
+    fn resume_offline(&mut self) {
+        self.state.offline = false;
+        let requests = self.state.transport.resume(&mut self.state.library);
+        self.changed(requests);
+    }
+
     /// Does what the interface asked for.
     pub fn apply(&mut self, action: Action) {
-        if matches!(
-            action,
-            Action::Play
-                | Action::TogglePause
-                | Action::Stop
+        if self.state.offline {
+            match action {
+                // Shown paused: playing goes on where it stopped.
+                Action::Play | Action::TogglePause => return self.resume_offline(),
+                Action::Stop
                 | Action::Release
                 | Action::Next
                 | Action::Previous
-                | Action::PlayEntry(..)
-        ) {
-            self.resume_online = false;
+                | Action::PlayEntry(..) => {
+                    self.state.offline = false;
+                    self.state.player = PlayerSnapshot::default();
+                }
+                _ => {}
+            }
         }
         let paused = self.state.player.status == Status::Paused;
         let position = self.state.player.position_now();
@@ -944,6 +967,34 @@ mod tests {
             c,
             Command::Player(Request::Load { uri, position_ms: 95_000, .. }) if uri.ends_with(":1")
         )));
+    }
+
+    #[test]
+    fn a_song_waiting_offline_shows_paused_and_play_goes_on_from_there() {
+        let mut rig = Rig::new("paused");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+        rig.controller.apply(Action::Play);
+        rig.tell(Event::Cut {
+            position_ms: 95_000,
+        });
+        // The engine's own news of stopping doesn't undo it.
+        rig.tell(Event::Player(PlayerSnapshot::default()));
+        let state = rig.controller.state();
+        assert!(state.offline);
+        assert_eq!(state.error, None);
+        assert_eq!(state.player.status, Status::Paused);
+        assert_eq!(state.player.position_ms, 95_000);
+        assert_eq!(state.player.track.as_ref().unwrap().title, "Song 1");
+        rig.sent();
+        rig.controller.apply(Action::TogglePause);
+        assert!(!rig.controller.state().offline);
+        assert!(rig.sent().iter().any(|c| matches!(
+            c,
+            Command::Player(Request::Load { uri, position_ms: 95_000, .. }) if uri.ends_with(":1")
+        )));
+        rig.tell(Event::Reconnected);
+        assert!(rig.sent().is_empty());
     }
 
     #[test]
