@@ -213,6 +213,8 @@ pub enum Action {
         mb: u64,
     },
     MeasureStorage,
+    /// The phone has a network again.
+    NetworkBack,
     ClearCache {
         store: Store,
     },
@@ -335,6 +337,7 @@ impl From<Action> for spotless_core::action::Action {
             Action::SetAudioCache { on } => Core::SetAudioCache(on),
             Action::SetAudioCacheSize { mb } => Core::SetAudioCacheSize(mb),
             Action::MeasureStorage => Core::MeasureStorage,
+            Action::NetworkBack => Core::NetworkBack,
             Action::ClearCache { store } => Core::ClearCache(store.into()),
             Action::AddLink { link } => Core::AddLink(link),
             Action::Play => Core::Play,

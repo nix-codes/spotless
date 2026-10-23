@@ -61,6 +61,9 @@ pub enum Command {
     Levelling(bool),
     /// How much the caches hold; answered with `Event::Storage`.
     MeasureStorage,
+    /// The system has a network again: a dropped session reconnects now,
+    /// not after the wait since the last try.
+    NetworkBack,
     /// Empties a cache, then measures again.
     ClearCache(Store),
     /// The outputs to choose from; answered with `Event::Outputs`.
@@ -330,6 +333,10 @@ impl Worker {
             tokio::select! {
                 command = commands.recv() => {
                     let Some(command) = command else { break };
+                    if matches!(command, Command::NetworkBack) {
+                        self.retry_at = None;
+                        self.retry_wait = RETRY_FIRST;
+                    }
                     // Signing in or out makes a session dropped or not.
                     if !matches!(command, Command::SignIn | Command::SignOut) {
                         self.reconnect_if_needed().await;
@@ -506,6 +513,8 @@ impl Worker {
             }
             Command::Player(request) => self.player(request),
             Command::MeasureStorage => self.measure_storage(),
+            // Reconnected already, before any command.
+            Command::NetworkBack => {}
             Command::ListOutputs => {
                 let emit = Arc::clone(&self.emit);
                 tokio::task::spawn_blocking(move || emit(Event::Outputs(outputs::list())));

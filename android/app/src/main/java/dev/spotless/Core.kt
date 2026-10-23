@@ -3,6 +3,8 @@ package dev.spotless
 import android.content.Context
 import android.graphics.Bitmap
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -93,6 +95,14 @@ class Core(private val context: Context) : Host {
 
     init {
         refresh()
+        // A song waiting for the connection plays as soon as there is one.
+        context.getSystemService(ConnectivityManager::class.java)
+            .registerDefaultNetworkCallback(
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) = apply(Action.NetworkBack)
+                },
+                main,
+            )
     }
 
     /** Removes every song from this playlist, viewed or not. */

@@ -307,6 +307,7 @@ impl Controller {
                 return self.mark_unsaved();
             }
             Action::MeasureStorage => return self.send(Command::MeasureStorage),
+            Action::NetworkBack => return self.send(Command::NetworkBack),
             Action::ListOutputs => return self.send(Command::ListOutputs),
             Action::SetOutput(output) => {
                 state.settings.audio_output = output.clone();

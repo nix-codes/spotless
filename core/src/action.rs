@@ -22,6 +22,8 @@ pub enum Action {
     /// The audio cache's limit in MB, from the next start.
     SetAudioCacheSize(u64),
     MeasureStorage,
+    /// The system has a network again (Android tells).
+    NetworkBack,
     ClearCache(Store),
     ListOutputs,
     /// Plays to this output (None: the system's default).
