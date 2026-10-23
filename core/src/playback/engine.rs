@@ -188,6 +188,12 @@ impl Engine {
             &self.notify,
         );
         let playing = matches!(state.status, Status::Playing | Status::Loading);
+        log::info!(
+            "new player: was {:?} at {} ms (last reported {} ms)",
+            state.status,
+            state.position_now(),
+            state.position_ms,
+        );
         if state.status != Status::Stopped
             && let Some(track) = state.track.as_ref()
             && let Ok(uri) = SpotifyUri::from_uri(&track.uri)
@@ -318,6 +324,25 @@ async fn follow_songs(
             && state.track.as_ref().is_some_and(|track| {
                 state.position_ms.saturating_add(CUT_MARGIN_MS) < track.duration_ms
             });
+        // How a song ended or failed, and with the session up or not, is
+        // what tells an offline stop from a real one.
+        let session_state = if session.is_invalid() {
+            "dropped"
+        } else {
+            "up"
+        };
+        match &event {
+            PlayerEvent::EndOfTrack { .. } => log::info!(
+                "song ended at {} of {} ms, session {session_state}{}",
+                state.position_ms,
+                state.track.as_ref().map_or(0, |t| t.duration_ms),
+                if cut { ": cut short" } else { "" },
+            ),
+            PlayerEvent::Unavailable { .. } => {
+                log::info!("song unavailable, session {session_state}")
+            }
+            _ => {}
+        }
         // The follow lock is let go before anything is told: a hook that
         // answers with `Engine::follow` takes it too.
         match &event {
