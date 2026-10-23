@@ -53,17 +53,18 @@ pub struct State {
 }
 
 impl State {
-    /// The Spotify tab plays here, or is paused here: the player is its.
+    /// The player shows the account's queue, and its buttons act on it:
+    /// a device plays it or has it paused, here or elsewhere, and no local
+    /// song plays.
     pub fn spotify_playing(&self) -> bool {
-        self.spotify
-            .as_ref()
-            .is_some_and(SpotifyQueue::playing_here)
+        self.player.status != Status::Playing
+            && self.spotify.as_ref().is_some_and(SpotifyQueue::active)
     }
 
-    /// What the player shows: the Spotify tab's song while it plays here.
+    /// What the player shows: the queue's song while it is the player's.
     pub fn now_playing(&self) -> PlayerSnapshot {
         match &self.spotify {
-            Some(queue) if queue.playing_here() => queue.snapshot(),
+            Some(queue) if self.spotify_playing() => queue.snapshot(),
             _ => self.player.clone(),
         }
     }
@@ -557,7 +558,9 @@ impl Controller {
     /// for. Hands back any other action.
     fn apply_spotify(&mut self, action: Action) -> Option<Action> {
         let state = &mut self.state;
+        // The player's buttons act on the queue, wherever it plays.
         let here = state.spotify_playing();
+        let played_here = state.spotify.as_ref().is_some_and(|q| q.here);
         let shown = state.viewed == PlaylistId::SPOTIFY;
         let request = match action {
             Action::Play if here => SpotifyRequest::Play,
@@ -574,7 +577,7 @@ impl Controller {
                 }
                 return None;
             }
-            Action::PlayEntry(PlaylistId::SPOTIFY, _) if !here => SpotifyRequest::PlayHere,
+            Action::PlayEntry(PlaylistId::SPOTIFY, _) if !played_here => SpotifyRequest::PlayHere,
             Action::PlayEntry(PlaylistId::SPOTIFY, _) => return None,
             Action::Remove(PlaylistId::SPOTIFY, rows) => {
                 let queue = state.spotify.as_ref()?;
@@ -806,7 +809,12 @@ impl Controller {
 
     /// Adds songs to the end of the account's queue, while Spotless plays it.
     fn queue_tracks(&mut self, tracks: Vec<TrackRef>) {
-        if !self.state.spotify_playing() {
+        if !self
+            .state
+            .spotify
+            .as_ref()
+            .is_some_and(SpotifyQueue::playing_here)
+        {
             self.state.error = Some(
                 "Spotify only takes songs for the queue from the device playing it: press PLAY HERE first.".into(),
             );

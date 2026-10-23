@@ -182,6 +182,11 @@ impl Remote {
         }
     }
 
+    /// Its session, for commands to other devices.
+    pub fn session(&self) -> Session {
+        self.session.clone()
+    }
+
     /// Takes playback over from the device playing it.
     pub fn play_here(&self) {
         log_error(self.spirc.transfer(None));
@@ -303,6 +308,7 @@ fn read(
             .map_or_else(|| "another device".to_string(), |d| d.device_alias.clone())
     });
     let here = active == Some(session.device_id());
+    let device_id = active.map(str::to_string);
     let status = match (device.is_some(), state.is_playing, state.is_paused) {
         (true, true, false) => Status::Playing,
         (true, true, true) => Status::Paused,
@@ -347,6 +353,7 @@ fn read(
     }
     SpotifyQueue {
         device,
+        device_id,
         here,
         status,
         now: state.track.as_ref().and_then(named),

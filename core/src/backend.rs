@@ -22,7 +22,7 @@ use crate::lastfm::{self, LastFmState, Scrobbler, api::Keys};
 use crate::model::catalog::{Discography, SearchResults};
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 use crate::paths::Paths;
-use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
+use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot, Status};
 use crate::playback::outputs::{self, Output};
 use crate::playback::transport::Request;
 use crate::spotify::devices::{self, Playing, Watch};
@@ -633,6 +633,30 @@ impl Worker {
 
     fn spotify(&self, request: SpotifyRequest) {
         let Some(remote) = &self.remote else { return };
+        // Another device plays the queue: the player's buttons act on it.
+        if let Some(device) = self.queue.device_id.clone().filter(|_| !self.queue.here) {
+            let (endpoint, value) = match request {
+                SpotifyRequest::Play => ("resume", None),
+                SpotifyRequest::Pause => ("pause", None),
+                SpotifyRequest::TogglePause if self.queue.status == Status::Playing => {
+                    ("pause", None)
+                }
+                SpotifyRequest::TogglePause => ("resume", None),
+                SpotifyRequest::Next => ("skip_next", None),
+                SpotifyRequest::Previous => ("skip_prev", None),
+                SpotifyRequest::Seek(position) => ("seek_to", Some(position)),
+                SpotifyRequest::PlayHere => return remote.play_here(),
+                // Spotify takes no queue changes from a device that watches.
+                SpotifyRequest::Add(_) | SpotifyRequest::Remove(_) => return,
+            };
+            let session = remote.session();
+            tokio::spawn(async move {
+                if let Err(error) = devices::command(&session, &device, endpoint, value).await {
+                    log::warn!("{error:#}");
+                }
+            });
+            return;
+        }
         match request {
             SpotifyRequest::Play => remote.play(),
             SpotifyRequest::Pause => remote.pause(),

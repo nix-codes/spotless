@@ -17,6 +17,8 @@ const FIRST_ROW: u64 = u64::MAX;
 pub struct SpotifyQueue {
     /// The device playing or paused, by name; None when none is.
     pub device: Option<String>,
+    /// That device's ID.
+    pub device_id: Option<String>,
     /// That device is Spotless.
     pub here: bool,
     pub status: Status,
@@ -65,9 +67,14 @@ impl Row<'_> {
 }
 
 impl SpotifyQueue {
-    /// Spotless plays it, or has it paused: the player shows it.
+    /// Spotless plays it, or has it paused: the queue can be changed.
     pub fn playing_here(&self) -> bool {
         self.here && self.status != Status::Stopped
+    }
+
+    /// A device plays it, or has it paused.
+    pub fn active(&self) -> bool {
+        self.device.is_some() && self.status != Status::Stopped
     }
 
     /// The tab's rows in order: before, now, then each part.
@@ -120,7 +127,7 @@ impl SpotifyQueue {
         list
     }
 
-    /// The player's view of it, while Spotless plays it.
+    /// The player's view of it, whichever device plays it.
     pub fn snapshot(&self) -> PlayerSnapshot {
         let track = self.now.as_ref().map(|track| {
             let artists: Vec<&str> = track.artists.iter().map(|a| a.name.as_str()).collect();

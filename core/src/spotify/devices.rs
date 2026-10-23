@@ -106,29 +106,37 @@ impl Watch {
 
 /// Asks `device` to pause.
 pub async fn pause(session: &Session, device: &str) -> Result<()> {
-    let endpoint = format!(
+    command(session, device, "pause", None).await
+}
+
+/// Sends `device` a player command, as Spotify's own apps do: "pause",
+/// "resume", "skip_next", "skip_prev", or "seek_to" with the position in ms
+/// as `value`.
+pub async fn command(
+    session: &Session,
+    device: &str,
+    endpoint: &str,
+    value: Option<u32>,
+) -> Result<()> {
+    let path = format!(
         "/connect-state/v1/player/command/from/{}/to/{device}",
         session.device_id()
     );
-    let body = serde_json::json!({
-        "command": {
-            "endpoint": "pause",
-            "logging_params": { "command_id": format!("{:032x}", fastrand::u128(..)) },
-        }
-    })
-    .to_string();
+    let mut command = serde_json::json!({
+        "endpoint": endpoint,
+        "logging_params": { "command_id": format!("{:032x}", fastrand::u128(..)) },
+    });
+    if let Some(value) = value {
+        command["value"] = value.into();
+    }
+    let body = serde_json::json!({ "command": command }).to_string();
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     session
         .spclient()
-        .request(
-            &Method::POST,
-            &endpoint,
-            Some(headers),
-            Some(body.as_bytes()),
-        )
+        .request(&Method::POST, &path, Some(headers), Some(body.as_bytes()))
         .await
-        .context("Spotify didn't take the pause")?;
+        .with_context(|| format!("Spotify didn't take the {endpoint}"))?;
     Ok(())
 }
 
