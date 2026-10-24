@@ -486,11 +486,7 @@ private fun Summary(core: Core, queue: SpotifyView?, selecting: Boolean) {
         if (selecting) return@Row
         // Errors show in full below.
         val message = core.message?.takeIf { !it.error }
-        val hint = when {
-            queue != null -> queue.whereItPlays
-            list?.songs?.isNotEmpty() == true -> "HOLD A SONG TO SELECT"
-            else -> ""
-        }
+        val hint = if (list?.songs?.isNotEmpty() == true || queue?.rows?.isNotEmpty() == true) "HOLD A SONG TO SELECT" else ""
         Line(
             if (clearing) "" else message?.text ?: hint,
             label(12.sp, Classic.label, 0.02.em).copy(textAlign = TextAlign.End),
@@ -777,7 +773,13 @@ private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, se
     LaunchedEffect(now >= 0) {
         if (now > 0) state.scrollToItem(now - 1)
     }
-    Box(modifier.fillMaxWidth().padding(horizontal = 8.dp).lcd().padding(2.dp)) {
+    Column(modifier.fillMaxWidth().padding(horizontal = 8.dp).lcd().padding(2.dp)) {
+        // Where it plays, always in sight: what can be done follows from it.
+        Line(
+            queue.whereItPlays,
+            body(14.sp, Classic.lcd, FontWeight.SemiBold),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        )
         if (songs.none { it.played != Played.BEFORE }) {
             BasicText(
                 if (queue.takesSongs) {
@@ -788,7 +790,7 @@ private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, se
                 Modifier.padding(16.dp),
                 body(color = Classic.dim),
             )
-            return@Box
+            return@Column
         }
         LazyColumn(Modifier.fillMaxSize(), state) {
             for (row in queue.rows) {
