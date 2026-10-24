@@ -346,8 +346,11 @@ pub enum Action {
         tracks: Vec<Track>,
     },
     /// Empties the Spotify tab: stops, and drops the song, the queue and
-    /// the album or playlist it plays from.
+    /// the album or playlist it plays from. Not while another device holds
+    /// the queue.
     ClearSpotify,
+    /// Takes the queue from the device holding it, paused.
+    TakeOverSpotify,
     /// Opens the Spotify tab again, closed with ClosePlaylist like any tab.
     OpenSpotifyTab,
     /// The Spotify tab can be used, or not (Settings).
@@ -430,6 +433,7 @@ impl From<Action> for spotless_core::action::Action {
                 tracks.into_iter().map(Into::into).collect(),
             ),
             Action::ClearSpotify => Core::ClearSpotify,
+            Action::TakeOverSpotify => Core::TakeOverSpotify,
             Action::OpenSpotifyTab => Core::OpenSpotifyTab,
             Action::SetSpotifyTabEnabled { on } => Core::SetSpotifyTabEnabled(on),
         }

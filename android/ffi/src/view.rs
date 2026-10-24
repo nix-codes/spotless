@@ -286,6 +286,9 @@ pub struct SpotifyView {
     pub where_it_plays: String,
     /// Spotless has the queue: songs can be removed.
     pub held_here: bool,
+    /// The device holding the queue, when another does: the tab only shows
+    /// it until taken over.
+    pub held_by: Option<String>,
     /// Songs can be added: Spotless has the queue, or no device has and
     /// Spotless takes it over for them.
     pub takes_songs: bool,
@@ -327,6 +330,7 @@ pub(crate) fn spotify(state: &State) -> Option<SpotifyView> {
     Some(SpotifyView {
         where_it_plays: queue.where_it_plays(),
         held_here: queue.held_here(),
+        held_by: queue.device.clone().filter(|_| queue.held_elsewhere()),
         takes_songs: queue.takes_songs(),
         rows,
         to_come: count(queue.len()),

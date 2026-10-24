@@ -496,7 +496,18 @@ private fun Summary(core: Core, queue: SpotifyView?, selecting: Boolean) {
             label(12.sp, Classic.label, 0.02.em).copy(textAlign = TextAlign.End),
             Modifier.weight(1f),
         )
-        // The queue's CLEAR stops it and empties it, wherever it plays.
+        // Held by another device, the queue only shows until taken over.
+        if (queue?.heldBy != null) {
+            ChromeButton(
+                { core.apply(Action.TakeOverSpotify) },
+                Modifier.height(32.dp),
+                description = "Take the queue over from ${queue.heldBy}, paused",
+            ) {
+                BasicText("TAKE OVER", style = label(11.sp, Classic.chrome))
+            }
+            return@Row
+        }
+        // The queue's CLEAR stops it and empties it.
         val count = if (queue != null) queue.toCome.toInt() else list?.songs?.size ?: 0
         if (count > 0) {
             ChromeButton({
@@ -752,7 +763,8 @@ private fun SongRow(
  * The Spotify tab's songs: what played, dimmed; the song playing; then
  * each run to come under its heading. Tapping a song to come plays the
  * queue here from it, taking it over from another device; tapping the song
- * playing plays it here.
+ * playing plays it here. While another device holds the queue, the tab
+ * only shows it: TAKE OVER, on the line above, brings it here paused.
  */
 @Composable
 private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, select: (Set<ULong>) -> Unit, modifier: Modifier) {
