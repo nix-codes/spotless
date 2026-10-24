@@ -904,13 +904,13 @@ impl Controller {
         self.changed(requests);
     }
 
-    /// Adds songs to the end of the account's queue, while Spotless plays it.
+    /// Adds songs to the end of the account's queue, while Spotless has it.
     fn queue_tracks(&mut self, tracks: Vec<TrackRef>) {
         if !self
             .state
             .spotify
             .as_ref()
-            .is_some_and(SpotifyQueue::playing_here)
+            .is_some_and(SpotifyQueue::held_here)
         {
             self.state.error = Some(
                 "Spotify only takes songs for the queue from the device playing it: play it here first, with Enter on a song in the Spotify tab.".into(),

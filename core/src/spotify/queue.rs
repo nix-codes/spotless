@@ -79,6 +79,12 @@ impl SpotifyQueue {
         self.here && self.status != Status::Stopped
     }
 
+    /// Spotless has it, even stopped with nothing in it, as after a clear:
+    /// Spotify takes changes to the queue from Spotless.
+    pub fn held_here(&self) -> bool {
+        self.here && self.device.is_some()
+    }
+
     /// A device plays it, or has it paused.
     pub fn active(&self) -> bool {
         self.device.is_some() && self.status != Status::Stopped

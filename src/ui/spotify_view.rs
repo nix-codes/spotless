@@ -4,7 +4,8 @@
 //! the rest of the album or playlist. Enter or a double-click on a song to
 //! come plays the queue here from it, taking it over from a local playlist
 //! or another device; on the song playing, plays it here. While Spotless
-//! plays the queue, Delete or REM removes songs to come. CLEAR, once
+//! has the queue, + ADD adds songs to it and Delete or REM removes songs
+//! to come. CLEAR, once
 //! confirmed, stops and empties it all, wherever it plays. Rows drag onto a
 //! playlist's tab to copy them there.
 //!
@@ -74,8 +75,12 @@ pub fn draw(
         ui.add_space(4.0);
         if queue.now.is_none() && queue.parts.is_empty() {
             ui.label(
-                RichText::new("Spotify's queue is empty. Play something on another device, or hand it to Spotless.")
-                    .color(palette.dim),
+                RichText::new(if queue.held_here() {
+                    "Nothing to play. Add songs with + ADD, or play something on another device."
+                } else {
+                    "Nothing to play. Play something on another device, or hand it to Spotless."
+                })
+                .color(palette.dim),
             );
             return;
         }
@@ -85,7 +90,15 @@ pub fn draw(
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let mut index = 0;
                 let mut row = |ui: &mut Ui, row: Row, index: &mut usize| {
-                    draw_row(ui, view, queue, row, *index, (selection, &mut keys), actions);
+                    draw_row(
+                        ui,
+                        view,
+                        queue,
+                        row,
+                        *index,
+                        (selection, &mut keys),
+                        actions,
+                    );
                     *index += 1;
                 };
                 for track in &queue.before {
@@ -254,10 +267,10 @@ fn toolbar(
     let removable = removable(queue, selection);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
-        if small_action(ui, &palette, "+ ADD", queue.playing_here()).clicked() {
+        if small_action(ui, &palette, "+ ADD", queue.held_here()).clicked() {
             actions.push(Action::ToggleBrowse);
         }
-        let can_remove = queue.playing_here() && !removable.is_empty();
+        let can_remove = queue.held_here() && !removable.is_empty();
         if small_action(ui, &palette, "REM", can_remove).clicked() {
             actions.push(Action::Remove(PlaylistId::SPOTIFY, removable));
         }
@@ -369,7 +382,7 @@ fn keyboard(
                 .unwrap_or(SpotifyQueue::row_id(queue.before.len()));
             actions.push(Action::PlayEntry(PlaylistId::SPOTIFY, row));
         }
-        Key::Delete if queue.playing_here() => {
+        Key::Delete if queue.held_here() => {
             let rows = removable(queue, selection);
             if !rows.is_empty() {
                 actions.push(Action::Remove(PlaylistId::SPOTIFY, rows));
