@@ -1,5 +1,5 @@
 #!/bin/sh
-# Removes what packaging/install.sh installed. Settings, playlists and the
+# Removes what install.sh installed. Settings, playlists and the
 # sign-in in ~/.config/spotless are kept.
 set -eu
 

@@ -161,8 +161,19 @@ To uninstall, use *Settings > Apps > Installed apps > Spotless*, or run
 
 ### Linux
 
-There are no packages yet: Spotless is built from source, which takes a few
-minutes the first time.
+For 64-bit PCs with glibc 2.35 or later (Ubuntu 22.04, Debian 12, Fedora 36
+and newer).
+
+1. Download `spotless-<version>-linux-x64.tar.gz` from the
+   [Releases](https://github.com/nix-codes/spotless/releases) page and
+   unpack it.
+2. Run `./install.sh` in the `Spotless` folder. It installs
+   `~/.local/bin/spotless` and a launcher with its icon, for your user only.
+   Run a newer release's `install.sh` to update; `./uninstall.sh` removes it.
+
+   Or skip installing: `./spotless` runs from the folder on its own.
+
+#### From source
 
 1. Install [Rust](https://rustup.rs) and the ALSA headers:
    - Debian, Ubuntu: `sudo apt install build-essential pkg-config libasound2-dev`
@@ -270,17 +281,20 @@ using Rust's `x86_64-pc-windows-gnullvm` target and
 
 ## Releasing
 
-The Android app is released from `main` with a tag, `android-v<version>`:
+Each app is released from `main` with a tag: `android-v<version>` for the
+Android app, `desktop-v<version>` for Linux and Windows together.
 
 ```sh
-packaging/android/release.sh 0.2.0
+packaging/release.sh android 0.4.0
+packaging/release.sh desktop 0.1.0
 ```
 
 The script checks that `main` matches GitHub's, that CI passed on it and
-that the version goes up, then pushes the tag. GitHub Actions builds the APK,
-signs it with the release key in the repository's secrets and makes a draft
-release with the changes since the last one. Install the draft's APK, try it,
-then publish the release. The tag is the only place the version is set.
+that the version goes up, then pushes the tag. GitHub Actions builds the app
+(the APK signed with the release key in the repository's secrets; the Linux
+tarball and the Windows zip) and makes a draft release with the changes since
+the last one. Try the draft's files, then publish the release. The tag is the
+only place the version is set.
 
 ## Status
 

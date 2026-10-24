@@ -1,0 +1,132 @@
+# Builds the desktop app for a tag like desktop-v0.1.0, for Linux and for
+# Windows, and puts both in a draft GitHub release, to look over and
+# publish by hand. packaging/release.sh makes the tag. The Android app is
+# released on its own.
+#
+# The tag gives the version: it replaces the placeholder in Cargo.toml
+# before building, for the About line, the Windows details and the names.
+# The release notes list the commits since the previous desktop-v tag that
+# touch the desktop app or the core it shares with Android.
+
+name: Desktop Release
+
+on:
+  push:
+    tags: ["desktop-v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # The llvm-mingw used for the Windows zip, as in the Build workflow.
+  LLVM_MINGW_VERSION: "20261006"
+  LLVM_MINGW_SHA256: 5f9c6ed95b2d4bdb2869a488c5fd5857fbdabcf288a0aa3eb1da43f6a08d8ab4
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-24.04
+    # Built against an older glibc (2.35), so it runs on older systems too
+    # (Ubuntu 22.04, Debian 12 and anything newer).
+    container: ubuntu:22.04
+    steps:
+      - name: System libraries
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential ca-certificates curl git libasound2-dev pkg-config
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - uses: actions/checkout@v7
+
+      # rust-toolchain.toml picks the toolchain.
+      - name: Rust
+        run: |
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          "$HOME/.cargo/bin/rustup" toolchain install
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Version
+        run: sed -i "0,/^version = \".*\"/s//version = \"${GITHUB_REF_NAME#desktop-v}\"/" Cargo.toml
+
+      - name: Linux tarball
+        run: packaging/linux/build.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: target/dist/*.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rust
+        run: rustup show active-toolchain && rustup target add x86_64-pc-windows-gnullvm
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: llvm-mingw
+        run: |
+          name=llvm-mingw-$LLVM_MINGW_VERSION-ucrt-ubuntu-22.04-x86_64
+          curl -sSLo "$RUNNER_TEMP/$name.tar.xz" \
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/$LLVM_MINGW_VERSION/$name.tar.xz"
+          echo "$LLVM_MINGW_SHA256  $RUNNER_TEMP/$name.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/$name.tar.xz" -C "$RUNNER_TEMP"
+          echo "LLVM_MINGW=$RUNNER_TEMP/$name" >> "$GITHUB_ENV"
+
+      - name: Version
+        run: sed -i "0,/^version = \".*\"/s//version = \"${GITHUB_REF_NAME#desktop-v}\"/" Cargo.toml
+
+      - name: Windows zip
+        run: packaging/windows/build.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: target/dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      # The whole history, for the commits since the previous release.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${GITHUB_REF_NAME#desktop-v}
+          previous=$(git describe --tags --abbrev=0 --match 'desktop-v*' HEAD^ 2>/dev/null || true)
+          {
+            echo "Spotless $version for Linux and Windows, 64-bit."
+            echo
+            if [ -n "$previous" ]; then
+              echo "## Changes since ${previous#desktop-v}"
+              echo
+              git log --no-merges --format='- %s' "$previous..HEAD" -- \
+                src core build.rs Cargo.toml Cargo.lock packaging ':!packaging/android'
+              echo
+            fi
+            echo "SHA-256:"
+            echo
+            (cd dist && sha256sum -- *) | sed 's/^\([0-9a-f]*\)  \(.*\)/- `\2`: `\1`/'
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --draft \
+            --title "Spotless $version" --notes-file notes.md
