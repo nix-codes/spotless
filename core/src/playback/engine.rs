@@ -11,10 +11,11 @@
 //!
 //! Volume levelling and the session are fixed when a librespot player is
 //! made, so changing either makes a new player that picks up the song where
-//! the old one was.
+//! the old one was. A new session, for one that dropped, waits for the
+//! playing song to end instead: the song plays on with the audio it has.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
@@ -111,21 +112,39 @@ pub enum EngineEvent {
 
 pub type Notify = Arc<dyn Fn(EngineEvent) + Send + Sync>;
 
-type Follow = Arc<Mutex<Option<(EntryId, SpotifyUri)>>>;
-
 pub struct Engine {
-    session: Session,
-    player: Arc<Player>,
+    shared: Arc<Shared>,
+}
+
+/// What the engine's players are made with, shared with the task following
+/// the playing one's events, which makes the next player itself when a
+/// song ends on a dropped session.
+struct Shared {
     mixer: Arc<dyn Mixer>,
-    follow: Follow,
     notify: Notify,
+    /// The song to start when the playing one ends.
+    follow: Mutex<Option<(EntryId, SpotifyUri)>>,
+    /// The player's state as last reported, to carry over to a new player.
+    state: Mutex<PlayerSnapshot>,
+    current: Mutex<Current>,
+}
+
+/// The player, and what it was made with.
+struct Current {
+    session: Session,
+    /// A new session, for the player's dropped one, waiting for the playing
+    /// song to end: the song goes on with the audio it has, as a new player
+    /// would start it over (a gap each time the network changes).
+    waiting: Option<Session>,
     /// Volume levelling, as the player was made with.
     levelling: bool,
-    /// The player's state as last reported, to carry over to a new player.
-    state: Arc<Mutex<PlayerSnapshot>>,
+    player: Arc<Player>,
     /// Cleared when the player is replaced: its events are no longer told.
     live: Arc<AtomicBool>,
 }
+
+/// A song for a new player to load: playing or not, from where.
+type Load = (SpotifyUri, bool, u32);
 
 impl Engine {
     /// Must be called on the tokio runtime: the event fold runs on it.
@@ -140,116 +159,162 @@ impl Engine {
         })
         .context("unable to create the mixer")?;
         mixer.set_volume(volume);
-        let follow: Follow = Arc::default();
-        let state = Arc::default();
-        let live = Arc::new(AtomicBool::new(true));
-        let player = start_player(session, &mixer, levelling, &follow, &state, &live, &notify);
-        Ok(Self {
-            session: session.clone(),
-            player,
-            mixer,
-            follow,
-            notify,
-            levelling,
-            state,
-            live,
-        })
+        let shared = Arc::new_cyclic(|shared: &Weak<Shared>| {
+            let live = Arc::new(AtomicBool::new(true));
+            Shared {
+                current: Mutex::new(Current {
+                    session: session.clone(),
+                    waiting: None,
+                    levelling,
+                    player: start_player(shared, session, &mixer, levelling, &live, &notify),
+                    live,
+                }),
+                mixer,
+                notify,
+                follow: Mutex::default(),
+                state: Mutex::default(),
+            }
+        });
+        Ok(Self { shared })
+    }
+
+    fn player(&self) -> Arc<Player> {
+        Arc::clone(&lock(&self.shared.current).player)
     }
 
     /// Turns volume levelling on or off with a new player, which goes on
     /// with the song (playing or paused) and the song to follow it.
     pub fn set_levelling(&mut self, on: bool) {
-        if on == self.levelling {
+        let mut current = lock(&self.shared.current);
+        if on == current.levelling {
             return;
         }
-        self.levelling = on;
-        self.restart_player();
+        current.levelling = on;
+        let carried = self.shared.carried();
+        self.shared.renew(&mut current, carried);
     }
 
     /// Plays on a new session, for one that dropped, with a new player that
-    /// goes on as `set_levelling`'s does.
+    /// goes on as `set_levelling`'s does. A playing song plays on without
+    /// one, with the audio it has, until it ends.
     pub fn set_session(&mut self, session: &Session) {
-        self.session = session.clone();
-        self.restart_player();
+        let mut current = lock(&self.shared.current);
+        current.waiting = Some(session.clone());
+        // Reports stop coming when the audio has: a stalled song is picked
+        // up at once instead.
+        let state = lock(&self.shared.state).clone();
+        if state.status == Status::Playing
+            && state
+                .reported_at
+                .is_some_and(|at| at.elapsed() < REPORTS_DUE)
+        {
+            log::info!("the playing song goes on; a new player is made when it ends");
+            return;
+        }
+        let carried = self.shared.carried();
+        self.shared.renew(&mut current, carried);
     }
 
-    /// Replaces the player with one that picks up the song where the old one
-    /// was, playing or paused, followed by the same song.
-    fn restart_player(&mut self) {
+    /// Plays `track` now, following it with nothing until told otherwise.
+    pub fn load(&self, track: SpotifyUri, position_ms: u32) {
+        *lock(&self.shared.follow) = None;
+        let mut current = lock(&self.shared.current);
+        if current.waiting.is_some() {
+            self.shared
+                .renew(&mut current, Some((track, true, position_ms)));
+        } else {
+            current.player.load(track, true, position_ms);
+        }
+    }
+
+    /// The song to start when the playing one ends. None: playback stops.
+    pub fn follow(&self, next: Option<(EntryId, SpotifyUri)>) {
+        *lock(&self.shared.follow) = next;
+    }
+
+    pub fn play(&self) {
+        self.player().play();
+    }
+
+    pub fn pause(&self) {
+        self.player().pause();
+    }
+
+    /// Whether a song is playing, or loading to play.
+    pub fn playing(&self) -> bool {
+        matches!(
+            lock(&self.shared.state).status,
+            Status::Playing | Status::Loading
+        )
+    }
+
+    pub fn stop(&self) {
+        *lock(&self.shared.follow) = None;
+        let mut current = lock(&self.shared.current);
+        current.player.stop();
+        if current.waiting.is_some() {
+            self.shared.renew(&mut current, None);
+        }
+    }
+
+    pub fn seek(&self, position_ms: u32) {
+        self.player().seek(position_ms);
+    }
+
+    pub fn set_volume(&self, volume: u16) {
+        self.shared.mixer.set_volume(volume);
+    }
+}
+
+impl Shared {
+    /// The song as the player has it, for a new one to pick up where it
+    /// was, playing or paused.
+    fn carried(&self) -> Option<Load> {
         let state = lock(&self.state).clone();
-        self.live.store(false, Ordering::SeqCst);
-        self.player.stop();
-        self.live = Arc::new(AtomicBool::new(true));
-        *lock(&self.state) = PlayerSnapshot::default();
-        self.player = start_player(
-            &self.session,
-            &self.mixer,
-            self.levelling,
-            &self.follow,
-            &self.state,
-            &self.live,
-            &self.notify,
-        );
-        let playing = matches!(state.status, Status::Playing | Status::Loading);
         log::info!(
             "new player: was {:?} at {} ms (last reported {} ms)",
             state.status,
             state.position_now(),
             state.position_ms,
         );
-        if state.status != Status::Stopped
-            && let Some(track) = state.track.as_ref()
-            && let Ok(uri) = SpotifyUri::from_uri(&track.uri)
-        {
-            self.player.load(uri, playing, state.position_now());
+        let playing = matches!(state.status, Status::Playing | Status::Loading);
+        if state.status == Status::Stopped {
+            return None;
         }
+        let uri = SpotifyUri::from_uri(&state.track.as_ref()?.uri).ok()?;
+        Some((uri, playing, state.position_now()))
     }
 
-    /// Plays `track` now, following it with nothing until told otherwise.
-    pub fn load(&self, track: SpotifyUri, position_ms: u32) {
-        *lock(&self.follow) = None;
-        self.player.load(track, true, position_ms);
-    }
-
-    /// The song to start when the playing one ends. None: playback stops.
-    pub fn follow(&self, next: Option<(EntryId, SpotifyUri)>) {
-        *lock(&self.follow) = next;
-    }
-
-    pub fn play(&self) {
-        self.player.play();
-    }
-
-    pub fn pause(&self) {
-        self.player.pause();
-    }
-
-    /// Whether a song is playing, or loading to play.
-    pub fn playing(&self) -> bool {
-        matches!(lock(&self.state).status, Status::Playing | Status::Loading)
-    }
-
-    pub fn stop(&self) {
-        *lock(&self.follow) = None;
-        self.player.stop();
-    }
-
-    pub fn seek(&self, position_ms: u32) {
-        self.player.seek(position_ms);
-    }
-
-    pub fn set_volume(&self, volume: u16) {
-        self.mixer.set_volume(volume);
+    /// Replaces the player with one on the waiting session, if there is
+    /// one, loading `then`.
+    fn renew(self: &Arc<Self>, current: &mut Current, then: Option<Load>) {
+        if let Some(session) = current.waiting.take() {
+            current.session = session;
+        }
+        current.live.store(false, Ordering::SeqCst);
+        current.player.stop();
+        current.live = Arc::new(AtomicBool::new(true));
+        *lock(&self.state) = PlayerSnapshot::default();
+        current.player = start_player(
+            &Arc::downgrade(self),
+            &current.session,
+            &self.mixer,
+            current.levelling,
+            &current.live,
+            &self.notify,
+        );
+        if let Some((track, playing, position_ms)) = then {
+            current.player.load(track, playing, position_ms);
+        }
     }
 }
 
 /// Makes a player on the session and starts following its events.
 fn start_player(
+    shared: &Weak<Shared>,
     session: &Session,
     mixer: &Arc<dyn Mixer>,
     levelling: bool,
-    follow: &Follow,
-    state: &Arc<Mutex<PlayerSnapshot>>,
     live: &Arc<AtomicBool>,
     notify: &Notify,
 ) -> Arc<Player> {
@@ -287,11 +352,10 @@ fn start_player(
     // Subscribed before the first load, so its events are seen.
     let events = player.get_player_event_channel();
     tokio::spawn(follow_songs(
+        Weak::clone(shared),
         session.clone(),
         Arc::clone(&player),
         events,
-        Arc::clone(follow),
-        Arc::clone(state),
         Arc::clone(live),
         Arc::clone(notify),
     ));
@@ -300,19 +364,21 @@ fn start_player(
 
 /// Preloads the followed song when librespot asks, starts it as the playing
 /// one ends, and reports the player's state. Ends, letting the player go,
-/// once the player has been replaced.
+/// once the player has been replaced, or the engine let go.
 async fn follow_songs(
+    shared: Weak<Shared>,
     session: Session,
     player: Arc<Player>,
     mut events: librespot_playback::player::PlayerEventChannel,
-    follow: Follow,
-    shared: Arc<Mutex<PlayerSnapshot>>,
     live: Arc<AtomicBool>,
     notify: Notify,
 ) {
     let mut state = PlayerSnapshot::default();
     let mut current = None;
     while let Some(event) = events.recv().await {
+        let Some(shared) = shared.upgrade() else {
+            break;
+        };
         if !live.load(Ordering::SeqCst) {
             break;
         }
@@ -359,12 +425,46 @@ async fn follow_songs(
             }
             _ => {}
         }
+        // A new session waiting for this song to end: the next player is
+        // made on it, and this one's done.
+        if matches!(event, PlayerEvent::EndOfTrack { .. }) {
+            let mut current = lock(&shared.current);
+            if current.waiting.is_some() {
+                let next = if cut {
+                    let uri = state.track.as_ref().map(|t| SpotifyUri::from_uri(&t.uri));
+                    if let Some(Ok(uri)) = uri {
+                        log::info!("going on from {} ms on the new session", state.position_ms);
+                        shared.renew(&mut current, Some((uri, true, state.position_ms)));
+                    } else {
+                        shared.renew(&mut current, None);
+                    }
+                    None
+                } else {
+                    let next = lock(&shared.follow).take();
+                    shared.renew(&mut current, next.clone().map(|(_, uri)| (uri, true, 0)));
+                    Some(next)
+                };
+                drop(current);
+                match next {
+                    Some(Some((entry, _))) => notify(EngineEvent::Followed(entry)),
+                    // The new player has nothing to report.
+                    Some(None) => {
+                        notify(EngineEvent::Ended);
+                        notify(EngineEvent::Snapshot(PlayerSnapshot::default()));
+                    }
+                    None => {}
+                }
+                break;
+            }
+        }
         // The follow lock is let go before anything is told: a hook that
         // answers with `Engine::follow` takes it too.
         match &event {
             PlayerEvent::TimeToPreloadNextTrack { .. } => {
-                let next = lock(&follow).clone();
-                if let Some((_, next)) = next {
+                let next = lock(&shared.follow).clone();
+                if let Some((_, next)) = next
+                    && lock(&shared.current).waiting.is_none()
+                {
                     player.preload(next);
                 }
             }
@@ -375,7 +475,7 @@ async fn follow_songs(
                 });
             }
             PlayerEvent::EndOfTrack { .. } => {
-                let next = lock(&follow).take();
+                let next = lock(&shared.follow).take();
                 match next {
                     Some((entry, next)) => {
                         player.load(next, true, 0);
@@ -391,7 +491,7 @@ async fn follow_songs(
             _ => {}
         }
         if apply(&mut state, event) {
-            *lock(&shared) = state.clone();
+            *lock(&shared.state) = state.clone();
             notify(EngineEvent::Snapshot(state.clone()));
         }
     }
