@@ -8,6 +8,7 @@ use spotless_core::model::catalog::{self, ReleaseGroup as CoreGroup, ReleaseTab 
 use spotless_core::model::{AlbumRef, ArtistRef, Playlist, PlaylistId, TrackRef};
 use spotless_core::phosphor::Phosphor;
 use spotless_core::playback::engine;
+use spotless_core::spotify::queue::SpotifyQueue;
 use spotless_core::store::AUDIO_CACHE_SIZES;
 
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
@@ -145,10 +146,13 @@ pub struct Player {
     /// Paused for want of a connection to Spotify; it goes on when there
     /// is one again.
     pub offline: bool,
+    /// The sound comes from this phone: not the Spotify tab's queue
+    /// playing on another device.
+    pub here: bool,
 }
 
 pub(crate) fn player(state: &State) -> Player {
-    let snapshot = &state.player;
+    let snapshot = &state.now_playing();
     Player {
         status: match snapshot.status {
             engine::Status::Stopped => Status::Stopped,
@@ -169,11 +173,13 @@ pub(crate) fn player(state: &State) -> Player {
         repeat: state.settings.repeat,
         volume: state.settings.volume,
         playlist: state
-            .transport
             .playing_list()
             .or(state.transport.playback.playing().filter(|_| state.offline))
             .map(|id| id.0),
         offline: state.offline,
+        here: !state.spotify_playing()
+            || state.spotify_starting.is_some()
+            || state.spotify.as_ref().is_some_and(|queue| queue.here),
     }
 }
 
@@ -200,8 +206,11 @@ pub(crate) fn message(state: &State) -> Option<Message> {
 pub struct Tab {
     pub id: u64,
     pub name: String,
+    /// The Spotify tab's: the songs to come.
     pub songs: u32,
     pub duration_ms: u64,
+    /// The Spotify tab, rather than a playlist.
+    pub spotify: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
@@ -214,18 +223,110 @@ pub struct Tabs {
 pub(crate) fn tabs(state: &State) -> Tabs {
     Tabs {
         tabs: state
-            .library
-            .playlists()
-            .iter()
-            .map(|list| Tab {
-                id: list.id.0,
-                name: list.name.clone(),
-                songs: count(list.len()),
-                duration_ms: duration(list),
+            .tabs()
+            .into_iter()
+            .filter_map(|id| match (id, &state.spotify) {
+                (PlaylistId::SPOTIFY, Some(queue)) => Some(Tab {
+                    id: id.0,
+                    name: "Spotify".into(),
+                    songs: count(queue.len()),
+                    duration_ms: to_come(queue)
+                        .map(|track| u64::from(track.duration_ms))
+                        .sum(),
+                    spotify: true,
+                }),
+                _ => state.library.get(id).map(|list| Tab {
+                    id: id.0,
+                    name: list.name.clone(),
+                    songs: count(list.len()),
+                    duration_ms: duration(list),
+                    spotify: false,
+                }),
             })
             .collect(),
         viewed: state.viewed.0,
     }
+}
+
+/// The songs the Spotify tab has to come: the one playing, then the rest.
+fn to_come(queue: &SpotifyQueue) -> impl Iterator<Item = &TrackRef> {
+    queue.now.iter().chain(
+        queue
+            .parts
+            .iter()
+            .flat_map(|part| part.songs.iter().map(|queued| &queued.track)),
+    )
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum Played {
+    /// Played before: shown, dimmed, but not played again.
+    Before,
+    Now,
+    /// To come: it can be played from, and removed.
+    Next,
+}
+
+#[derive(Clone, Debug, PartialEq, uniffi::Enum)]
+pub enum SpotifyRow {
+    /// "Now playing", "Next in queue", "Next from: …".
+    Heading { title: String },
+    Song {
+        /// What PlayEntry, Remove and the selection know it by.
+        entry: u64,
+        track: Track,
+        played: Played,
+    },
+}
+
+/// The Spotify tab: the account's queue, as Spotify's own apps show it.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct SpotifyView {
+    /// Where the queue plays, and how: "Playing on Kitchen.".
+    pub where_it_plays: String,
+    /// Spotless has the queue: songs can be added and removed.
+    pub held_here: bool,
+    /// Before, now, then each part under its heading.
+    pub rows: Vec<SpotifyRow>,
+    /// The song playing and the ones to come.
+    pub to_come: u32,
+}
+
+pub(crate) fn spotify(state: &State) -> Option<SpotifyView> {
+    let queue = state.spotify.as_ref()?;
+    let mut rows = Vec::new();
+    let mut index = 0;
+    let mut song = |rows: &mut Vec<SpotifyRow>, track: &TrackRef, played| {
+        rows.push(SpotifyRow::Song {
+            entry: SpotifyQueue::row_id(index).0,
+            track: track.into(),
+            played,
+        });
+        index += 1;
+    };
+    for track in &queue.before {
+        song(&mut rows, track, Played::Before);
+    }
+    if let Some(now) = &queue.now {
+        rows.push(SpotifyRow::Heading {
+            title: "Now playing".into(),
+        });
+        song(&mut rows, now, Played::Now);
+    }
+    for part in &queue.parts {
+        rows.push(SpotifyRow::Heading {
+            title: part.title.clone(),
+        });
+        for queued in &part.songs {
+            song(&mut rows, &queued.track, Played::Next);
+        }
+    }
+    Some(SpotifyView {
+        where_it_plays: queue.where_it_plays(),
+        held_here: queue.held_here(),
+        rows,
+        to_come: count(queue.len()),
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
@@ -611,6 +712,10 @@ pub struct SettingsView {
     pub lastfm_secret: String,
     /// The colour of the lists and the display, by its key.
     pub phosphor: String,
+    /// The Spotify tab can be used (Settings).
+    pub spotify_tab_enabled: bool,
+    /// It can, but was closed: + offers it again.
+    pub spotify_tab_closed: bool,
 }
 
 /// A colour the lists and the display can take, with its shades as
@@ -669,5 +774,7 @@ pub(crate) fn settings(state: &State) -> SettingsView {
         lastfm_key: state.lastfm.api_key.clone(),
         lastfm_secret: state.lastfm.secret.clone(),
         phosphor: settings.phosphor.key().into(),
+        spotify_tab_enabled: settings.spotify_tab_enabled,
+        spotify_tab_closed: settings.spotify_tab_enabled && !settings.spotify_tab,
     }
 }

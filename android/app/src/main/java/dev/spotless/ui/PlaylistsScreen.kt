@@ -65,7 +65,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import dev.spotless.Core
 import dev.spotless.core.Action
+import dev.spotless.core.Played
 import dev.spotless.core.Song
+import dev.spotless.core.SpotifyRow
+import dev.spotless.core.SpotifyView
+import dev.spotless.core.Track
 import kotlin.math.abs
 
 private val ROW = 52.dp
@@ -73,30 +77,47 @@ private val HEADER = 30.dp
 
 /**
  * The main screen: the playlist tabs, the viewed playlist, and the player.
- * Holding a song selects it, for Q NEXT, removing and moving; holding another
- * then selects every song from the last one picked up to it. Each album's
- * run of songs sits under a header with its name.
+ * Holding a song selects it, for Q NEXT, copying, removing and moving;
+ * holding another then selects every song from the last one picked up to
+ * it. Each album's run of songs sits under a header with its name.
+ *
+ * The Spotify tab, while Spotless is in Spotify Connect, shows the
+ * account's queue instead: what played, the song playing, then what comes.
  */
 @Composable
 fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
+    val queue = viewedQueue(core)
     // Entries of the viewed playlist; ones since removed drop out.
     var picked by remember(core.tabs.viewed) { mutableStateOf(emptySet<ULong>()) }
-    val entries = core.playlist?.songs?.map { it.entry }.orEmpty()
+    val entries = if (queue != null) queueSongs(queue).map { it.entry } else core.playlist?.songs?.map { it.entry }.orEmpty()
     val selected = entries.filter { it in picked }
     val selecting = selected.isNotEmpty()
+    var copying by remember(core.tabs.viewed) { mutableStateOf(false) }
     var editing by remember { mutableStateOf<ULong?>(null) }
-    BackHandler(enabled = selecting) { picked = emptySet() }
+    var adding by remember { mutableStateOf(false) }
+    val done = {
+        picked = emptySet()
+        copying = false
+    }
+    BackHandler(enabled = selecting) { done() }
     BackHandler(enabled = editing != null) { editing = null }
+    BackHandler(enabled = adding) { adding = false }
     Column(Modifier.fillMaxSize().background(Classic.frame).safeDrawingPadding()) {
         if (selecting) {
-            SelectBar(core, selected, { picked = entries.toSet() }) { picked = emptySet() }
+            SelectBar(core, queue, selected, { picked = entries.toSet() }, { copying = !copying }, copying, done)
+            if (copying) CopyBar(core, selectedTracks(core, queue, selected), done)
         } else {
             TopBar(core, openSettings)
         }
-        Tabs(core) { editing = it }
+        Tabs(core, { editing = it }, { adding = !adding })
         editing?.let { TabEditor(core, it) { editing = null } }
-        Summary(core, selecting)
-        Songs(core, selected, { picked = it }, Modifier.weight(1f))
+        if (adding && core.settings.spotifyTabClosed) AddBar(core) { adding = false }
+        Summary(core, queue, selecting)
+        if (queue != null) {
+            QueueSongs(core, queue, selected, { picked = it }, Modifier.weight(1f))
+        } else {
+            Songs(core, selected, { picked = it }, Modifier.weight(1f))
+        }
         if (selecting) {
             Box(Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 14.dp)) { MiniPlayer(core) }
         } else {
@@ -118,27 +139,81 @@ private fun TopBar(core: Core, openSettings: () -> Unit) {
     }
 }
 
+/** The Spotify tab's queue, when that is the tab viewed. */
+private fun viewedQueue(core: Core): SpotifyView? =
+    core.spotify?.takeIf { core.tabs.tabs.any { it.id == core.tabs.viewed && it.spotify } }
+
+/** The queue's songs, without the headings between them. */
+private fun queueSongs(queue: SpotifyView) = queue.rows.filterIsInstance<SpotifyRow.Song>()
+
+/** The selected songs' tracks, in the tab's order. */
+private fun selectedTracks(core: Core, queue: SpotifyView?, selected: List<ULong>): List<Track> =
+    if (queue != null) {
+        queueSongs(queue).filter { it.entry in selected }.map { it.track }
+    } else {
+        core.playlist?.songs?.filter { it.entry in selected }?.map { it.track }.orEmpty()
+    }
+
 /** In place of the top bar while songs are selected. */
 @Composable
-private fun SelectBar(core: Core, selected: List<ULong>, all: () -> Unit, done: () -> Unit) {
-    val list = core.playlist ?: return
+private fun SelectBar(
+    core: Core,
+    queue: SpotifyView?,
+    selected: List<ULong>,
+    all: () -> Unit,
+    copy: () -> Unit,
+    copying: Boolean,
+    done: () -> Unit,
+) {
+    val id = core.tabs.viewed
+    val count = if (queue != null) queueSongs(queue).size else core.playlist?.songs?.size ?: return
+    // Of the queue, only songs to come can go, and only while Spotless has it.
+    val removable = if (queue == null) {
+        selected
+    } else if (queue.heldHere) {
+        queueSongs(queue).filter { it.entry in selected && it.played == Played.NEXT }.map { it.entry }
+    } else {
+        emptyList()
+    }
     Row(
         Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         GlyphButton(Glyph.Close, "Stop selecting", done, Modifier.width(48.dp))
-        BasicText(
+        Line(
             "${selected.size} selected",
-            Modifier.weight(1f).padding(start = 4.dp),
             body(15.sp, Classic.current, FontWeight.SemiBold),
+            Modifier.weight(1f).padding(start = 4.dp),
         )
-        TextButton("ALL", all, enabled = selected.size < list.songs.size)
-        TextButton("Q NEXT", { core.apply(Action.ToggleMarks(selected)) })
-        GlyphButton(Glyph.Trash, "Remove from the playlist", {
-            core.apply(Action.Remove(list.id, selected))
+        TextButton("ALL", all, enabled = selected.size < count)
+        if (queue == null) TextButton("Q NEXT", { core.apply(Action.ToggleMarks(selected)) })
+        TextButton("COPY", copy, on = copying)
+        GlyphButton(Glyph.Trash, if (queue != null) "Remove from the queue" else "Remove from the playlist", {
+            core.apply(Action.Remove(id, removable))
             done()
-        }, Modifier.width(48.dp))
+        }, Modifier.width(48.dp), enabled = removable.isNotEmpty())
+    }
+}
+
+/** COPY's choice of tab: the selected songs go to the end of the one tapped. */
+@Composable
+private fun CopyBar(core: Core, tracks: List<Track>, done: () -> Unit) {
+    val queue = core.spotify
+    Column(
+        Modifier.fillMaxWidth().padding(8.dp).background(Classic.frame).bevel().padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        BasicText("COPY TO", style = label(12.sp, Classic.label, 0.06.em))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            items(core.tabs.tabs.filter { it.id != core.tabs.viewed }, key = { it.id.toLong() }) { tab ->
+                // Spotify takes songs for the queue only from the device playing it.
+                TextButton(tab.name, {
+                    core.apply(Action.CopyTo(tab.id, tracks))
+                    done()
+                }, Modifier.height(44.dp), enabled = !tab.spotify || queue?.heldHere == true)
+            }
+        }
     }
 }
 
@@ -162,7 +237,7 @@ private class TabDrag(val id: ULong, val from: Int, val lefts: List<Float>, val 
  * moves it, the others making room.
  */
 @Composable
-private fun Tabs(core: Core, edit: (ULong) -> Unit) {
+private fun Tabs(core: Core, edit: (ULong) -> Unit, add: () -> Unit) {
     val tabs = core.tabs.tabs
     val state = rememberLazyListState()
     var drag by remember { mutableStateOf<TabDrag?>(null) }
@@ -243,10 +318,37 @@ private fun Tabs(core: Core, edit: (ULong) -> Unit) {
             }
         }
         item {
-            ChromeButton({ core.apply(Action.NewPlaylist) }, Modifier.fillMaxHeight(), description = "New playlist") {
+            // With the Spotify tab closed, + opens it too.
+            val closed = core.settings.spotifyTabClosed
+            ChromeButton(
+                { if (closed) add() else core.apply(Action.NewPlaylist) },
+                Modifier.fillMaxHeight(),
+                description = if (closed) "New playlist or the Spotify tab" else "New playlist",
+            ) {
                 BasicText("+", style = label(20.sp))
             }
         }
+    }
+}
+
+/** What + offers while the Spotify tab is closed. */
+@Composable
+private fun AddBar(core: Core, done: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(8.dp).background(Classic.frame).bevel().padding(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton("NEW PLAYLIST", {
+            core.apply(Action.NewPlaylist)
+            done()
+        })
+        TextButton("SPOTIFY", {
+            core.apply(Action.OpenSpotifyTab)
+            done()
+        })
+        Box(Modifier.weight(1f))
+        GlyphButton(Glyph.Close, "Done", done, Modifier.width(48.dp))
     }
 }
 
@@ -261,6 +363,7 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
         return
     }
     val tab = tabs[at]
+    if (tab.spotify) return SpotifyTabEditor(core, id, at, done)
     var name by remember(id) { mutableStateOf(tab.name) }
     // Clearing and deleting each ask once more, on the same button.
     var clearing by remember(id) { mutableStateOf(false) }
@@ -326,16 +429,47 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
     }
 }
 
+/**
+ * The Spotify tab's place, and closing it: Spotless leaves Spotify Connect,
+ * and the queue goes on wherever it plays.
+ */
 @Composable
-private fun Summary(core: Core, selecting: Boolean) {
+private fun SpotifyTabEditor(core: Core, id: ULong, at: Int, done: () -> Unit) {
+    val tabs = core.tabs.tabs
+    Column(
+        Modifier.fillMaxWidth().padding(8.dp).background(Classic.frame).bevel().padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        BasicText(
+            "Your account's queue, with Spotless as a Spotify Connect device. Closed, Spotless leaves Connect; + opens it again.",
+            style = body(13.sp, Classic.label, FontWeight.Normal),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton("◀", { core.apply(Action.MovePlaylist(id, (at - 1).toUInt())) }, enabled = at > 0)
+            TextButton("▶", { core.apply(Action.MovePlaylist(id, (at + 1).toUInt())) }, enabled = at < tabs.lastIndex)
+            Box(Modifier.weight(1f))
+            TextButton("CLOSE", {
+                core.apply(Action.ClosePlaylist(id))
+                done()
+            })
+            GlyphButton(Glyph.Close, "Done", done, Modifier.width(48.dp))
+        }
+    }
+}
+
+@Composable
+private fun Summary(core: Core, queue: SpotifyView?, selecting: Boolean) {
     val list = core.playlist
+    val tab = core.tabs.tabs.firstOrNull { it.id == core.tabs.viewed }
     val text = when {
+        selecting && queue != null -> "TAP ADD/DROP · HOLD RANGE"
         selecting -> "TAP ADD/DROP · HOLD RANGE · DRAG ≡ MOVE"
+        queue != null && tab != null -> "${songs(queue.toCome.toInt())} TO COME · ${clock(tab.durationMs.toLong())}"
         list != null -> "${songs(list.songs.size)} · ${clock(list.durationMs.toLong())}"
         else -> ""
     }
     // CLEAR asks once more, and stops asking after a while.
-    var clearing by remember(list?.id) { mutableStateOf(false) }
+    var clearing by remember(core.tabs.viewed) { mutableStateOf(false) }
     LaunchedEffect(clearing) {
         if (clearing) {
             delay(4000)
@@ -350,23 +484,29 @@ private fun Summary(core: Core, selecting: Boolean) {
         BasicText(text, style = label(12.sp, Classic.label, 0.06.em))
         if (selecting) return@Row
         val message = core.message
-        val hint = if (list?.songs?.isNotEmpty() == true) "HOLD A SONG TO SELECT" else ""
+        val hint = when {
+            queue != null -> queue.whereItPlays
+            list?.songs?.isNotEmpty() == true -> "HOLD A SONG TO SELECT"
+            else -> ""
+        }
         Line(
             if (clearing) "" else message?.text ?: hint,
             label(12.sp, if (message?.error == true) Classic.warning else Classic.label, 0.02.em)
                 .copy(textAlign = TextAlign.End),
             Modifier.weight(1f),
         )
-        if (list != null && list.songs.isNotEmpty()) {
+        // The queue's CLEAR stops it and empties it, wherever it plays.
+        val count = if (queue != null) queue.toCome.toInt() else list?.songs?.size ?: 0
+        if (count > 0) {
             ChromeButton({
                 if (clearing) {
-                    core.clear(list.id)
+                    if (queue != null) core.apply(Action.ClearSpotify) else list?.let { core.clear(it.id) }
                     clearing = false
                 } else {
                     clearing = true
                 }
             }, Modifier.height(32.dp), on = clearing) {
-                val words = if (clearing) "CLEAR ${songs(list.songs.size)}?" else "CLEAR"
+                val words = if (clearing) "CLEAR ${songs(count)}?" else "CLEAR"
                 BasicText(words, style = label(11.sp, if (clearing) Classic.lcd else Classic.chrome))
             }
         }
@@ -446,7 +586,7 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
                         else -> 0f
                     }
                     SongRow(
-                        index, song,
+                        index + 1, song,
                         current = song.entry == list.cursor,
                         chosen = chosen,
                         selecting = selected.isNotEmpty(),
@@ -536,9 +676,14 @@ private fun AlbumHeader(song: Song, chosen: Boolean, tap: () -> Unit, hold: () -
     }
 }
 
+/**
+ * A song: its number (none in the queue), title, artists, Q mark and
+ * length, and while selecting the handle that moves it (none where songs
+ * can't move). A song played already is [faded].
+ */
 @Composable
 private fun SongRow(
-    index: Int,
+    number: Int?,
     song: Song,
     current: Boolean,
     chosen: Boolean,
@@ -547,9 +692,14 @@ private fun SongRow(
     modifier: Modifier,
     tap: () -> Unit,
     hold: () -> Unit,
-    handle: Modifier,
+    handle: Modifier?,
+    faded: Boolean = false,
 ) {
-    val fg = if (current || chosen) Classic.current else Classic.list
+    val fg = when {
+        current || chosen -> Classic.current
+        faded -> Classic.dim
+        else -> Classic.list
+    }
     val sub = when {
         chosen -> Color(0xFFD6DCFF)
         current -> Classic.chrome
@@ -567,21 +717,23 @@ private fun SongRow(
             .height(ROW)
             .background(bg)
             .combinedClickable(onLongClick = hold, onClick = tap)
-            .padding(start = 8.dp, end = if (selecting) 4.dp else 18.dp),
+            .padding(start = if (number == null) 12.dp else 8.dp, end = if (selecting && handle != null) 4.dp else 18.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BasicText(
-            "${index + 1}.", Modifier.width(30.dp),
-            mono(color = if (current || chosen) Classic.current else Classic.dim).copy(textAlign = TextAlign.End),
-        )
+        if (number != null) {
+            BasicText(
+                "$number.", Modifier.width(30.dp),
+                mono(color = if (current || chosen) Classic.current else Classic.dim).copy(textAlign = TextAlign.End),
+            )
+        }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Line(song.track.title, body(color = fg))
             Line(song.track.artists.joinToString(", ") { it.name }, body(13.sp, sub, FontWeight.Normal))
         }
         song.mark?.let { BasicText("Q$it", style = mono(13.sp, Classic.lcd)) }
         BasicText(clock(song.track.durationMs.toLong()), style = mono(color = fg))
-        if (selecting) {
+        if (selecting && handle != null) {
             Box(
                 handle
                     .width(40.dp)
@@ -590,6 +742,88 @@ private fun SongRow(
                 contentAlignment = Alignment.Center,
             ) {
                 Box(Modifier.size(18.dp).drawBehind { glyph(Glyph.Menu, sub) })
+            }
+        }
+    }
+}
+
+/**
+ * The Spotify tab's songs: what played, dimmed; the song playing; then
+ * each run to come under its heading. Tapping a song to come plays the
+ * queue here from it, taking it over from another device; tapping the song
+ * playing plays it here.
+ */
+@Composable
+private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, select: (Set<ULong>) -> Unit, modifier: Modifier) {
+    val id = core.tabs.viewed
+    val songs = queueSongs(queue)
+    var anchor by remember { mutableStateOf<ULong?>(null) }
+    val state = rememberLazyListState()
+    // Opened on the song playing, below the ones played.
+    val now = queue.rows.indexOfFirst { it is SpotifyRow.Song && it.played == Played.NOW }
+    LaunchedEffect(now >= 0) {
+        if (now > 0) state.scrollToItem(now - 1)
+    }
+    Box(modifier.fillMaxWidth().padding(horizontal = 8.dp).lcd().padding(2.dp)) {
+        if (songs.none { it.played != Played.BEFORE }) {
+            BasicText(
+                if (queue.heldHere) {
+                    "Nothing to play. Add songs from Browse, or play something on another device."
+                } else {
+                    "Nothing to play. Play something on another device, or pick Spotless in Spotify's list of devices."
+                },
+                Modifier.padding(16.dp),
+                body(color = Classic.dim),
+            )
+            return@Box
+        }
+        LazyColumn(Modifier.fillMaxSize(), state) {
+            for (row in queue.rows) {
+                when (row) {
+                    is SpotifyRow.Heading -> item {
+                        Box(
+                            Modifier.fillMaxWidth().height(HEADER).background(Classic.playingRow).padding(start = 12.dp),
+                            contentAlignment = Alignment.CenterStart,
+                        ) {
+                            Line(row.title.uppercase(), label(12.sp, Classic.lcd, 0.06.em))
+                        }
+                    }
+                    is SpotifyRow.Song -> item(key = row.entry.toLong()) {
+                        val chosen = row.entry in selected
+                        val index = songs.indexOf(row)
+                        SongRow(
+                            null, Song(row.entry, row.track, null),
+                            current = row.played == Played.NOW,
+                            chosen = chosen,
+                            selecting = selected.isNotEmpty(),
+                            lifted = false,
+                            modifier = Modifier,
+                            tap = {
+                                when {
+                                    // What played before can't be played from.
+                                    selected.isEmpty() -> if (row.played != Played.BEFORE) core.apply(Action.PlayEntry(id, row.entry))
+                                    chosen -> select((selected - row.entry).toSet())
+                                    else -> {
+                                        anchor = row.entry
+                                        select((selected + row.entry).toSet())
+                                    }
+                                }
+                            },
+                            hold = {
+                                val from = songs.indexOfFirst { it.entry == anchor }
+                                if (anchor in selected && from >= 0) {
+                                    val range = songs.slice(minOf(from, index)..maxOf(from, index))
+                                    select((selected + range.map { it.entry }).toSet())
+                                } else {
+                                    anchor = row.entry
+                                    select((selected + row.entry).toSet())
+                                }
+                            },
+                            handle = null,
+                            faded = row.played == Played.BEFORE,
+                        )
+                    }
+                }
             }
         }
     }

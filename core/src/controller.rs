@@ -682,6 +682,20 @@ impl Controller {
                 self.mark_unsaved();
                 return None;
             }
+            // The system wants the sound gone (Android): the queue playing
+            // here pauses, besides the local song letting go.
+            Action::Release
+                if self.state.spotify_playing()
+                    && self
+                        .state
+                        .spotify
+                        .as_ref()
+                        .is_some_and(|q| q.playing_here()) =>
+            {
+                self.state.spotify_starting = None;
+                self.send(Command::Spotify(SpotifyRequest::Pause));
+                return Some(Action::Release);
+            }
             Action::SetSpotifyTabEnabled(on) => {
                 self.state.settings.spotify_tab_enabled = on;
                 if on {
@@ -991,7 +1005,7 @@ impl Controller {
             .is_some_and(SpotifyQueue::held_here)
         {
             self.state.error = Some(
-                "Spotify only takes songs for the queue from the device playing it: play it here first, with Enter on a song in the Spotify tab.".into(),
+                "Spotify only takes songs for the queue from the device playing it: play it here first, from a song in the Spotify tab.".into(),
             );
             return;
         }
@@ -1453,6 +1467,41 @@ mod tests {
             ..elsewhere
         })));
         assert_eq!(rig.controller.state().now_playing().status, Status::Playing);
+    }
+
+    #[test]
+    fn release_pauses_the_queue_playing_here_but_not_elsewhere() {
+        let mut rig = Rig::new("release");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        let elsewhere = SpotifyQueue {
+            device: Some("Phone".into()),
+            device_id: Some("phone".into()),
+            status: Status::Playing,
+            now: Some(entry(7).track),
+            ..SpotifyQueue::default()
+        };
+        rig.tell(Event::Spotify(Some(elsewhere.clone())));
+        rig.controller.apply(Action::PlayEntry(
+            PlaylistId::SPOTIFY,
+            SpotifyQueue::row_id(0),
+        ));
+        let paused = |rig: &mut Rig| {
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::Spotify(SpotifyRequest::Pause)))
+        };
+        rig.tell(Event::Spotify(Some(SpotifyQueue {
+            here: true,
+            ..elsewhere.clone()
+        })));
+        rig.sent();
+        rig.controller.apply(Action::Release);
+        assert!(paused(&mut rig));
+        // Handed to another device, the queue is no sound here to let go.
+        rig.tell(Event::Spotify(Some(elsewhere)));
+        rig.sent();
+        rig.controller.apply(Action::Release);
+        assert!(!paused(&mut rig));
     }
 
     #[test]

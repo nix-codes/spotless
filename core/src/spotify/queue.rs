@@ -99,6 +99,19 @@ impl SpotifyQueue {
         }
     }
 
+    /// Where the queue plays, and how, in a line for the tab's top.
+    pub fn where_it_plays(&self) -> String {
+        match (&self.device, self.here, self.shown_status()) {
+            (None, _, _) => "Nothing is playing on your account.".into(),
+            (Some(_), true, Status::Playing) => "Playing here.".into(),
+            (Some(_), true, Status::Stopped) => "Stopped here.".into(),
+            (Some(_), true, _) => "Paused here.".into(),
+            (Some(device), false, Status::Playing) => format!("Playing on {device}."),
+            (Some(device), false, Status::Stopped) => format!("Stopped on {device}."),
+            (Some(device), false, _) => format!("Paused on {device}."),
+        }
+    }
+
     /// The tab's rows in order: before, now, then each part.
     pub fn rows(&self) -> impl Iterator<Item = Row<'_>> {
         self.before

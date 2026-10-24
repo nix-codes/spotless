@@ -284,6 +284,15 @@ private fun ArtistBar(core: Core, page: BrowsePage.Artist) {
                     { core.apply(Action.ToggleSort) },
                 )
             }
+            // Every release of the tab opened, or all closed again.
+            val releases = ready?.releases.orEmpty()
+            if (!similar && releases.isNotEmpty()) {
+                val open = releases.all { it.expanded }
+                TextButton(
+                    if (open) "HIDE SONGS" else "ALL SONGS",
+                    { core.apply(Action.ExpandAlbums(if (open) emptyList() else releases.map { it.release.uri })) },
+                )
+            }
             Box(Modifier.weight(1f))
             if (ready?.similarOffered == true) {
                 TextButton("SIMILAR", { core.apply(Action.ShowSimilar(ready.artist)) }, on = similar)

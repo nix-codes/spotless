@@ -162,6 +162,11 @@ impl Spotless {
         view::playlist(self.lock().state(), PlaylistId(id))
     }
 
+    /// The Spotify tab's queue, while the tab shows.
+    pub fn spotify(&self) -> Option<SpotifyView> {
+        view::spotify(self.lock().state())
+    }
+
     pub fn browse(&self) -> BrowseView {
         view::browse(self.lock().state())
     }
@@ -187,6 +192,10 @@ fn entries(ids: Vec<u64>) -> Vec<EntryId> {
 
 /// What the screens ask for: the core's actions, less the desktop's own
 /// (audio outputs, the PL switch, drags onto the slim column).
+///
+/// The Spotify tab is a tab like the playlists, by its ID in [`Tab`]: its
+/// songs are played, removed and copied by the entries [`SpotifyView`]
+/// gives them.
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum Action {
     SignIn,
@@ -299,6 +308,10 @@ pub enum Action {
     ToggleAlbum {
         album: String,
     },
+    /// Shows these albums' songs, or hides them all with an empty list.
+    ExpandAlbums {
+        albums: Vec<String>,
+    },
     SetTab {
         tab: ReleaseTab,
     },
@@ -325,6 +338,21 @@ pub enum Action {
     /// Puts a song after the target playlist's current one and plays it.
     PlayNow {
         track: Track,
+    },
+    /// Copies songs to the end of a playlist (the Spotify tab's: queues
+    /// them).
+    CopyTo {
+        playlist: u64,
+        tracks: Vec<Track>,
+    },
+    /// Empties the Spotify tab: stops, and drops the song, the queue and
+    /// the album or playlist it plays from.
+    ClearSpotify,
+    /// Opens the Spotify tab again, closed with ClosePlaylist like any tab.
+    OpenSpotifyTab,
+    /// The Spotify tab can be used, or not (Settings).
+    SetSpotifyTabEnabled {
+        on: bool,
     },
 }
 
@@ -385,6 +413,7 @@ impl From<Action> for spotless_core::action::Action {
             Action::ForgetSearch { query } => Core::ForgetSearch(query),
             Action::OpenArtist { artist } => Core::OpenArtist(artist.into()),
             Action::ToggleAlbum { album } => Core::ToggleAlbum(album),
+            Action::ExpandAlbums { albums } => Core::ExpandAlbums(albums),
             Action::SetTab { tab } => Core::SetTab(tab.into()),
             Action::ShowSimilar { artist } => Core::ShowSimilar(artist.into()),
             Action::OpenSimilar { name } => Core::OpenSimilar(name),
@@ -396,6 +425,13 @@ impl From<Action> for spotless_core::action::Action {
             }
             Action::AddAlbum { album } => Core::AddAlbum(album),
             Action::PlayNow { track } => Core::PlayNow(track.into()),
+            Action::CopyTo { playlist, tracks } => Core::CopyTo(
+                PlaylistId(playlist),
+                tracks.into_iter().map(Into::into).collect(),
+            ),
+            Action::ClearSpotify => Core::ClearSpotify,
+            Action::OpenSpotifyTab => Core::OpenSpotifyTab,
+            Action::SetSpotifyTabEnabled { on } => Core::SetSpotifyTabEnabled(on),
         }
     }
 }

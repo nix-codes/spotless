@@ -24,7 +24,6 @@ use super::widgets::{
 };
 use super::{Inputs, View, spotify_view};
 use crate::action::{Action, Actions};
-use crate::backend::SPOTIFY_TAB;
 use crate::model::{EntryId, Playlist, PlaylistId};
 use crate::playback::engine::Status;
 
@@ -221,8 +220,7 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
                 drawn.push((list.id, rect));
             }
             // With the Spotify tab closed, + opens it too.
-            let spotify_closed =
-                SPOTIFY_TAB && view.settings.spotify_tab_enabled && !view.settings.spotify_tab;
+            let spotify_closed = view.settings.spotify_tab_enabled && !view.settings.spotify_tab;
             let plus = small_button(ui, &palette, "+", false);
             if !spotify_closed {
                 if plus.on_hover_text("New playlist").clicked() {

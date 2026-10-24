@@ -24,7 +24,6 @@ use super::widgets::{drag_ghost, small_action};
 use super::{Inputs, View};
 use crate::action::{Action, Actions};
 use crate::model::{EntryId, PlaylistId};
-use crate::playback::engine::Status;
 use crate::spotify::queue::{Row, SpotifyQueue};
 
 const ROW_HEIGHT: f32 = 18.0;
@@ -70,7 +69,7 @@ pub fn draw(
     }
 
     ui.scope_builder(UiBuilder::new().max_rect(rows), |ui| {
-        ui.label(RichText::new(where_it_plays(queue)).color(palette.chrome));
+        ui.label(RichText::new(queue.where_it_plays()).color(palette.chrome));
         ui.add_space(4.0);
         if queue.now.is_none() && queue.parts.is_empty() {
             ui.label(
@@ -127,18 +126,6 @@ pub fn draw(
             n => format!("{n} songs"),
         };
         drag_ghost(ui, &palette, &count);
-    }
-}
-
-fn where_it_plays(queue: &SpotifyQueue) -> String {
-    match (&queue.device, queue.here, queue.shown_status()) {
-        (None, _, _) => "Nothing is playing on your account.".into(),
-        (Some(_), true, Status::Playing) => "Playing here.".into(),
-        (Some(_), true, Status::Stopped) => "Stopped here.".into(),
-        (Some(_), true, _) => "Paused here.".into(),
-        (Some(device), false, Status::Playing) => format!("Playing on {device}."),
-        (Some(device), false, Status::Stopped) => format!("Stopped on {device}."),
-        (Some(device), false, _) => format!("Paused on {device}."),
     }
 }
 

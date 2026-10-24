@@ -24,6 +24,7 @@ import dev.spotless.core.Message
 import dev.spotless.core.PlaylistView
 import dev.spotless.core.Session
 import dev.spotless.core.Spotless
+import dev.spotless.core.SpotifyView
 import dev.spotless.core.Status
 import dev.spotless.ui.Classic
 
@@ -80,6 +81,9 @@ class Core(private val context: Context) : Host {
     /** The playlist the tabs show. */
     var playlist by mutableStateOf<PlaylistView?>(null)
         private set
+    /** The Spotify tab's queue, while the tab shows. */
+    var spotify by mutableStateOf<SpotifyView?>(null)
+        private set
     var browse by mutableStateOf(spotless.browse())
         private set
     var message by mutableStateOf<Message?>(null)
@@ -129,15 +133,22 @@ class Core(private val context: Context) : Host {
     }
 
     /**
+     * The player as this phone plays it: the Spotify tab's queue playing on
+     * another device is no sound here, so it takes no audio focus, media
+     * session or service from the app that may be playing it.
+     */
+    private val heard get() = if (player.here) player.status else Status.STOPPED
+
+    /**
      * The app was swiped away. A song playing goes on; a paused one is let
      * go (Play later goes on where it was), and the service, its
      * notification and the media controls with it, so Android can end the
      * app and another player gets the headset's buttons.
      */
     fun closed() {
-        if (player.status == Status.PLAYING || player.status == Status.LOADING) return
+        if (heard == Status.PLAYING || heard == Status.LOADING) return
         closedPaused = true
-        if (player.status != Status.STOPPED) apply(Action.Release)
+        if (heard != Status.STOPPED) apply(Action.Release)
         spotless.save()
         main.removeCallbacks(release)
         service(start = false)
@@ -173,6 +184,7 @@ class Core(private val context: Context) : Host {
         player = spotless.player()
         tabs = spotless.tabs()
         playlist = spotless.playlist(tabs.viewed)
+        spotify = spotless.spotify()
         browse = spotless.browse()
         message = spotless.message()
         val was = settings.phosphor
@@ -187,7 +199,7 @@ class Core(private val context: Context) : Host {
             bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(image.rgba))
             covers[cover.url] = bitmap.asImageBitmap()
         }
-        media.update(player, cover(player.track?.coverUrl))
+        media.update(if (player.here) player else player.copy(status = Status.STOPPED), cover(player.track?.coverUrl))
         main.removeCallbacks(tick)
         if (player.status == Status.PLAYING) main.postDelayed(tick, 500)
         if (saveIn != null) {
@@ -213,15 +225,15 @@ class Core(private val context: Context) : Host {
      * forever.
      */
     private fun keepAlive() {
-        if (player.status != Status.PAUSED) {
+        if (heard != Status.PAUSED) {
             main.removeCallbacks(putAway)
         } else if (!main.hasCallbacks(putAway)) {
             main.postDelayed(putAway, PAUSED_FOR)
         }
-        val playing = player.status == Status.PLAYING || player.status == Status.LOADING
+        val playing = heard == Status.PLAYING || heard == Status.LOADING
         if (playing) closedPaused = false
         val needed = approving || session == Session.SigningIn ||
-            (player.status != Status.STOPPED && !closedPaused)
+            (heard != Status.STOPPED && !closedPaused)
         if (needed) {
             main.removeCallbacks(release)
             if (!PlaybackService.running) service(start = true)

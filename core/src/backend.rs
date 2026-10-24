@@ -110,10 +110,6 @@ pub enum SpotifyRequest {
     Clear,
 }
 
-/// The Spotify tab is on: Spotless joins Spotify Connect as a device and
-/// shows the account's queue. Not on Android yet.
-pub const SPOTIFY_TAB: bool = !cfg!(target_os = "android");
-
 /// What Spotless keeps on disk that can be thrown away.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Store {
@@ -647,8 +643,7 @@ impl Worker {
 
     /// Starts the Spotify tab's device, unless it runs or is starting.
     fn start_remote(&mut self) {
-        if !SPOTIFY_TAB
-            || !self.spotify_tab
+        if !self.spotify_tab
             || self.remote.is_some()
             || self.remote_starting
             || self.session.is_none()

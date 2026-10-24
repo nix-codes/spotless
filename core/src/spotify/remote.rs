@@ -27,7 +27,11 @@ use super::catalog;
 use super::queue::{Part, Queued, SpotifyQueue};
 use crate::model::TrackRef;
 use crate::paths::Paths;
+#[cfg(target_os = "android")]
+use crate::playback::aaudio::AAudioSink;
 use crate::playback::engine::Status;
+use crate::playback::sink::ErrorHook;
+#[cfg(not(target_os = "android"))]
 use crate::playback::sink::RodioSink;
 
 /// Changes are told once they have rested this long: a handover sends a
@@ -78,7 +82,9 @@ impl Remote {
         })
         .context("unable to create the mixer")?;
         mixer.set_volume(volume);
+        #[cfg(not(target_os = "android"))]
         let device = std::env::var("SPOTLESS_AUDIO_DEVICE").ok();
+        let on_error: ErrorHook = Box::new(|message| log::warn!("Spotify tab output: {message}"));
         let player = Player::new(
             PlayerConfig {
                 bitrate: Bitrate::Bitrate320,
@@ -90,16 +96,18 @@ impl Remote {
             },
             session.clone(),
             mixer.get_soft_volume(),
-            move || {
-                Box::new(RodioSink::new(
-                    device,
-                    Box::new(|message| log::warn!("Spotify tab output: {message}")),
-                ))
-            },
+            #[cfg(not(target_os = "android"))]
+            move || Box::new(RodioSink::new(device, on_error)),
+            #[cfg(target_os = "android")]
+            move || Box::new(AAudioSink::new(on_error)),
         );
         let connect = ConnectConfig {
             name: "Spotless".into(),
-            device_type: DeviceType::Computer,
+            device_type: if cfg!(target_os = "android") {
+                DeviceType::Smartphone
+            } else {
+                DeviceType::Computer
+            },
             initial_volume: volume,
             // Spotless's own slider sets it.
             disable_volume: true,

@@ -201,6 +201,8 @@ private fun Playback(core: Core) {
     Section("PLAYBACK") {
         Item("Volume levelling") { Switch(on) { core.apply(Action.SetLevelling(it)) } }
         Note("Evens out loudness between songs and albums.")
+        Item("Spotify tab") { Switch(core.settings.spotifyTabEnabled) { core.apply(Action.SetSpotifyTabEnabled(it)) } }
+        Note("Your account's queue, as Spotify's apps show it, with Spotless as a Spotify Connect device to play it on.")
     }
 }
 
