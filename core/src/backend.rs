@@ -274,8 +274,9 @@ const RETRY_FIRST: Duration = Duration::from_secs(5);
 const RETRY_MOST: Duration = Duration::from_secs(120);
 /// How long PLAY HERE waits for the queue to come here and play it.
 const PLAY_HERE_WAIT: Duration = Duration::from_secs(10);
-/// Seeks on the queue go to Spotify at most this often, the last of a burst
-/// last: each is a request to Spotify, which refuses too many.
+/// A seek on the queue after one this recent waits, and goes to Spotify
+/// only once seeking has paused this long: each seek is a few requests to
+/// Spotify, which refuses too many.
 const SEEK_GAP: Duration = Duration::from_millis(400);
 
 /// Search signs in with the personal app, a second approval besides
@@ -340,9 +341,9 @@ struct Worker {
     queue: SpotifyQueue,
     /// When PLAY HERE asked for the queue: it plays once it is here.
     play_here_asked: Option<Instant>,
-    /// When a seek on the queue last went to Spotify, and the one waiting
-    /// for `SEEK_GAP` to pass.
-    seek_sent: Option<Instant>,
+    /// When the queue was last asked to seek, and the seek waiting for
+    /// seeking to pause.
+    seek_asked: Option<Instant>,
     seek_waiting: Option<u32>,
     /// Where remotes are handed over once started, and tell the queue.
     remotes: UnboundedSender<RemoteReport>,
@@ -382,7 +383,7 @@ impl Worker {
             remote: None,
             remote_starting: false,
             play_here_asked: None,
-            seek_sent: None,
+            seek_asked: None,
             seek_waiting: None,
             queue: SpotifyQueue::default(),
             remotes,
@@ -422,8 +423,8 @@ impl Worker {
         loop {
             let seek_due = self
                 .seek_waiting
-                .and(self.seek_sent)
-                .map(|sent| tokio::time::Instant::from_std(sent + SEEK_GAP));
+                .and(self.seek_asked)
+                .map(|asked| tokio::time::Instant::from_std(asked + SEEK_GAP));
             tokio::select! {
                 command = commands.recv() => {
                     let Some(command) = command else { break };
@@ -685,9 +686,10 @@ impl Worker {
             return;
         }
         if let SpotifyRequest::Seek(position) = request {
-            let gap_over = self.seek_sent.is_none_or(|at| at.elapsed() >= SEEK_GAP);
+            let quiet = self.seek_asked.is_none_or(|at| at.elapsed() >= SEEK_GAP);
+            self.seek_asked = Some(Instant::now());
             self.seek_waiting = Some(position);
-            if gap_over {
+            if quiet {
                 self.send_seek();
             }
             return;
@@ -702,7 +704,6 @@ impl Worker {
     /// Sends the seek waiting, if one is.
     fn send_seek(&mut self) {
         if let Some(position) = self.seek_waiting.take() {
-            self.seek_sent = Some(Instant::now());
             self.send_spotify(SpotifyRequest::Seek(position));
         }
     }
