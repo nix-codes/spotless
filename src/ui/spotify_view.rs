@@ -117,11 +117,13 @@ pub fn draw(
 }
 
 fn where_it_plays(queue: &SpotifyQueue) -> String {
-    match (&queue.device, queue.here, queue.status) {
+    match (&queue.device, queue.here, queue.shown_status()) {
         (None, _, _) => "Nothing is playing on your account.".into(),
         (Some(_), true, Status::Playing) => "Playing here.".into(),
+        (Some(_), true, Status::Stopped) => "Stopped here.".into(),
         (Some(_), true, _) => "Paused here.".into(),
         (Some(device), false, Status::Playing) => format!("Playing on {device}."),
+        (Some(device), false, Status::Stopped) => format!("Stopped on {device}."),
         (Some(device), false, _) => format!("Paused on {device}."),
     }
 }

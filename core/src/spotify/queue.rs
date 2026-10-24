@@ -9,6 +9,10 @@ use std::time::Instant;
 use crate::model::{Entry, EntryId, Playlist, PlaylistId, TrackRef};
 use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
 
+/// Paused this near a song's start, the queue shows as stopped: Spotify may
+/// report a seek to the start a little past it.
+const STOPPED_WITHIN_MS: u32 = 500;
+
 /// The Spotify tab's rows are numbered from here down, apart from any
 /// playlist's entries.
 const FIRST_ROW: u64 = u64::MAX;
@@ -75,6 +79,15 @@ impl SpotifyQueue {
     /// A device plays it, or has it paused.
     pub fn active(&self) -> bool {
         self.device.is_some() && self.status != Status::Stopped
+    }
+
+    /// The status the player shows: paused at the song's start is stopped,
+    /// as Spotify has no stop. The queue stays the player's all the same.
+    pub fn shown_status(&self) -> Status {
+        match self.status {
+            Status::Paused if self.position_ms < STOPPED_WITHIN_MS => Status::Stopped,
+            status => status,
+        }
     }
 
     /// The tab's rows in order: before, now, then each part.
@@ -151,7 +164,7 @@ impl SpotifyQueue {
             position_ms = position_ms.saturating_add(at.elapsed().as_millis() as u32);
         }
         PlayerSnapshot {
-            status: self.status,
+            status: self.shown_status(),
             track,
             position_ms,
             reported_at: Some(Instant::now()),
@@ -237,5 +250,17 @@ mod tests {
         queue.reported_at = Some(Instant::now() - std::time::Duration::from_secs(10));
         let position = queue.snapshot().position_now();
         assert!((11_000..12_000).contains(&position), "{position}");
+    }
+
+    #[test]
+    fn paused_at_the_start_it_shows_as_stopped_but_stays_the_players() {
+        let mut queue = queue();
+        queue.device = Some("Spotless".into());
+        queue.status = Status::Paused;
+        queue.position_ms = 120;
+        assert_eq!(queue.snapshot().status, Status::Stopped);
+        assert!(queue.active());
+        queue.position_ms = 30_000;
+        assert_eq!(queue.snapshot().status, Status::Paused);
     }
 }

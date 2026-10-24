@@ -567,7 +567,7 @@ impl Controller {
             Action::Play if shown => SpotifyRequest::PlayHere,
             Action::PlaySpotifyHere => SpotifyRequest::PlayHere,
             Action::TogglePause if here => SpotifyRequest::TogglePause,
-            Action::Stop if here => SpotifyRequest::Pause,
+            Action::Stop if here => SpotifyRequest::Stop,
             Action::Next if here => SpotifyRequest::Next,
             Action::Previous if here => SpotifyRequest::Previous,
             Action::Seek(position) if here => SpotifyRequest::Seek(position),

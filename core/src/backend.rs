@@ -85,6 +85,9 @@ pub enum Command {
 pub enum SpotifyRequest {
     Play,
     Pause,
+    /// Pauses at the song's start: Spotify has no stop, and a song paused
+    /// there shows as stopped.
+    Stop,
     TogglePause,
     Next,
     Previous,
@@ -668,16 +671,17 @@ impl Worker {
         }
         // Another device plays the queue: the player's buttons act on it.
         if let Some(device) = self.queue.device_id.clone().filter(|_| !self.queue.here) {
-            let (endpoint, value) = match request {
-                SpotifyRequest::Play => ("resume", None),
-                SpotifyRequest::Pause => ("pause", None),
+            let commands = match request {
+                SpotifyRequest::Play => vec![("resume", None)],
+                SpotifyRequest::Pause => vec![("pause", None)],
+                SpotifyRequest::Stop => vec![("pause", None), ("seek_to", Some(0))],
                 SpotifyRequest::TogglePause if self.queue.status == Status::Playing => {
-                    ("pause", None)
+                    vec![("pause", None)]
                 }
-                SpotifyRequest::TogglePause => ("resume", None),
-                SpotifyRequest::Next => ("skip_next", None),
-                SpotifyRequest::Previous => ("skip_prev", None),
-                SpotifyRequest::Seek(position) => ("seek_to", Some(position)),
+                SpotifyRequest::TogglePause => vec![("resume", None)],
+                SpotifyRequest::Next => vec![("skip_next", None)],
+                SpotifyRequest::Previous => vec![("skip_prev", None)],
+                SpotifyRequest::Seek(position) => vec![("seek_to", Some(position))],
                 // Spotify takes no queue changes from a device that watches.
                 SpotifyRequest::Add(_) | SpotifyRequest::Remove(_) | SpotifyRequest::PlayHere => {
                     return;
@@ -685,8 +689,11 @@ impl Worker {
             };
             let session = remote.session();
             tokio::spawn(async move {
-                if let Err(error) = devices::command(&session, &device, endpoint, value).await {
-                    log::warn!("{error:#}");
+                for (endpoint, value) in commands {
+                    if let Err(error) = devices::command(&session, &device, endpoint, value).await {
+                        log::warn!("{error:#}");
+                        return;
+                    }
                 }
             });
             return;
@@ -694,6 +701,10 @@ impl Worker {
         match request {
             SpotifyRequest::Play => remote.play(),
             SpotifyRequest::Pause => remote.pause(),
+            SpotifyRequest::Stop => {
+                remote.pause();
+                remote.seek(0);
+            }
             SpotifyRequest::TogglePause => remote.toggle_pause(),
             SpotifyRequest::Next => remote.next(),
             SpotifyRequest::Previous => remote.previous(),
