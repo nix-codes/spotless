@@ -56,6 +56,17 @@ impl Palette {
         button_lo: Color32::from_rgb(0x11, 0x11, 0x17),
     };
 
+    /// A button's label while it is on or under the pointer: the accent,
+    /// or on a light face, a darker shade of it that still reads.
+    pub fn button_lit(&self) -> Color32 {
+        use crate::skin::{contrast, mix};
+        [0.0, 0.45, 0.65]
+            .into_iter()
+            .map(|dark| mix(self.accent, Color32::BLACK, dark))
+            .find(|&lit| contrast(lit, self.button) >= 4.5)
+            .unwrap_or(self.button_text)
+    }
+
     /// These colours for a button's bevel: its own edges.
     pub fn for_buttons(&self) -> Self {
         Self {

@@ -218,7 +218,7 @@ fn label_color(
     if !enabled {
         palette.button_text.gamma_multiply(0.4)
     } else if (on || response.hovered()) && !skinned {
-        palette.accent
+        palette.button_lit()
     } else {
         palette.button_text
     }

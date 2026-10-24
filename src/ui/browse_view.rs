@@ -838,12 +838,28 @@ fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
                 .size(10.0)
                 .color(palette.chrome),
         );
+        // The box in the buttons' colours, which may be light; its list
+        // in the window's.
+        let window = ui.visuals().clone();
+        let visuals = ui.visuals_mut();
+        visuals.override_text_color = Some(palette.button_text);
+        for (widget, fill) in [
+            (&mut visuals.widgets.inactive, palette.button),
+            (&mut visuals.widgets.hovered, palette.button_hi),
+            (&mut visuals.widgets.active, palette.button_hi),
+            (&mut visuals.widgets.open, palette.button_hi),
+        ] {
+            widget.bg_fill = fill;
+            widget.weak_bg_fill = fill;
+            widget.fg_stroke.color = palette.button_text;
+        }
         egui::ComboBox::from_id_salt("add-target")
             .selected_text(&target.name)
             .width(ui.available_width())
             .show_ui(ui, |ui| {
-                let spotify = view.spotify.map(|_| view.spotify_list);
-                for list in spotify.into_iter().chain(view.library.playlists()) {
+                *ui.visuals_mut() = window;
+                for &id in view.tabs {
+                    let Some(list) = view.list(id) else { continue };
                     if ui
                         .selectable_label(list.id == target.id, &list.name)
                         .clicked()

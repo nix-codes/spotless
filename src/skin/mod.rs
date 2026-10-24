@@ -401,7 +401,7 @@ fn text_on(background: Color32) -> Color32 {
 }
 
 /// `t` of the way from `a` to `b`.
-fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
+pub(crate) fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
     let channel = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t).round() as u8;
     Color32::from_rgb(
         channel(a.r(), b.r()),
@@ -411,7 +411,7 @@ fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
 }
 
 /// WCAG's relative luminance, 0 for black to 1 for white.
-fn luminance(c: Color32) -> f32 {
+pub(crate) fn luminance(c: Color32) -> f32 {
     let linear = |v: u8| {
         let v = f32::from(v) / 255.0;
         if v <= 0.040_45 {
@@ -424,7 +424,7 @@ fn luminance(c: Color32) -> f32 {
 }
 
 /// WCAG's contrast ratio, 1 to 21.
-fn contrast(a: Color32, b: Color32) -> f32 {
+pub(crate) fn contrast(a: Color32, b: Color32) -> f32 {
     let (a, b) = (luminance(a), luminance(b));
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
 }
