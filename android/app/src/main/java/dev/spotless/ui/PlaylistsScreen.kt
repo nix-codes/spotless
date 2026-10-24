@@ -71,6 +71,15 @@ import dev.spotless.core.SpotifyRow
 import dev.spotless.core.SpotifyView
 import dev.spotless.core.Track
 import kotlin.math.abs
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.withFrameMillis
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import dev.spotless.core.Status
+import kotlin.math.sin
 
 private val ROW = 52.dp
 private val HEADER = 30.dp
@@ -315,7 +324,14 @@ private fun Tabs(core: Core, edit: (ULong) -> Unit, add: () -> Unit) {
                     },
                 on = on,
             ) {
-                BasicText(tab.name, style = body(14.sp, if (on) Classic.lcd else Classic.chrome))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // The playing tab's mark: bars while a song plays, ▶ paused.
+                    if (tab.id == core.player.playlist) {
+                        if (core.player.status == Status.PLAYING) DancingBars() else PlayMark()
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    BasicText(tab.name, style = body(14.sp, if (on) Classic.lcd else Classic.chrome))
+                }
             }
         }
         item {
@@ -329,6 +345,42 @@ private fun Tabs(core: Core, edit: (ULong) -> Unit, add: () -> Unit) {
                 BasicText("+", style = label(20.sp))
             }
         }
+    }
+}
+
+/** Three bars bouncing like a level meter, as the desktop's playing tab has. */
+@Composable
+private fun DancingBars() {
+    val time by produceState(0f) {
+        val start = withFrameMillis { it }
+        while (true) withFrameMillis { value = (it - start) / 1000f }
+    }
+    Canvas(Modifier.size(9.dp, 10.dp)) {
+        val unit = size.width / 9f
+        listOf(7f to 0f, 9.5f to 1.3f, 6f to 2.4f).forEachIndexed { n, (speed, phase) ->
+            val height = size.height * (2f + 7f * abs(sin(time * speed + phase))) / 9f
+            drawRect(
+                Classic.lcd,
+                topLeft = Offset(n * 3.5f * unit, size.height - height),
+                size = Size(2.5f * unit, height),
+            )
+        }
+    }
+}
+
+/** The playing tab's mark while its song is paused. */
+@Composable
+private fun PlayMark() {
+    Canvas(Modifier.size(9.dp, 10.dp)) {
+        drawPath(
+            Path().apply {
+                moveTo(size.width * 0.15f, 0f)
+                lineTo(size.width * 0.95f, size.height / 2)
+                lineTo(size.width * 0.15f, size.height)
+                close()
+            },
+            Classic.lcd,
+        )
     }
 }
 
