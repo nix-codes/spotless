@@ -47,6 +47,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
         &[
             ("Ctrl+Tab", "Next playlist"),
             ("Ctrl+Shift+Tab", "Previous playlist"),
+            ("Ctrl+PgDn / PgUp", "Next / previous playlist"),
             ("Ctrl+1 … 9", "Playlist 1 … 9"),
             ("Ctrl+T", "New playlist"),
             ("Ctrl+W", "Close the tab"),
@@ -222,8 +223,10 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
         }
     };
     let at = lists.iter().position(|&id| id == current).unwrap_or(0);
-    let step = held(i, Modifiers::COMMAND, Key::Tab) as isize
-        - held(i, Modifiers::COMMAND | Modifiers::SHIFT, Key::Tab) as isize;
+    let next = held(i, Modifiers::COMMAND, Key::Tab) + held(i, Modifiers::COMMAND, Key::PageDown);
+    let previous = held(i, Modifiers::COMMAND | Modifiers::SHIFT, Key::Tab)
+        + held(i, Modifiers::COMMAND, Key::PageUp);
+    let step = next as isize - previous as isize;
     if step != 0 {
         let to = (at as isize + step).rem_euclid(lists.len() as isize) as usize;
         actions.push(choose(lists[to]));
