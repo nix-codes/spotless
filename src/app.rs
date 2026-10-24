@@ -357,6 +357,7 @@ impl eframe::App for App {
             .or_else(|| state.library.get(PlaylistId::DEFAULT))
             .expect("Default always exists");
         let player = state.now_playing();
+        let tabs = state.tabs();
         let view = View {
             palette: self.palette,
             session: &state.session,
@@ -367,6 +368,7 @@ impl eframe::App for App {
             shuffle: state.transport.playback.shuffle(),
             repeat: state.transport.playback.repeat,
             library: &state.library,
+            tabs: &tabs,
             playing_list: state.playing_list(),
             spotify: state.spotify.as_ref(),
             spotify_list: &state.spotify_list,

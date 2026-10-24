@@ -30,6 +30,16 @@ use crate::playback::engine::Status;
 
 const ROW_HEIGHT: f32 = 18.0;
 const TAB_HEIGHT: f32 = 22.0;
+const TAB_GAP: f32 = 3.0;
+/// The time a tab takes to slide to its new place.
+const TAB_SLIDE: f32 = 0.12;
+const NAME_FONT: FontId = FontId::proportional(12.5);
+const COUNT_FONT: FontId = FontId::monospace(9.0);
+/// Room in a tab for ▶ and for ✕.
+const PLAY_WIDTH: f32 = 12.0;
+const CLOSE_WIDTH: f32 = 14.0;
+/// The tab being renamed.
+const RENAME_WIDTH: f32 = 152.0;
 const TOOLBAR_HEIGHT: f32 = 18.0;
 /// Between the tabs and the rows, and between the rows and the toolbar.
 const LIST_GAP: f32 = 16.0;
@@ -65,8 +75,11 @@ impl Selection {
 /// copied there.
 pub(super) struct RowDrag(pub Vec<EntryId>);
 
-/// A tab being dragged.
-struct TabDrag(PlaylistId);
+/// A tab being dragged, and how far along it the pointer took hold.
+struct TabDrag {
+    id: PlaylistId,
+    grab: f32,
+}
 
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     tab_bar(ui, view, inputs, actions);
@@ -119,37 +132,93 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
 
 fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
-    let mut tabs: Vec<(PlaylistId, Rect)> = Vec::new();
-    let mut spotify_tab = None;
+    let tabs: Vec<Tab> = view
+        .tabs
+        .iter()
+        .filter_map(|&id| match (id, view.spotify) {
+            (PlaylistId::SPOTIFY, Some(queue)) => Some(Tab {
+                id,
+                name: "Spotify",
+                count: queue.len(),
+                own: false,
+            }),
+            _ => view.library.get(id).map(|list| Tab {
+                id,
+                name: &list.name,
+                count: list.len(),
+                own: true,
+            }),
+        })
+        .collect();
+    let renaming = inputs.renaming.as_ref().map(|(id, _)| *id);
+    let widths: Vec<f32> = tabs
+        .iter()
+        .map(|t| {
+            if Some(t.id) == renaming {
+                RENAME_WIDTH
+            } else {
+                tab_width(ui, view, t)
+            }
+        })
+        .collect();
+    let total = widths.iter().sum::<f32>() + TAB_GAP * widths.len().saturating_sub(1) as f32;
+    let dragged = DragAndDrop::payload::<TabDrag>(ui.ctx()).and_then(|drag| {
+        let from = tabs.iter().position(|t| t.id == drag.id)?;
+        Some((from, drag.grab))
+    });
+    let mut drawn: Vec<(PlaylistId, Rect)> = Vec::new();
     let bar = ui
         .horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 3.0;
-            if let Some(queue) = view.spotify {
-                let spotify = Tab {
-                    id: PlaylistId::SPOTIFY,
-                    name: "Spotify",
-                    count: queue.len(),
-                    own: false,
-                };
-                spotify_tab = Some((PlaylistId::SPOTIFY, tab(ui, view, spotify, inputs, actions)));
-            }
-            for list in view.library.playlists() {
-                let rect = if inputs
-                    .renaming
-                    .as_ref()
-                    .is_some_and(|(id, _)| *id == list.id)
-                {
-                    rename_field(ui, list.id, &mut inputs.renaming, actions)
+            ui.spacing_mut().item_spacing.x = TAB_GAP;
+            let (strip, _) = ui.allocate_exact_size(vec2(total, TAB_HEIGHT), Sense::hover());
+            // The dragged tab follows the pointer along the strip.
+            let floating = dragged.and_then(|(from, grab)| {
+                let pointer = ui.ctx().pointer_interact_pos()?;
+                let left = (pointer.x - grab - strip.left()).clamp(0.0, total - widths[from]);
+                Some((from, left))
+            });
+            let (lefts, to) = tab_layout(&widths, floating);
+            let order = (0..tabs.len())
+                .filter(|&i| Some(i) != floating.map(|(from, _)| from))
+                .chain(floating.map(|(from, _)| from));
+            for i in order {
+                let list = &tabs[i];
+                let slide = if Some(i) == floating.map(|(from, _)| from) {
+                    0.0
                 } else {
-                    let own = Tab {
-                        id: list.id,
-                        name: &list.name,
-                        count: list.len(),
-                        own: true,
-                    };
-                    tab(ui, view, own, inputs, actions)
+                    TAB_SLIDE
                 };
-                tabs.push((list.id, rect));
+                let left = ui.ctx().animate_value_with_time(
+                    Id::new(("tab-left", list.id)),
+                    lefts[i],
+                    slide,
+                );
+                let rect = Rect::from_min_size(
+                    pos2(strip.left() + left, strip.top()),
+                    vec2(widths[i], TAB_HEIGHT),
+                );
+                if Some(list.id) == renaming {
+                    ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
+                        rename_field(ui, list.id, &mut inputs.renaming, actions);
+                    });
+                    drawn.push((list.id, rect));
+                    continue;
+                }
+                if slide == 0.0 && !skin_paint::has_chrome(ui.ctx(), "tab") {
+                    // Over the others, it hides them.
+                    ui.painter().rect_filled(rect, 0.0, palette.list_bg);
+                }
+                let response = tab(ui, view, list, rect, inputs, actions);
+                if slide == 0.0
+                    && response.drag_stopped()
+                    && let Some(to) = to
+                {
+                    DragAndDrop::clear_payload(ui.ctx());
+                    if to != i {
+                        actions.push(Action::MovePlaylist(list.id, to));
+                    }
+                }
+                drawn.push((list.id, rect));
             }
             // With the Spotify tab closed, + opens it too.
             let spotify_closed =
@@ -172,44 +241,41 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
         })
         .response
         .rect;
-    let all: Vec<_> = spotify_tab
-        .into_iter()
-        .chain(tabs.iter().copied())
-        .collect();
-    baseline(ui, view, &all, bar);
+    baseline(ui, view, &drawn, bar);
+}
 
-    // Reordering: drop a dragged tab between two others.
-    let Some(dragged) = DragAndDrop::payload::<TabDrag>(ui.ctx()) else {
-        return;
-    };
-    if let Some(name) = view.library.get(dragged.0).map(|l| l.name.clone()) {
-        drag_ghost(ui, &palette, &name);
+/// Where each tab's left edge goes, from the strip's start, and, while one
+/// is dragged (its index and left edge), the index it would move to. The
+/// others make room for it: it passes one once it reaches that one's middle.
+fn tab_layout(widths: &[f32], dragged: Option<(usize, f32)>) -> (Vec<f32>, Option<usize>) {
+    let mut lefts = Vec::with_capacity(widths.len());
+    let mut x = 0.0;
+    for &width in widths {
+        lefts.push(x);
+        x += width + TAB_GAP;
     }
-    let Some(pointer) = ui.ctx().pointer_interact_pos() else {
-        return;
+    let Some((from, left)) = dragged else {
+        return (lefts, None);
     };
-    if !bar.expand(8.0).contains(pointer) {
-        return;
-    }
-    let index = tabs
-        .iter()
-        .filter(|(_, r)| r.center().x < pointer.x)
+    let right = left + widths[from];
+    let middle = |i: usize| lefts[i] + widths[i] / 2.0;
+    let after = (from + 1..widths.len())
+        .filter(|&i| right > middle(i))
         .count();
-    let x = match tabs.get(index) {
-        Some((_, r)) => r.left() - 2.0,
-        None => tabs.last().map_or(bar.left(), |(_, r)| r.right() + 2.0),
-    };
-    ui.painter()
-        .vline(x, bar.y_range(), Stroke::new(2.0, palette.accent));
-    if ui.input(|i| i.pointer.any_released())
-        && let Some(dragged) = DragAndDrop::take_payload::<TabDrag>(ui.ctx())
-        && let Some(from) = tabs.iter().position(|(id, _)| *id == dragged.0)
-    {
-        let to = if from < index { index - 1 } else { index };
-        if to != from {
-            actions.push(Action::MovePlaylist(dragged.0, to));
+    let before = (0..from).filter(|&i| left < middle(i)).count();
+    let to = from + after - before;
+    let mut x = 0.0;
+    let mut placed = vec![0.0; widths.len()];
+    let others = (0..widths.len()).filter(|&i| i != from);
+    for (n, i) in others.enumerate() {
+        if n == to {
+            x += widths[from] + TAB_GAP;
         }
+        placed[i] = x;
+        x += widths[i] + TAB_GAP;
     }
+    placed[from] = left;
+    (placed, Some(to))
 }
 
 /// The line the tabs stand on, across the panel, broken under the
@@ -249,32 +315,49 @@ struct Tab<'a> {
     own: bool,
 }
 
-/// One tab: ▶ if playing, the name, the song count, ✕ unless Default.
-/// Rows dropped on it are copied there.
-fn tab(ui: &mut Ui, view: &View, list: Tab, inputs: &mut Inputs, actions: &mut Actions) -> Rect {
+/// The width of a tab: ▶ if playing, the name, the song count, ✕ unless
+/// Default.
+fn tab_width(ui: &Ui, view: &View, list: &Tab) -> f32 {
+    let width = |text: &str, font: FontId| {
+        ui.painter()
+            .layout_no_wrap(text.to_string(), font, view.palette.chrome)
+            .size()
+            .x
+    };
+    let play_width = if view.playing_list == Some(list.id) {
+        PLAY_WIDTH
+    } else {
+        0.0
+    };
+    let close_width = if list.id != PlaylistId::DEFAULT {
+        CLOSE_WIDTH
+    } else {
+        0.0
+    };
+    10.0 + play_width
+        + width(list.name, NAME_FONT)
+        + 6.0
+        + width(&list.count.to_string(), COUNT_FONT)
+        + close_width
+        + 10.0
+}
+
+/// One tab, in `rect`. Rows dropped on it are copied there.
+fn tab(
+    ui: &mut Ui,
+    view: &View,
+    list: &Tab,
+    rect: Rect,
+    inputs: &mut Inputs,
+    actions: &mut Actions,
+) -> egui::Response {
     let palette = view.palette;
     let shown = list.id == view.playlist.id;
     let playing = view.playing_list == Some(list.id);
     let closable = list.id != PlaylistId::DEFAULT;
-    let name_font = FontId::proportional(12.5);
-    let count_font = FontId::monospace(9.0);
     let count = list.count.to_string();
-    let width = |text: &str, font: &FontId| {
-        ui.painter()
-            .layout_no_wrap(text.to_string(), font.clone(), palette.chrome)
-            .size()
-            .x
-    };
-    let play_width = if playing { 12.0 } else { 0.0 };
-    let close_width = if closable { 14.0 } else { 0.0 };
-    let total = 10.0
-        + play_width
-        + width(list.name, &name_font)
-        + 6.0
-        + width(&count, &count_font)
-        + close_width
-        + 10.0;
-    let (rect, response) = ui.allocate_exact_size(vec2(total, TAB_HEIGHT), Sense::click_and_drag());
+    let play_width = if playing { PLAY_WIDTH } else { 0.0 };
+    let response = ui.interact(rect, Id::new(("tab", list.id)), Sense::click_and_drag());
     let painter = ui.painter();
     let state = skin_paint::state(&response, shown, true);
     let skinned = skin_paint::chrome(painter, "tab", state, rect);
@@ -321,14 +404,14 @@ fn tab(ui: &mut Ui, view: &View, list: Tab, inputs: &mut Inputs, actions: &mut A
         pos2(x, rect.center().y),
         Align2::LEFT_CENTER,
         list.name,
-        name_font,
+        NAME_FONT,
         text_color,
     );
     painter.text(
         pos2(name.right() + 6.0, rect.center().y),
         Align2::LEFT_CENTER,
         count,
-        count_font,
+        COUNT_FONT,
         count_color,
     );
     let close =
@@ -378,18 +461,26 @@ fn tab(ui: &mut Ui, view: &View, list: Tab, inputs: &mut Inputs, actions: &mut A
     } else if response.clicked() {
         actions.push(Action::SelectPlaylist(list.id));
     }
-    if response.drag_started() && list.own {
-        response.dnd_set_drag_payload(TabDrag(list.id));
+    if response.drag_started()
+        && let Some(pointer) = response.interact_pointer_pos()
+    {
+        DragAndDrop::set_payload(
+            ui.ctx(),
+            TabDrag {
+                id: list.id,
+                grab: pointer.x - rect.left(),
+            },
+        );
+    }
+    if DragAndDrop::has_payload_of_type::<TabDrag>(ui.ctx()) {
+        return response;
     }
     let hint = if !list.own {
-        "The account's queue, as Spotify plays it. Closed, Spotless leaves Spotify Connect; + opens it again"
-    } else if closable {
-        "Double-click to rename, drag to move"
+        "The account's queue, as Spotify plays it. Closed, Spotless leaves Spotify Connect; + opens it again. Drag to move"
     } else {
-        "Double-click to rename"
+        "Double-click to rename, drag to move"
     };
-    response.on_hover_text_at_pointer(hint);
-    rect
+    response.on_hover_text_at_pointer(hint)
 }
 
 /// Three bars bouncing like a level meter, centred on `c`: the playing
@@ -421,7 +512,7 @@ fn rename_field(
         ui,
         TextEdit::singleline(name)
             .id(Id::new(("rename", id)))
-            .desired_width(140.0)
+            .desired_width(RENAME_WIDTH - 12.0)
             .min_size(vec2(0.0, TAB_HEIGHT)),
     );
     if field.lost_focus() {
@@ -893,4 +984,152 @@ pub fn summary(list: &Playlist) -> String {
         format!("{}:{:02}", total / 60, total % 60)
     };
     format!("{songs} · {time}")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use egui::{Event, PointerButton, Pos2, RawInput, Vec2};
+
+    use super::*;
+    use crate::action::AnyAction;
+    use crate::backend::{SearchState, SessionState};
+    use crate::browse::{Browse, Loadable};
+    use crate::lastfm::LastFmState;
+    use crate::model::Library;
+    use crate::paths::Paths;
+    use crate::playback::engine::PlayerSnapshot;
+    use crate::spotify::queue::SpotifyQueue;
+    use crate::store::Settings;
+
+    /// Drags from `from` on the tab bar by `by`, in steps, and releases:
+    /// the actions the tab bar pushed meanwhile. With `spotify`, the
+    /// Spotify tab comes first.
+    fn drag_tab(library: &Library, spotify: bool, from: f32, by: Vec2) -> Vec<AnyAction> {
+        let root = std::env::temp_dir().join(format!("spotless-tabs-{}", std::process::id()));
+        let paths = Paths::from_dirs(root.join("config"), root.join("cache")).unwrap();
+        let settings = Settings::load(&paths);
+        let player = PlayerSnapshot::default();
+        let browse = Browse::new(PlaylistId::DEFAULT, false);
+        let covers = HashMap::new();
+        let lastfm = LastFmState::default();
+        let outputs = Loadable::Loading;
+        let spotify_list = Playlist::new(PlaylistId::SPOTIFY, "Spotify");
+        let queue = SpotifyQueue::default();
+        let tabs: Vec<_> = spotify
+            .then_some(PlaylistId::SPOTIFY)
+            .into_iter()
+            .chain(library.playlists().iter().map(|l| l.id))
+            .collect();
+        let view = View {
+            palette: Palette::CLASSIC,
+            session: &SessionState::SignedOut,
+            player: &player,
+            error: None,
+            notice: None,
+            playlist: library.get(PlaylistId::DEFAULT).unwrap(),
+            shuffle: false,
+            repeat: false,
+            library,
+            tabs: &tabs,
+            playing_list: None,
+            spotify: spotify.then_some(&queue),
+            spotify_list: &spotify_list,
+            browse: &browse,
+            covers: &covers,
+            search: &SearchState::SignedOut,
+            lastfm: &lastfm,
+            web_client_id: None,
+            settings: &settings,
+            storage: None,
+            outputs: &outputs,
+            tray_shown: false,
+            art: None,
+            skin_note: None,
+            skin_error: None,
+        };
+        let ctx = egui::Context::default();
+        let mut inputs = Inputs::default();
+        let mut actions = Actions::default();
+        let mut time = 0.0;
+        let mut frame = |events: Vec<Event>, actions: &mut Actions| {
+            time += 0.2;
+            let raw = RawInput {
+                time: Some(time),
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 400.0))),
+                events,
+                ..RawInput::default()
+            };
+            let mut output = ctx.run_ui(raw, |ui| {
+                tab_bar(ui, &view, &mut inputs, actions);
+            });
+            output.textures_delta.clear();
+        };
+        let start = pos2(from, 11.0);
+        let button = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        frame(vec![Event::PointerMoved(start)], &mut actions);
+        frame(vec![button(start, true)], &mut actions);
+        let steps = 10;
+        for n in 1..=steps {
+            let pos = start + by * n as f32 / steps as f32;
+            frame(vec![Event::PointerMoved(pos)], &mut actions);
+        }
+        let end = start + by;
+        frame(vec![button(end, false)], &mut actions);
+        frame(vec![], &mut actions);
+        let _ = std::fs::remove_dir_all(&root);
+        actions.into_iter().collect()
+    }
+
+    #[test]
+    fn the_others_make_room_once_the_dragged_tab_reaches_their_middle() {
+        let widths = [100.0, 60.0, 80.0];
+        let (lefts, to) = tab_layout(&widths, None);
+        assert_eq!((lefts, to), (vec![0.0, 103.0, 166.0], None));
+        // The first tab, 20 to the right: its right edge is short of the
+        // second's middle.
+        assert_eq!(tab_layout(&widths, Some((0, 20.0))).1, Some(0));
+        // 40 to the right, past it: the second slides into its place.
+        let (lefts, to) = tab_layout(&widths, Some((0, 40.0)));
+        assert_eq!((lefts, to), (vec![40.0, 0.0, 166.0], Some(1)));
+        // The last tab, all the way left.
+        let (lefts, to) = tab_layout(&widths, Some((2, 0.0)));
+        assert_eq!((lefts, to), (vec![83.0, 186.0, 0.0], Some(0)));
+    }
+
+    #[test]
+    fn a_tab_dragged_past_the_next_one_moves() {
+        let mut library = Library::new();
+        let mix = library.create("Mix");
+        let moved = |spotify, from, by| {
+            drag_tab(&library, spotify, from, by)
+                .into_iter()
+                .filter(|a| matches!(a, AnyAction::Core(Action::MovePlaylist(..))))
+                .collect::<Vec<_>>()
+        };
+        let to = |id, at| vec![AnyAction::Core(Action::MovePlaylist(id, at))];
+        assert_eq!(
+            moved(false, 20.0, vec2(150.0, 0.0)),
+            to(PlaylistId::DEFAULT, 1)
+        );
+        // Let go below the bar, it still moves.
+        assert_eq!(
+            moved(false, 20.0, vec2(150.0, 120.0)),
+            to(PlaylistId::DEFAULT, 1)
+        );
+        // Not far enough: nothing.
+        assert_eq!(moved(false, 20.0, vec2(10.0, 0.0)), []);
+        // The Spotify tab moves too, and Mix to its place.
+        assert_eq!(
+            moved(true, 20.0, vec2(400.0, 0.0)),
+            to(PlaylistId::SPOTIFY, 2)
+        );
+        assert_eq!(moved(true, 200.0, vec2(-300.0, 0.0)), to(mix, 0));
+    }
 }

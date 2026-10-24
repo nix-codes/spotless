@@ -213,12 +213,7 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     } else {
         view.playlist.id
     };
-    // In the tabs' order: the Spotify tab's first.
-    let spotify = view.spotify.map(|_| PlaylistId::SPOTIFY);
-    let lists: Vec<PlaylistId> = spotify
-        .into_iter()
-        .chain(view.library.playlists().iter().map(|l| l.id))
-        .collect();
+    let lists = view.tabs;
     let choose = |list: PlaylistId| {
         if browsing {
             Action::SetTarget(list)

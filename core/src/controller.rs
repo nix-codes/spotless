@@ -55,6 +55,8 @@ pub struct State {
     pub spotify: Option<SpotifyQueue>,
     /// The queue as a playlist, for what lists playlists' songs.
     pub spotify_list: Playlist,
+    /// Where the Spotify tab stands among the tabs.
+    pub spotify_at: usize,
     /// When the queue was asked to play here: the player shows it loading until
     /// it plays here, rather than the local song it paused.
     pub spotify_starting: Option<Instant>,
@@ -93,6 +95,15 @@ impl State {
         } else {
             self.transport.playing_list()
         }
+    }
+
+    /// The tabs in order, the Spotify tab's included while it shows.
+    pub fn tabs(&self) -> Vec<PlaylistId> {
+        let mut tabs: Vec<_> = self.library.playlists().iter().map(|l| l.id).collect();
+        if self.spotify.is_some() {
+            tabs.insert(self.spotify_at.min(tabs.len()), PlaylistId::SPOTIFY);
+        }
+        tabs
     }
 
     /// A playlist by ID, the Spotify tab's included.
@@ -182,6 +193,7 @@ impl Controller {
                 outputs: Loadable::Loading,
                 spotify: None,
                 spotify_list: Playlist::new(PlaylistId::SPOTIFY, "Spotify"),
+                spotify_at: tabs.spotify_at,
                 spotify_starting: None,
                 spotify_owns: false,
             },
@@ -650,6 +662,22 @@ impl Controller {
                 self.spotify_tab_changed();
                 return None;
             }
+            // While the Spotify tab shows, the index counts it too.
+            Action::MovePlaylist(list, index) if self.state.spotify.is_some() => {
+                let state = &mut self.state;
+                let mut tabs = state.tabs();
+                tabs.retain(|&id| id != list);
+                tabs.insert(index.min(tabs.len()), list);
+                if let Some(at) = tabs.iter().position(|&id| id == PlaylistId::SPOTIFY) {
+                    state.spotify_at = at;
+                    tabs.remove(at);
+                }
+                for (at, id) in tabs.into_iter().enumerate() {
+                    state.library.move_playlist(id, at);
+                }
+                self.mark_unsaved();
+                return None;
+            }
             Action::SetSpotifyTabEnabled(on) => {
                 self.state.settings.spotify_tab_enabled = on;
                 if on {
@@ -1061,6 +1089,7 @@ impl Controller {
         let tabs = Tabs {
             playing: state.transport.playback.playing(),
             viewed: Some(state.viewed),
+            spotify_at: state.spotify_at,
         };
         if let Err(error) = store::save_library(&self.paths, &state.library, tabs) {
             log::error!("{error:#}");
@@ -1338,6 +1367,36 @@ mod tests {
                 .any(|c| matches!(c, Command::SpotifyTab(true)))
         );
         assert!(rig.controller.state().settings.spotify_tab_shown());
+    }
+
+    #[test]
+    fn the_spotify_tab_moves_like_any_tab_and_keeps_its_place() {
+        let mut rig = Rig::new("spotify-move");
+        rig.controller.apply(Action::NewPlaylist);
+        let second = rig.controller.state().viewed;
+        rig.tell(Event::Spotify(Some(SpotifyQueue::default())));
+        let spotify = PlaylistId::SPOTIFY;
+        assert_eq!(
+            rig.controller.state().tabs(),
+            [spotify, PlaylistId::DEFAULT, second]
+        );
+        rig.controller.apply(Action::MovePlaylist(spotify, 2));
+        assert_eq!(
+            rig.controller.state().tabs(),
+            [PlaylistId::DEFAULT, second, spotify]
+        );
+        rig.controller.apply(Action::MovePlaylist(second, 0));
+        assert_eq!(
+            rig.controller.state().tabs(),
+            [second, PlaylistId::DEFAULT, spotify]
+        );
+        rig.controller.save();
+        let paths = rig.controller.paths.clone();
+        let settings = Settings::load(&paths);
+        let mut again = Controller::with_backend(paths, settings, Ok(Backend::detached().0));
+        assert_eq!(again.state().spotify_at, 2);
+        again.state.spotify = Some(SpotifyQueue::default());
+        assert_eq!(again.state().tabs(), [second, PlaylistId::DEFAULT, spotify]);
     }
 
     #[test]

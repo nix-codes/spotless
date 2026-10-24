@@ -26,6 +26,9 @@ struct LibraryFile {
     /// The tab shown.
     #[serde(default)]
     viewed: Option<PlaylistId>,
+    /// Where the Spotify tab stands among the tabs.
+    #[serde(default)]
+    spotify_at: usize,
 }
 
 /// What `playlists.json` holds besides the playlists.
@@ -33,6 +36,8 @@ struct LibraryFile {
 pub struct Tabs {
     pub playing: Option<PlaylistId>,
     pub viewed: Option<PlaylistId>,
+    /// Where the Spotify tab stands among the tabs.
+    pub spotify_at: usize,
 }
 
 /// The saved playlists, or a fresh library with only Default.
@@ -64,6 +69,7 @@ fn read_library(path: &Path) -> Result<Option<(Library, Tabs)>> {
     let tabs = Tabs {
         playing: file.playing.filter(exists),
         viewed: file.viewed.filter(exists),
+        spotify_at: file.spotify_at,
     };
     Ok(Some((file.library, tabs)))
 }
@@ -74,6 +80,7 @@ pub fn save_library(paths: &Paths, library: &Library, tabs: Tabs) -> Result<()> 
         library: library.clone(),
         playing: tabs.playing,
         viewed: tabs.viewed,
+        spotify_at: tabs.spotify_at,
     };
     write_atomically(&paths.playlists(), &serde_json::to_vec(&file)?)
 }
@@ -326,6 +333,7 @@ mod tests {
         let tabs = Tabs {
             playing: Some(mix),
             viewed: Some(PlaylistId::DEFAULT),
+            spotify_at: 1,
         };
         save_library(&paths, &library, tabs).unwrap();
 
