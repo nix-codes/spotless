@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,10 +21,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +49,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
@@ -134,21 +142,102 @@ private fun SelectBar(core: Core, selected: List<ULong>, all: () -> Unit, done: 
     }
 }
 
-/** The playlists' tabs; holding one opens its editor. */
+/** A tab being dragged: where it was, its tab's left edges then, and how far it has moved. */
+private class TabDrag(val id: ULong, val from: Int, val lefts: List<Float>, val widths: List<Float>) {
+    var dx by mutableFloatStateOf(0f)
+
+    /** Where it would go: past a tab once its edge reaches that tab's middle. */
+    fun target(): Int {
+        val left = lefts[from] + dx
+        val right = left + widths[from]
+        val middle = { i: Int -> lefts[i] + widths[i] / 2 }
+        val after = (from + 1 until lefts.size).count { right > middle(it) }
+        val before = (0 until from).count { left < middle(it) }
+        return from + after - before
+    }
+}
+
+/**
+ * The playlists' tabs. Holding one opens its editor; holding it and sliding
+ * moves it, the others making room.
+ */
 @Composable
 private fun Tabs(core: Core, edit: (ULong) -> Unit) {
+    val tabs = core.tabs.tabs
+    val state = rememberLazyListState()
+    var drag by remember { mutableStateOf<TabDrag?>(null) }
+    val gap = with(LocalDensity.current) { 4.dp.toPx() }
+    val haptics = LocalHapticFeedback.current
     LazyRow(
         Modifier.fillMaxWidth().height(44.dp),
+        state = state,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         contentPadding = PaddingValues(horizontal = 8.dp),
     ) {
-        items(core.tabs.tabs, key = { it.id.toLong() }) { tab ->
+        itemsIndexed(tabs, key = { _, tab -> tab.id.toLong() }) { index, tab ->
             val on = tab.id == core.tabs.viewed
+            val held = drag?.takeIf { it.id == tab.id }
+            // The others slide aside to make room.
+            val room = drag?.let { d ->
+                val to = d.target()
+                val width = d.widths[d.from] + gap
+                when {
+                    d.id == tab.id -> 0f
+                    index in (d.from + 1)..to -> -width
+                    index in to until d.from -> width
+                    else -> 0f
+                }
+            } ?: 0f
+            val slide by animateFloatAsState(
+                room,
+                if (drag != null) tween(120) else snap(),
+                label = "tab",
+            )
             ChromeButton(
                 { core.apply(Action.SelectPlaylist(tab.id)) },
-                Modifier.fillMaxHeight(),
+                Modifier
+                    .fillMaxHeight()
+                    .zIndex(if (held != null) 1f else 0f)
+                    .graphicsLayer { translationX = held?.dx ?: slide }
+                    .pointerInput(tab.id, index, tabs.size) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                val items = state.layoutInfo.visibleItemsInfo
+                                    .filter { it.index < tabs.size }
+                                    .sortedBy { it.index }
+                                // Every tab is laid out when they fit; a strip
+                                // longer than the screen moves what it shows.
+                                if (items.size == tabs.size) {
+                                    drag = TabDrag(
+                                        tab.id,
+                                        index,
+                                        items.map { it.offset.toFloat() },
+                                        items.map { it.size.toFloat() },
+                                    )
+                                }
+                            },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                drag?.let { d ->
+                                    val left = d.lefts[d.from]
+                                    val end = d.lefts.last() + d.widths.last() - d.widths[d.from]
+                                    d.dx = (d.dx + amount.x).coerceIn(d.lefts.first() - left, end - left)
+                                }
+                            },
+                            onDragEnd = {
+                                val d = drag
+                                drag = null
+                                when {
+                                    d == null -> edit(tab.id)
+                                    abs(d.dx) < 8f -> edit(tab.id)
+                                    d.target() != d.from -> core.apply(Action.MovePlaylist(tab.id, d.target().toUInt()))
+                                }
+                            },
+                            onDragCancel = { drag = null },
+                        )
+                    },
                 on = on,
-                onLongClick = { edit(tab.id) },
             ) {
                 BasicText(tab.name, style = body(14.sp, if (on) Classic.lcd else Classic.chrome))
             }
