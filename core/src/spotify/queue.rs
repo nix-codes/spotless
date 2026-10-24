@@ -141,11 +141,20 @@ impl SpotifyQueue {
                 cover_url: None,
             }
         });
+        // Spotify reports the position only when something changes, where
+        // the player caps counting on at its next report's due: counted on
+        // here, as of now.
+        let mut position_ms = self.position_ms;
+        if self.status == Status::Playing
+            && let Some(at) = self.reported_at
+        {
+            position_ms = position_ms.saturating_add(at.elapsed().as_millis() as u32);
+        }
         PlayerSnapshot {
             status: self.status,
             track,
-            position_ms: self.position_ms,
-            reported_at: self.reported_at,
+            position_ms,
+            reported_at: Some(Instant::now()),
             error: None,
         }
     }
@@ -217,5 +226,16 @@ mod tests {
         let list = queue().as_playlist();
         assert_eq!(list.len(), 5);
         assert_eq!(list.cursor(), Some(SpotifyQueue::row_id(2)));
+    }
+
+    #[test]
+    fn the_players_view_counts_on_past_the_reports_due() {
+        let mut queue = queue();
+        queue.now.as_mut().unwrap().duration_ms = 600_000;
+        queue.status = Status::Playing;
+        queue.position_ms = 1_000;
+        queue.reported_at = Some(Instant::now() - std::time::Duration::from_secs(10));
+        let position = queue.snapshot().position_now();
+        assert!((11_000..12_000).contains(&position), "{position}");
     }
 }

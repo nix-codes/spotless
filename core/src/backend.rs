@@ -519,6 +519,9 @@ impl Worker {
                 .as_ref()
                 .is_none_or(|before| before.device != now.device)
         });
+        if let Some(other) = started {
+            log::info!("{} started playing", other.name);
+        }
         if let (Some(other), Some(engine)) = (started, &self.engine)
             && engine.playing()
         {
@@ -645,7 +648,10 @@ impl Worker {
                 SpotifyRequest::Next => ("skip_next", None),
                 SpotifyRequest::Previous => ("skip_prev", None),
                 SpotifyRequest::Seek(position) => ("seek_to", Some(position)),
-                SpotifyRequest::PlayHere => return remote.play_here(),
+                SpotifyRequest::PlayHere => {
+                    log::info!("taking the queue over from {device}");
+                    return remote.play_here();
+                }
                 // Spotify takes no queue changes from a device that watches.
                 SpotifyRequest::Add(_) | SpotifyRequest::Remove(_) => return,
             };
@@ -666,7 +672,10 @@ impl Worker {
             SpotifyRequest::Seek(position) => remote.seek(position),
             SpotifyRequest::Add(uris) => remote.add(&uris),
             SpotifyRequest::Remove(songs) => remote.remove(songs),
-            SpotifyRequest::PlayHere => remote.play_here(),
+            SpotifyRequest::PlayHere => {
+                log::info!("taking the queue over, no other device playing it");
+                remote.play_here();
+            }
         }
     }
 
