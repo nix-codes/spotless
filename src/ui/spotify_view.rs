@@ -1,10 +1,11 @@
 //! The Spotify tab: the account's queue, as Spotify's own apps show it.
 //!
 //! What played before, dimmed; the song playing; then the songs queued and
-//! the rest of the album or playlist. While another device plays, it only
-//! shows, with PLAY HERE (or Enter, or a double-click) to take playback
-//! over; while Spotless plays it, Delete or REM removes songs to come. Rows
-//! drag onto a playlist's tab to copy them there.
+//! the rest of the album or playlist. Enter or a double-click on a song to
+//! come plays the queue here from it, taking it over from a local playlist
+//! or another device; on the song playing, plays it here. While Spotless
+//! plays the queue, Delete or REM removes songs to come. Rows drag onto a
+//! playlist's tab to copy them there.
 //!
 //! Keys as in a playlist: Up/Down, PageUp/PageDown and Home/End move the
 //! selection, with Shift they extend it; Ctrl+A selects all.
@@ -197,8 +198,8 @@ fn draw_row(
     if keys.reveal == Some(id) {
         response.scroll_to_me(None);
     }
-    if response.double_clicked() && !queue.here {
-        actions.push(Action::PlaySpotifyHere);
+    if response.double_clicked() {
+        actions.push(Action::PlayEntry(PlaylistId::SPOTIFY, id));
     } else if response.clicked() {
         let modifiers = ui.input(|i| i.modifiers);
         if modifiers.shift
@@ -257,10 +258,6 @@ fn toolbar(
         if small_action(ui, &palette, "REM", can_remove).clicked() {
             actions.push(Action::Remove(PlaylistId::SPOTIFY, removable));
         }
-        let elsewhere = !queue.here && (queue.device.is_some() || queue.now.is_some());
-        if small_action(ui, &palette, "PLAY HERE", elsewhere).clicked() {
-            actions.push(Action::PlaySpotifyHere);
-        }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let songs = match queue.len() {
                 1 => "1 song to come".to_string(),
@@ -313,7 +310,13 @@ fn keyboard(
     });
     let Some(key) = pressed else { return };
     match key {
-        Key::Enter if !queue.here => actions.push(Action::PlaySpotifyHere),
+        Key::Enter => {
+            let row = keys
+                .cursor
+                .filter(|&id| queue.row(id).is_some())
+                .unwrap_or(SpotifyQueue::row_id(queue.before.len()));
+            actions.push(Action::PlayEntry(PlaylistId::SPOTIFY, row));
+        }
         Key::Delete if queue.playing_here() => {
             let rows = removable(queue, selection);
             if !rows.is_empty() {

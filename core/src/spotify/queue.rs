@@ -34,6 +34,9 @@ pub struct SpotifyQueue {
     pub parts: Vec<Part>,
     /// What played before, the latest last.
     pub before: Vec<TrackRef>,
+    /// The songs shown are the ones from before a handover, while the
+    /// device it moved to still loads them.
+    pub loading: bool,
 }
 
 /// A run of the songs to come, by where they come from.

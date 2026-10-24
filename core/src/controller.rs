@@ -26,7 +26,7 @@ const SAVE_DELAY: Duration = Duration::from_secs(1);
 /// How long after seeking the queue its shown position outlasts Spotify's
 /// reports, which may still be of the position before.
 const SEEK_SHOWN: Duration = Duration::from_millis(1_500);
-/// How long PLAY HERE shows the queue loading before giving up on it.
+/// How long the queue asked to play here shows loading before giving up.
 const SPOTIFY_START_WAIT: Duration = Duration::from_secs(10);
 
 /// What the interface shows. It reads it; only the controller changes it.
@@ -55,7 +55,7 @@ pub struct State {
     pub spotify: Option<SpotifyQueue>,
     /// The queue as a playlist, for what lists playlists' songs.
     pub spotify_list: Playlist,
-    /// When PLAY HERE was pressed: the player shows the queue loading until
+    /// When the queue was asked to play here: the player shows it loading until
     /// it plays here, rather than the local song it paused.
     pub spotify_starting: Option<Instant>,
 }
@@ -593,12 +593,10 @@ impl Controller {
         let state = &mut self.state;
         // The player's buttons act on the queue, wherever it plays.
         let here = state.spotify_playing();
-        let played_here = state.spotify.as_ref().is_some_and(|q| q.here);
         let shown = state.viewed == PlaylistId::SPOTIFY;
         let request = match action {
             Action::Play if here => SpotifyRequest::Play,
-            Action::Play if shown => SpotifyRequest::PlayHere,
-            Action::PlaySpotifyHere => SpotifyRequest::PlayHere,
+            Action::Play if shown => SpotifyRequest::PlayHere(None),
             Action::TogglePause if here => SpotifyRequest::TogglePause,
             Action::Stop if here => SpotifyRequest::Stop,
             Action::Next if here => SpotifyRequest::Next,
@@ -617,8 +615,14 @@ impl Controller {
                 }
                 return None;
             }
-            Action::PlayEntry(PlaylistId::SPOTIFY, _) if !played_here => SpotifyRequest::PlayHere,
-            Action::PlayEntry(PlaylistId::SPOTIFY, _) => return None,
+            // Played here from that song: what played before can't be.
+            Action::PlayEntry(PlaylistId::SPOTIFY, row) => {
+                match state.spotify.as_ref()?.row(row)? {
+                    Row::Now(_) => SpotifyRequest::PlayHere(None),
+                    Row::Next(song) => SpotifyRequest::PlayHere(Some(song.track.uri.clone())),
+                    Row::Before(_) => return None,
+                }
+            }
             Action::Remove(PlaylistId::SPOTIFY, rows) => {
                 let queue = state.spotify.as_ref()?;
                 let songs = rows
@@ -654,7 +658,10 @@ impl Controller {
             .spotify
             .as_ref()
             .is_some_and(|q| q.here && q.status == Status::Playing);
-        if matches!(request, SpotifyRequest::PlayHere) && state.spotify.is_some() && !playing_here {
+        if matches!(request, SpotifyRequest::PlayHere(_))
+            && state.spotify.is_some()
+            && !playing_here
+        {
             state.spotify_starting = Some(Instant::now());
         } else if !matches!(request, SpotifyRequest::Add(_) | SpotifyRequest::Remove(_)) {
             // Any other button on the player ends the wait for the queue.
@@ -875,7 +882,7 @@ impl Controller {
             .is_some_and(SpotifyQueue::playing_here)
         {
             self.state.error = Some(
-                "Spotify only takes songs for the queue from the device playing it: press PLAY HERE first.".into(),
+                "Spotify only takes songs for the queue from the device playing it: play it here first, with Enter on a song in the Spotify tab.".into(),
             );
             return;
         }
@@ -1169,6 +1176,45 @@ mod tests {
     }
 
     #[test]
+    fn enter_on_a_song_to_come_plays_the_queue_here_from_it() {
+        let mut rig = Rig::new("play-from");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        rig.tell(Event::Spotify(Some(SpotifyQueue {
+            device: Some("Phone".into()),
+            device_id: Some("phone".into()),
+            status: Status::Playing,
+            now: Some(entry(7).track),
+            before: vec![entry(6).track],
+            parts: vec![crate::spotify::queue::Part {
+                title: "Next in queue".into(),
+                queued: true,
+                songs: vec![crate::spotify::queue::Queued {
+                    track: entry(8).track,
+                    index: 0,
+                }],
+            }],
+            ..SpotifyQueue::default()
+        })));
+        rig.sent();
+        let play = |rig: &mut Rig, row| {
+            rig.controller.apply(Action::PlayEntry(
+                PlaylistId::SPOTIFY,
+                SpotifyQueue::row_id(row),
+            ));
+            rig.sent()
+                .into_iter()
+                .filter_map(|c| match c {
+                    Command::Spotify(SpotifyRequest::PlayHere(song)) => Some(song),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(play(&mut rig, 0), []);
+        assert_eq!(play(&mut rig, 1), [None]);
+        assert_eq!(play(&mut rig, 2), [Some(entry(8).track.uri)]);
+    }
+
+    #[test]
     fn play_here_shows_the_queue_loading_until_it_plays_here() {
         let mut rig = Rig::new("play-here");
         rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
@@ -1180,7 +1226,10 @@ mod tests {
             ..SpotifyQueue::default()
         };
         rig.tell(Event::Spotify(Some(elsewhere.clone())));
-        rig.controller.apply(Action::PlaySpotifyHere);
+        rig.controller.apply(Action::PlayEntry(
+            PlaylistId::SPOTIFY,
+            SpotifyQueue::row_id(0),
+        ));
         let shown = rig.controller.state().now_playing();
         assert_eq!(shown.status, Status::Loading);
         assert_eq!(shown.track.unwrap().uri, entry(7).track.uri);

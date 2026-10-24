@@ -118,17 +118,28 @@ pub async fn command(
     endpoint: &str,
     value: Option<u32>,
 ) -> Result<()> {
+    let mut command = serde_json::json!({ "endpoint": endpoint });
+    if let Some(value) = value {
+        command["value"] = value.into();
+    }
+    send(session, device, command).await
+}
+
+/// Asks `device` to skip ahead to this song to come, by URI, as tapping a
+/// song in the queue of Spotify's apps does: the songs before it go.
+pub async fn skip_to(session: &Session, device: &str, uri: &str) -> Result<()> {
+    let command = serde_json::json!({ "endpoint": "skip_next", "track": { "uri": uri } });
+    send(session, device, command).await
+}
+
+async fn send(session: &Session, device: &str, mut command: serde_json::Value) -> Result<()> {
+    let endpoint = command["endpoint"].as_str().unwrap_or_default().to_string();
     let path = format!(
         "/connect-state/v1/player/command/from/{}/to/{device}",
         session.device_id()
     );
-    let mut command = serde_json::json!({
-        "endpoint": endpoint,
-        "logging_params": { "command_id": format!("{:032x}", fastrand::u128(..)) },
-    });
-    if let Some(value) = value {
-        command["value"] = value.into();
-    }
+    command["logging_params"] =
+        serde_json::json!({ "command_id": format!("{:032x}", fastrand::u128(..)) });
     let body = serde_json::json!({ "command": command }).to_string();
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));

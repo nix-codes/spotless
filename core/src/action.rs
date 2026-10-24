@@ -96,8 +96,6 @@ pub enum Action {
     PlayNow(TrackRef),
 
     // The Spotify tab
-    /// Takes the account's playback over from the device playing it.
-    PlaySpotifyHere,
     /// Copies songs to the end of a playlist (the Spotify tab's: queues
     /// them).
     CopyTo(PlaylistId, Vec<TrackRef>),

@@ -96,8 +96,10 @@ pub enum SpotifyRequest {
     Add(Vec<String>),
     /// Removes songs to come, by their place in Spotify's list and URI.
     Remove(Vec<(usize, String)>),
-    /// Takes playback over from the device playing the queue.
-    PlayHere,
+    /// Takes playback over from the device playing the queue, and plays it
+    /// here, from this song to come if one is given (by URI): the songs
+    /// before it leave the queue, as Spotify's apps skip to a song.
+    PlayHere(Option<String>),
 }
 
 /// The Spotify tab is on: Spotless joins Spotify Connect as a device and
@@ -257,6 +259,14 @@ impl Backend {
 
 type Emit = Arc<dyn Fn(Event) + Send + Sync>;
 
+/// The queue asked to play here: since `asked`, from `song` if given;
+/// `skipped`: the skip to it is sent.
+struct PlayHere {
+    asked: Instant,
+    song: Option<String>,
+    skipped: bool,
+}
+
 /// What the Spotify tab's device tells the worker.
 enum RemoteReport {
     Started(Result<Remote>),
@@ -272,7 +282,7 @@ const RECONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// The waits between connections that can't reach Spotify, doubling.
 const RETRY_FIRST: Duration = Duration::from_secs(5);
 const RETRY_MOST: Duration = Duration::from_secs(120);
-/// How long PLAY HERE waits for the queue to come here and play it.
+/// How long the queue asked to play here is waited for.
 const PLAY_HERE_WAIT: Duration = Duration::from_secs(10);
 /// A seek on the queue after one this recent waits, and goes to Spotify
 /// only once seeking has paused this long: each seek is a few requests to
@@ -339,8 +349,8 @@ struct Worker {
     remote_starting: bool,
     /// The queue as the remote last told.
     queue: SpotifyQueue,
-    /// When PLAY HERE asked for the queue: it plays once it is here.
-    play_here_asked: Option<Instant>,
+    /// The queue asked to play here, done step by step as it reports.
+    play_here: Option<PlayHere>,
     /// When the queue was last asked to seek, and the seek waiting for
     /// seeking to pause.
     seek_asked: Option<Instant>,
@@ -382,7 +392,7 @@ impl Worker {
             device_reports: Some(device_reports),
             remote: None,
             remote_starting: false,
-            play_here_asked: None,
+            play_here: None,
             seek_asked: None,
             seek_waiting: None,
             queue: SpotifyQueue::default(),
@@ -652,16 +662,8 @@ impl Worker {
                 if self.remote.is_none() && !self.remote_starting {
                     return;
                 }
-                // Spotify hands a paused queue over paused.
-                if queue.here
-                    && let Some(asked) = self.play_here_asked.take()
-                    && asked.elapsed() < PLAY_HERE_WAIT
-                    && queue.status != Status::Playing
-                    && let Some(remote) = &self.remote
-                {
-                    remote.play();
-                }
                 self.queue = queue.clone();
+                self.play_here_next();
                 (self.emit)(Event::Spotify(Some(queue)));
             }
         }
@@ -669,20 +671,23 @@ impl Worker {
 
     fn spotify(&mut self, request: SpotifyRequest) {
         let Some(remote) = &self.remote else { return };
-        if let SpotifyRequest::PlayHere = request {
+        if let SpotifyRequest::PlayHere(song) = request {
             // The queue's to play instead, not alongside.
             if let Some(engine) = &self.engine
                 && engine.playing()
             {
                 engine.pause();
             }
-            if self.queue.here {
-                remote.play();
-            } else {
+            if !self.queue.here {
                 log::info!("taking the queue over");
-                self.play_here_asked = Some(Instant::now());
                 remote.play_here();
             }
+            self.play_here = Some(PlayHere {
+                asked: Instant::now(),
+                song,
+                skipped: false,
+            });
+            self.play_here_next();
             return;
         }
         if let SpotifyRequest::Seek(position) = request {
@@ -699,6 +704,48 @@ impl Worker {
             self.send_seek();
         }
         self.send_spotify(request);
+    }
+
+    /// Takes the next step to play the queue here, as asked, once it can:
+    /// once the queue is here, skips to the song asked for once Spotless
+    /// has it to come, then plays, as Spotify hands a paused queue over
+    /// paused.
+    fn play_here_next(&mut self) {
+        let Some(asked) = &mut self.play_here else {
+            return;
+        };
+        let Some(remote) = &self.remote else { return };
+        if asked.asked.elapsed() >= PLAY_HERE_WAIT {
+            log::warn!("Spotify didn't hand the queue over");
+            self.play_here = None;
+            return;
+        }
+        if !self.queue.here || self.queue.loading {
+            return;
+        }
+        if let Some(song) = &asked.song
+            && self.queue.now.as_ref().is_none_or(|now| now.uri != *song)
+        {
+            let to_come = self.queue.parts.iter().flat_map(|part| &part.songs);
+            if !asked.skipped && to_come.clone().any(|queued| queued.track.uri == *song) {
+                asked.skipped = true;
+                let (session, device, song) = (
+                    remote.session(),
+                    remote.device_id().to_string(),
+                    song.clone(),
+                );
+                tokio::spawn(async move {
+                    if let Err(error) = devices::skip_to(&session, &device, &song).await {
+                        log::warn!("{error:#}");
+                    }
+                });
+            }
+            return;
+        }
+        if self.queue.status != Status::Playing {
+            remote.play();
+        }
+        self.play_here = None;
     }
 
     /// Sends the seek waiting, if one is.
@@ -725,9 +772,9 @@ impl Worker {
                 SpotifyRequest::Previous => vec![("skip_prev", None)],
                 SpotifyRequest::Seek(position) => vec![("seek_to", Some(position))],
                 // Spotify takes no queue changes from a device that watches.
-                SpotifyRequest::Add(_) | SpotifyRequest::Remove(_) | SpotifyRequest::PlayHere => {
-                    return;
-                }
+                SpotifyRequest::Add(_)
+                | SpotifyRequest::Remove(_)
+                | SpotifyRequest::PlayHere(_) => return,
             };
             let session = remote.session();
             tokio::spawn(async move {
@@ -753,7 +800,7 @@ impl Worker {
             SpotifyRequest::Seek(position) => remote.seek(position),
             SpotifyRequest::Add(uris) => remote.add(&uris),
             SpotifyRequest::Remove(songs) => remote.remove(songs),
-            SpotifyRequest::PlayHere => {}
+            SpotifyRequest::PlayHere(_) => {}
         }
     }
 

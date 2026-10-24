@@ -275,6 +275,7 @@ async fn follow(
             {
                 queue.parts.clone_from(&last.parts);
                 queue.before.clone_from(&last.before);
+                queue.loading = true;
             }
         }
         if last.as_ref() != Some(&queue) {
@@ -386,6 +387,7 @@ fn read(
             .iter()
             .filter_map(named)
             .collect(),
+        loading: false,
     }
 }
 
