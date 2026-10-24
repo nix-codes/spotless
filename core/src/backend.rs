@@ -569,7 +569,9 @@ impl Worker {
     }
 
     /// Pauses the other device playing, if one is, as Spotless starts. The
-    /// Spotify tab lets playback go instead, so the player is local again.
+    /// Spotify tab pauses but keeps the queue: let go, Spotify would still
+    /// show it here, paused, and playing it here again would find no one
+    /// to play it.
     fn pause_elsewhere(&self) {
         if let Some(remote) = &self.remote
             && (self.queue.playing_here()
@@ -578,7 +580,7 @@ impl Worker {
                     .as_ref()
                     .is_some_and(|o| self.is_remote(&o.device)))
         {
-            remote.leave();
+            remote.pause();
             return;
         }
         let (Some(other), Some(session)) = (self.elsewhere.clone(), self.session.clone()) else {

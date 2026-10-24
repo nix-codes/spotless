@@ -196,12 +196,6 @@ impl Remote {
         log_error(self.spirc.transfer(None));
     }
 
-    /// Pauses and lets playback go, for local playback to start: no device
-    /// is the active one after.
-    pub fn leave(&self) {
-        log_error(self.spirc.disconnect(true));
-    }
-
     /// Leaves Connect.
     pub fn shut_down(self) {
         self.follower.abort();
