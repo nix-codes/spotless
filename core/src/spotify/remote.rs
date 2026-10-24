@@ -13,8 +13,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use librespot_connect::{ClusterState, ConnectConfig, Spirc};
 use librespot_core::config::DeviceType;
-use librespot_core::dealer::protocol::TransferOptions;
-use librespot_core::spclient::TransferRequest;
 use librespot_core::{Session, SessionConfig, SpotifyUri};
 use librespot_playback::config::{Bitrate, NormalisationType, PlayerConfig, VolumeCtrl};
 use librespot_playback::mixer::{self, Mixer, MixerConfig};
@@ -189,18 +187,9 @@ impl Remote {
         self.session.clone()
     }
 
-    /// Takes playback over from the device playing it, and plays, as
-    /// Spotify's own apps do: a queue paused there, or paused as local
-    /// playback started, would otherwise come over paused.
+    /// Takes playback over from the device playing it.
     pub fn play_here(&self) {
-        log_error(self.spirc.transfer(Some(TransferRequest {
-            transfer_options: TransferOptions {
-                restore_paused: Some("resume".into()),
-                restore_position: None,
-                restore_track: None,
-                retain_session: None,
-            },
-        })));
+        log_error(self.spirc.transfer(None));
     }
 
     /// Pauses and lets playback go, for local playback to start: no device

@@ -269,6 +269,8 @@ const RECONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 /// The waits between connections that can't reach Spotify, doubling.
 const RETRY_FIRST: Duration = Duration::from_secs(5);
 const RETRY_MOST: Duration = Duration::from_secs(120);
+/// How long PLAY HERE waits for the queue to come here and play it.
+const PLAY_HERE_WAIT: Duration = Duration::from_secs(10);
 
 /// Search signs in with the personal app, a second approval besides
 /// playback's (see `spotify/webapi.rs`). It runs when Spotless signs in, or
@@ -330,6 +332,8 @@ struct Worker {
     remote_starting: bool,
     /// The queue as the remote last told.
     queue: SpotifyQueue,
+    /// When PLAY HERE asked for the queue: it plays once it is here.
+    play_here_asked: Option<Instant>,
     /// Where remotes are handed over once started, and tell the queue.
     remotes: UnboundedSender<RemoteReport>,
     remote_reports: Option<UnboundedReceiver<RemoteReport>>,
@@ -367,6 +371,7 @@ impl Worker {
             device_reports: Some(device_reports),
             remote: None,
             remote_starting: false,
+            play_here_asked: None,
             queue: SpotifyQueue::default(),
             remotes,
             remote_reports: Some(remote_reports),
@@ -628,14 +633,39 @@ impl Worker {
                 if self.remote.is_none() && !self.remote_starting {
                     return;
                 }
+                // Spotify hands a paused queue over paused.
+                if queue.here
+                    && let Some(asked) = self.play_here_asked.take()
+                    && asked.elapsed() < PLAY_HERE_WAIT
+                    && queue.status != Status::Playing
+                    && let Some(remote) = &self.remote
+                {
+                    remote.play();
+                }
                 self.queue = queue.clone();
                 (self.emit)(Event::Spotify(Some(queue)));
             }
         }
     }
 
-    fn spotify(&self, request: SpotifyRequest) {
+    fn spotify(&mut self, request: SpotifyRequest) {
         let Some(remote) = &self.remote else { return };
+        if let SpotifyRequest::PlayHere = request {
+            // The queue's to play instead, not alongside.
+            if let Some(engine) = &self.engine
+                && engine.playing()
+            {
+                engine.pause();
+            }
+            if self.queue.here {
+                remote.play();
+            } else {
+                log::info!("taking the queue over");
+                self.play_here_asked = Some(Instant::now());
+                remote.play_here();
+            }
+            return;
+        }
         // Another device plays the queue: the player's buttons act on it.
         if let Some(device) = self.queue.device_id.clone().filter(|_| !self.queue.here) {
             let (endpoint, value) = match request {
@@ -648,12 +678,10 @@ impl Worker {
                 SpotifyRequest::Next => ("skip_next", None),
                 SpotifyRequest::Previous => ("skip_prev", None),
                 SpotifyRequest::Seek(position) => ("seek_to", Some(position)),
-                SpotifyRequest::PlayHere => {
-                    log::info!("taking the queue over from {device}");
-                    return remote.play_here();
-                }
                 // Spotify takes no queue changes from a device that watches.
-                SpotifyRequest::Add(_) | SpotifyRequest::Remove(_) => return,
+                SpotifyRequest::Add(_) | SpotifyRequest::Remove(_) | SpotifyRequest::PlayHere => {
+                    return;
+                }
             };
             let session = remote.session();
             tokio::spawn(async move {
@@ -672,10 +700,7 @@ impl Worker {
             SpotifyRequest::Seek(position) => remote.seek(position),
             SpotifyRequest::Add(uris) => remote.add(&uris),
             SpotifyRequest::Remove(songs) => remote.remove(songs),
-            SpotifyRequest::PlayHere => {
-                log::info!("taking the queue over, no other device playing it");
-                remote.play_here();
-            }
+            SpotifyRequest::PlayHere => {}
         }
     }
 
