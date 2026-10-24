@@ -31,6 +31,10 @@ use crate::playback::sink::RodioSink;
 /// Changes are told once they have rested this long: a handover sends a
 /// short queue before the whole one.
 const SETTLE: Duration = Duration::from_millis(300);
+/// For this long after the queue moves to another device, its songs to
+/// come may still be loading there: the ones shown before stay while fewer
+/// are known.
+const HANDOVER: Duration = Duration::from_secs(2);
 /// The songs from the album or playlist shown, at most.
 const FROM_CONTEXT: usize = 50;
 /// The songs played before shown, at most.
@@ -239,22 +243,40 @@ async fn follow(
     report: impl Fn(SpotifyQueue),
 ) {
     let mut names: HashMap<String, TrackRef> = HashMap::new();
-    let mut last = None;
+    let mut last: Option<SpotifyQueue> = None;
+    // When the queue last moved to another device.
+    let mut moved: Option<Instant> = None;
     loop {
+        let handover_over = moved.map(|at| tokio::time::Instant::from_std(at + HANDOVER));
         tokio::select! {
             changed = states.changed() => if changed.is_err() { break },
             changed = clusters.changed() => if changed.is_err() { break },
+            // Told again as it is, whatever was kept meanwhile.
+            () = tokio::time::sleep_until(handover_over.unwrap_or_else(tokio::time::Instant::now)),
+                if handover_over.is_some() => moved = None,
         }
         tokio::time::sleep(SETTLE).await;
         let state = states.borrow_and_update().clone();
         let cluster = clusters.borrow_and_update().clone();
-        let queue = match state {
+        let mut queue = match state {
             Some(state) => {
                 name(&session, &state, &mut names).await;
                 read(&session, &state, &cluster, &names)
             }
             None => SpotifyQueue::default(),
         };
+        if let Some(last) = &last {
+            if last.device_id != queue.device_id && queue.device_id.is_some() {
+                moved = Some(Instant::now());
+            }
+            if moved.is_some_and(|at| at.elapsed() < HANDOVER)
+                && last.now == queue.now
+                && last.len() > queue.len()
+            {
+                queue.parts.clone_from(&last.parts);
+                queue.before.clone_from(&last.before);
+            }
+        }
         if last.as_ref() != Some(&queue) {
             last = Some(queue.clone());
             report(queue);
