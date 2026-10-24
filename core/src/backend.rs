@@ -105,9 +105,12 @@ pub enum SpotifyRequest {
     PlayHere(Option<String>),
     /// Stops the queue and empties it: the songs queued go, and Empty
     /// Track, paused, takes the place of the song and of the album or
-    /// playlist it plays from. Takes it over first, if another device has
-    /// it, without playing it.
+    /// playlist it plays from. Takes it over first, if no device has it,
+    /// without playing it.
     Clear,
+    /// Takes the queue from the device holding it, paused: that device is
+    /// paused first, as Spotify hands a playing queue over playing.
+    TakeOver,
 }
 
 /// What Spotless keeps on disk that can be thrown away.
@@ -289,6 +292,13 @@ struct Adding {
     here_at: Option<Instant>,
 }
 
+/// The queue asked to be taken over: since `asked`; `handed`: Spotify was
+/// asked to hand it over, once the device holding it paused.
+struct TakingOver {
+    asked: Instant,
+    handed: bool,
+}
+
 /// What the Spotify tab's device tells the worker.
 enum RemoteReport {
     Started(Result<Remote>),
@@ -306,6 +316,9 @@ const RETRY_FIRST: Duration = Duration::from_secs(5);
 const RETRY_MOST: Duration = Duration::from_secs(120);
 /// How long the queue asked to play here is waited for.
 const PLAY_HERE_WAIT: Duration = Duration::from_secs(10);
+/// How long a take-over waits for the device holding the queue to pause
+/// before asking Spotify to hand it over anyway.
+const TAKE_OVER_PAUSE: Duration = Duration::from_millis(1_500);
 /// A seek on the queue after one this recent waits, and goes to Spotify
 /// only once seeking has paused this long: each seek is a few requests to
 /// Spotify, which refuses too many.
@@ -383,6 +396,8 @@ struct Worker {
     clearing: Option<Clearing>,
     /// Songs to add once the queue, held by no device, comes here.
     adding: Option<Adding>,
+    /// The queue asked to be taken over, while it comes here paused.
+    taking_over: Option<TakingOver>,
     /// When the queue was last asked to seek, and the seek waiting for
     /// seeking to pause.
     seek_asked: Option<Instant>,
@@ -435,6 +450,7 @@ impl Worker {
             play_here: None,
             clearing: None,
             adding: None,
+            taking_over: None,
             seek_asked: None,
             seek_waiting: None,
             queue: SpotifyQueue::default(),
@@ -479,6 +495,7 @@ impl Worker {
                 .map(|asked| tokio::time::Instant::from_std(asked + SEEK_GAP));
             let clear_due = self.clear_due();
             let add_due = self.add_due();
+            let take_over_due = self.take_over_due();
             tokio::select! {
                 command = commands.recv() => {
                     let Some(command) = command else { break };
@@ -504,6 +521,8 @@ impl Worker {
                     if clear_due.is_some() => self.clear_next(),
                 () = tokio::time::sleep_until(add_due.unwrap_or_else(tokio::time::Instant::now)),
                     if add_due.is_some() => self.add_next(),
+                () = tokio::time::sleep_until(take_over_due.unwrap_or_else(tokio::time::Instant::now)),
+                    if take_over_due.is_some() => self.take_over_next(),
             }
         }
     }
@@ -720,6 +739,7 @@ impl Worker {
                 self.play_here_next();
                 self.clear_next();
                 self.add_next();
+                self.take_over_next();
                 (self.emit)(Event::Spotify(Some(queue)));
             }
         }
@@ -798,6 +818,22 @@ impl Worker {
                 }
             }
             self.add_next();
+            return;
+        }
+        if let SpotifyRequest::TakeOver = request {
+            if self.queue.here || self.taking_over.is_some() {
+                return;
+            }
+            log::info!("taking the queue over, paused");
+            self.play_here = None;
+            if self.queue.status == Status::Playing {
+                self.send_spotify(SpotifyRequest::Pause);
+            }
+            self.taking_over = Some(TakingOver {
+                asked: Instant::now(),
+                handed: false,
+            });
+            self.take_over_next();
             return;
         }
         if let SpotifyRequest::Seek(position) = request {
@@ -925,6 +961,49 @@ impl Worker {
         Some(tokio::time::Instant::from_std(due))
     }
 
+    /// Takes the next step to take the queue over: asks Spotify to hand it
+    /// over once the device holding it paused, or soon anyway; once here,
+    /// pauses it if it came playing.
+    fn take_over_next(&mut self) {
+        let (Some(taking), Some(remote)) = (&mut self.taking_over, &self.remote) else {
+            return;
+        };
+        if taking.asked.elapsed() >= PLAY_HERE_WAIT {
+            log::warn!("Spotify didn't hand the queue over");
+            self.taking_over = None;
+            (self.emit)(Event::Error(
+                "Spotify didn't hand the queue over to Spotless.".into(),
+            ));
+            return;
+        }
+        if !taking.handed {
+            if self.queue.status == Status::Playing && taking.asked.elapsed() < TAKE_OVER_PAUSE {
+                return;
+            }
+            taking.handed = true;
+            remote.play_here();
+            return;
+        }
+        if !self.queue.here || self.queue.loading {
+            return;
+        }
+        if self.queue.status == Status::Playing {
+            remote.pause();
+        }
+        self.taking_over = None;
+    }
+
+    /// When the next step of a take-over is due anyway.
+    fn take_over_due(&self) -> Option<tokio::time::Instant> {
+        let taking = self.taking_over.as_ref()?;
+        let due = if taking.handed {
+            taking.asked + PLAY_HERE_WAIT
+        } else {
+            taking.asked + TAKE_OVER_PAUSE
+        };
+        Some(tokio::time::Instant::from_std(due))
+    }
+
     /// Sends the seek waiting, if one is.
     fn send_seek(&mut self) {
         if let Some(position) = self.seek_waiting.take() {
@@ -952,7 +1031,8 @@ impl Worker {
                 SpotifyRequest::Add(_)
                 | SpotifyRequest::Remove(_)
                 | SpotifyRequest::PlayHere(_)
-                | SpotifyRequest::Clear => return,
+                | SpotifyRequest::Clear
+                | SpotifyRequest::TakeOver => return,
             };
             let session = remote.session();
             tokio::spawn(async move {
@@ -978,7 +1058,7 @@ impl Worker {
             SpotifyRequest::Seek(position) => remote.seek(position),
             SpotifyRequest::Add(uris) => remote.add(&uris),
             SpotifyRequest::Remove(songs) => remote.remove(songs),
-            SpotifyRequest::PlayHere(_) | SpotifyRequest::Clear => {}
+            SpotifyRequest::PlayHere(_) | SpotifyRequest::Clear | SpotifyRequest::TakeOver => {}
         }
     }
 
@@ -1126,6 +1206,7 @@ impl Worker {
                     self.play_here = None;
                     self.clearing = None;
                     self.adding = None;
+                    self.taking_over = None;
                     self.stop_remote();
                 }
             }

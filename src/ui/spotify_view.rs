@@ -3,10 +3,12 @@
 //! What played before, dimmed; the song playing; then the songs queued and
 //! the rest of the album or playlist. Enter or a double-click on a song to
 //! come plays the queue here from it, taking it over from a local playlist
-//! or another device; on the song playing, plays it here. While Spotless
-//! has the queue, or no device has, + ADD adds songs to it (taking it
-//! over); while Spotless has it, Delete or REM removes songs to come. CLEAR stops and empties it all, wherever it plays. Rows drag
-//! onto a playlist's tab to copy them there.
+//! or another device; on the song playing, plays it here. While another
+//! device holds the queue, the tab only shows it, and TAKE OVER brings it
+//! here, paused. While Spotless has it, or no device has, + ADD adds songs
+//! to it (taking it over), and CLEAR stops and empties it; while Spotless
+//! has it, Delete or REM removes songs to come. Rows drag onto a
+//! playlist's tab to copy them there.
 //!
 //! Keys as in a playlist: Up/Down, PageUp/PageDown and Home/End move the
 //! selection, with Shift they extend it; Ctrl+A selects all.
@@ -251,6 +253,16 @@ fn toolbar(
     let removable = removable(queue, selection);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
+        // Held elsewhere, the tab only shows the queue until taken over.
+        if let Some(device) = queue.device.as_ref().filter(|_| queue.held_elsewhere())
+            && small_action(ui, &palette, "TAKE OVER", true)
+                .on_hover_text(format!(
+                    "Takes the queue from {device}, paused, to change it here"
+                ))
+                .clicked()
+        {
+            actions.push(Action::TakeOverSpotify);
+        }
         if small_action(ui, &palette, "+ ADD", queue.takes_songs()).clicked() {
             actions.push(Action::ToggleBrowse);
         }
@@ -259,7 +271,8 @@ fn toolbar(
             actions.push(Action::Remove(PlaylistId::SPOTIFY, removable));
         }
         let something = queue.now.is_some() || !queue.parts.is_empty();
-        if small_action(ui, &palette, "CLEAR", something).clicked() {
+        let can_clear = something && !queue.held_elsewhere();
+        if small_action(ui, &palette, "CLEAR", can_clear).clicked() {
             actions.push(Action::ClearSpotify);
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

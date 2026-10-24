@@ -85,6 +85,12 @@ impl SpotifyQueue {
         self.here && self.device.is_some()
     }
 
+    /// Another device holds it: the tab only shows it, and changes wait for
+    /// Spotless to take it over (the player's buttons still act on it).
+    pub fn held_elsewhere(&self) -> bool {
+        !self.here && self.device.is_some()
+    }
+
     /// Songs can be added: Spotless has it, or no device does, and Spotless
     /// takes it over for them.
     pub fn takes_songs(&self) -> bool {

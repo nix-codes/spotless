@@ -743,7 +743,15 @@ impl Controller {
                     Row::Before(_) => return None,
                 }
             }
+            // Held elsewhere, the tab only shows the queue.
+            Action::ClearSpotify if state.spotify.as_ref()?.held_elsewhere() => return None,
             Action::ClearSpotify => SpotifyRequest::Clear,
+            // The player shows the queue, paused here once it comes.
+            Action::TakeOverSpotify if state.spotify.as_ref()?.held_elsewhere() => {
+                state.spotify_owns = true;
+                SpotifyRequest::TakeOver
+            }
+            Action::TakeOverSpotify => return None,
             Action::Remove(PlaylistId::SPOTIFY, rows) => {
                 let queue = state.spotify.as_ref()?;
                 let songs = rows
@@ -1004,7 +1012,7 @@ impl Controller {
         if !queue.takes_songs() {
             let device = queue.device.as_deref().unwrap_or_default();
             self.state.error = Some(format!(
-                "Spotify only takes songs for the queue from the device playing it ({device}). To add songs, play the queue here first: pick a song in the Spotify tab."
+                "Spotify only takes songs for the queue from the device playing it ({device}). TAKE OVER the queue first, or play a song of it here."
             ));
             return;
         }
@@ -1420,17 +1428,22 @@ mod tests {
     fn clear_asks_spotify_to_clear_and_ends_a_wait_for_the_queue() {
         let mut rig = Rig::new("clear");
         rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
-        rig.tell(Event::Spotify(Some(SpotifyQueue {
+        let elsewhere = SpotifyQueue {
             device: Some("Phone".into()),
             device_id: Some("phone".into()),
             status: Status::Paused,
             now: Some(entry(7).track),
             ..SpotifyQueue::default()
-        })));
+        };
+        rig.tell(Event::Spotify(Some(elsewhere.clone())));
         rig.controller.apply(Action::PlayEntry(
             PlaylistId::SPOTIFY,
             SpotifyQueue::row_id(0),
         ));
+        rig.tell(Event::Spotify(Some(SpotifyQueue {
+            here: true,
+            ..elsewhere
+        })));
         rig.sent();
         rig.controller.apply(Action::ClearSpotify);
         assert!(
@@ -1439,6 +1452,30 @@ mod tests {
                 .any(|c| matches!(c, Command::Spotify(SpotifyRequest::Clear)))
         );
         assert_eq!(rig.controller.state().spotify_starting, None);
+    }
+
+    #[test]
+    fn a_queue_held_elsewhere_only_shows_until_taken_over() {
+        let mut rig = Rig::new("take-over");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        rig.tell(Event::Spotify(Some(SpotifyQueue {
+            device: Some("Phone".into()),
+            device_id: Some("phone".into()),
+            status: Status::Playing,
+            now: Some(entry(7).track),
+            ..SpotifyQueue::default()
+        })));
+        rig.sent();
+        rig.controller.apply(Action::ClearSpotify);
+        assert!(rig.sent().is_empty());
+        rig.controller.apply(Action::TakeOverSpotify);
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::Spotify(SpotifyRequest::TakeOver)))
+        );
+        // The player shows the queue from now on.
+        assert!(rig.controller.state().spotify_playing());
     }
 
     #[test]

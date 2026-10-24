@@ -49,8 +49,12 @@ pub enum Action {
     PlayEntry(PlaylistId, EntryId),
     Remove(PlaylistId, Vec<EntryId>),
     /// Empties the Spotify tab: stops, and drops the song, the queue and
-    /// the album or playlist it plays from.
+    /// the album or playlist it plays from. Only while no other device
+    /// holds the queue.
     ClearSpotify,
+    /// Takes the queue from the device holding it, paused, so that the
+    /// Spotify tab can change it.
+    TakeOverSpotify,
     /// Opens the Spotify tab again, closed with ClosePlaylist like any tab:
     /// Spotless joins Spotify Connect again.
     OpenSpotifyTab,
