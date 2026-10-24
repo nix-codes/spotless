@@ -121,8 +121,11 @@ accounts.
 - **Two looks**: Spotless Classic, and Winamp Classic, drawn with Winamp's
   own buttons, digits, font, seek bar and volume. Pick one in Settings >
   Display.
+- **Monitor colours**: the songs, the time and the song's name in the green
+  of old terminals, or in amber, paper-white, a hi-fi's fluorescent
+  teal, ice blue, deep blue or purple.
 - **Settings** (F10): account, search, Last.fm, audio output, volume levelling,
-  interface size, skin, tray, and the audio and cover caches.
+  interface size, skin and colour, tray, and the audio and cover caches.
 - **One window, one copy**: starting Spotless again brings the running one
   forward.
 

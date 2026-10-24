@@ -33,6 +33,177 @@ pub struct Palette {
     pub button_lo: Color32,
 }
 
+/// The colour of the lists and the display, after old monitors' phosphors
+/// (and a hi-fi's fluorescent display).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Phosphor {
+    #[default]
+    Green,
+    Amber,
+    PaperWhite,
+    Vfd,
+    IceBlue,
+    DeepBlue,
+    Purple,
+}
+
+/// A phosphor's shades: the songs, the dimmer text, the display and lit
+/// things, the playing song, and the selection's bar.
+struct Shades {
+    text: Color32,
+    dim: Color32,
+    lit: Color32,
+    current: Color32,
+    selected: Color32,
+}
+
+impl Phosphor {
+    pub const ALL: [Phosphor; 7] = [
+        Phosphor::Green,
+        Phosphor::Amber,
+        Phosphor::PaperWhite,
+        Phosphor::Vfd,
+        Phosphor::IceBlue,
+        Phosphor::DeepBlue,
+        Phosphor::Purple,
+    ];
+
+    /// Its key in the settings file.
+    pub fn key(self) -> &'static str {
+        match self {
+            Phosphor::Green => "green",
+            Phosphor::Amber => "amber",
+            Phosphor::PaperWhite => "paper-white",
+            Phosphor::Vfd => "vfd",
+            Phosphor::IceBlue => "ice-blue",
+            Phosphor::DeepBlue => "deep-blue",
+            Phosphor::Purple => "purple",
+        }
+    }
+
+    /// The phosphor saved as `key`; green for none or one unknown.
+    pub fn from_key(key: Option<&str>) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|p| Some(p.key()) == key)
+            .unwrap_or_default()
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Phosphor::Green => "Green",
+            Phosphor::Amber => "Amber",
+            Phosphor::PaperWhite => "Paper-white",
+            Phosphor::Vfd => "VFD",
+            Phosphor::IceBlue => "Ice blue",
+            Phosphor::DeepBlue => "Deep blue",
+            Phosphor::Purple => "Purple",
+        }
+    }
+
+    /// Where the colour comes from.
+    pub fn origin(self) -> Option<&'static str> {
+        match self {
+            Phosphor::Green => Some("P1 and P39 phosphors: green-screen terminals and monitors"),
+            Phosphor::Amber => Some("P3 phosphor: amber monitors of the 1980s"),
+            Phosphor::PaperWhite => Some("P4 phosphor: paper-white monitors"),
+            Phosphor::Vfd => Some("Vacuum fluorescent displays: hi-fi decks, car stereos"),
+            _ => None,
+        }
+    }
+
+    fn shades(self) -> Shades {
+        let rgb = Color32::from_rgb;
+        let (text, dim, lit, current, selected) = match self {
+            Phosphor::Green => (
+                rgb(0x00, 0xe6, 0x39),
+                rgb(0x14, 0xa8, 0x3a),
+                rgb(0x2b, 0xff, 0x62),
+                Color32::WHITE,
+                rgb(0x0e, 0x4a, 0x1f),
+            ),
+            Phosphor::Amber => (
+                rgb(0xff, 0xb0, 0x00),
+                rgb(0xa8, 0x74, 0x0a),
+                rgb(0xff, 0xc2, 0x3a),
+                rgb(0xff, 0xf1, 0xd6),
+                rgb(0x57, 0x39, 0x00),
+            ),
+            Phosphor::PaperWhite => (
+                rgb(0xc3, 0xcd, 0xd2),
+                rgb(0x7b, 0x85, 0x8a),
+                rgb(0xe9, 0xf0, 0xf3),
+                Color32::WHITE,
+                rgb(0x35, 0x3d, 0x42),
+            ),
+            Phosphor::Vfd => (
+                rgb(0x2e, 0xf2, 0xc8),
+                rgb(0x1c, 0x9a, 0x80),
+                rgb(0x5c, 0xff, 0xdc),
+                rgb(0xea, 0xff, 0xf9),
+                rgb(0x0b, 0x4a, 0x3e),
+            ),
+            Phosphor::IceBlue => (
+                rgb(0x6c, 0xc8, 0xff),
+                rgb(0x3d, 0x82, 0xad),
+                rgb(0x94, 0xdb, 0xff),
+                rgb(0xf0, 0xfa, 0xff),
+                rgb(0x10, 0x3c, 0x63),
+            ),
+            Phosphor::DeepBlue => (
+                rgb(0x5b, 0x8c, 0xff),
+                rgb(0x3a, 0x5f, 0xae),
+                rgb(0x7a, 0xa4, 0xff),
+                rgb(0xe8, 0xef, 0xff),
+                rgb(0x0f, 0x1f, 0x55),
+            ),
+            Phosphor::Purple => (
+                rgb(0xc3, 0x8b, 0xff),
+                rgb(0x7f, 0x5a, 0xad),
+                rgb(0xd6, 0xa8, 0xff),
+                rgb(0xf6, 0xed, 0xff),
+                rgb(0x3d, 0x22, 0x66),
+            ),
+        };
+        Shades {
+            text,
+            dim,
+            lit,
+            current,
+            selected,
+        }
+    }
+
+    /// The colour the display's text and digits take: none for green, the
+    /// colour skins draw them in already.
+    pub fn display(self) -> Option<Color32> {
+        (self != Phosphor::Green).then(|| self.shades().lit)
+    }
+}
+
+impl Palette {
+    /// The lists and the display in `phosphor`'s colours. Green keeps the
+    /// skin's own greens; the selection's bar is a dark shade in each.
+    pub fn with_phosphor(self, phosphor: Phosphor) -> Self {
+        let shades = phosphor.shades();
+        if phosphor == Phosphor::Green {
+            return Self {
+                selected_bg: shades.selected,
+                ..self
+            };
+        }
+        Self {
+            lcd: shades.lit,
+            list_fg: shades.text,
+            current: shades.current,
+            selected_bg: shades.selected,
+            dim: shades.dim,
+            accent: shades.lit,
+            ..self
+        }
+    }
+}
+
 impl Palette {
     pub const CLASSIC: Self = Self {
         desk: Color32::from_rgb(0x0b, 0x0b, 0x0f),
@@ -164,4 +335,30 @@ pub fn focus_ring(painter: &Painter, rect: Rect, palette: &Palette) {
         Stroke::new(1.0, palette.accent),
         StrokeKind::Inside,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn phosphors_are_saved_by_key_and_green_is_the_default() {
+        for phosphor in Phosphor::ALL {
+            assert_eq!(Phosphor::from_key(Some(phosphor.key())), phosphor);
+        }
+        assert_eq!(Phosphor::from_key(None), Phosphor::Green);
+        assert_eq!(Phosphor::from_key(Some("magenta")), Phosphor::Green);
+    }
+
+    #[test]
+    fn green_keeps_the_skin_s_greens_and_the_others_replace_them() {
+        let classic = Palette::CLASSIC;
+        let green = classic.with_phosphor(Phosphor::Green);
+        assert_eq!(green.list_fg, classic.list_fg);
+        assert_ne!(green.selected_bg, classic.selected_bg);
+        let amber = classic.with_phosphor(Phosphor::Amber);
+        assert_eq!(amber.list_fg, Color32::from_rgb(0xff, 0xb0, 0x00));
+        assert_eq!(amber.accent, amber.lcd);
+        assert_eq!(amber.button, classic.button);
+    }
 }

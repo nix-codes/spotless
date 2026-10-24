@@ -17,7 +17,10 @@ use crate::skin::format;
 use crate::store;
 use crate::tray::{Tray, TrayState};
 use crate::ui::skin_paint::SkinPaint;
-use crate::ui::{self, Cover, Inputs, View, theme::Palette};
+use crate::ui::{
+    self, Cover, Inputs, View,
+    theme::{Palette, Phosphor},
+};
 
 pub struct App {
     controller: Controller,
@@ -174,6 +177,13 @@ impl App {
                 }
                 Err(error) => self.skin_error = Some(error),
             },
+            Desktop::SetPhosphor(phosphor) => {
+                self.controller.settings_mut().phosphor = Some(phosphor.key().to_string());
+                let skin = self.controller.state().settings.skin.clone();
+                if let Err(error) = self.use_skin(skin.as_deref()) {
+                    self.skin_error = Some(error);
+                }
+            }
             Desktop::LoadCover(url) => {
                 if !self.covers.contains_key(&url) {
                     self.covers.insert(url.clone(), Cover::Loading);
@@ -278,10 +288,14 @@ impl App {
             }
             _ => ("Spotless Classic", format::built_in::spotless_classic()),
         };
-        let loaded = loaded.map_err(|error| {
+        let mut loaded = loaded.map_err(|error| {
             log::warn!("skin {name}: {error}");
             format!("{name}: {error}")
         })?;
+        let phosphor = Phosphor::from_key(self.controller.state().settings.phosphor.as_deref());
+        if let Some(color) = phosphor.display() {
+            loaded.tint_display(color);
+        }
         let mut notes = Vec::new();
         for problem in loaded.problems.iter().take(3) {
             log::warn!("skin: {}: {}", problem.at, problem.message);
@@ -290,7 +304,7 @@ impl App {
         if loaded.problems.len() > 3 {
             notes.push(format!("And {} more.", loaded.problems.len() - 3));
         }
-        self.palette = loaded.palette;
+        self.palette = loaded.palette.with_phosphor(phosphor);
         self.palette.apply(&self.ctx);
         let has_pieces = !loaded.images.is_empty();
         let paint = SkinPaint::new(&self.ctx, loaded);

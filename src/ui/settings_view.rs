@@ -12,7 +12,7 @@ use egui::{
 };
 
 use super::skin_paint;
-use super::theme::{self, Palette};
+use super::theme::{self, Palette, Phosphor};
 use super::widgets::{field, small_action, small_button, text_button};
 use super::{View, scrollbar};
 use crate::action::{Action, Actions, Desktop};
@@ -109,6 +109,8 @@ enum Item {
     Covers,
     /// One of the skins listed, 0 being Spotless Classic.
     Skin(usize),
+    /// One of the phosphors, in their order.
+    Phosphor(usize),
     Tray,
     AudioCache,
     CacheDown,
@@ -341,6 +343,7 @@ fn items(category: Category, view: &View, outputs: usize) -> Vec<Item> {
         Category::Display => [Item::Smaller, Item::Larger, Item::Covers]
             .into_iter()
             .chain((0..skin_rows().len()).map(Item::Skin))
+            .chain((0..Phosphor::ALL.len()).map(Item::Phosphor))
             .collect(),
         Category::Window => vec![Item::Tray],
         Category::Storage => vec![
@@ -763,6 +766,31 @@ impl Controls<'_, '_> {
             } else if let Some(text) = self.view.skin_note {
                 note(ui, palette, text);
             }
+        });
+        row(ui, palette, "Colour", |ui| {
+            let chosen = Phosphor::from_key(self.view.settings.phosphor.as_deref());
+            for (i, phosphor) in Phosphor::ALL.into_iter().enumerate() {
+                let on = phosphor == chosen;
+                let choice = ui
+                    .horizontal(|ui| {
+                        let choice = radio(ui, palette, on, phosphor.name());
+                        let shade = palette.with_phosphor(phosphor).list_fg;
+                        let (swatch, _) = ui.allocate_exact_size(vec2(18.0, 10.0), Sense::hover());
+                        ui.painter().rect_filled(swatch, 0.0, palette.lcd_bg);
+                        ui.painter().rect_filled(swatch.shrink(2.0), 0.0, shade);
+                        choice
+                    })
+                    .inner;
+                self.ring(ui, Item::Phosphor(i), &choice);
+                let choice = match phosphor.origin() {
+                    Some(origin) => choice.on_hover_text(origin),
+                    None => choice,
+                };
+                if !on && (choice.clicked() || (self.pressed)(Item::Phosphor(i))) {
+                    self.actions.push(Desktop::SetPhosphor(phosphor));
+                }
+            }
+            note(ui, palette, "The songs, the time and the song's name.");
         });
     }
 

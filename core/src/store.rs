@@ -145,6 +145,8 @@ pub struct Settings {
     /// The skin the colours come from, by its name in the skins folder;
     /// None is Classic.
     pub skin: Option<String>,
+    /// The colour of the lists and the display, by its key; None is green.
+    pub phosphor: Option<String>,
     raw: Map<String, Value>,
 }
 
@@ -237,6 +239,10 @@ impl Settings {
                 .and_then(Value::as_str)
                 .map(String::from),
             skin: raw.get("skin").and_then(Value::as_str).map(String::from),
+            phosphor: raw
+                .get("phosphor")
+                .and_then(Value::as_str)
+                .map(String::from),
             raw: raw.clone(),
         }
     }
@@ -265,6 +271,10 @@ impl Settings {
         match &self.skin {
             Some(skin) => raw.insert("skin".into(), skin.clone().into()),
             None => raw.remove("skin"),
+        };
+        match &self.phosphor {
+            Some(phosphor) => raw.insert("phosphor".into(), phosphor.clone().into()),
+            None => raw.remove("phosphor"),
         };
         raw
     }

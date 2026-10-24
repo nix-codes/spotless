@@ -316,3 +316,31 @@ fn a_bar_in_shades_must_fit_its_image() {
     // Halfway is shade 14 of 0 to 27, rounded.
     assert_eq!(half[0].src.top(), 14.0 * 15.0);
 }
+
+#[test]
+fn tinting_the_display_turns_its_greens_and_leaves_the_rest() {
+    let mut skin = super::built_in::winamp_classic().unwrap();
+    let amber = Color32::from_rgb(0xff, 0xc2, 0x3a);
+    let colours = |skin: &Skin, path: &str| {
+        let bitmap = &skin.images[path];
+        bitmap
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| Color32::from_rgb(p[0], p[1], p[2]))
+            .collect::<std::collections::HashSet<_>>()
+    };
+    let green = |c: &Color32| u16::from(c.g()) > 2 * u16::from(c.r().max(c.b())) + 16;
+    let stop = Color32::from_rgb(0xff, 0x28, 0x33);
+    assert!(colours(&skin, "playpaus.png").contains(&stop));
+    skin.tint_display(amber);
+    for path in ["digits.png", "text.png", "playpaus.png"] {
+        let colours = colours(&skin, path);
+        assert!(colours.contains(&amber), "{path}");
+        assert!(!colours.iter().any(green), "{path} still has green");
+    }
+    assert!(colours(&skin, "playpaus.png").contains(&stop));
+    // The volume bar's greens, yellows and reds stay.
+    assert!(colours(&skin, "volume.png").iter().any(green));
+}

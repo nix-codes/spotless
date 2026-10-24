@@ -15,7 +15,7 @@ mod geometry;
 mod manifest;
 mod source;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use egui::{Rect, Vec2, pos2, vec2};
@@ -171,6 +171,11 @@ impl States {
 
     fn normal(&self) -> &ImageRef {
         &self.images[&State::Normal]
+    }
+
+    /// Every state's image.
+    pub fn all(&self) -> impl Iterator<Item = &ImageRef> {
+        self.images.values()
     }
 }
 
@@ -424,11 +429,60 @@ impl Skin {
     }
 
     /// The piece called `name`, or the one that stands in for it.
+    /// Draws the display's green text, digits and play state in `color`
+    /// instead: the green pixels of their images, each as bright as it was.
+    pub fn tint_display(&mut self, color: egui::Color32) {
+        let mut paths: HashSet<String> = [Role::Digits, Role::Display]
+            .iter()
+            .filter_map(|role| match self.fonts.get(role)? {
+                Font::Bitmap { image, .. } => Some(image.clone()),
+                _ => None,
+            })
+            .collect();
+        for name in ["status.playing", "status.paused", "status.stopped"] {
+            if let Some(piece) = self.pieces.get(name) {
+                paths.extend(piece.states.all().map(|image| image.image.clone()));
+            }
+        }
+        for path in paths {
+            if let Some(bitmap) = self.images.get_mut(&path) {
+                tint_green(bitmap, color);
+            }
+        }
+    }
+
     pub fn piece(&self, name: &str) -> Option<&Piece> {
         self.pieces.get(name).or_else(|| {
             let (_, stand_in) = STAND_INS.iter().find(|(piece, _)| *piece == name)?;
             self.pieces.get(stand_in)
         })
+    }
+}
+
+/// Turns the green pixels of `bitmap` to `color`, as bright as the image's
+/// brightest green is to it. Other colours (a red stop, grey unlit
+/// segments) stay.
+fn tint_green(bitmap: &mut Bitmap, color: egui::Color32) {
+    let green = |p: &[u8; 4]| p[1] > 32 && u16::from(p[1]) > 2 * u16::from(p[0].max(p[2])) + 16;
+    let Some(brightest) = bitmap
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| green(p))
+        .map(|p| p[1])
+        .max()
+    else {
+        return;
+    };
+    for p in bitmap.rgba.as_chunks_mut::<4>().0 {
+        if green(p) {
+            let level = f32::from(p[1]) / f32::from(brightest);
+            let shade = |c: u8| (f32::from(c) * level).round() as u8;
+            p[0] = shade(color.r());
+            p[1] = shade(color.g());
+            p[2] = shade(color.b());
+        }
     }
 }
 

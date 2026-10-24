@@ -13,6 +13,8 @@ pub enum Desktop {
     SetTray(bool),
     /// Draws with this built-in skin (None: Spotless Classic).
     SetSkin(Option<String>),
+    /// Colours the lists and the display like this monitor.
+    SetPhosphor(crate::ui::theme::Phosphor),
     /// Fetches a cover the catalog wants to show, unless it has it.
     LoadCover(String),
 }
