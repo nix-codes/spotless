@@ -129,9 +129,18 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
 
 fn playback(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let player = view.player;
+    // Space pauses or resumes what the player shows, in whichever tab;
+    // with nothing to, it plays the song selected in the tab in view.
     if take(i, Modifiers::NONE, Key::Space) {
-        actions.push(match player.status {
-            Status::Stopped => Action::Play,
+        let list = view.playlist;
+        let selected = list
+            .entries()
+            .iter()
+            .map(|entry| entry.id)
+            .find(|id| inputs.selection.rows.contains(id));
+        actions.push(match (player.status, selected) {
+            (Status::Stopped, Some(row)) => Action::PlayEntry(list.id, row),
+            (Status::Stopped, None) => Action::Play,
             _ => Action::TogglePause,
         });
     }

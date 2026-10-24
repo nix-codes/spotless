@@ -58,15 +58,19 @@ pub struct State {
     /// When the queue was asked to play here: the player shows it loading until
     /// it plays here, rather than the local song it paused.
     pub spotify_starting: Option<Instant>,
+    /// The player is the queue's: it was started last, before any local
+    /// song. Paused, the queue keeps it until a local song plays.
+    pub spotify_owns: bool,
 }
 
 impl State {
     /// The player shows the account's queue, and its buttons act on it:
-    /// a device plays it or has it paused, here or elsewhere, and no local
-    /// song plays.
+    /// it was started last, a device plays it or has it paused, here or
+    /// elsewhere, and no local song plays.
     pub fn spotify_playing(&self) -> bool {
         self.spotify_starting.is_some()
-            || self.player.status != Status::Playing
+            || self.spotify_owns
+                && self.player.status != Status::Playing
                 && self.spotify.as_ref().is_some_and(SpotifyQueue::active)
     }
 
@@ -178,6 +182,7 @@ impl Controller {
                 spotify: None,
                 spotify_list: Playlist::new(PlaylistId::SPOTIFY, "Spotify"),
                 spotify_starting: None,
+                spotify_owns: false,
             },
             unsaved: None,
             pending_adds: Vec::new(),
@@ -230,6 +235,10 @@ impl Controller {
                     if snapshot.error.is_some() {
                         self.state.error = snapshot.error.clone();
                     }
+                    // A local song playing takes the player.
+                    if snapshot.status == Status::Playing {
+                        self.state.spotify_owns = false;
+                    }
                     self.state.player = snapshot;
                 }
                 Event::Followed(entry) => {
@@ -258,6 +267,21 @@ impl Controller {
                         .is_some_and(|q| q.here && q.status == Status::Playing)
                     {
                         self.state.spotify_starting = None;
+                    }
+                    // The queue takes the player as it starts playing, on any
+                    // device, or as it is first found with no local song.
+                    let old = self.state.spotify.as_ref();
+                    if let Some(new) = &queue
+                        && match old {
+                            Some(old) => {
+                                new.status == Status::Playing
+                                    && (old.status != Status::Playing
+                                        || old.device_id != new.device_id)
+                            }
+                            None => new.active() && self.state.player.status == Status::Stopped,
+                        }
+                    {
+                        self.state.spotify_owns = true;
                     }
                     self.state.spotify_list = queue.as_ref().map_or_else(
                         || Playlist::new(PlaylistId::SPOTIFY, "Spotify"),
@@ -596,6 +620,10 @@ impl Controller {
         let shown = state.viewed == PlaylistId::SPOTIFY;
         let request = match action {
             Action::Play if here => SpotifyRequest::Play,
+            // The local song paused shows: Play goes on with it.
+            Action::Play if shown && state.player.status == Status::Paused => {
+                return Some(Action::TogglePause);
+            }
             Action::Play if shown => SpotifyRequest::PlayHere(None),
             Action::TogglePause if here => SpotifyRequest::TogglePause,
             Action::Stop if here => SpotifyRequest::Stop,
@@ -650,6 +678,7 @@ impl Controller {
                     Action::Play | Action::PlayEntry(..) | Action::PlayNow(_)
                 ) {
                     state.spotify_starting = None;
+                    state.spotify_owns = false;
                 }
                 return Some(other);
             }
@@ -663,6 +692,7 @@ impl Controller {
             && !playing_here
         {
             state.spotify_starting = Some(Instant::now());
+            state.spotify_owns = true;
         } else if !matches!(request, SpotifyRequest::Add(_) | SpotifyRequest::Remove(_)) {
             // Any other button on the player ends the wait for the queue.
             state.spotify_starting = None;
@@ -931,6 +961,12 @@ impl Controller {
         if starting.is_some_and(|wait| wait.is_zero()) {
             self.state.spotify_starting = None;
             self.state.notice = Some("Spotify didn't hand the queue over.".into());
+            // The local song it paused shows again, unless the queue plays.
+            self.state.spotify_owns = self
+                .state
+                .spotify
+                .as_ref()
+                .is_some_and(|q| q.status == Status::Playing);
         }
         let starting = starting.filter(|wait| !wait.is_zero());
         let saving = self.save_tick();
@@ -1239,6 +1275,76 @@ mod tests {
             ..elsewhere
         })));
         assert_eq!(rig.controller.state().now_playing().status, Status::Playing);
+    }
+
+    #[test]
+    fn a_local_song_keeps_the_player_paused_until_the_queue_plays_again() {
+        let mut rig = Rig::new("owner");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        let paused_here = SpotifyQueue {
+            device: Some("Spotless".into()),
+            device_id: Some("spotless".into()),
+            here: true,
+            status: Status::Paused,
+            now: Some(entry(7).track),
+            position_ms: 30_000,
+            ..SpotifyQueue::default()
+        };
+        rig.tell(Event::Spotify(Some(paused_here.clone())));
+        assert!(rig.controller.state().spotify_playing());
+        rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+        let first = rig
+            .controller
+            .state()
+            .library
+            .get(PlaylistId::DEFAULT)
+            .unwrap()
+            .entries()[0]
+            .id;
+        rig.controller
+            .apply(Action::PlayEntry(PlaylistId::DEFAULT, first));
+        let local = |status| PlayerSnapshot {
+            status,
+            track: Some(TrackInfo {
+                uri: "spotify:track:1".into(),
+                title: String::new(),
+                artists: String::new(),
+                main_artist: String::new(),
+                album: String::new(),
+                duration_ms: 1000,
+                cover_url: None,
+            }),
+            ..PlayerSnapshot::default()
+        };
+        rig.tell(Event::Player(local(Status::Playing)));
+        rig.sent();
+        // Space on the Spotify tab pauses the local song, which stays shown.
+        rig.controller
+            .apply(Action::SelectPlaylist(PlaylistId::SPOTIFY));
+        rig.controller.apply(Action::TogglePause);
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::Player(Request::Pause)))
+        );
+        rig.tell(Event::Player(local(Status::Paused)));
+        let state = rig.controller.state();
+        assert!(!state.spotify_playing());
+        assert_eq!(state.now_playing().track.unwrap().uri, "spotify:track:1");
+        // Play on the player goes on with it, rather than the queue.
+        rig.controller.apply(Action::Play);
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::Player(Request::Resume)))
+        );
+        rig.tell(Event::Player(local(Status::Paused)));
+        // The queue takes the player back once it plays.
+        rig.tell(Event::Spotify(Some(SpotifyQueue {
+            status: Status::Playing,
+            ..paused_here
+        })));
+        assert!(rig.controller.state().spotify_playing());
     }
 
     #[test]
