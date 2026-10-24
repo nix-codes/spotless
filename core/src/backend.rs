@@ -272,6 +272,14 @@ struct PlayHere {
     skipped: bool,
 }
 
+/// The queue asked to be cleared: since `asked`; `took_over`: it was
+/// taken over for it, and came here at `here_at`.
+struct Clearing {
+    asked: Instant,
+    took_over: bool,
+    here_at: Option<Instant>,
+}
+
 /// What the Spotify tab's device tells the worker.
 enum RemoteReport {
     Started(Result<Remote>),
@@ -293,6 +301,10 @@ const PLAY_HERE_WAIT: Duration = Duration::from_secs(10);
 /// only once seeking has paused this long: each seek is a few requests to
 /// Spotify, which refuses too many.
 const SEEK_GAP: Duration = Duration::from_millis(400);
+/// A queue taken over to be cleared is cleared once its songs to come are
+/// in, or this long after it came, if none come: cleared sooner, the
+/// handover still finishing would bring the songs queued back.
+const CLEAR_SETTLE: Duration = Duration::from_secs(2);
 
 /// Search signs in with the personal app, a second approval besides
 /// playback's (see `spotify/webapi.rs`). It runs when Spotless signs in, or
@@ -357,7 +369,7 @@ struct Worker {
     /// The queue asked to play here, done step by step as it reports.
     play_here: Option<PlayHere>,
     /// When the queue was asked to be cleared, while it comes here to be.
-    clearing: Option<Instant>,
+    clearing: Option<Clearing>,
     /// When the queue was last asked to seek, and the seek waiting for
     /// seeking to pause.
     seek_asked: Option<Instant>,
@@ -443,6 +455,7 @@ impl Worker {
                 .seek_waiting
                 .and(self.seek_asked)
                 .map(|asked| tokio::time::Instant::from_std(asked + SEEK_GAP));
+            let clear_due = self.clear_due();
             tokio::select! {
                 command = commands.recv() => {
                     let Some(command) = command else { break };
@@ -464,6 +477,8 @@ impl Worker {
                 Some(report) = remote_reports.recv() => self.remote_report(report),
                 () = tokio::time::sleep_until(seek_due.unwrap_or_else(tokio::time::Instant::now)),
                     if seek_due.is_some() => self.send_seek(),
+                () = tokio::time::sleep_until(clear_due.unwrap_or_else(tokio::time::Instant::now)),
+                    if clear_due.is_some() => self.clear_next(),
             }
         }
     }
@@ -720,11 +735,16 @@ impl Worker {
         if let SpotifyRequest::Clear = request {
             self.play_here = None;
             self.seek_waiting = None;
-            if !self.queue.here {
+            let took_over = !self.queue.here;
+            if took_over {
                 log::info!("taking the queue over, to clear it");
                 remote.play_here();
             }
-            self.clearing = Some(Instant::now());
+            self.clearing = Some(Clearing {
+                asked: Instant::now(),
+                took_over,
+                here_at: None,
+            });
             self.clear_next();
             return;
         }
@@ -788,17 +808,30 @@ impl Worker {
 
     /// Clears the queue as asked, once it is here.
     fn clear_next(&mut self) {
-        let (Some(asked), Some(remote)) = (self.clearing, &self.remote) else {
+        let (Some(clearing), Some(remote)) = (&mut self.clearing, &self.remote) else {
             return;
         };
-        if asked.elapsed() >= PLAY_HERE_WAIT {
+        if clearing.asked.elapsed() >= PLAY_HERE_WAIT {
             log::warn!("Spotify didn't hand the queue over to clear it");
-        } else if self.queue.here {
-            remote.clear();
-        } else {
+            self.clearing = None;
             return;
         }
+        if !self.queue.here {
+            return;
+        }
+        let here_at = *clearing.here_at.get_or_insert_with(Instant::now);
+        let settled = !self.queue.loading && !self.queue.parts.is_empty();
+        if clearing.took_over && !settled && here_at.elapsed() < CLEAR_SETTLE {
+            return;
+        }
+        remote.clear();
         self.clearing = None;
+    }
+
+    /// When a clear waiting on a handover is due anyway.
+    fn clear_due(&self) -> Option<tokio::time::Instant> {
+        let here_at = self.clearing.as_ref()?.here_at?;
+        Some(tokio::time::Instant::from_std(here_at + CLEAR_SETTLE))
     }
 
     /// Sends the seek waiting, if one is.
