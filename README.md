@@ -236,11 +236,12 @@ under *Search* there, with **CONNECT** to approve it.
    account's playback, replacing the queue on your other devices. So
    Spotless's playlists stay out of Connect and Spotless scrobbles them by
    itself. To do that, Last.fm requires every app to sign its requests
-   with an API key and a shared secret; unlike Spotify, it has no sign-in that works without a
-   secret. A key built into Spotless would put that secret in public source
-   code, where anyone could copy and misuse it, and every Spotless user
-   would share its limits and lose scrobbling if Last.fm revoked it. Your
-   own API account is used only by your copy of Spotless.
+   with an API key and a shared secret; unlike Spotify, it has no sign-in
+   that works without a secret. A key built into Spotless would put that
+   secret in public source code, where anyone could copy and misuse it,
+   and every Spotless user would share its limits and lose scrobbling if
+   Last.fm revoked it. Your own API account is used only by your copy of
+   Spotless.
 
 Press **F1** at any time for the keys.
 
