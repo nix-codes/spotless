@@ -77,10 +77,9 @@ Spotless is the player I wanted instead.
 - **Anyone using several devices** who wants this computer's music to stay
   separate from the phone's.
 
-It isn't for you if you rely on Spotify's own playlists, recommendations,
-podcasts, or Spotify Connect, or if you don't have Premium: Spotless leaves
-those out, and Spotify only allows playback in other apps for Premium
-accounts.
+It isn't for you if you rely on Spotify's own playlists, recommendations
+or podcasts, or if you don't have Premium: Spotless leaves those out, and
+Spotify only allows playback in other apps for Premium accounts.
 
 ## Features
 
@@ -100,6 +99,14 @@ accounts.
   and Spotless pauses; press play in Spotless and it pauses your phone.
   Spotless watches your devices through Spotify Connect without showing up
   in their lists, and its own playback stays out of your account's queue.
+- **The Spotify tab**, optional: your account's queue, as Spotify's own
+  apps show it, with Spotless as a Spotify Connect device to play it on.
+  What played, the song playing, then the songs queued and the rest of the
+  album or playlist. Play a song of it to take the queue over; while another
+  device holds it, the tab only shows it until you **TAKE OVER**, and the
+  player's buttons control that device. Add songs from Browse, remove them,
+  clear the queue, or copy its songs to a playlist. Close the tab and
+  Spotless leaves Connect; *Settings > Playback* turns it off.
 - **Browse**: search shows Artists, Albums and Songs separately. An artist's
   page is just the discography: All, Albums, Singles & EPs, Appears on;
   Albums first, oldest first, songs opening inline. **+ ADD** adds a whole
@@ -109,7 +116,8 @@ accounts.
   catalogue only. Playlists stay text.
 - **Last.fm scrobbling**, optional, sent by Spotless itself. Spotify's
   Last.fm link only hears of what plays through Spotify Connect, which
-  Spotless stays out of so it never takes over your account's queue.
+  Spotless's playlists stay out of so they never take over your account's
+  queue.
   Listens made offline are sent later. The same API key gives an artist's
   page **Similar**: the artists Last.fm's listeners play alongside it.
 - **Made for the keyboard.** Everything works without the mouse: playback,
@@ -226,9 +234,9 @@ under *Search* there, with **CONNECT** to approve it.
    account doesn't help here: Spotify only scrobbles what plays through
    Spotify Connect, and a player that joins Connect takes over your
    account's playback, replacing the queue on your other devices. So
-   Spotless stays out of Connect and scrobbles by itself. To do that,
-   Last.fm requires every app to sign its requests with an API key and a
-   shared secret; unlike Spotify, it has no sign-in that works without a
+   Spotless's playlists stay out of Connect and Spotless scrobbles them by
+   itself. To do that, Last.fm requires every app to sign its requests
+   with an API key and a shared secret; unlike Spotify, it has no sign-in that works without a
    secret. A key built into Spotless would put that secret in public source
    code, where anyone could copy and misuse it, and every Spotless user
    would share its limits and lose scrobbling if Last.fm revoked it. Your
@@ -279,9 +287,8 @@ Spotless is young. Linux is its main platform; the Windows build is new and
 has only been tested under Wine and on GitHub's build machines so far. The
 Android app is newer still, and has been tried on one phone.
 
-Not there on purpose: Spotify's own playlists and queue, Spotify Connect,
-podcasts, and anything social. Maybe later: an equalizer, importing Spotify
-playlists.
+Not there on purpose: Spotify's own playlists, podcasts, and anything
+social. Maybe later: an equalizer, importing Spotify playlists.
 
 ## Credits
 
