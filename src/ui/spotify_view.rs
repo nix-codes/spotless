@@ -4,8 +4,8 @@
 //! the rest of the album or playlist. Enter or a double-click on a song to
 //! come plays the queue here from it, taking it over from a local playlist
 //! or another device; on the song playing, plays it here. While Spotless
-//! has the queue, + ADD adds songs to it and Delete or REM removes songs
-//! to come. CLEAR stops and empties it all, wherever it plays. Rows drag
+//! has the queue, or no device has, + ADD adds songs to it (taking it
+//! over); while Spotless has it, Delete or REM removes songs to come. CLEAR stops and empties it all, wherever it plays. Rows drag
 //! onto a playlist's tab to copy them there.
 //!
 //! Keys as in a playlist: Up/Down, PageUp/PageDown and Home/End move the
@@ -73,7 +73,7 @@ pub fn draw(
         ui.add_space(4.0);
         if queue.now.is_none() && queue.parts.is_empty() {
             ui.label(
-                RichText::new(if queue.held_here() {
+                RichText::new(if queue.takes_songs() {
                     "Nothing to play. Add songs with + ADD, or play something on another device."
                 } else {
                     "Nothing to play. Play something on another device, or hand it to Spotless."
@@ -251,7 +251,7 @@ fn toolbar(
     let removable = removable(queue, selection);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
-        if small_action(ui, &palette, "+ ADD", queue.held_here()).clicked() {
+        if small_action(ui, &palette, "+ ADD", queue.takes_songs()).clicked() {
             actions.push(Action::ToggleBrowse);
         }
         let can_remove = queue.held_here() && !removable.is_empty();

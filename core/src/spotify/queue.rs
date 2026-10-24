@@ -85,6 +85,12 @@ impl SpotifyQueue {
         self.here && self.device.is_some()
     }
 
+    /// Songs can be added: Spotless has it, or no device does, and Spotless
+    /// takes it over for them.
+    pub fn takes_songs(&self) -> bool {
+        self.held_here() || self.device.is_none()
+    }
+
     /// A device plays it, or has it paused.
     pub fn active(&self) -> bool {
         self.device.is_some() && self.status != Status::Stopped

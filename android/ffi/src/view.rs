@@ -284,8 +284,11 @@ pub enum SpotifyRow {
 pub struct SpotifyView {
     /// Where the queue plays, and how: "Playing on Kitchen.".
     pub where_it_plays: String,
-    /// Spotless has the queue: songs can be added and removed.
+    /// Spotless has the queue: songs can be removed.
     pub held_here: bool,
+    /// Songs can be added: Spotless has the queue, or no device has and
+    /// Spotless takes it over for them.
+    pub takes_songs: bool,
     /// Before, now, then each part under its heading.
     pub rows: Vec<SpotifyRow>,
     /// The song playing and the ones to come.
@@ -324,6 +327,7 @@ pub(crate) fn spotify(state: &State) -> Option<SpotifyView> {
     Some(SpotifyView {
         where_it_plays: queue.where_it_plays(),
         held_here: queue.held_here(),
+        takes_songs: queue.takes_songs(),
         rows,
         to_come: count(queue.len()),
     })

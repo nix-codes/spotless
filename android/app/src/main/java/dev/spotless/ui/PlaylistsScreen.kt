@@ -212,7 +212,7 @@ private fun CopyBar(core: Core, tracks: List<Track>, done: () -> Unit) {
                 TextButton(tab.name, {
                     core.apply(Action.CopyTo(tab.id, tracks))
                     done()
-                }, Modifier.height(44.dp), enabled = !tab.spotify || queue?.heldHere == true)
+                }, Modifier.height(44.dp), enabled = !tab.spotify || queue?.takesSongs == true)
             }
         }
     }
@@ -768,7 +768,7 @@ private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, se
     Box(modifier.fillMaxWidth().padding(horizontal = 8.dp).lcd().padding(2.dp)) {
         if (songs.none { it.played != Played.BEFORE }) {
             BasicText(
-                if (queue.heldHere) {
+                if (queue.takesSongs) {
                     "Nothing to play. Add songs from Browse, or play something on another device."
                 } else {
                     "Nothing to play. Play something on another device, or pick Spotless in Spotify's list of devices."

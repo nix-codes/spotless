@@ -281,6 +281,14 @@ struct Clearing {
     here_at: Option<Instant>,
 }
 
+/// Songs asked to be added while no device held the queue: since `asked`,
+/// while the queue comes here to take them; it came at `here_at`.
+struct Adding {
+    asked: Instant,
+    uris: Vec<String>,
+    here_at: Option<Instant>,
+}
+
 /// What the Spotify tab's device tells the worker.
 enum RemoteReport {
     Started(Result<Remote>),
@@ -302,9 +310,9 @@ const PLAY_HERE_WAIT: Duration = Duration::from_secs(10);
 /// only once seeking has paused this long: each seek is a few requests to
 /// Spotify, which refuses too many.
 const SEEK_GAP: Duration = Duration::from_millis(400);
-/// A queue taken over to be cleared is cleared once its songs to come are
-/// in, or this long after it came, if none come: cleared sooner, the
-/// handover still finishing would bring the songs queued back.
+/// A queue taken over to be cleared, or added to, is changed once its songs
+/// to come are in, or this long after it came, if none come: changed
+/// sooner, the handover still finishing would undo it.
 const CLEAR_SETTLE: Duration = Duration::from_secs(2);
 
 /// Search signs in with the personal app, a second approval besides
@@ -373,6 +381,8 @@ struct Worker {
     play_here: Option<PlayHere>,
     /// When the queue was asked to be cleared, while it comes here to be.
     clearing: Option<Clearing>,
+    /// Songs to add once the queue, held by no device, comes here.
+    adding: Option<Adding>,
     /// When the queue was last asked to seek, and the seek waiting for
     /// seeking to pause.
     seek_asked: Option<Instant>,
@@ -424,6 +434,7 @@ impl Worker {
             remote_starting: false,
             play_here: None,
             clearing: None,
+            adding: None,
             seek_asked: None,
             seek_waiting: None,
             queue: SpotifyQueue::default(),
@@ -467,6 +478,7 @@ impl Worker {
                 .and(self.seek_asked)
                 .map(|asked| tokio::time::Instant::from_std(asked + SEEK_GAP));
             let clear_due = self.clear_due();
+            let add_due = self.add_due();
             tokio::select! {
                 command = commands.recv() => {
                     let Some(command) = command else { break };
@@ -490,6 +502,8 @@ impl Worker {
                     if seek_due.is_some() => self.send_seek(),
                 () = tokio::time::sleep_until(clear_due.unwrap_or_else(tokio::time::Instant::now)),
                     if clear_due.is_some() => self.clear_next(),
+                () = tokio::time::sleep_until(add_due.unwrap_or_else(tokio::time::Instant::now)),
+                    if add_due.is_some() => self.add_next(),
             }
         }
     }
@@ -705,6 +719,7 @@ impl Worker {
                 self.queue = queue.clone();
                 self.play_here_next();
                 self.clear_next();
+                self.add_next();
                 (self.emit)(Event::Spotify(Some(queue)));
             }
         }
@@ -761,6 +776,28 @@ impl Worker {
                 here_at: None,
             });
             self.clear_next();
+            return;
+        }
+        // No device holds the queue, so none takes changes to it: Spotless
+        // takes it over, without playing it, and adds the songs once it has
+        // it, as CLEAR does.
+        if let SpotifyRequest::Add(uris) = &request
+            && !self.queue.here
+            && self.queue.device.is_none()
+        {
+            match &mut self.adding {
+                Some(adding) => adding.uris.extend(uris.iter().cloned()),
+                None => {
+                    log::info!("taking the queue over, to add to it");
+                    remote.play_here();
+                    self.adding = Some(Adding {
+                        asked: Instant::now(),
+                        uris: uris.clone(),
+                        here_at: None,
+                    });
+                }
+            }
+            self.add_next();
             return;
         }
         if let SpotifyRequest::Seek(position) = request {
@@ -847,6 +884,45 @@ impl Worker {
     fn clear_due(&self) -> Option<tokio::time::Instant> {
         let here_at = self.clearing.as_ref()?.here_at?;
         Some(tokio::time::Instant::from_std(here_at + CLEAR_SETTLE))
+    }
+
+    /// Adds the songs waiting, once the queue taken over for them is here
+    /// and settled: added sooner, the handover still finishing would drop
+    /// them.
+    fn add_next(&mut self) {
+        let (Some(adding), Some(remote)) = (&mut self.adding, &self.remote) else {
+            return;
+        };
+        if adding.asked.elapsed() >= PLAY_HERE_WAIT {
+            log::warn!("Spotify didn't hand the queue over to add to it");
+            self.adding = None;
+            (self.emit)(Event::Error(
+                "Spotify didn't hand the queue over to Spotless, so the songs weren't added."
+                    .into(),
+            ));
+            return;
+        }
+        if !self.queue.here {
+            return;
+        }
+        let here_at = *adding.here_at.get_or_insert_with(Instant::now);
+        let settled = !self.queue.loading && !self.queue.parts.is_empty();
+        if !settled && here_at.elapsed() < CLEAR_SETTLE {
+            return;
+        }
+        remote.add(&adding.uris);
+        self.adding = None;
+    }
+
+    /// When songs waiting on a handover are due to be added anyway.
+    fn add_due(&self) -> Option<tokio::time::Instant> {
+        let adding = self.adding.as_ref()?;
+        let due = match adding.here_at {
+            Some(here_at) => here_at + CLEAR_SETTLE,
+            // Checked for having waited too long.
+            None => adding.asked + PLAY_HERE_WAIT,
+        };
+        Some(tokio::time::Instant::from_std(due))
     }
 
     /// Sends the seek waiting, if one is.
@@ -1049,6 +1125,7 @@ impl Worker {
                 } else {
                     self.play_here = None;
                     self.clearing = None;
+                    self.adding = None;
                     self.stop_remote();
                 }
             }

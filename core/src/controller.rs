@@ -996,17 +996,16 @@ impl Controller {
         self.changed(requests);
     }
 
-    /// Adds songs to the end of the account's queue, while Spotless has it.
+    /// Adds songs to the end of the account's queue, while it takes them.
     fn queue_tracks(&mut self, tracks: Vec<TrackRef>) {
-        if !self
-            .state
-            .spotify
-            .as_ref()
-            .is_some_and(SpotifyQueue::held_here)
-        {
-            self.state.error = Some(
-                "Spotify only takes songs for the queue from the device playing it: play it here first, from a song in the Spotify tab.".into(),
-            );
+        let Some(queue) = &self.state.spotify else {
+            return;
+        };
+        if !queue.takes_songs() {
+            let device = queue.device.as_deref().unwrap_or_default();
+            self.state.error = Some(format!(
+                "Spotify only takes songs for the queue from the device playing it ({device}). To add songs, play the queue here first: pick a song in the Spotify tab."
+            ));
             return;
         }
         self.state.notice = Some(match tracks.len() {
@@ -1467,6 +1466,39 @@ mod tests {
             ..elsewhere
         })));
         assert_eq!(rig.controller.state().now_playing().status, Status::Playing);
+    }
+
+    #[test]
+    fn songs_go_to_a_queue_no_device_holds_but_not_to_one_another_does() {
+        let mut rig = Rig::new("queue-add");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        rig.tell(Event::Spotify(Some(SpotifyQueue::default())));
+        rig.controller.apply(Action::SetTarget(PlaylistId::SPOTIFY));
+        rig.sent();
+        let added = |rig: &mut Rig| {
+            rig.controller.apply(Action::AddTracks(tracks([1])));
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::Spotify(SpotifyRequest::Add(_))))
+        };
+        assert!(added(&mut rig));
+        assert_eq!(rig.controller.state().error, None);
+        rig.tell(Event::Spotify(Some(SpotifyQueue {
+            device: Some("Phone".into()),
+            device_id: Some("phone".into()),
+            status: Status::Playing,
+            now: Some(entry(7).track),
+            ..SpotifyQueue::default()
+        })));
+        assert!(!added(&mut rig));
+        assert!(
+            rig.controller
+                .state()
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("(Phone)")
+        );
     }
 
     #[test]
