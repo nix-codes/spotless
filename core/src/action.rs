@@ -13,6 +13,8 @@ pub enum Action {
     /// Search signs in with this personal app's client ID (empty: none).
     SetSearchApp(String),
     SetLevelling(bool),
+    /// Draws the lists and the display in this colour.
+    SetPhosphor(crate::phosphor::Phosphor),
     /// Saves this Last.fm API account (key, shared secret) and approves it
     /// in the browser.
     ConnectLastFm(String, String),

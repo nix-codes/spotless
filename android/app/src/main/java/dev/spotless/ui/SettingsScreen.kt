@@ -92,6 +92,7 @@ fun SettingsScreen(core: Core, close: () -> Unit) {
             Search(core)
             LastFmSection(core)
             Playback(core)
+            Display(core)
             Storage(core)
             About()
         }
@@ -200,6 +201,36 @@ private fun Playback(core: Core) {
     Section("PLAYBACK") {
         Item("Volume levelling") { Switch(on) { core.apply(Action.SetLevelling(it)) } }
         Note("Evens out loudness between songs and albums.")
+    }
+}
+
+/** The colour of the lists and the display, after old monitors. */
+@Composable
+private fun Display(core: Core) {
+    Section("DISPLAY") {
+        for (phosphor in core.phosphors) {
+            val chosen = phosphor.key == core.settings.phosphor
+            val text = Color(0xFF000000.toInt() or phosphor.text.toInt())
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .clickable(enabled = !chosen) { core.apply(Action.SetPhosphor(phosphor.key)) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .semantics { contentDescription = "Colour: ${phosphor.name}" },
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BasicText(if (chosen) "●" else "○", style = mono(16.sp, if (chosen) Classic.lcd else Classic.dim))
+                Column(Modifier.weight(1f)) {
+                    BasicText(phosphor.name, style = body(15.sp, text, if (chosen) FontWeight.SemiBold else FontWeight.Normal))
+                    if (phosphor.origin.isNotEmpty()) {
+                        BasicText(phosphor.origin, style = body(12.sp, Classic.label, FontWeight.Normal))
+                    }
+                }
+            }
+        }
+        Note("The songs, the time and the song's name.")
     }
 }
 

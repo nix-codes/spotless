@@ -768,7 +768,7 @@ impl Controls<'_, '_> {
             }
         });
         row(ui, palette, "Colour", |ui| {
-            let chosen = Phosphor::from_key(self.view.settings.phosphor.as_deref());
+            let chosen = self.view.settings.phosphor;
             for (i, phosphor) in Phosphor::ALL.into_iter().enumerate() {
                 let on = phosphor == chosen;
                 let choice = ui

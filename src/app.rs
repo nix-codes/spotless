@@ -19,7 +19,7 @@ use crate::tray::{Tray, TrayState};
 use crate::ui::skin_paint::SkinPaint;
 use crate::ui::{
     self, Cover, Inputs, View,
-    theme::{Palette, Phosphor},
+    theme::{self, Palette},
 };
 
 pub struct App {
@@ -178,7 +178,7 @@ impl App {
                 Err(error) => self.skin_error = Some(error),
             },
             Desktop::SetPhosphor(phosphor) => {
-                self.controller.settings_mut().phosphor = Some(phosphor.key().to_string());
+                self.controller.apply(Action::SetPhosphor(phosphor));
                 let skin = self.controller.state().settings.skin.clone();
                 if let Err(error) = self.use_skin(skin.as_deref()) {
                     self.skin_error = Some(error);
@@ -292,8 +292,8 @@ impl App {
             log::warn!("skin {name}: {error}");
             format!("{name}: {error}")
         })?;
-        let phosphor = Phosphor::from_key(self.controller.state().settings.phosphor.as_deref());
-        if let Some(color) = phosphor.display() {
+        let phosphor = self.controller.state().settings.phosphor;
+        if let Some(color) = theme::display_colour(phosphor) {
             loaded.tint_display(color);
         }
         let mut notes = Vec::new();

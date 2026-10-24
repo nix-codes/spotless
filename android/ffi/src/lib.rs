@@ -198,6 +198,10 @@ pub enum Action {
     SetLevelling {
         on: bool,
     },
+    /// The lists and the display in this colour, by its key.
+    SetPhosphor {
+        key: String,
+    },
     /// Saves this Last.fm API account and opens its approval page.
     ConnectLastFm {
         api_key: String,
@@ -332,6 +336,9 @@ impl From<Action> for spotless_core::action::Action {
             Action::SignOut => Core::SignOut,
             Action::SetSearchApp { client_id } => Core::SetSearchApp(client_id),
             Action::SetLevelling { on } => Core::SetLevelling(on),
+            Action::SetPhosphor { key } => {
+                Core::SetPhosphor(spotless_core::phosphor::Phosphor::from_key(Some(&key)))
+            }
             Action::ConnectLastFm { api_key, secret } => Core::ConnectLastFm(api_key, secret),
             Action::DisconnectLastFm => Core::DisconnectLastFm,
             Action::SetAudioCache { on } => Core::SetAudioCache(on),

@@ -12,12 +12,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -33,25 +37,47 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import dev.spotless.core.PhosphorView
 
-/** Spotless Classic, the desktop's built-in skin (src/ui/theme.rs). */
+/**
+ * Spotless Classic, the desktop's built-in skin (src/ui/theme.rs). The list
+ * and display colours follow the colour chosen in Settings ([use]).
+ */
 object Classic {
     val frame = Color(0xFF2A2A37)
     val hi = Color(0xFF4C4C62)
     val lo = Color(0xFF111117)
     val chrome = Color(0xFFC9C9DA)
     val button = Color(0xFF363646)
-    val lcd = Color(0xFF2BFF62)
-    val list = Color(0xFF00E639)
-    val dim = Color(0xFF14A83A)
-    val current = Color.White
-    val selected = Color(0xFF0B2FBF)
+    var lcd by mutableStateOf(Color(0xFF2BFF62))
+        private set
+    var list by mutableStateOf(Color(0xFF00E639))
+        private set
+    var dim by mutableStateOf(Color(0xFF14A83A))
+        private set
+    var current by mutableStateOf(Color.White)
+        private set
+    var selected by mutableStateOf(Color(0xFF0E4A1F))
+        private set
     val thumb = Color(0xFFB0995E)
     /** Labels on the frame. */
     val label = Color(0xFF9D9DB3)
-    val playingRow = Color(0xFF101A12)
+    /** Behind the playing song: a trace of the colour on near-black. */
+    var playingRow by mutableStateOf(Color(0xFF0E1A10))
+        private set
     /** Something went wrong, or waits: messages and the player's NO CONNECTION. */
     val warning = Color(0xFFFFB000)
+
+    /** Draws the lists and the display in [phosphor]'s shades. */
+    fun use(phosphor: PhosphorView) {
+        fun rgb(value: UInt) = Color(0xFF000000.toInt() or value.toInt())
+        lcd = rgb(phosphor.lit)
+        list = rgb(phosphor.text)
+        dim = rgb(phosphor.dim)
+        current = rgb(phosphor.current)
+        selected = rgb(phosphor.selected)
+        playingRow = lerp(Color(0xFF0F0F10), list, 0.05f)
+    }
 }
 
 /** A Winamp bevel: light top and left edges, dark bottom and right, or the other way in. */

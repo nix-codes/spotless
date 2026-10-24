@@ -12,6 +12,7 @@ pub mod images;
 pub mod lastfm;
 pub mod model;
 pub mod paths;
+pub mod phosphor;
 pub mod playback;
 pub mod spotify;
 pub mod store;

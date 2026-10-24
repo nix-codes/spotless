@@ -25,6 +25,7 @@ import dev.spotless.core.PlaylistView
 import dev.spotless.core.Session
 import dev.spotless.core.Spotless
 import dev.spotless.core.Status
+import dev.spotless.ui.Classic
 
 /**
  * The Rust core and what the screens show of it. Everything here runs on
@@ -85,6 +86,10 @@ class Core(private val context: Context) : Host {
         private set
     var settings by mutableStateOf(spotless.settings())
         private set
+
+    /** The colours Settings offers. */
+    val phosphors = dev.spotless.core.phosphors()
+    private var coloured = false
 
     /** Where each Browse page was scrolled to, by [browseKey], kept while Browse is closed. */
     val browseScroll = HashMap<String, LazyListState>()
@@ -170,7 +175,12 @@ class Core(private val context: Context) : Host {
         playlist = spotless.playlist(tabs.viewed)
         browse = spotless.browse()
         message = spotless.message()
+        val was = settings.phosphor
         settings = spotless.settings()
+        if (settings.phosphor != was || !coloured) {
+            phosphors.firstOrNull { it.key == settings.phosphor }?.let(Classic::use)
+            coloured = true
+        }
         for (cover in spotless.takeCovers()) {
             val image = cover.image ?: continue
             val bitmap = Bitmap.createBitmap(image.width.toInt(), image.height.toInt(), Bitmap.Config.ARGB_8888)

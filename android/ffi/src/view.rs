@@ -6,6 +6,7 @@ use spotless_core::controller::State;
 use spotless_core::lastfm::{self, LastFmStatus};
 use spotless_core::model::catalog::{self, ReleaseGroup as CoreGroup, ReleaseTab as CoreTab};
 use spotless_core::model::{AlbumRef, ArtistRef, Playlist, PlaylistId, TrackRef};
+use spotless_core::phosphor::Phosphor;
 use spotless_core::playback::engine;
 use spotless_core::store::AUDIO_CACHE_SIZES;
 
@@ -608,6 +609,45 @@ pub struct SettingsView {
     /// The Last.fm API account, as last saved (empty: none).
     pub lastfm_key: String,
     pub lastfm_secret: String,
+    /// The colour of the lists and the display, by its key.
+    pub phosphor: String,
+}
+
+/// A colour the lists and the display can take, with its shades as
+/// 0xRRGGBB.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct PhosphorView {
+    pub key: String,
+    pub name: String,
+    /// Where the colour comes from (empty: nowhere in particular).
+    pub origin: String,
+    pub text: u32,
+    pub dim: u32,
+    pub lit: u32,
+    pub current: u32,
+    pub selected: u32,
+}
+
+/// Every colour, in the order Settings lists them.
+#[uniffi::export]
+pub fn phosphors() -> Vec<PhosphorView> {
+    let rgb = |[r, g, b]: [u8; 3]| u32::from_be_bytes([0, r, g, b]);
+    Phosphor::ALL
+        .into_iter()
+        .map(|phosphor| {
+            let shades = phosphor.shades();
+            PhosphorView {
+                key: phosphor.key().into(),
+                name: phosphor.name().into(),
+                origin: phosphor.origin().unwrap_or_default().into(),
+                text: rgb(shades.text),
+                dim: rgb(shades.dim),
+                lit: rgb(shades.lit),
+                current: rgb(shades.current),
+                selected: rgb(shades.selected),
+            }
+        })
+        .collect()
 }
 
 pub(crate) fn settings(state: &State) -> SettingsView {
@@ -628,5 +668,6 @@ pub(crate) fn settings(state: &State) -> SettingsView {
         },
         lastfm_key: state.lastfm.api_key.clone(),
         lastfm_secret: state.lastfm.secret.clone(),
+        phosphor: settings.phosphor.key().into(),
     }
 }

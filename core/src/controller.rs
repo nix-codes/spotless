@@ -477,6 +477,10 @@ impl Controller {
         let requests = match action {
             Action::SignIn => return self.send(Command::SignIn),
             Action::SignOut => return self.send(Command::SignOut),
+            Action::SetPhosphor(phosphor) => {
+                state.settings.phosphor = phosphor;
+                return self.mark_unsaved();
+            }
             Action::SetLevelling(on) => {
                 state.settings.levelling = on;
                 self.mark_unsaved();
