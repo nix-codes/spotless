@@ -274,6 +274,9 @@ const RETRY_FIRST: Duration = Duration::from_secs(5);
 const RETRY_MOST: Duration = Duration::from_secs(120);
 /// How long PLAY HERE waits for the queue to come here and play it.
 const PLAY_HERE_WAIT: Duration = Duration::from_secs(10);
+/// Seeks on the queue go to Spotify at most this often, the last of a burst
+/// last: each is a request to Spotify, which refuses too many.
+const SEEK_GAP: Duration = Duration::from_millis(400);
 
 /// Search signs in with the personal app, a second approval besides
 /// playback's (see `spotify/webapi.rs`). It runs when Spotless signs in, or
@@ -337,6 +340,10 @@ struct Worker {
     queue: SpotifyQueue,
     /// When PLAY HERE asked for the queue: it plays once it is here.
     play_here_asked: Option<Instant>,
+    /// When a seek on the queue last went to Spotify, and the one waiting
+    /// for `SEEK_GAP` to pass.
+    seek_sent: Option<Instant>,
+    seek_waiting: Option<u32>,
     /// Where remotes are handed over once started, and tell the queue.
     remotes: UnboundedSender<RemoteReport>,
     remote_reports: Option<UnboundedReceiver<RemoteReport>>,
@@ -375,6 +382,8 @@ impl Worker {
             remote: None,
             remote_starting: false,
             play_here_asked: None,
+            seek_sent: None,
+            seek_waiting: None,
             queue: SpotifyQueue::default(),
             remotes,
             remote_reports: Some(remote_reports),
@@ -411,6 +420,10 @@ impl Worker {
         let mut device_reports = self.device_reports.take().expect("run once");
         let mut remote_reports = self.remote_reports.take().expect("run once");
         loop {
+            let seek_due = self
+                .seek_waiting
+                .and(self.seek_sent)
+                .map(|sent| tokio::time::Instant::from_std(sent + SEEK_GAP));
             tokio::select! {
                 command = commands.recv() => {
                     let Some(command) = command else { break };
@@ -430,6 +443,8 @@ impl Worker {
                 }
                 Some(playing) = device_reports.recv() => self.elsewhere_changed(playing),
                 Some(report) = remote_reports.recv() => self.remote_report(report),
+                () = tokio::time::sleep_until(seek_due.unwrap_or_else(tokio::time::Instant::now)),
+                    if seek_due.is_some() => self.send_seek(),
             }
         }
     }
@@ -669,6 +684,32 @@ impl Worker {
             }
             return;
         }
+        if let SpotifyRequest::Seek(position) = request {
+            let gap_over = self.seek_sent.is_none_or(|at| at.elapsed() >= SEEK_GAP);
+            self.seek_waiting = Some(position);
+            if gap_over {
+                self.send_seek();
+            }
+            return;
+        }
+        // A seek still waiting goes first, as it was asked first.
+        if self.seek_waiting.is_some() {
+            self.send_seek();
+        }
+        self.send_spotify(request);
+    }
+
+    /// Sends the seek waiting, if one is.
+    fn send_seek(&mut self) {
+        if let Some(position) = self.seek_waiting.take() {
+            self.seek_sent = Some(Instant::now());
+            self.send_spotify(SpotifyRequest::Seek(position));
+        }
+    }
+
+    /// Sends `request` to the device playing the queue.
+    fn send_spotify(&self, request: SpotifyRequest) {
+        let Some(remote) = &self.remote else { return };
         // Another device plays the queue: the player's buttons act on it.
         if let Some(device) = self.queue.device_id.clone().filter(|_| !self.queue.here) {
             let commands = match request {

@@ -23,6 +23,9 @@ use crate::store::{self, Settings, Tabs};
 
 /// Changes are saved this long after the last one.
 const SAVE_DELAY: Duration = Duration::from_secs(1);
+/// How long after seeking the queue its shown position outlasts Spotify's
+/// reports, which may still be of the position before.
+const SEEK_SHOWN: Duration = Duration::from_millis(1_500);
 
 /// What the interface shows. It reads it; only the controller changes it.
 pub struct State {
@@ -100,6 +103,9 @@ pub struct Controller {
     /// The song that waited offline is loading again: it stays shown until
     /// the engine has it (the new player starts out knowing no song).
     resuming: bool,
+    /// When the queue was last seeked: its position is shown at once, and
+    /// reports from before the seek reached Spotify are kept from undoing it.
+    spotify_seeked: Option<Instant>,
 }
 
 impl Controller {
@@ -165,6 +171,7 @@ impl Controller {
             unsaved: None,
             pending_adds: Vec::new(),
             resuming: false,
+            spotify_seeked: None,
         }
     }
 
@@ -225,7 +232,16 @@ impl Controller {
                     let requests = self.state.transport.ended(&mut self.state.library);
                     self.changed(requests);
                 }
-                Event::Spotify(queue) => {
+                Event::Spotify(mut queue) => {
+                    if let (Some(new), Some(old)) = (&mut queue, &self.state.spotify)
+                        && self
+                            .spotify_seeked
+                            .is_some_and(|at| at.elapsed() < SEEK_SHOWN)
+                        && new.now == old.now
+                    {
+                        new.position_ms = old.position_ms;
+                        new.reported_at = old.reported_at;
+                    }
                     self.state.spotify_list = queue.as_ref().map_or_else(
                         || Playlist::new(PlaylistId::SPOTIFY, "Spotify"),
                         SpotifyQueue::as_playlist,
@@ -570,7 +586,14 @@ impl Controller {
             Action::Stop if here => SpotifyRequest::Stop,
             Action::Next if here => SpotifyRequest::Next,
             Action::Previous if here => SpotifyRequest::Previous,
-            Action::Seek(position) if here => SpotifyRequest::Seek(position),
+            Action::Seek(position) if here => {
+                if let Some(queue) = &mut state.spotify {
+                    queue.position_ms = position;
+                    queue.reported_at = Some(Instant::now());
+                    self.spotify_seeked = Some(Instant::now());
+                }
+                SpotifyRequest::Seek(position)
+            }
             Action::SelectPlaylist(PlaylistId::SPOTIFY) => {
                 if state.spotify.is_some() {
                     state.viewed = PlaylistId::SPOTIFY;
