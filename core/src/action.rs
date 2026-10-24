@@ -52,6 +52,9 @@ pub enum Action {
     /// Opens the Spotify tab again, closed with ClosePlaylist like any tab:
     /// Spotless joins Spotify Connect again.
     OpenSpotifyTab,
+    /// The Spotify tab can be used, or not (Settings). Allowed again, it
+    /// opens.
+    SetSpotifyTabEnabled(bool),
     /// Moves these rows, keeping their order, to just before the row now at
     /// this index.
     Move(Vec<EntryId>, usize),

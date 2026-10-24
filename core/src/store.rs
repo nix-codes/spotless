@@ -130,7 +130,10 @@ pub struct Settings {
     pub audio_output: Option<String>,
     /// The tray icon, which closing the window hides Spotless in.
     pub tray: bool,
-    /// The Spotify tab is open, and Spotless a Spotify Connect device.
+    /// The Spotify tab can be used: off in Settings, it is never shown and
+    /// Spotless never joins Spotify Connect.
+    pub spotify_tab_enabled: bool,
+    /// The Spotify tab is open, unless closed like any tab.
     pub spotify_tab: bool,
     /// The skin the colours come from, by its name in the skins folder;
     /// None is Classic.
@@ -157,6 +160,11 @@ impl Settings {
             Err(_) => Map::new(),
         };
         Self::from_raw(raw)
+    }
+
+    /// The Spotify tab shows, and Spotless is a Spotify Connect device.
+    pub fn spotify_tab_shown(&self) -> bool {
+        self.spotify_tab_enabled && self.spotify_tab
     }
 
     /// The personal Spotify app search signs in with.
@@ -209,6 +217,10 @@ impl Settings {
                 .filter(|mb| AUDIO_CACHE_SIZES.contains(mb))
                 .unwrap_or(2048),
             tray: raw.get("tray").and_then(Value::as_bool).unwrap_or(true),
+            spotify_tab_enabled: raw
+                .get("spotify_tab_enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
             spotify_tab: raw
                 .get("spotify_tab")
                 .and_then(Value::as_bool)
@@ -234,6 +246,10 @@ impl Settings {
         raw.insert("audio_cache".into(), self.audio_cache.into());
         raw.insert("audio_cache_mb".into(), self.audio_cache_mb.into());
         raw.insert("tray".into(), self.tray.into());
+        raw.insert(
+            "spotify_tab_enabled".into(),
+            self.spotify_tab_enabled.into(),
+        );
         raw.insert("spotify_tab".into(), self.spotify_tab.into());
         match &self.audio_output {
             Some(output) => raw.insert("audio_output".into(), output.clone().into()),

@@ -141,7 +141,7 @@ impl Controller {
             paths.clone(),
             volume_level(settings.volume),
             settings.levelling,
-            settings.spotify_tab,
+            settings.spotify_tab_shown(),
             browser,
             wake,
         );
@@ -612,6 +612,26 @@ impl Controller {
         self.changed(requests);
     }
 
+    /// Joins or leaves Spotify Connect as the Spotify tab now shows or not.
+    /// Gone, it was never started: the player and the tab shown move on.
+    fn spotify_tab_changed(&mut self) {
+        let state = &mut self.state;
+        let shown = state.settings.spotify_tab_shown();
+        if !shown {
+            state.spotify_starting = None;
+            state.spotify_owns = false;
+            if state.viewed == PlaylistId::SPOTIFY {
+                state.viewed = state
+                    .library
+                    .playlists()
+                    .first()
+                    .map_or(PlaylistId::DEFAULT, |list| list.id);
+            }
+        }
+        self.mark_unsaved();
+        self.send(Command::SpotifyTab(shown));
+    }
+
     /// Does what the Spotify tab, or the player while the tab plays, asked
     /// for. Hands back any other action.
     fn apply_spotify(&mut self, action: Action) -> Option<Action> {
@@ -619,27 +639,23 @@ impl Controller {
             // Closed, Spotless leaves Spotify Connect; the queue stays the
             // account's, to go on with elsewhere.
             Action::ClosePlaylist(PlaylistId::SPOTIFY) => {
-                let state = &mut self.state;
-                state.settings.spotify_tab = false;
-                state.spotify_starting = None;
-                state.spotify_owns = false;
-                if state.viewed == PlaylistId::SPOTIFY {
-                    state.viewed = state
-                        .library
-                        .playlists()
-                        .first()
-                        .map_or(PlaylistId::DEFAULT, |list| list.id);
-                }
-                self.mark_unsaved();
-                self.send(Command::SpotifyTab(false));
+                self.state.settings.spotify_tab = false;
+                self.spotify_tab_changed();
                 return None;
             }
             // Shown once its device has joined.
             Action::OpenSpotifyTab => {
                 self.state.settings.spotify_tab = true;
                 self.state.viewed = PlaylistId::SPOTIFY;
-                self.mark_unsaved();
-                self.send(Command::SpotifyTab(true));
+                self.spotify_tab_changed();
+                return None;
+            }
+            Action::SetSpotifyTabEnabled(on) => {
+                self.state.settings.spotify_tab_enabled = on;
+                if on {
+                    self.state.settings.spotify_tab = true;
+                }
+                self.spotify_tab_changed();
                 return None;
             }
             _ => {}
@@ -1306,6 +1322,22 @@ mod tests {
                 .any(|c| matches!(c, Command::SpotifyTab(true)))
         );
         assert!(rig.controller.state().settings.spotify_tab);
+        // Off in Settings, it leaves Connect; on again, it opens.
+        rig.controller.apply(Action::SetSpotifyTabEnabled(false));
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::SpotifyTab(false)))
+        );
+        rig.controller
+            .apply(Action::ClosePlaylist(PlaylistId::SPOTIFY));
+        rig.controller.apply(Action::SetSpotifyTabEnabled(true));
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::SpotifyTab(true)))
+        );
+        assert!(rig.controller.state().settings.spotify_tab_shown());
     }
 
     #[test]

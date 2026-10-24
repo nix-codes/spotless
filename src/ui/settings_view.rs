@@ -101,6 +101,7 @@ enum Item {
     LastFmConnect,
     LastFmLink,
     Levelling,
+    SpotifyTab,
     /// One of the outputs listed, 0 being the system's default.
     Output(usize),
     Smaller,
@@ -333,7 +334,8 @@ fn items(category: Category, view: &View, outputs: usize) -> Vec<Item> {
             Item::LastFmConnect,
             Item::LastFmLink,
         ],
-        Category::Playback => std::iter::once(Item::Levelling)
+        Category::Playback => [Item::Levelling, Item::SpotifyTab]
+            .into_iter()
             .chain((0..outputs).map(Item::Output))
             .collect(),
         Category::Display => [Item::Smaller, Item::Larger, Item::Covers]
@@ -680,6 +682,19 @@ impl Controls<'_, '_> {
                 self.actions.push(Action::SetLevelling(!settings.levelling));
             }
             note(ui, palette, "Evens out loudness between songs and albums.");
+        });
+        row(ui, palette, "Spotify tab", |ui| {
+            let on = settings.spotify_tab_enabled;
+            let switch = toggle(ui, palette, on);
+            self.ring(ui, Item::SpotifyTab, &switch);
+            if switch.clicked() || (self.pressed)(Item::SpotifyTab) {
+                self.actions.push(Action::SetSpotifyTabEnabled(!on));
+            }
+            note(
+                ui,
+                palette,
+                "Shows Spotify's queue, as your other devices play it, and makes Spotless a device they can hand it to.",
+            );
         });
         row(ui, palette, "Output", |ui| match self.view.outputs {
             Loadable::Ready(Some(_)) => {

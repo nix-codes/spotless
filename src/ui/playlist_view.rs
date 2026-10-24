@@ -152,7 +152,8 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
                 tabs.push((list.id, rect));
             }
             // With the Spotify tab closed, + opens it too.
-            let spotify_closed = SPOTIFY_TAB && !view.settings.spotify_tab;
+            let spotify_closed =
+                SPOTIFY_TAB && view.settings.spotify_tab_enabled && !view.settings.spotify_tab;
             let plus = small_button(ui, &palette, "+", false);
             if !spotify_closed {
                 if plus.on_hover_text("New playlist").clicked() {
