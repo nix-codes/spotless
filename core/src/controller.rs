@@ -651,6 +651,7 @@ impl Controller {
                     Row::Before(_) => return None,
                 }
             }
+            Action::ClearSpotify => SpotifyRequest::Clear,
             Action::Remove(PlaylistId::SPOTIFY, rows) => {
                 let queue = state.spotify.as_ref()?;
                 let songs = rows
@@ -1248,6 +1249,31 @@ mod tests {
         assert_eq!(play(&mut rig, 0), []);
         assert_eq!(play(&mut rig, 1), [None]);
         assert_eq!(play(&mut rig, 2), [Some(entry(8).track.uri)]);
+    }
+
+    #[test]
+    fn clear_asks_spotify_to_clear_and_ends_a_wait_for_the_queue() {
+        let mut rig = Rig::new("clear");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        rig.tell(Event::Spotify(Some(SpotifyQueue {
+            device: Some("Phone".into()),
+            device_id: Some("phone".into()),
+            status: Status::Paused,
+            now: Some(entry(7).track),
+            ..SpotifyQueue::default()
+        })));
+        rig.controller.apply(Action::PlayEntry(
+            PlaylistId::SPOTIFY,
+            SpotifyQueue::row_id(0),
+        ));
+        rig.sent();
+        rig.controller.apply(Action::ClearSpotify);
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::Spotify(SpotifyRequest::Clear)))
+        );
+        assert_eq!(rig.controller.state().spotify_starting, None);
     }
 
     #[test]

@@ -100,6 +100,10 @@ pub enum SpotifyRequest {
     /// here, from this song to come if one is given (by URI): the songs
     /// before it leave the queue, as Spotify's apps skip to a song.
     PlayHere(Option<String>),
+    /// Stops the queue and empties it: the song, the songs queued and the
+    /// album or playlist it plays from. Takes it over first, if another
+    /// device has it, without playing it.
+    Clear,
 }
 
 /// The Spotify tab is on: Spotless joins Spotify Connect as a device and
@@ -351,6 +355,8 @@ struct Worker {
     queue: SpotifyQueue,
     /// The queue asked to play here, done step by step as it reports.
     play_here: Option<PlayHere>,
+    /// When the queue was asked to be cleared, while it comes here to be.
+    clearing: Option<Instant>,
     /// When the queue was last asked to seek, and the seek waiting for
     /// seeking to pause.
     seek_asked: Option<Instant>,
@@ -393,6 +399,7 @@ impl Worker {
             remote: None,
             remote_starting: false,
             play_here: None,
+            clearing: None,
             seek_asked: None,
             seek_waiting: None,
             queue: SpotifyQueue::default(),
@@ -666,6 +673,7 @@ impl Worker {
                 }
                 self.queue = queue.clone();
                 self.play_here_next();
+                self.clear_next();
                 (self.emit)(Event::Spotify(Some(queue)));
             }
         }
@@ -690,6 +698,17 @@ impl Worker {
                 skipped: false,
             });
             self.play_here_next();
+            return;
+        }
+        if let SpotifyRequest::Clear = request {
+            self.play_here = None;
+            self.seek_waiting = None;
+            if !self.queue.here {
+                log::info!("taking the queue over, to clear it");
+                remote.play_here();
+            }
+            self.clearing = Some(Instant::now());
+            self.clear_next();
             return;
         }
         if let SpotifyRequest::Seek(position) = request {
@@ -750,6 +769,21 @@ impl Worker {
         self.play_here = None;
     }
 
+    /// Clears the queue as asked, once it is here.
+    fn clear_next(&mut self) {
+        let (Some(asked), Some(remote)) = (self.clearing, &self.remote) else {
+            return;
+        };
+        if asked.elapsed() >= PLAY_HERE_WAIT {
+            log::warn!("Spotify didn't hand the queue over to clear it");
+        } else if self.queue.here {
+            remote.clear();
+        } else {
+            return;
+        }
+        self.clearing = None;
+    }
+
     /// Sends the seek waiting, if one is.
     fn send_seek(&mut self) {
         if let Some(position) = self.seek_waiting.take() {
@@ -776,7 +810,8 @@ impl Worker {
                 // Spotify takes no queue changes from a device that watches.
                 SpotifyRequest::Add(_)
                 | SpotifyRequest::Remove(_)
-                | SpotifyRequest::PlayHere(_) => return,
+                | SpotifyRequest::PlayHere(_)
+                | SpotifyRequest::Clear => return,
             };
             let session = remote.session();
             tokio::spawn(async move {
@@ -802,7 +837,7 @@ impl Worker {
             SpotifyRequest::Seek(position) => remote.seek(position),
             SpotifyRequest::Add(uris) => remote.add(&uris),
             SpotifyRequest::Remove(songs) => remote.remove(songs),
-            SpotifyRequest::PlayHere(_) => {}
+            SpotifyRequest::PlayHere(_) | SpotifyRequest::Clear => {}
         }
     }
 

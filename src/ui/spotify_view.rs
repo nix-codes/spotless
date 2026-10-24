@@ -4,7 +4,8 @@
 //! the rest of the album or playlist. Enter or a double-click on a song to
 //! come plays the queue here from it, taking it over from a local playlist
 //! or another device; on the song playing, plays it here. While Spotless
-//! plays the queue, Delete or REM removes songs to come. Rows drag onto a
+//! plays the queue, Delete or REM removes songs to come. CLEAR, once
+//! confirmed, stops and empties it all, wherever it plays. Rows drag onto a
 //! playlist's tab to copy them there.
 //!
 //! Keys as in a playlist: Up/Down, PageUp/PageDown and Home/End move the
@@ -13,13 +14,13 @@
 use std::collections::BTreeSet;
 
 use egui::{
-    Align, Align2, DragAndDrop, FontId, Id, Key, Layout, Rect, RichText, Sense, Ui, UiBuilder,
-    pos2, vec2,
+    Align, Align2, DragAndDrop, FontId, Id, Key, Layout, Rect, RichText, Sense, Stroke, Ui,
+    UiBuilder, pos2, vec2,
 };
 
 use super::playlist_view::RowDrag;
 use super::scrollbar;
-use super::widgets::{drag_ghost, small_action};
+use super::widgets::{drag_ghost, small_action, small_button};
 use super::{Inputs, View};
 use crate::action::{Action, Actions};
 use crate::model::{EntryId, PlaylistId};
@@ -64,7 +65,7 @@ pub fn draw(
     let page = ((rows.height() / ROW_HEIGHT) as usize)
         .saturating_sub(3)
         .max(1);
-    if inputs.renaming.is_none() && inputs.closing.is_none() {
+    if inputs.renaming.is_none() && inputs.closing.is_none() && !inputs.clearing {
         keyboard(ui, queue, selection, &mut keys, page, actions);
     }
 
@@ -106,8 +107,9 @@ pub fn draw(
     keys.reveal = None;
     ui.data_mut(|d| d.insert_temp(keys_id(), keys));
     ui.scope_builder(UiBuilder::new().max_rect(toolbar_rect), |ui| {
-        toolbar(ui, view, queue, selection, actions);
+        toolbar(ui, view, queue, selection, &mut inputs.clearing, actions);
     });
+    confirm_clear(ui, view, &mut inputs.clearing, actions);
     if let Some(dragging) = DragAndDrop::payload::<RowDrag>(ui.ctx()) {
         let count = match dragging.0.len() {
             1 => "1 song".to_string(),
@@ -245,6 +247,7 @@ fn toolbar(
     view: &View,
     queue: &SpotifyQueue,
     selection: &BTreeSet<EntryId>,
+    clearing: &mut bool,
     actions: &mut Actions,
 ) {
     let palette = view.palette;
@@ -257,6 +260,10 @@ fn toolbar(
         let can_remove = queue.playing_here() && !removable.is_empty();
         if small_action(ui, &palette, "REM", can_remove).clicked() {
             actions.push(Action::Remove(PlaylistId::SPOTIFY, removable));
+        }
+        let something = queue.now.is_some() || !queue.parts.is_empty();
+        if small_action(ui, &palette, "CLEAR", something).clicked() {
+            *clearing = true;
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let songs = match queue.len() {
@@ -271,6 +278,51 @@ fn toolbar(
             );
         });
     });
+}
+
+/// Asks before CLEAR: it can't be undone, and stops the queue on any
+/// device.
+fn confirm_clear(ui: &Ui, view: &View, clearing: &mut bool, actions: &mut Actions) {
+    if !*clearing {
+        return;
+    }
+    let palette = view.palette;
+    let modal = egui::Modal::new(Id::new("clear-spotify"))
+        .frame(
+            egui::Frame::new()
+                .fill(palette.frame)
+                .stroke(Stroke::new(1.0, palette.hi))
+                .inner_margin(16),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_max_width(320.0);
+            ui.label(
+                RichText::new("Clear the Spotify tab?")
+                    .size(15.0)
+                    .color(palette.current),
+            );
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(
+                    "The song stops, wherever it plays, and the queue and the album \
+                     or playlist it plays from are dropped.",
+                )
+                .color(palette.chrome),
+            );
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                if small_button(ui, &palette, "CLEAR", false).clicked() {
+                    actions.push(Action::ClearSpotify);
+                    return true;
+                }
+                small_button(ui, &palette, "KEEP", false).clicked()
+            })
+            .inner
+        });
+    let escape = ui.input(|i| i.key_pressed(Key::Escape));
+    if modal.inner || modal.backdrop_response.clicked() || escape {
+        *clearing = false;
+    }
 }
 
 /// The place of the row with this ID.

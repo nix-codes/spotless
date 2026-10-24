@@ -46,6 +46,9 @@ pub enum Action {
     /// Double-click or Enter on a playlist's row.
     PlayEntry(PlaylistId, EntryId),
     Remove(PlaylistId, Vec<EntryId>),
+    /// Empties the Spotify tab: stops, and drops the song, the queue and
+    /// the album or playlist it plays from.
+    ClearSpotify,
     /// Moves these rows, keeping their order, to just before the row now at
     /// this index.
     Move(Vec<EntryId>, usize),

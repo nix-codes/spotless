@@ -191,6 +191,12 @@ impl Remote {
         self.session.clone()
     }
 
+    /// Stops and drops everything: the song, the queue and the context.
+    /// Only while Spotless has the queue.
+    pub fn clear(&self) {
+        log_error(self.spirc.clear());
+    }
+
     /// Takes playback over from the device playing it.
     pub fn play_here(&self) {
         log_error(self.spirc.transfer(None));

@@ -99,6 +99,8 @@ pub struct Inputs {
     pub renaming: Option<(PlaylistId, String)>,
     /// The playlist waiting for Close to be confirmed.
     pub closing: Option<PlaylistId>,
+    /// The Spotify tab waiting for CLEAR to be confirmed.
+    pub clearing: bool,
     /// The volume to go back to after muting with M.
     pub unmuted: Option<u8>,
     /// A row to select once its playlist is the one shown (J).
