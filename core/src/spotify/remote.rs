@@ -11,7 +11,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
-use librespot_connect::{ClusterState, ConnectConfig, Spirc};
+use librespot_connect::{
+    ClusterState, ConnectConfig, LoadRequest, LoadRequestOptions, PlayingTrack, Spirc,
+};
 use librespot_core::config::DeviceType;
 use librespot_core::{Session, SessionConfig, SpotifyUri};
 use librespot_playback::config::{Bitrate, NormalisationType, PlayerConfig, VolumeCtrl};
@@ -35,6 +37,11 @@ const SETTLE: Duration = Duration::from_millis(300);
 /// come may still be loading there: the ones shown before stay while fewer
 /// are known.
 const HANDOVER: Duration = Duration::from_secs(2);
+/// "Empty Track", a few seconds of silence: a clear leaves it paused, on
+/// the single it is from, as what plays. Spotify always has a song and an
+/// album or playlist to play; this one is as good as nothing.
+pub const EMPTY_TRACK: &str = "spotify:track:6mpUDcifEGoahHAQY2fl4L";
+const EMPTY_ALBUM: &str = "spotify:album:4XQrWV42nxQJ58bbhextve";
 /// The songs from the album or playlist shown, at most.
 const FROM_CONTEXT: usize = 50;
 /// The songs played before shown, at most.
@@ -191,10 +198,19 @@ impl Remote {
         self.session.clone()
     }
 
-    /// Stops and drops everything: the song, the queue and the context.
-    /// Only while Spotless has the queue.
+    /// Stops, empties the queue, and leaves Empty Track paused as what
+    /// plays, from its single: as near to nothing as Spotify allows. Only
+    /// while Spotless has the queue.
     pub fn clear(&self) {
-        log_error(self.spirc.clear());
+        log_error(self.spirc.clear_queue());
+        log_error(self.spirc.load(LoadRequest::from_context_uri(
+            EMPTY_ALBUM.into(),
+            LoadRequestOptions {
+                start_playing: false,
+                playing_track: Some(PlayingTrack::Uri(EMPTY_TRACK.into())),
+                ..LoadRequestOptions::default()
+            },
+        )));
     }
 
     /// Takes playback over from the device playing it.
@@ -338,10 +354,14 @@ fn read(
         _ => Status::Stopped,
     };
     let named = |track: &ProvidedTrack| names.get(&track.uri).cloned();
+    // What a clear leaves is shown as nothing, unless it plays.
+    let filler = |track: &ProvidedTrack| track.uri == EMPTY_TRACK;
     let before = state.prev_tracks.len().saturating_sub(BEFORE);
     let mut parts: Vec<Part> = Vec::new();
     for (index, track) in state.next_tracks.iter().enumerate() {
-        let Some(named) = named(track) else { continue };
+        let Some(named) = named(track).filter(|_| !filler(track)) else {
+            continue;
+        };
         let queued = track.provider == "queue";
         if !queued
             && parts
@@ -379,12 +399,17 @@ fn read(
         device_id,
         here,
         status,
-        now: state.track.as_ref().and_then(named),
+        now: state
+            .track
+            .as_ref()
+            .filter(|track| !filler(track) || status == Status::Playing)
+            .and_then(named),
         position_ms: position(state, status),
         reported_at: Some(Instant::now()),
         parts,
         before: state.prev_tracks[before..]
             .iter()
+            .filter(|track| !filler(track))
             .filter_map(named)
             .collect(),
         loading: false,

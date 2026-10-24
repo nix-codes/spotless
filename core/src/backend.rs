@@ -100,9 +100,10 @@ pub enum SpotifyRequest {
     /// here, from this song to come if one is given (by URI): the songs
     /// before it leave the queue, as Spotify's apps skip to a song.
     PlayHere(Option<String>),
-    /// Stops the queue and empties it: the song, the songs queued and the
-    /// album or playlist it plays from. Takes it over first, if another
-    /// device has it, without playing it.
+    /// Stops the queue and empties it: the songs queued go, and Empty
+    /// Track, paused, takes the place of the song and of the album or
+    /// playlist it plays from. Takes it over first, if another device has
+    /// it, without playing it.
     Clear,
 }
 
@@ -681,6 +682,22 @@ impl Worker {
 
     fn spotify(&mut self, request: SpotifyRequest) {
         let Some(remote) = &self.remote else { return };
+        // A clear leaves Empty Track paused, shown as nothing: Play goes to
+        // the first song queued since, if one is, not to its silence.
+        let request = match request {
+            SpotifyRequest::Play | SpotifyRequest::TogglePause
+                if self.queue.here
+                    && self.queue.now.is_none()
+                    && self.queue.status != Status::Playing =>
+            {
+                let mut to_come = self.queue.parts.iter().flat_map(|part| &part.songs);
+                match to_come.next() {
+                    Some(first) => SpotifyRequest::PlayHere(Some(first.track.uri.clone())),
+                    None => return,
+                }
+            }
+            other => other,
+        };
         if let SpotifyRequest::PlayHere(song) = request {
             // The queue's to play instead, not alongside.
             if let Some(engine) = &self.engine
