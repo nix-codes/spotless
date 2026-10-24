@@ -75,12 +75,10 @@ fun SettingsScreen(core: Core, close: () -> Unit) {
             GlyphButton(Glyph.Back, "Back to the playlists", close, Modifier.width(48.dp))
             BasicText("S E T T I N G S", Modifier.weight(1f).padding(start = 4.dp), label(spacing = 0.3.em))
         }
-        core.message?.let {
-            Line(
-                it.text, label(12.sp, if (it.error) Classic.warning else Classic.label, 0.02.em),
-                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
+        core.message?.takeIf { !it.error }?.let {
+            Line(it.text, label(12.sp, Classic.label, 0.02.em), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         }
+        ErrorNote(core)
         Column(
             Modifier
                 .weight(1f)

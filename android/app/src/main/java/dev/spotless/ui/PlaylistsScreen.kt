@@ -113,6 +113,7 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
         editing?.let { TabEditor(core, it) { editing = null } }
         if (adding && core.settings.spotifyTabClosed) AddBar(core) { adding = false }
         Summary(core, queue, selecting)
+        ErrorNote(core)
         if (queue != null) {
             QueueSongs(core, queue, selected, { picked = it }, Modifier.weight(1f))
         } else {
@@ -483,7 +484,8 @@ private fun Summary(core: Core, queue: SpotifyView?, selecting: Boolean) {
     ) {
         BasicText(text, style = label(12.sp, Classic.label, 0.06.em))
         if (selecting) return@Row
-        val message = core.message
+        // Errors show in full below.
+        val message = core.message?.takeIf { !it.error }
         val hint = when {
             queue != null -> queue.whereItPlays
             list?.songs?.isNotEmpty() == true -> "HOLD A SONG TO SELECT"
@@ -491,8 +493,7 @@ private fun Summary(core: Core, queue: SpotifyView?, selecting: Boolean) {
         }
         Line(
             if (clearing) "" else message?.text ?: hint,
-            label(12.sp, if (message?.error == true) Classic.warning else Classic.label, 0.02.em)
-                .copy(textAlign = TextAlign.End),
+            label(12.sp, Classic.label, 0.02.em).copy(textAlign = TextAlign.End),
             Modifier.weight(1f),
         )
         // The queue's CLEAR stops it and empties it, wherever it plays.

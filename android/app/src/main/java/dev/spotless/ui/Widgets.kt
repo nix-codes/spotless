@@ -1,6 +1,8 @@
 package dev.spotless.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +39,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import dev.spotless.Core
 import dev.spotless.core.PhosphorView
 
 /**
@@ -111,6 +114,23 @@ fun Line(text: String, style: TextStyle, modifier: Modifier = Modifier) {
  * A chrome button: raised, or sunk and lit when [on] (a tab, a switch).
  * At least 44 dp each way, for a finger.
  */
+/**
+ * The last error, in full: it can be longer than a line holds. Tapping it
+ * puts it away.
+ */
+@Composable
+fun ErrorNote(core: Core, modifier: Modifier = Modifier) {
+    val message = core.message?.takeIf { it.error && it.text != core.dismissed } ?: return
+    BasicText(
+        message.text,
+        modifier
+            .fillMaxWidth()
+            .clickable { core.dismissed = message.text }
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        body(13.sp, Classic.warning, FontWeight.Normal),
+    )
+}
+
 @Composable
 fun ChromeButton(
     onClick: () -> Unit,

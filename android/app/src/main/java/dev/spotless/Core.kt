@@ -90,6 +90,8 @@ class Core(private val context: Context) : Host {
         private set
     var settings by mutableStateOf(spotless.settings())
         private set
+    /** The error last tapped away: hidden until the next action, which may meet it again. */
+    var dismissed by mutableStateOf<String?>(null)
 
     /** The colours Settings offers. */
     val phosphors = dev.spotless.core.phosphors()
@@ -128,6 +130,7 @@ class Core(private val context: Context) : Host {
     }
 
     fun apply(action: Action) {
+        dismissed = null
         spotless.apply(action)
         refresh()
     }

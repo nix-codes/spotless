@@ -106,6 +106,7 @@ fun BrowseScreen(core: Core) {
                 is BrowsePage.Artist -> artist(core, page.page)
             }
         }
+        ErrorNote(core, Modifier.padding(top = 4.dp))
         Column(
             Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
