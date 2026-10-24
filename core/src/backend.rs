@@ -62,6 +62,9 @@ pub enum Command {
     SearchApp(Option<String>),
     /// Volume levelling on or off.
     Levelling(bool),
+    /// The Spotify tab opened or closed: Spotless joins Spotify Connect, or
+    /// leaves it, stopping the queue if it plays here.
+    SpotifyTab(bool),
     /// How much the caches hold; answered with `Event::Storage`.
     MeasureStorage,
     /// The system has a network again: a dropped session reconnects now,
@@ -224,6 +227,7 @@ impl Backend {
         paths: Paths,
         volume: u16,
         levelling: bool,
+        spotify_tab: bool,
         browser: Browser,
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Result<Self> {
@@ -240,8 +244,9 @@ impl Backend {
         std::thread::Builder::new()
             .name("spotless-runtime".into())
             .spawn(move || {
-                runtime
-                    .block_on(Worker::new(paths, volume, levelling, browser, emit).run(receiver));
+                runtime.block_on(
+                    Worker::new(paths, volume, levelling, spotify_tab, browser, emit).run(receiver),
+                );
             })?;
         Ok(Self { commands, events })
     }
@@ -360,6 +365,8 @@ struct Worker {
     /// Where the watches tell, and where `run` hears it.
     devices: UnboundedSender<Option<Playing>>,
     device_reports: Option<UnboundedReceiver<Option<Playing>>>,
+    /// The Spotify tab is open: its device runs while signed in.
+    spotify_tab: bool,
     /// Spotless's Connect device for the Spotify tab, once started.
     remote: Option<Remote>,
     /// A remote is being started.
@@ -393,13 +400,21 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(paths: Paths, volume: u16, levelling: bool, browser: Browser, emit: Emit) -> Self {
+    fn new(
+        paths: Paths,
+        volume: u16,
+        levelling: bool,
+        spotify_tab: bool,
+        browser: Browser,
+        emit: Emit,
+    ) -> Self {
         let (devices, device_reports) = unbounded_channel();
         let (remotes, remote_reports) = unbounded_channel();
         Self {
             paths,
             volume,
             levelling,
+            spotify_tab,
             browser,
             emit,
             session: None,
@@ -632,7 +647,12 @@ impl Worker {
 
     /// Starts the Spotify tab's device, unless it runs or is starting.
     fn start_remote(&mut self) {
-        if !SPOTIFY_TAB || self.remote.is_some() || self.remote_starting || self.session.is_none() {
+        if !SPOTIFY_TAB
+            || !self.spotify_tab
+            || self.remote.is_some()
+            || self.remote_starting
+            || self.session.is_none()
+        {
             return;
         }
         self.remote_starting = true;
@@ -671,8 +691,8 @@ impl Worker {
         match report {
             RemoteReport::Started(Ok(remote)) => {
                 self.remote_starting = false;
-                // Signed out meanwhile.
-                if self.session.is_none() {
+                // Signed out, or the tab closed, meanwhile.
+                if self.session.is_none() || !self.spotify_tab {
                     remote.shut_down();
                     return;
                 }
@@ -1026,6 +1046,16 @@ impl Worker {
                     }
                     emit(Event::Storage(measure(&paths)));
                 });
+            }
+            Command::SpotifyTab(on) => {
+                self.spotify_tab = on;
+                if on {
+                    self.start_remote();
+                } else {
+                    self.play_here = None;
+                    self.clearing = None;
+                    self.stop_remote();
+                }
             }
             Command::Levelling(on) => {
                 self.levelling = on;

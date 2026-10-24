@@ -49,7 +49,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+Shift+Tab", "Previous playlist"),
             ("Ctrl+1 … 9", "Playlist 1 … 9"),
             ("Ctrl+T", "New playlist"),
-            ("Ctrl+W", "Close the playlist"),
+            ("Ctrl+W", "Close the tab"),
             ("F2", "Rename the playlist"),
             ("Ctrl+B", "Browse / playlists"),
             ("Ctrl+F", "Search"),
@@ -261,7 +261,7 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
         inputs.renaming = Some((view.playlist.id, view.playlist.name.clone()));
     }
     if !browsing && take(i, Modifiers::COMMAND, Key::W) && current != PlaylistId::DEFAULT {
-        if view.playlist.is_empty() {
+        if view.playlist.is_empty() || current == PlaylistId::SPOTIFY {
             actions.push(Action::ClosePlaylist(current));
         } else {
             inputs.closing = Some(current);

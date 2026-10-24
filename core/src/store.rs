@@ -130,6 +130,8 @@ pub struct Settings {
     pub audio_output: Option<String>,
     /// The tray icon, which closing the window hides Spotless in.
     pub tray: bool,
+    /// The Spotify tab is open, and Spotless a Spotify Connect device.
+    pub spotify_tab: bool,
     /// The skin the colours come from, by its name in the skins folder;
     /// None is Classic.
     pub skin: Option<String>,
@@ -207,6 +209,10 @@ impl Settings {
                 .filter(|mb| AUDIO_CACHE_SIZES.contains(mb))
                 .unwrap_or(2048),
             tray: raw.get("tray").and_then(Value::as_bool).unwrap_or(true),
+            spotify_tab: raw
+                .get("spotify_tab")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
             audio_output: raw
                 .get("audio_output")
                 .and_then(Value::as_str)
@@ -228,6 +234,7 @@ impl Settings {
         raw.insert("audio_cache".into(), self.audio_cache.into());
         raw.insert("audio_cache_mb".into(), self.audio_cache_mb.into());
         raw.insert("tray".into(), self.tray.into());
+        raw.insert("spotify_tab".into(), self.spotify_tab.into());
         match &self.audio_output {
             Some(output) => raw.insert("audio_output".into(), output.clone().into()),
             None => raw.remove("audio_output"),

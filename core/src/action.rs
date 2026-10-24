@@ -49,6 +49,9 @@ pub enum Action {
     /// Empties the Spotify tab: stops, and drops the song, the queue and
     /// the album or playlist it plays from.
     ClearSpotify,
+    /// Opens the Spotify tab again, closed with ClosePlaylist like any tab:
+    /// Spotless joins Spotify Connect again.
+    OpenSpotifyTab,
     /// Moves these rows, keeping their order, to just before the row now at
     /// this index.
     Move(Vec<EntryId>, usize),

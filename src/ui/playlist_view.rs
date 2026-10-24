@@ -19,9 +19,12 @@ use egui::{
 use super::scrollbar::Scrollbar;
 use super::skin_paint;
 use super::theme::{self, Palette};
-use super::widgets::{Glyph, drag_ghost, field, small_action, small_button, small_glyph};
+use super::widgets::{
+    Glyph, drag_ghost, field, small_action, small_button, small_glyph, text_button,
+};
 use super::{Inputs, View, spotify_view};
 use crate::action::{Action, Actions};
+use crate::backend::SPOTIFY_TAB;
 use crate::model::{EntryId, Playlist, PlaylistId};
 use crate::playback::engine::Status;
 
@@ -148,11 +151,22 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
                 };
                 tabs.push((list.id, rect));
             }
-            if small_button(ui, &palette, "+", false)
-                .on_hover_text("New playlist")
-                .clicked()
-            {
-                actions.push(Action::NewPlaylist);
+            // With the Spotify tab closed, + opens it too.
+            let spotify_closed = SPOTIFY_TAB && !view.settings.spotify_tab;
+            let plus = small_button(ui, &palette, "+", false);
+            if !spotify_closed {
+                if plus.on_hover_text("New playlist").clicked() {
+                    actions.push(Action::NewPlaylist);
+                }
+            } else {
+                egui::Popup::menu(&plus).show(|ui| {
+                    if text_button(ui, &palette, "NEW PLAYLIST", false, true).clicked() {
+                        actions.push(Action::NewPlaylist);
+                    }
+                    if text_button(ui, &palette, "SPOTIFY", false, true).clicked() {
+                        actions.push(Action::OpenSpotifyTab);
+                    }
+                });
             }
         })
         .response
@@ -240,7 +254,7 @@ fn tab(ui: &mut Ui, view: &View, list: Tab, inputs: &mut Inputs, actions: &mut A
     let palette = view.palette;
     let shown = list.id == view.playlist.id;
     let playing = view.playing_list == Some(list.id);
-    let closable = list.own && list.id != PlaylistId::DEFAULT;
+    let closable = list.id != PlaylistId::DEFAULT;
     let name_font = FontId::proportional(12.5);
     let count_font = FontId::monospace(9.0);
     let count = list.count.to_string();
@@ -352,7 +366,8 @@ fn tab(ui: &mut Ui, view: &View, list: Tab, inputs: &mut Inputs, actions: &mut A
     }
 
     if response.clicked() && over_close {
-        if list.count == 0 {
+        // Closing the Spotify tab loses nothing: the queue is the account's.
+        if list.count == 0 || !list.own {
             actions.push(Action::ClosePlaylist(list.id));
         } else {
             inputs.closing = Some(list.id);
@@ -366,7 +381,7 @@ fn tab(ui: &mut Ui, view: &View, list: Tab, inputs: &mut Inputs, actions: &mut A
         response.dnd_set_drag_payload(TabDrag(list.id));
     }
     let hint = if !list.own {
-        "The account's queue, as Spotify plays it"
+        "The account's queue, as Spotify plays it. Closed, Spotless leaves Spotify Connect; + opens it again"
     } else if closable {
         "Double-click to rename, drag to move"
     } else {

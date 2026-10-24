@@ -141,6 +141,7 @@ impl Controller {
             paths.clone(),
             volume_level(settings.volume),
             settings.levelling,
+            settings.spotify_tab,
             browser,
             wake,
         );
@@ -614,6 +615,35 @@ impl Controller {
     /// Does what the Spotify tab, or the player while the tab plays, asked
     /// for. Hands back any other action.
     fn apply_spotify(&mut self, action: Action) -> Option<Action> {
+        match action {
+            // Closed, Spotless leaves Spotify Connect; the queue stays the
+            // account's, to go on with elsewhere.
+            Action::ClosePlaylist(PlaylistId::SPOTIFY) => {
+                let state = &mut self.state;
+                state.settings.spotify_tab = false;
+                state.spotify_starting = None;
+                state.spotify_owns = false;
+                if state.viewed == PlaylistId::SPOTIFY {
+                    state.viewed = state
+                        .library
+                        .playlists()
+                        .first()
+                        .map_or(PlaylistId::DEFAULT, |list| list.id);
+                }
+                self.mark_unsaved();
+                self.send(Command::SpotifyTab(false));
+                return None;
+            }
+            // Shown once its device has joined.
+            Action::OpenSpotifyTab => {
+                self.state.settings.spotify_tab = true;
+                self.state.viewed = PlaylistId::SPOTIFY;
+                self.mark_unsaved();
+                self.send(Command::SpotifyTab(true));
+                return None;
+            }
+            _ => {}
+        }
         let state = &mut self.state;
         // The player's buttons act on the queue, wherever it plays.
         let here = state.spotify_playing();
@@ -1249,6 +1279,33 @@ mod tests {
         assert_eq!(play(&mut rig, 0), []);
         assert_eq!(play(&mut rig, 1), [None]);
         assert_eq!(play(&mut rig, 2), [Some(entry(8).track.uri)]);
+    }
+
+    #[test]
+    fn the_spotify_tab_closes_and_opens_again_and_is_remembered() {
+        let mut rig = Rig::new("spotify-tab");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        rig.tell(Event::Spotify(Some(SpotifyQueue::default())));
+        rig.controller
+            .apply(Action::SelectPlaylist(PlaylistId::SPOTIFY));
+        rig.sent();
+        rig.controller
+            .apply(Action::ClosePlaylist(PlaylistId::SPOTIFY));
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::SpotifyTab(false)))
+        );
+        let state = rig.controller.state();
+        assert!(!state.settings.spotify_tab);
+        assert_ne!(state.viewed, PlaylistId::SPOTIFY);
+        rig.controller.apply(Action::OpenSpotifyTab);
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::SpotifyTab(true)))
+        );
+        assert!(rig.controller.state().settings.spotify_tab);
     }
 
     #[test]
