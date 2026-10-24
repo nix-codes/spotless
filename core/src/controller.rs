@@ -88,10 +88,15 @@ impl State {
         }
     }
 
-    /// The playlist a song plays from, the Spotify tab's included.
+    /// The playlist a song plays from, the Spotify tab's included: not
+    /// the queue's while it has no song, as after a clear, or is stopped.
     pub fn playing_list(&self) -> Option<PlaylistId> {
         if self.spotify_playing() {
-            Some(PlaylistId::SPOTIFY)
+            let playing = self.spotify_starting.is_some()
+                || self.spotify.as_ref().is_some_and(|queue| {
+                    queue.now.is_some() && queue.shown_status() != Status::Stopped
+                });
+            playing.then_some(PlaylistId::SPOTIFY)
         } else {
             self.transport.playing_list()
         }
@@ -1452,6 +1457,39 @@ mod tests {
                 .any(|c| matches!(c, Command::Spotify(SpotifyRequest::Clear)))
         );
         assert_eq!(rig.controller.state().spotify_starting, None);
+    }
+
+    #[test]
+    fn a_cleared_queue_is_no_tab_playing() {
+        let mut rig = Rig::new("cleared");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        let here = SpotifyQueue {
+            device: Some("Spotless".into()),
+            device_id: Some("spotless".into()),
+            here: true,
+            status: Status::Playing,
+            now: Some(entry(7).track),
+            position_ms: 30_000,
+            ..SpotifyQueue::default()
+        };
+        rig.tell(Event::Spotify(Some(here.clone())));
+        rig.controller.apply(Action::PlayEntry(
+            PlaylistId::SPOTIFY,
+            SpotifyQueue::row_id(0),
+        ));
+        rig.tell(Event::Spotify(Some(here.clone())));
+        assert_eq!(
+            rig.controller.state().playing_list(),
+            Some(PlaylistId::SPOTIFY)
+        );
+        // Empty Track, paused, is shown as no song.
+        rig.tell(Event::Spotify(Some(SpotifyQueue {
+            status: Status::Paused,
+            now: None,
+            position_ms: 0,
+            ..here
+        })));
+        assert_eq!(rig.controller.state().playing_list(), None);
     }
 
     #[test]
