@@ -125,14 +125,13 @@ pub(super) fn time_shown(ui: &Ui, view: &View) -> bool {
     into < blink
 }
 
-/// The song's display: the artist and the song while one plays, else
-/// blank, unless not being signed in is why nothing can.
+/// The song's display: the artist and the song while one plays, or the
+/// one Play would start while stopped, else blank, unless not being
+/// signed in is why nothing can.
 pub(super) fn now_lines(view: &View) -> (String, String) {
     match (&view.player.track, view.player.status) {
         (_, Status::Loading) => ("Loading…".to_string(), String::new()),
-        (Some(track), Status::Playing | Status::Paused) => {
-            (track.artists.clone(), track.title.clone())
-        }
+        (Some(track), _) => (track.artists.clone(), track.title.clone()),
         _ => match view.session {
             SessionState::Ready { .. } => (String::new(), String::new()),
             _ => ("Not signed in".into(), String::new()),
