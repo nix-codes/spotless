@@ -69,7 +69,7 @@ impl Phosphor {
             Phosphor::Green => "Green",
             Phosphor::Amber => "Amber",
             Phosphor::PaperWhite => "Paper-white",
-            Phosphor::Vfd => "VFD",
+            Phosphor::Vfd => "VFD (Vacuum Fluorescent Display)",
             Phosphor::IceBlue => "Ice blue",
             Phosphor::DeepBlue => "Deep blue",
             Phosphor::Purple => "Purple",
