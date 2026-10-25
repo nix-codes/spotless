@@ -114,8 +114,12 @@ fun PlayerPanel(core: Core) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             val wide = Modifier.weight(1f).height(52.dp)
             GlyphButton(Glyph.Previous, "Previous", { core.apply(Action.Previous) }, wide, ready)
-            GlyphButton(Glyph.Play, "Play", { core.apply(Action.Play) }, wide, ready)
-            GlyphButton(Glyph.Pause, "Pause", { core.apply(Action.TogglePause) }, wide, ready)
+            // Play stays pressed in while a song plays, Pause while it is paused; Stop never.
+            GlyphButton(Glyph.Play, "Play", { core.apply(Action.Play) }, wide, ready, on = playing(player))
+            GlyphButton(
+                Glyph.Pause, "Pause", { core.apply(Action.TogglePause) }, wide, ready,
+                on = player.status == Status.PAUSED,
+            )
             GlyphButton(Glyph.Stop, "Stop", { core.apply(Action.Stop) }, wide, ready)
             GlyphButton(Glyph.Next, "Next", { core.apply(Action.Next) }, wide, ready)
         }

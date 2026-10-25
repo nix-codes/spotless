@@ -115,6 +115,16 @@ fn draw_title(ui: &Ui, rect: Rect, view: &View) {
     }
 }
 
+/// Which of Play and Pause stay pressed in: Play while a song plays,
+/// Pause while it is paused. Stop never does.
+pub(super) fn held(view: &View) -> [bool; 2] {
+    let status = view.player.status;
+    [
+        matches!(status, Status::Playing | Status::Loading),
+        status == Status::Paused,
+    ]
+}
+
 /// Whether the time's digits show: while paused they blink, as in
 /// Winamp; the colon stays.
 pub(super) fn time_shown(ui: &Ui, view: &View) -> bool {
@@ -322,10 +332,11 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
     if glyph_button(ui, &palette, Glyph::Previous, ready).clicked() {
         actions.push(Action::Previous);
     }
-    if glyph_button(ui, &palette, Glyph::Play, ready).clicked() {
+    let [playing, paused] = held(view);
+    if glyph_toggle(ui, &palette, Glyph::Play, playing, ready).clicked() {
         actions.push(Action::Play);
     }
-    if glyph_button(ui, &palette, Glyph::Pause, ready).clicked() {
+    if glyph_toggle(ui, &palette, Glyph::Pause, paused, ready).clicked() {
         actions.push(Action::TogglePause);
     }
     if glyph_button(ui, &palette, Glyph::Stop, ready).clicked() {
