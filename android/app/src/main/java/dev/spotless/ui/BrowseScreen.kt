@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -96,9 +95,9 @@ fun BrowseScreen(core: Core) {
         val scroll = remember(key) { core.browseScroll.getOrPut(key) { LazyListState() } }
         if (page !is BrowsePage.Artist) SearchField(core, (page as? BrowsePage.Search)?.query ?: "")
         if (page is BrowsePage.Artist) ArtistBar(core, page)
-        LazyColumn(
+        ScrollingList(
+            scroll,
             Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp).lcd().padding(2.dp),
-            state = scroll,
         ) {
             when (page) {
                 is BrowsePage.Home -> home(core, page)

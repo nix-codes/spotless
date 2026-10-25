@@ -79,20 +79,18 @@ fun SettingsScreen(core: Core, close: () -> Unit) {
             Line(it.text, label(12.sp, Classic.label, 0.02.em), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         }
         ErrorNote(core)
-        Column(
-            Modifier
-                .weight(1f)
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(start = 8.dp, end = 8.dp, bottom = 16.dp),
-        ) {
-            Account(core, close)
-            Search(core)
-            LastFmSection(core)
-            Playback(core)
-            Display(core)
-            Storage(core)
-            About()
+        val scroll = rememberScrollState()
+        Row(Modifier.weight(1f).imePadding().padding(end = 8.dp, bottom = 16.dp)) {
+            Column(Modifier.weight(1f).verticalScroll(scroll).padding(horizontal = 8.dp)) {
+                Account(core, close)
+                Search(core)
+                LastFmSection(core)
+                Playback(core)
+                Display(core)
+                Storage(core)
+                About()
+            }
+            Scrollbar(scroll)
         }
     }
 }

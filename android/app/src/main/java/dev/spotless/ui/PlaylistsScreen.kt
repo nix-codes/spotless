@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -616,7 +615,7 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
             val at = songs.indexOfFirst { it.entry == list.cursor }
             LazyListState(if (at > 0) at + starts.count { it <= at } - 1 else 0)
         }
-        LazyColumn(Modifier.fillMaxSize(), state = state) {
+        ScrollingList(state, Modifier.fillMaxSize()) {
             songs.forEachIndexed { index, song ->
                 if (index in starts) {
                     val end = starts.firstOrNull { it > index } ?: songs.size
@@ -850,7 +849,7 @@ private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, se
             )
             return@Column
         }
-        LazyColumn(Modifier.fillMaxSize(), state) {
+        ScrollingList(state, Modifier.fillMaxSize()) {
             for (row in queue.rows) {
                 when (row) {
                     is SpotifyRow.Heading -> item {
