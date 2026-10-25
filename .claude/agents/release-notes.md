@@ -31,7 +31,14 @@ your answer and stop.
 
 Leave out what users never get: probes and examples (`core/examples/`,
 `examples/`), tests, CI, the README, and work done and undone within the
-range. Fold commits about the same thing into one entry.
+range.
+
+An entry is an idea a user would recognise, not a commit. Several
+commits often make one idea (a feature built in steps, two fixes for the
+same trouble), and then they're one entry; one commit doing two
+unrelated things gives two. Group by what the user experiences: "playing
+through a bad connection" or "what the player shows when stopped", not
+by which part of the code changed.
 
 ## Write the notes
 
@@ -50,14 +57,34 @@ a stale display) is Fixed, even when its commit doesn't call it a bug.
 
 No heading above the sections: the release adds "Changes since x.y.z".
 
-Each entry is one line, `- ` and a sentence about what the user sees or
-can do, in plain words, no file or type names: "The scrollbar shows only
-when there's more than fits", not "Scrollbar::show hides the slot". Write
-like the commit subjects and the README: short, concrete, no hype, no
-"we", no exclamation marks. End entries with a full stop. Name the app's
-own words for things: playlists, tabs, Browse, Settings, the player, the
-Spotify tab (Spotless's whole view of Spotify's playback: never call it
-"the Spotify queue"; "queue" means only the songs added with Add to queue).
+Write for someone who uses the app and has never seen its code or its
+commits. Each entry is `- ` and one or two full, plain, friendly
+sentences saying what they'll notice and, when it helps, what it was
+like before or why it matters to them. Don't copy the commits' wording:
+commit subjects are clipped shorthand for developers ("Stopped, the
+player shows the song Play starts") and read like riddles to users.
+
+- Say it the way you'd explain it to a friend: "When nothing is playing,
+  the player now shows the song that will play when you press Play, even
+  right after you open the app." Not "Stopped, the player shows the song
+  Play starts, after a restart too."
+- Start from the situation the user is in ("If the connection drops in
+  the middle of a song, …", "When you open a playlist, …"), then what
+  happens now.
+- Use "you" for the user. No "we", no hype, no exclamation marks. End each
+  sentence with a full stop.
+- One idea per entry. If an entry needs "and" to join two unrelated
+  things, split it; if two entries describe the same experience, merge
+  them.
+- No file or type names: "The scrollbar only appears when there's more
+  than fits", not "Scrollbar::show hides the slot".
+- Use the app's own words for things: playlists, tabs, Browse, Settings,
+  the player, the Spotify tab (Spotless's whole view of Spotify's
+  playback: never "the Spotify queue"; "queue" means only the songs added
+  with Add to queue). Name buttons as the app labels them (Play, CLEAR).
+
+Read each entry back as a user would. If it takes a second reading to
+understand, rewrite it.
 
 Users know the app, not how it's built. Never name what's inside it:
 libraries (librespot, egui, UniFFI, Compose), crates, the core, the
