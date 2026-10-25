@@ -16,7 +16,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import java.nio.ByteBuffer
 import androidx.compose.runtime.setValue
 import dev.spotless.core.Action
 import dev.spotless.core.Host
@@ -30,9 +29,10 @@ import dev.spotless.ui.Classic
 
 /**
  * The Rust core and what the screens show of it. Everything here runs on
- * the main thread; the core wakes it from its own.
+ * the main thread; the core wakes it from its own. With [demo], the core
+ * holds the made-up library the screenshots show, and connects to nothing.
  */
-class Core(private val context: Context) : Host {
+class Core(private val context: Context, demo: Boolean = false) : Host {
     private val main = Handler(Looper.getMainLooper())
 
     /**
@@ -67,7 +67,11 @@ class Core(private val context: Context) : Host {
 
     // After what wake() uses: the core's thread may call it before the
     // constructor is done.
-    private val spotless = Spotless(context.filesDir.path, context.cacheDir.path, this)
+    private val spotless = if (demo) {
+        Spotless.demo(context.filesDir.path, context.cacheDir.path, this)
+    } else {
+        Spotless(context.filesDir.path, context.cacheDir.path, this)
+    }
 
     /** The media session, audio focus and the service's notification. */
     val media = Media(context, ::apply)
@@ -198,9 +202,20 @@ class Core(private val context: Context) : Host {
         }
         for (cover in spotless.takeCovers()) {
             val image = cover.image ?: continue
-            val bitmap = Bitmap.createBitmap(image.width.toInt(), image.height.toInt(), Bitmap.Config.ARGB_8888)
-            bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(image.rgba))
-            covers[cover.url] = bitmap.asImageBitmap()
+            val width = image.width.toInt()
+            val height = image.height.toInt()
+            // As colours, not bytes: how a bitmap lays out its bytes is the
+            // device's (on a computer, as for the screenshots, it differs).
+            val rgba = image.rgba
+            val pixels = IntArray(width * height) { i ->
+                val at = i * 4
+                (rgba[at + 3].toInt() and 0xff shl 24) or
+                    (rgba[at].toInt() and 0xff shl 16) or
+                    (rgba[at + 1].toInt() and 0xff shl 8) or
+                    (rgba[at + 2].toInt() and 0xff)
+            }
+            covers[cover.url] = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+                .asImageBitmap()
         }
         media.update(if (player.here) player else player.copy(status = Status.STOPPED), cover(player.track?.coverUrl))
         main.removeCallbacks(tick)

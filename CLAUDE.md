@@ -46,12 +46,13 @@ The body, when there is one, says why and how, in a short paragraph.
 
 ## Screenshots
 
-The README's desktop screenshots are drawn, never taken by hand:
-`packaging/screenshots.sh` runs `examples/screenshots.rs`, which draws the
-real interface from made-up data, and lists the files that changed. The
-`/screenshots` skill (`.claude/skills/screenshots/`) runs it and checks the
-results; a desktop release runs it too. `android.png` is still taken by
-hand.
+The README's screenshots are drawn, never taken by hand, from the core's
+made-up library (`core/src/demo.rs`, `Controller::demo`):
+`packaging/screenshots.sh` runs `examples/screenshots.rs` for the desktop
+and the Android app's `ScreenshotTest` (Robolectric, on the core built for
+this computer), and lists the files that changed. The `/screenshots` skill
+(`.claude/skills/screenshots/`) runs it and checks the results; a desktop
+or Android release runs it too.
 
 ## Releases
 

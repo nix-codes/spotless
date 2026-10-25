@@ -209,6 +209,47 @@ impl Controller {
         Self::with_backend(paths, settings, started)
     }
 
+    /// Spotless as its screenshots show it ([`crate::demo`]): signed in,
+    /// the made-up library with a song playing and the made-up artist
+    /// ready to open in Browse, and nothing connected to Spotify. Its
+    /// settings are those in `paths`; anything saved goes there too.
+    pub fn demo(paths: Paths) -> Self {
+        let settings = Settings::load(&paths);
+        let mut controller = Self::with_backend(paths, settings, Err(anyhow::anyhow!("a demo")));
+        let demo = crate::demo::Demo::new();
+        let state = &mut controller.state;
+        state.session = SessionState::Ready {
+            user: crate::demo::USER.into(),
+        };
+        state.search = SearchState::Ready;
+        state.settings.covers = true;
+        state.browse.show_covers = true;
+        state.library = demo.library;
+        state.viewed = demo.playing;
+        state.browse.artists.insert(
+            crate::demo::ARTIST_URI.into(),
+            Loadable::Ready(crate::demo::discography()),
+        );
+        // Started as a double-click would, with the engine's part told
+        // by hand: there is no engine.
+        let _ = state
+            .transport
+            .play_entry(&mut state.library, demo.playing, demo.now, 0);
+        let track = state
+            .library
+            .get(demo.playing)
+            .and_then(|list| list.get(demo.now))
+            .map(|entry| TrackInfo::from(&entry.track));
+        state.player = PlayerSnapshot {
+            status: Status::Playing,
+            track,
+            position_ms: crate::demo::POSITION_MS,
+            reported_at: None,
+            error: None,
+        };
+        controller
+    }
+
     fn with_backend(paths: Paths, settings: Settings, started: anyhow::Result<Backend>) -> Self {
         let (mut library, tabs) = store::load_library(&paths);
         let history = store::load_history(&paths);

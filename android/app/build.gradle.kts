@@ -71,6 +71,8 @@ android {
 
     buildFeatures { compose = true }
 
+    testOptions { unitTests { isIncludeAndroidResources = true } }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -85,6 +87,30 @@ dependencies {
     implementation(libs.activity.compose)
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
     debugImplementation(libs.compose.ui.tooling)
+    // The screenshots' test: Robolectric for Android, Roborazzi to draw,
+    // and JNA's own jar, which can load the core built for this computer.
+    debugImplementation(libs.compose.ui.test.manifest)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation("net.java.dev.jna:jna:${libs.versions.jna.get()}")
+}
+
+tasks.withType<Test>().configureEach {
+    // The core built for this computer, by packaging/screenshots.sh
+    // (cargo build --release -p spotless-ffi).
+    val workspace = rootProject.layout.projectDirectory.dir("..")
+    systemProperty("jna.library.path", workspace.dir("target/release").asFile.path)
+    // Where the screenshots go: -Pscreenshots=<folder>, or app/build/screenshots.
+    val screenshots = providers.gradleProperty("screenshots")
+        .orElse(layout.buildDirectory.dir("screenshots").map { it.asFile.path })
+    systemProperty("spotless.screenshots", screenshots.get())
+    systemProperty("roborazzi.test.record", "true")
+    // Drawn again each time it's asked for: the core may have changed.
+    outputs.upToDateWhen { false }
 }
 
 /** Runs cargo from the repository's root, where the Rust workspace is. */

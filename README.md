@@ -37,9 +37,14 @@ The settings, where the look and the colour are chosen:
 
 ![The settings' Display page, with the looks and the colours to choose from](docs/screenshots/settings.png)
 
-The Android app:
+The Android app, playing a playlist and browsing an artist's albums:
 
-<img src="docs/screenshots/android.png" width="320" alt="The Android app playing a playlist, with an album's name above its songs">
+<table>
+<tr>
+<td><img src="docs/screenshots/android.png" width="300" alt="The Android app playing a playlist, with an album's name above its songs"></td>
+<td><img src="docs/screenshots/android-browse.png" width="300" alt="The Android app browsing an artist's albums, with covers"></td>
+</tr>
+</table>
 
 ## The name
 

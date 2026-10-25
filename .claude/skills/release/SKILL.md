@@ -20,10 +20,12 @@ Run `packaging/release.sh changes`. For each app it lists the commits since
 its last release, marked `own`, `shared` or both. If an app has nothing,
 say so and leave it out.
 
-For a desktop release, also follow the `screenshots` skill
-(`.claude/skills/screenshots/`) up to its commit step, and show what changed
-with the notes in step 3. Refreshed screenshots are committed, with the
-user's say-so, before the release: it is made from `main` as pushed.
+Also follow the `screenshots` skill (`.claude/skills/screenshots/`) up to
+its commit step, drawing only the released app's screenshots (`android`
+for Android; `playlist browse phosphor settings` for the desktop), and
+show what changed with the notes in step 3. Refreshed screenshots are
+committed, with the user's say-so, before the release: it is made from
+`main` as pushed.
 
 ## 2. Draft the notes
 

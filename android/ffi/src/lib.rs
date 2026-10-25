@@ -55,11 +55,25 @@ pub struct CoverImage {
     pub rgba: Vec<u8>,
 }
 
+/// The made-up artist a demo's Browse has ready (`spotless_core::demo`).
+#[uniffi::export]
+pub fn demo_artist() -> view::Artist {
+    let artist = spotless_core::demo::artist();
+    view::Artist {
+        uri: artist.uri,
+        name: artist.name,
+        image: artist.image,
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct Spotless {
     controller: Mutex<Controller>,
     /// Covers read since the app last took them.
     covers: Mutex<Vec<Cover>>,
+    /// In a demo, the host to wake when covers are in: they are drawn
+    /// here, not fetched.
+    demo: Option<Arc<dyn Host>>,
 }
 
 #[uniffi::export]
@@ -86,6 +100,29 @@ impl Spotless {
         Ok(Arc::new(Self {
             controller: Mutex::new(controller),
             covers: Mutex::new(Vec::new()),
+            demo: None,
+        }))
+    }
+
+    /// The made-up library the screenshots show
+    /// (`spotless_core::demo`): signed in, a song playing, and nothing
+    /// connected to Spotify. The settings are read from and saved in
+    /// these folders, as `new` does.
+    #[uniffi::constructor]
+    pub fn demo(
+        config_dir: String,
+        cache_dir: String,
+        host: Arc<dyn Host>,
+    ) -> Result<Arc<Self>, StartError> {
+        let paths = Paths::from_dirs(config_dir.into(), cache_dir.into()).map_err(|error| {
+            StartError::Folders {
+                reason: format!("{error:#}"),
+            }
+        })?;
+        Ok(Arc::new(Self {
+            controller: Mutex::new(Controller::demo(paths)),
+            covers: Mutex::new(Vec::new()),
+            demo: Some(host),
         }))
     }
 
@@ -126,7 +163,19 @@ impl Spotless {
     /// Reads a cover, from the disk cache or downloaded into it. It comes
     /// back in [`Spotless::take_covers`] after a wake. Ask once per URL.
     pub fn load_cover(&self, url: String) {
-        self.lock().send(Command::Cover(url));
+        let Some(host) = &self.demo else {
+            return self.lock().send(Command::Cover(url));
+        };
+        let image = spotless_core::demo::cover(&url).map(|image| CoverImage {
+            width: image.width,
+            height: image.height,
+            rgba: image.rgba,
+        });
+        self.covers
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(Cover { url, image });
+        host.wake();
     }
 
     /// The covers read since the last call.
