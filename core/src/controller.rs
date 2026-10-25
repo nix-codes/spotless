@@ -84,16 +84,53 @@ impl State {
                 ..queue.snapshot()
             },
             Some(queue) if self.spotify_playing() => queue.snapshot(),
-            // Nothing loaded, as after a restart: the song Play goes on with.
-            _ if self.player.track.is_none() && !self.transport.active() => PlayerSnapshot {
-                track: self
-                    .transport
-                    .current(&self.library)
-                    .map(|entry| TrackInfo::from(&entry.track)),
-                ..self.player.clone()
-            },
+            // Stopped, it shows what Play starts, if anything.
+            _ if self.idle() => self
+                .waiting()
+                .map(|(_, waiting)| waiting)
+                .unwrap_or_default(),
             _ => self.player.clone(),
         }
+    }
+
+    /// Nothing plays, nor waits offline.
+    fn idle(&self) -> bool {
+        !self.transport.active() && !self.offline && !self.spotify_playing()
+    }
+
+    /// While nothing plays: the playlist Play starts, and its song there
+    /// as the player shows it. None when Play would start nothing.
+    pub fn waiting(&self) -> Option<(PlaylistId, PlayerSnapshot)> {
+        if !self.idle() {
+            return None;
+        }
+        if self.viewed == PlaylistId::SPOTIFY {
+            let queue = self.spotify.as_ref().filter(|queue| queue.now.is_some())?;
+            let waiting = PlayerSnapshot {
+                status: Status::Stopped,
+                ..queue.snapshot()
+            };
+            return Some((PlaylistId::SPOTIFY, waiting));
+        }
+        let list = self.library.get(self.viewed)?;
+        let id = list.cursor().or(list.first())?;
+        let entry = list.get(id)?;
+        let track = match &self.player.track {
+            // The engine's has the cover.
+            Some(track) if track.uri == entry.track.uri => track.clone(),
+            _ => TrackInfo::from(&entry.track),
+        };
+        let waiting = PlayerSnapshot {
+            status: Status::Stopped,
+            track: Some(track),
+            position_ms: if list.cursor() == Some(id) {
+                list.resume_ms
+            } else {
+                0
+            },
+            ..PlayerSnapshot::default()
+        };
+        Some((list.id, waiting))
     }
 
     /// The playlist a song plays from, the Spotify tab's included: not
@@ -1859,6 +1896,48 @@ mod tests {
             again.state().transport.playback.playing(),
             Some(PlaylistId::DEFAULT)
         );
+    }
+
+    #[test]
+    fn stopped_the_player_shows_the_song_play_starts() {
+        let mut rig = Rig::new("waiting");
+        rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+        let entries: Vec<_> = rig
+            .controller
+            .state()
+            .library
+            .get(PlaylistId::DEFAULT)
+            .unwrap()
+            .entries()
+            .iter()
+            .map(|entry| entry.id)
+            .collect();
+        rig.controller
+            .apply(Action::PlayEntry(PlaylistId::DEFAULT, entries[0]));
+        rig.controller.apply(Action::Stop);
+        // The engine still has the stopped song.
+        rig.tell(Event::Player(PlayerSnapshot {
+            track: Some(TrackInfo::from(&entry(1).track)),
+            ..PlayerSnapshot::default()
+        }));
+        let title = |rig: &Rig| {
+            rig.controller
+                .state()
+                .now_playing()
+                .track
+                .map(|track| track.title)
+        };
+        assert_eq!(title(&rig).as_deref(), Some("Song 1"));
+        rig.controller
+            .apply(Action::Remove(PlaylistId::DEFAULT, vec![entries[0]]));
+        assert_eq!(
+            title(&rig).as_deref(),
+            Some("Song 2"),
+            "Play goes on with the next"
+        );
+        rig.controller
+            .apply(Action::Remove(PlaylistId::DEFAULT, vec![entries[1]]));
+        assert_eq!(title(&rig), None, "an empty playlist plays nothing");
     }
 
     #[test]

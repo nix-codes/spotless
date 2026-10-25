@@ -174,11 +174,8 @@ pub(crate) fn player(state: &State) -> Player {
         volume: state.settings.volume,
         playlist: state
             .playing_list()
-            .or(state
-                .transport
-                .playback
-                .playing()
-                .filter(|_| state.offline || !state.spotify_playing() && snapshot.track.is_some()))
+            .or(state.waiting().map(|(list, _)| list))
+            .or(state.transport.playback.playing().filter(|_| state.offline))
             .map(|id| id.0),
         offline: state.offline,
         here: !state.spotify_playing()
