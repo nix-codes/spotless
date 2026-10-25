@@ -289,6 +289,9 @@ fn categories(ui: &mut Ui, rect: Rect, palette: &Palette, form: &mut Form) {
         top += LIST_ROW;
         let response = ui.interact(row, Id::new(("settings-category", name)), Sense::click());
         let chosen = form.category == category;
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, chosen, name)
+        });
         if chosen {
             ui.painter().rect_filled(row, 0.0, palette.selected_bg);
             ui.painter().rect_filled(

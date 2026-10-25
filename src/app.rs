@@ -12,6 +12,7 @@ use crate::controller::Controller;
 use crate::media::{EventHook, MediaControls, MediaEvent, NowPlaying};
 use crate::model::PlaylistId;
 use crate::paths::Paths;
+use crate::phosphor::Phosphor;
 use crate::playback::engine::Status;
 use crate::skin::format;
 use crate::store;
@@ -282,47 +283,72 @@ impl App {
     /// Draws with Winamp Classic, or Spotless Classic for anything else.
     /// A skin that can't be read leaves things as they are.
     fn use_skin(&mut self, skin: Option<&str>) -> Result<(), String> {
-        let (name, loaded) = match skin {
-            Some(format::built_in::WINAMP_CLASSIC_KEY) => {
-                ("Winamp Classic", format::built_in::winamp_classic())
-            }
-            _ => ("Spotless Classic", format::built_in::spotless_classic()),
-        };
-        let mut loaded = loaded.map_err(|error| {
-            log::warn!("skin {name}: {error}");
-            format!("{name}: {error}")
-        })?;
         let phosphor = self.controller.state().settings.phosphor;
-        if let Some(color) = theme::display_colour(phosphor) {
-            loaded.tint_display(color);
-        }
-        let mut notes = Vec::new();
-        for problem in loaded.problems.iter().take(3) {
-            log::warn!("skin: {}: {}", problem.at, problem.message);
-            notes.push(format!("{}: {}.", problem.at, problem.message));
-        }
-        if loaded.problems.len() > 3 {
-            notes.push(format!("And {} more.", loaded.problems.len() - 3));
-        }
-        self.palette = loaded.palette.with_phosphor(phosphor);
-        self.palette.apply(&self.ctx);
-        let has_pieces = !loaded.images.is_empty();
-        let paint = SkinPaint::new(&self.ctx, loaded);
-        let missing = paint.missing_player();
-        if has_pieces && !missing.is_empty() {
-            notes.insert(
-                0,
-                format!(
-                    "The player is drawn as Spotless Classic's: the skin has no {}.",
-                    missing.join(", ")
-                ),
-            );
-        }
-        self.art = has_pieces.then(|| Arc::new(paint));
-        crate::ui::skin_paint::set_current(&self.ctx, self.art.clone());
-        self.skin_note = (!notes.is_empty()).then(|| notes.join(" "));
+        let look = use_skin(&self.ctx, skin, phosphor)?;
+        self.palette = look.palette;
+        self.art = look.art;
+        self.skin_note = look.note;
         Ok(())
     }
+}
+
+/// A skin in use: its colours, its pieces and what it lacks or got wrong.
+pub struct Look {
+    pub palette: Palette,
+    pub art: Option<Arc<SkinPaint>>,
+    pub note: Option<String>,
+}
+
+/// Draws `ctx` with Winamp Classic, or Spotless Classic for anything else,
+/// in `phosphor`'s colours. A skin that can't be read leaves things as
+/// they are.
+pub fn use_skin(
+    ctx: &egui::Context,
+    skin: Option<&str>,
+    phosphor: Phosphor,
+) -> Result<Look, String> {
+    let (name, loaded) = match skin {
+        Some(format::built_in::WINAMP_CLASSIC_KEY) => {
+            ("Winamp Classic", format::built_in::winamp_classic())
+        }
+        _ => ("Spotless Classic", format::built_in::spotless_classic()),
+    };
+    let mut loaded = loaded.map_err(|error| {
+        log::warn!("skin {name}: {error}");
+        format!("{name}: {error}")
+    })?;
+    if let Some(color) = theme::display_colour(phosphor) {
+        loaded.tint_display(color);
+    }
+    let mut notes = Vec::new();
+    for problem in loaded.problems.iter().take(3) {
+        log::warn!("skin: {}: {}", problem.at, problem.message);
+        notes.push(format!("{}: {}.", problem.at, problem.message));
+    }
+    if loaded.problems.len() > 3 {
+        notes.push(format!("And {} more.", loaded.problems.len() - 3));
+    }
+    let palette = loaded.palette.with_phosphor(phosphor);
+    palette.apply(ctx);
+    let has_pieces = !loaded.images.is_empty();
+    let paint = SkinPaint::new(ctx, loaded);
+    let missing = paint.missing_player();
+    if has_pieces && !missing.is_empty() {
+        notes.insert(
+            0,
+            format!(
+                "The player is drawn as Spotless Classic's: the skin has no {}.",
+                missing.join(", ")
+            ),
+        );
+    }
+    let art = has_pieces.then(|| Arc::new(paint));
+    crate::ui::skin_paint::set_current(ctx, art.clone());
+    Ok(Look {
+        palette,
+        art,
+        note: (!notes.is_empty()).then(|| notes.join(" ")),
+    })
 }
 
 impl eframe::App for App {

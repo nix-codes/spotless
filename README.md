@@ -10,13 +10,32 @@ account.
 
 ![Spotless playing a playlist, in the Spotless Classic look](docs/screenshots/playlist.png)
 
+![Browsing an artist's albums in the Winamp Classic look, beside the playlist they're added to](docs/screenshots/browse-winamp.png)
+
 ## Screenshots
 
-The Winamp Classic look, playing a playlist and browsing an artist's albums:
+The playlists in the Winamp Classic look, and Browse in Spotless Classic:
 
-![A playlist in the Winamp Classic look](docs/screenshots/playlist-winamp.png)
+<table>
+<tr>
+<td><img src="docs/screenshots/playlist-winamp.png" alt="A playlist in the Winamp Classic look"></td>
+<td><img src="docs/screenshots/browse.png" alt="Browsing an artist's albums in the Spotless Classic look"></td>
+</tr>
+</table>
 
-![Browsing an artist's albums, with covers, beside the playlist they're added to](docs/screenshots/browse-winamp.png)
+The colour of the lists and the display, chosen in Settings: green, amber
+and five more.
+
+<table>
+<tr>
+<td><img src="docs/screenshots/playlist.png" alt="The playlists in green"><br>Green</td>
+<td><img src="docs/screenshots/phosphor-amber.png" alt="The playlists in amber"><br>Amber</td>
+</tr>
+</table>
+
+The settings, where the look and the colour are chosen:
+
+![The settings' Display page, with the looks and the colours to choose from](docs/screenshots/settings.png)
 
 The Android app:
 

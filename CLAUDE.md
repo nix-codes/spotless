@@ -44,6 +44,15 @@ The body, when there is one, says why and how, in a short paragraph.
 - **Spotify tab**: Spotless's whole view of Spotify's playback (now
   playing, queue, context). Never "the Spotify queue".
 
+## Screenshots
+
+The README's desktop screenshots are drawn, never taken by hand:
+`packaging/screenshots.sh` runs `examples/screenshots.rs`, which draws the
+real interface from made-up data, and lists the files that changed. The
+`/screenshots` skill (`.claude/skills/screenshots/`) runs it and checks the
+results; a desktop release runs it too. `android.png` is still taken by
+hand.
+
 ## Releases
 
 Each app is released on its own, from `main`: `packaging/release.sh`
