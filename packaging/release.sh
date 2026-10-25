@@ -9,6 +9,7 @@
 #   packaging/release.sh changes
 #   packaging/release.sh android 0.4.0
 #   packaging/release.sh desktop 0.1.0 --notes notes.md --publish
+#   packaging/release.sh desktop 0.1.0 --notes notes.md --dry-run
 #
 #   changes        lists each app's commits since its last release, marked
 #                  with what they touch: the app's own code or the shared
@@ -17,6 +18,8 @@
 #                  subjects of the commits since the last release
 #   --publish      publishes the release once its files are up
 #   --yes          asks nothing: releases, and waits for the build
+#   --dry-run      runs the checks, warning rather than stopping, and shows
+#                  the notes the release would have; tags and pushes nothing
 #   notes <tag>    prints a tag's release notes (the release workflows use it)
 #
 # The notes and --publish travel in the tag's message, which the workflow
@@ -30,7 +33,8 @@ fail() {
 }
 usage() {
     fail "usage: $0 changes
-       $0 android|desktop <x.y.z> [--notes FILE] [--publish] [--yes] (y and z below 100)
+       $0 android|desktop <x.y.z> [--notes FILE] [--publish] [--yes] [--dry-run]
+         (y and z below 100)
        $0 notes <tag>"
 }
 
@@ -134,7 +138,7 @@ kind=$1
 [ $# -ge 2 ] && echo "$2" | grep -Eqx '[0-9]+\.[0-9]{1,2}\.[0-9]{1,2}' || usage
 version=$2
 shift 2
-notes_file= publish= yes=
+notes_file= publish= yes= dry=
 while [ $# -gt 0 ]; do
     case $1 in
     --notes)
@@ -144,6 +148,7 @@ while [ $# -gt 0 ]; do
         ;;
     --publish) publish=y ;;
     --yes) yes=y ;;
+    --dry-run) dry=y ;;
     *) usage ;;
     esac
     shift
@@ -153,27 +158,36 @@ if [ -n "$notes_file" ]; then
 fi
 tag=$kind-v$version
 
+# What would stop a release: in a dry run, only a warning.
+check() {
+    if [ -n "$dry" ]; then
+        echo "Would stop: $*" >&2
+    else
+        fail "$*"
+    fi
+}
+
 git fetch -q --tags origin main
-[ "$(git branch --show-current)" = main ] || fail "Not on main"
-[ -z "$(git status --porcelain)" ] || fail "There are uncommitted changes"
+[ "$(git branch --show-current)" = main ] || check "Not on main"
+[ -z "$(git status --porcelain)" ] || check "There are uncommitted changes"
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] ||
-    fail "main isn't the same as GitHub's: push or pull first"
+    check "main isn't the same as GitHub's: push or pull first"
 ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null || fail "$tag already exists"
 
 # The previous release, by version; the new one must come after it.
 previous=$(previous_tag "$kind")
 if [ -n "$previous" ]; then
     highest=$(printf '%s\n%s\n' "${previous#"$kind"-v}" "$version" | sort -V | tail -n 1)
-    [ "$highest" = "$version" ] || fail "$version doesn't come after ${previous#"$kind"-v}"
+    [ "$highest" = "$version" ] || check "$version doesn't come after ${previous#"$kind"-v}"
 fi
 
 # Every Build run on this commit finished and passed.
 commit=$(git rev-parse HEAD)
 runs=$(gh run list --commit "$commit" --workflow build.yml --json status,conclusion \
-    --jq '[.[] | "\(.status) \(.conclusion)"] | join("\n")')
-[ -n "$runs" ] || fail "CI hasn't run on $commit"
-if echo "$runs" | grep -qv '^completed success$'; then
-    fail "CI hasn't passed on $commit (yet): see gh run list --commit $commit"
+    --jq '[.[] | "\(.status) \(.conclusion)"] | join("\n")') || runs=
+[ -n "$runs" ] || check "CI hasn't run on $commit"
+if [ -n "$runs" ] && echo "$runs" | grep -qv '^completed success$'; then
+    check "CI hasn't passed on $commit (yet): see gh run list --commit $commit"
 fi
 
 # The tag's message: the name, the notes, and whether to publish.
@@ -190,6 +204,18 @@ trap 'rm -f "$message"' EXIT
         echo "Publish: yes"
     fi
 } > "$message"
+
+# A dry run tags here only, to show the notes the release workflow would
+# read off the tag, then takes the tag away again.
+if [ -n "$dry" ]; then
+    trap 'rm -f "$message"; git tag -d "$tag" >/dev/null 2>&1 || true' EXIT
+    git tag -a --cleanup=verbatim -F "$message" "$tag"
+    if [ -n "$publish" ]; then state=published; else state="a draft"; fi
+    echo "The release would be $state, with these notes (and the downloads' checksums):"
+    echo
+    notes "$tag"
+    exit
+fi
 
 if [ -n "$notes_file" ]; then
     echo "Release notes:"

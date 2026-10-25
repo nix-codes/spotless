@@ -37,7 +37,17 @@ claiming something the commits don't do is worse than a missing one.
 When both apps are drafted, a shared change should read the same and sit
 in the same section in both; settle any difference before showing them.
 
-Then recommend which apps to release. With `notes`, stop here.
+Then recommend which apps to release.
+
+With `notes`, write each app's notes to a file in the scratchpad and
+rehearse its release with the suggested version, which tags and pushes
+nothing:
+
+```sh
+packaging/release.sh <app> <x.y.z> --notes <file> --dry-run
+```
+
+Show what it would stop on, if anything, and stop here.
 
 ## 4. Release, once the user says so
 

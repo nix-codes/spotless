@@ -288,6 +288,7 @@ Android app, `desktop-v<version>` for Linux and Windows together.
 packaging/release.sh changes      # each app's changes since its last release
 packaging/release.sh android 0.4.0
 packaging/release.sh desktop 0.1.0 --notes notes.md --publish
+packaging/release.sh desktop 0.1.0 --notes notes.md --dry-run  # tags nothing
 ```
 
 The script checks that `main` matches GitHub's, that CI passed on it and
