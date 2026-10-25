@@ -47,7 +47,9 @@ nothing:
 packaging/release.sh <app> <x.y.z> --notes <file> --dry-run
 ```
 
-Show what it would stop on, if anything, and stop here.
+Show the user, in your reply, each app's notes in full as the dry run
+printed them, in a fenced `markdown` block: never only the files' paths.
+Then what it would stop on, if anything, and stop here.
 
 ## 4. Release, once the user says so
 
