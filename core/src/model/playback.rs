@@ -194,6 +194,12 @@ impl Playback {
         }
     }
 
+    /// Picks up where the app left off: `list` played last, and its
+    /// cursor's song is the one shown until another one plays.
+    pub fn restore(&mut self, list: &mut Playlist) {
+        self.adopt(list);
+    }
+
     /// A different playlist starts afresh.
     fn adopt(&mut self, list: &mut Playlist) {
         if self.playing != Some(list.id) {

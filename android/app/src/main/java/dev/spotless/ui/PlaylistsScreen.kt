@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -610,7 +611,12 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
             val at = tops[d.from] + d.offset
             return songs.indices.minBy { abs(tops[it] - at) }
         }
-        LazyColumn(Modifier.fillMaxSize()) {
+        // Opened on the cursor's song, with the row above it in sight.
+        val state = remember(list.id) {
+            val at = songs.indexOfFirst { it.entry == list.cursor }
+            LazyListState(if (at > 0) at + starts.count { it <= at } - 1 else 0)
+        }
+        LazyColumn(Modifier.fillMaxSize(), state = state) {
             songs.forEachIndexed { index, song ->
                 if (index in starts) {
                     val end = starts.firstOrNull { it > index } ?: songs.size

@@ -84,6 +84,14 @@ impl State {
                 ..queue.snapshot()
             },
             Some(queue) if self.spotify_playing() => queue.snapshot(),
+            // Nothing loaded, as after a restart: the song Play goes on with.
+            _ if self.player.track.is_none() && !self.transport.active() => PlayerSnapshot {
+                track: self
+                    .transport
+                    .current(&self.library)
+                    .map(|entry| TrackInfo::from(&entry.track)),
+                ..self.player.clone()
+            },
             _ => self.player.clone(),
         }
     }
@@ -165,12 +173,15 @@ impl Controller {
     }
 
     fn with_backend(paths: Paths, settings: Settings, started: anyhow::Result<Backend>) -> Self {
-        let (library, tabs) = store::load_library(&paths);
+        let (mut library, tabs) = store::load_library(&paths);
         let history = store::load_history(&paths);
         let viewed = tabs.viewed.or(tabs.playing).unwrap_or(PlaylistId::DEFAULT);
         let mut playback = Playback::new(seed());
         playback.repeat = settings.repeat;
         playback.set_shuffle(settings.shuffle);
+        if let Some(list) = tabs.playing.and_then(|id| library.get_mut(id)) {
+            playback.restore(list);
+        }
         let (backend, session) = match started {
             Ok(backend) => (Some(backend), SessionState::Connecting),
             Err(error) => (None, SessionState::Failed(format!("{error:#}"))),
@@ -1819,6 +1830,35 @@ mod tests {
         let settings = Settings::load(&paths);
         let again = Controller::with_backend(paths, settings, Ok(backend));
         assert_eq!(again.state().browse.recent_searches, ["aphex", "boards"]);
+    }
+
+    #[test]
+    fn after_a_restart_the_song_play_goes_on_with_is_shown() {
+        let mut rig = Rig::new("restart");
+        rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+        let second = rig
+            .controller
+            .state()
+            .library
+            .get(PlaylistId::DEFAULT)
+            .unwrap()
+            .entries()[1]
+            .id;
+        rig.controller
+            .apply(Action::PlayEntry(PlaylistId::DEFAULT, second));
+        rig.controller.apply(Action::Stop);
+        rig.controller.save();
+        let (backend, _, _) = Backend::detached();
+        let paths = rig.controller.paths.clone();
+        let settings = Settings::load(&paths);
+        let again = Controller::with_backend(paths, settings, Ok(backend));
+        let shown = again.state().now_playing();
+        assert_eq!(shown.status, Status::Stopped);
+        assert_eq!(shown.track.unwrap().title, "Song 2");
+        assert_eq!(
+            again.state().transport.playback.playing(),
+            Some(PlaylistId::DEFAULT)
+        );
     }
 
     #[test]
