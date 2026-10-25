@@ -5,12 +5,15 @@
 
 use std::time::Duration;
 
-use egui::{Align, Align2, FontId, Layout, Rect, Slider, Ui, UiBuilder, pos2, vec2};
+use egui::{
+    Align, Align2, CursorIcon, FontId, Id, Layout, Rect, Sense, Slider, Ui, UiBuilder, pos2, vec2,
+};
 
 use super::widgets::{Glyph, glyph_button, glyph_toggle, paint_glyph, small_button};
 use super::{Inputs, View, theme};
 use crate::action::{Action, Actions};
 use crate::backend::SessionState;
+use crate::model::{EntryId, PlaylistId};
 use crate::playback::engine::Status;
 
 pub const HEIGHT: f32 = 122.0;
@@ -34,6 +37,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         pos2(rect.right(), rect.top() + TITLE_HEIGHT),
     );
     draw_title(ui, title, view);
+    display_clicked(ui, title, view, inputs, actions);
     let info = Rect::from_min_max(
         pos2(title.left(), title.bottom()),
         pos2(rect.right(), lcd.bottom()),
@@ -192,6 +196,48 @@ pub(super) fn pl_clicked(response: egui::Response, view: &View, actions: &mut Ac
     if response.on_hover_text(tip).clicked() {
         actions.push(Action::TogglePlaylists);
     }
+}
+
+/// Clicking the song's display jumps to the song in its playlist (J).
+pub(super) fn display_clicked(
+    ui: &Ui,
+    rect: Rect,
+    view: &View,
+    inputs: &mut Inputs,
+    actions: &mut Actions,
+) {
+    let response = ui.interact(rect, Id::new("song-display"), Sense::click());
+    if playing_entry(view).is_none() {
+        return;
+    }
+    if response
+        .on_hover_cursor(CursorIcon::PointingHand)
+        .on_hover_text("Show the song in its playlist (J)")
+        .clicked()
+    {
+        jump_to_playing(view, inputs, actions);
+    }
+}
+
+/// The playing song's playlist and row, or while stopped the one Play
+/// would start.
+fn playing_entry(view: &View) -> Option<(PlaylistId, EntryId)> {
+    let list = view.playing_list.and_then(|id| view.list(id))?;
+    Some((list.id, list.cursor().or(list.first())?))
+}
+
+/// Shows the playlist the song plays from, the playlists too if hidden,
+/// and selects the song, placed as on opening the playlist.
+pub(super) fn jump_to_playing(view: &View, inputs: &mut Inputs, actions: &mut Actions) {
+    let Some((list, entry)) = playing_entry(view) else {
+        return;
+    };
+    actions.push(Action::CloseBrowse);
+    if !view.settings.playlists {
+        actions.push(Action::TogglePlaylists);
+    }
+    actions.push(Action::SelectPlaylist(list));
+    inputs.jump = Some((list, entry));
 }
 
 /// EQ shows or hides the equaliser below the player.

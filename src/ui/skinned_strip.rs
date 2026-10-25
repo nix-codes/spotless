@@ -12,7 +12,8 @@ use egui::{
 };
 
 use super::player_strip::{
-    HEIGHT, eject_clicked, eq_clicked, length, now_lines, pl_clicked, rates, time_shown,
+    HEIGHT, display_clicked, eject_clicked, eq_clicked, length, now_lines, pl_clicked, rates,
+    time_shown,
 };
 use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
@@ -175,6 +176,7 @@ pub fn draw(
         pos2(rect.right(), y(rows.display)),
     );
     draw_title(ui, title, view, paint, unit);
+    display_clicked(ui, title, view, inputs, actions);
     let info = Rect::from_min_max(
         pos2(title.left(), y(rows.info_y)),
         pos2(rect.right(), y(rows.info_y + rows.info)),

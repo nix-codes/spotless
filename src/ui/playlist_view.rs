@@ -113,7 +113,11 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     {
         inputs.jump = None;
         if let Some(index) = list.index_of(entry) {
-            inputs.selection.select(entry, index);
+            let selection = &mut inputs.selection;
+            selection.select(entry, index);
+            // Placed as on opening the playlist, not just brought into view.
+            selection.reveal = None;
+            selection.open_at = Some(index.saturating_sub(1));
         }
     }
     inputs

@@ -12,7 +12,7 @@ use egui::{
 use super::scrollbar::{self, Scrollbar};
 use super::theme::{self, Palette};
 use super::widgets::text_button;
-use super::{Inputs, View};
+use super::{Inputs, View, player_strip};
 use crate::action::{Action, Actions, Desktop};
 use crate::backend::SessionState;
 use crate::model::PlaylistId;
@@ -197,13 +197,8 @@ fn playback(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut 
     if take(i, Modifiers::NONE, Key::R) {
         actions.push(Action::SetRepeat(!view.repeat));
     }
-    if take(i, Modifiers::NONE, Key::J)
-        && let Some(list) = view.playing_list.and_then(|id| view.list(id))
-        && let Some(entry) = list.cursor()
-    {
-        actions.push(Action::CloseBrowse);
-        actions.push(Action::SelectPlaylist(list.id));
-        inputs.jump = Some((list.id, entry));
+    if take(i, Modifiers::NONE, Key::J) {
+        player_strip::jump_to_playing(view, inputs, actions);
     }
 }
 
