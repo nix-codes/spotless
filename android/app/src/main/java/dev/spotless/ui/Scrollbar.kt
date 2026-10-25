@@ -30,9 +30,9 @@ import kotlinx.coroutines.launch
 
 /*
  * The scrollbar, Winamp's playlist one as on the desktop: a gold thumb in a
- * slot of its own beside what scrolls. The thumb is always there, at the top
- * when everything fits. Dragging it scrolls; pressing in the slot brings the
- * thumb's middle to the finger, and it drags on from there.
+ * slot of its own beside what scrolls, there only when there is more than
+ * fits. Dragging it scrolls; pressing in the slot brings the thumb's middle
+ * to the finger, and it drags on from there.
  */
 
 private val WIDTH = 16.dp
@@ -84,12 +84,15 @@ fun Scrollbar(state: ScrollState, modifier: Modifier = Modifier) {
     }
 }
 
-/** The slot and its thumb at `at` (0 at the top, 1 at the bottom); `scrollTo` gets where it is dragged. */
+/**
+ * The slot and its thumb at `at` (0 at the top, 1 at the bottom); `scrollTo` gets where it is dragged.
+ * Nothing at all when the list doesn't scroll, rather than a bar that suggests more.
+ */
 @Composable
 private fun Slot(at: Float, modifier: Modifier, enabled: Boolean, scrollTo: (Float) -> Unit) {
+    if (!enabled) return
     val now by rememberUpdatedState(at)
     val go by rememberUpdatedState(scrollTo)
-    val on by rememberUpdatedState(enabled)
     val slot = modifier
         .width(WIDTH)
         .fillMaxHeight()
@@ -97,7 +100,6 @@ private fun Slot(at: Float, modifier: Modifier, enabled: Boolean, scrollTo: (Flo
             val thumb = THUMB.toPx()
             awaitEachGesture {
                 val down = awaitFirstDown()
-                if (!on) return@awaitEachGesture
                 val travel = (size.height - thumb).coerceAtLeast(1f)
                 val top = now * travel
                 // How far below the thumb's top it was taken hold of.
