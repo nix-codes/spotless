@@ -777,7 +777,10 @@ impl Controls<'_, '_> {
                 let choice = ui
                     .horizontal(|ui| {
                         let choice = radio(ui, palette, on, phosphor.name());
-                        let shade = palette.with_phosphor(phosphor).list_fg;
+                        // Its own shade: Green keeps the skin's greens, so
+                        // the palette in use would show the colour chosen.
+                        let [r, g, b] = phosphor.shades().text;
+                        let shade = egui::Color32::from_rgb(r, g, b);
                         let (swatch, _) = ui.allocate_exact_size(vec2(18.0, 10.0), Sense::hover());
                         ui.painter().rect_filled(swatch, 0.0, palette.lcd_bg);
                         ui.painter().rect_filled(swatch.shrink(2.0), 0.0, shade);
