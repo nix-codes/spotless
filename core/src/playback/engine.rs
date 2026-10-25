@@ -398,6 +398,21 @@ async fn follow_songs(
             log::info!("the next song didn't load ahead; it is tried again when due");
             continue;
         }
+        // A song that didn't load for want of a connection, with the
+        // session's socket yet to notice (it can take a minute and a half):
+        // the session is let go, so a new one is made once Spotify answers,
+        // and the song goes on then.
+        if matches!(
+            event,
+            PlayerEvent::Unavailable {
+                unreachable: true,
+                ..
+            }
+        ) && !session.is_invalid()
+        {
+            log::info!("Spotify couldn't be reached for the song; the session is let go");
+            session.shutdown();
+        }
         let offline = matches!(event, PlayerEvent::Unavailable { .. }) && session.is_invalid();
         // librespot ends a song whose audio stops coming, as if it were
         // over; offline, the next would fail too.
