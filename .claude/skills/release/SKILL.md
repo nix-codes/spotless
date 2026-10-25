@@ -1,6 +1,6 @@
 ---
 name: release
-description: Prepares and makes a Spotless release, of the desktop app, the Android app or both. Sorts the changes since each app's last release by platform, has the release-notes agent draft notes for each app, and releases through packaging/release.sh once the user has picked the version. Use when the user wants to release, asks what a release would contain, or wants release notes drafted. "/release notes" drafts the notes only.
+description: Prepares and makes a Spotless release, of the desktop app, the Android app or both. Sorts the changes since each app's last release by platform, has the release-notes agent draft notes for each app, and releases through packaging/release.sh once the user has confirmed the version. Use when the user wants to release, asks what a release would contain, or wants release notes drafted. "/release notes" drafts the notes only.
 ---
 
 # Releasing Spotless
@@ -29,7 +29,9 @@ side by side.
 
 ## 3. Show the user
 
-For each app: the agent's **Worth a release?** line, the notes, and the
+For each app: the agent's **Version** line (e.g. `minor: 1.0.0 →
+1.1.0`; work it out yourself if missing) and **Worth a release?** line,
+the notes, and the
 left-out commits in one line each. Check the drafts first: an entry
 claiming something the commits don't do is worse than a missing one.
 When both apps are drafted, a shared change should read the same and sit
@@ -41,8 +43,8 @@ Then recommend which apps to release. With `notes`, stop here.
 
 Ask, for each app being released:
 
-- **The version.** Always ask; never pick it, even when the bump is
-  obvious. Mention the agent's suggested bump and the last version.
+- **The version.** Offer the suggested one; release only with a version
+  the user has confirmed or given.
 - **Draft or published.** A draft is there to try the files first; a
   published one is public at once.
 

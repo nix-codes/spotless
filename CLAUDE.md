@@ -11,7 +11,8 @@ android/README.md does the same for the Android app.
   with actions. Uses a librespot fork (nix-codes/librespot), pinned in
   `core/Cargo.toml`.
 - `src/`: the desktop app (Linux and Windows), egui. `build.rs` and
-  `packaging/` (except `packaging/android`) belong to it too.
+  `packaging/` (except `packaging/android` and `packaging/release.sh`)
+  belong to it too.
 - `android/`: the Android app, Kotlin and Compose; `android/ffi`
   (spotless-ffi) exposes the core to it through UniFFI.
 
@@ -49,5 +50,5 @@ Each app is released on its own, from `main`: `packaging/release.sh`
 (see its header) tags `desktop-v<x.y.z>` or `android-v<x.y.z>` and the
 release workflows build it. The `/release` skill
 (`.claude/skills/release/`) sorts the changes by app and drafts the notes
-with the `release-notes` agent (`.claude/agents/`). Never choose a version
-number: ask.
+with the `release-notes` agent (`.claude/agents/`). It suggests each
+app's version; the user confirms it before anything is released.

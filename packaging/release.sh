@@ -34,11 +34,11 @@ usage() {
        $0 notes <tag>"
 }
 
-# What each app is built from. Shared: the core and the workspace's
-# dependencies and toolchain.
+# What each app is built from (this script isn't). Shared: the core and
+# the workspace's dependencies and toolchain.
 shared='core Cargo.toml Cargo.lock rust-toolchain.toml'
 own_android='android'
-own_desktop="src build.rs packaging :!packaging/android"
+own_desktop="src build.rs packaging :!packaging/android :!packaging/release.sh"
 
 # The paths an app's changes are listed from.
 paths() {
@@ -62,7 +62,7 @@ touches() {
     for file in $(git diff-tree --no-commit-id --name-only -r "$commit"); do
         case $file in
         core/* | Cargo.toml | Cargo.lock | rust-toolchain.toml) common=shared ;;
-        packaging/android/*) ;;
+        packaging/android/* | packaging/release.sh) ;;
         android/*) [ "$kind" = android ] && own=own ;;
         src/* | build.rs | packaging/*) [ "$kind" = desktop ] && own=own ;;
         esac
