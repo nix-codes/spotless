@@ -383,7 +383,9 @@ impl eframe::App for App {
             repeat: state.transport.playback.repeat,
             library: &state.library,
             tabs: &tabs,
-            playing_list: state.playing_list(),
+            playing_list: state
+                .playing_list()
+                .or(state.waiting().map(|(list, _)| list)),
             spotify: state.spotify.as_ref(),
             spotify_list: &state.spotify_list,
             browse: &state.browse,

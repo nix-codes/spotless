@@ -47,7 +47,7 @@ pub struct View<'a> {
     pub library: &'a Library,
     /// The tabs in order, the Spotify tab's included while it shows.
     pub tabs: &'a [PlaylistId],
-    /// The playlist a song of is loaded from.
+    /// The playlist the player's song is from, loaded or not.
     pub playing_list: Option<PlaylistId>,
     /// The account's queue, while Spotless is in Spotify Connect.
     pub spotify: Option<&'a SpotifyQueue>,

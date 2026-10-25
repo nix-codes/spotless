@@ -58,6 +58,10 @@ pub struct Selection {
     /// The scroll offset last frame, and the row to bring into view.
     offset: f32,
     reveal: Option<usize>,
+    /// The playlist shown last frame, and the row to put at the top on
+    /// opening another: the one above the cursor's song.
+    shown: Option<PlaylistId>,
+    open_at: Option<usize>,
 }
 
 impl Selection {
@@ -82,6 +86,13 @@ struct TabDrag {
 
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     tab_bar(ui, view, inputs, actions);
+    let selection = &mut inputs.selection;
+    if selection.shown != Some(view.playlist.id) {
+        selection.shown = Some(view.playlist.id);
+        let list = view.playlist;
+        let at = list.cursor().and_then(|id| list.index_of(id));
+        selection.open_at = Some(at.map_or(0, |at| at.saturating_sub(1)));
+    }
     // The item spacing after the tabs makes up the rest of the gap.
     ui.add_space(LIST_GAP - ui.spacing().item_spacing.y);
     if view.playlist.id == PlaylistId::SPOTIFY
@@ -631,6 +642,9 @@ fn draw_rows(
             selection.offset
         };
         area = area.vertical_scroll_offset(offset);
+    }
+    if let Some(index) = selection.open_at.take() {
+        area = area.vertical_scroll_offset((index as f32 * ROW_HEIGHT).min(furthest));
     }
     if let Some(offset) = thumb_to {
         area = area.vertical_scroll_offset(offset);
