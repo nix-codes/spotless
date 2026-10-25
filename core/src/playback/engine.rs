@@ -398,16 +398,16 @@ async fn follow_songs(
             log::info!("the next song didn't load ahead; it is tried again when due");
             continue;
         }
-        // A song that didn't load for want of a connection, with the
-        // session's socket yet to notice (it can take a minute and a half):
-        // the session is let go, so a new one is made once Spotify answers,
-        // and the song goes on then.
+        // A song that didn't load, or whose audio stopped coming, for want
+        // of a connection, with the session's socket yet to notice (it can
+        // take a minute and a half): the session is let go, so a new one is
+        // made once Spotify answers, and the song goes on then.
         if matches!(
             event,
             PlayerEvent::Unavailable {
                 unreachable: true,
                 ..
-            }
+            } | PlayerEvent::EndOfTrack { stalled: true, .. }
         ) && !session.is_invalid()
         {
             log::info!("Spotify couldn't be reached for the song; the session is let go");
@@ -415,7 +415,7 @@ async fn follow_songs(
         }
         let offline = matches!(event, PlayerEvent::Unavailable { .. }) && session.is_invalid();
         // librespot ends a song whose audio stops coming, as if it were
-        // over; offline, the next would fail too.
+        // over; offline, the next would fail too. Near its end, it's over.
         let cut = matches!(event, PlayerEvent::EndOfTrack { .. })
             && session.is_invalid()
             && state.track.as_ref().is_some_and(|track| {
