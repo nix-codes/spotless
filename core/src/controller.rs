@@ -1143,6 +1143,30 @@ impl Controller {
     /// The model changed: send what the engine must do, and save soon.
     fn changed(&mut self, requests: Vec<Request>) {
         for request in requests {
+            // Until the engine says more, the player shows the song
+            // loading, not the one it had.
+            if let Request::Load {
+                entry, position_ms, ..
+            } = &request
+            {
+                let state = &mut self.state;
+                let loading = state
+                    .transport
+                    .current(&state.library)
+                    .filter(|current| current.id == *entry);
+                if let Some(current) = loading {
+                    let track = match state.player.track.take() {
+                        Some(track) if track.uri == current.track.uri => track,
+                        _ => TrackInfo::from(&current.track),
+                    };
+                    state.player = PlayerSnapshot {
+                        status: Status::Loading,
+                        track: Some(track),
+                        position_ms: *position_ms,
+                        ..PlayerSnapshot::default()
+                    };
+                }
+            }
             self.send(Command::Player(request));
         }
         self.mark_unsaved();
@@ -1935,6 +1959,13 @@ mod tests {
             Some("Song 2"),
             "Play goes on with the next"
         );
+        rig.controller.apply(Action::Play);
+        assert_eq!(
+            title(&rig).as_deref(),
+            Some("Song 2"),
+            "loading, before the engine says so"
+        );
+        rig.controller.apply(Action::Stop);
         rig.controller
             .apply(Action::Remove(PlaylistId::DEFAULT, vec![entries[1]]));
         assert_eq!(title(&rig), None, "an empty playlist plays nothing");
