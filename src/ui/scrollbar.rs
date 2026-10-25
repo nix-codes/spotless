@@ -2,8 +2,9 @@
 //! beside what scrolls, the skin's when it has one. The playlists, Browse
 //! and the settings use it in place of egui's.
 //!
-//! The thumb is always there, at the top when everything fits. Dragging it
-//! scrolls; pressing in the slot brings the thumb's middle to the pointer.
+//! It shows only when there is more than fits; its slot stays, empty, so
+//! nothing moves when it comes. Dragging the thumb scrolls; pressing in the
+//! slot brings the thumb's middle to the pointer.
 
 use egui::scroll_area::{ScrollAreaOutput, ScrollBarVisibility};
 use egui::{Id, Rect, ScrollArea, Sense, Ui, UiBuilder, pos2, vec2};
@@ -107,8 +108,12 @@ impl<'a> Scrollbar<'a> {
         Some(along * max)
     }
 
-    /// Paints the slot and the thumb, `pressed` while it is held.
+    /// Paints the slot and the thumb, `pressed` while it is held: nothing
+    /// when the list doesn't scroll, rather than a bar that suggests more.
     pub fn paint(&self, ui: &Ui, slot: Rect, offset: f32, max: f32, pressed: bool) {
+        if max <= 0.0 {
+            return;
+        }
         let top = self.thumb_top(slot, offset, max);
         let thumb = Rect::from_min_size(
             pos2(slot.left(), top),
