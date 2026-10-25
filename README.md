@@ -285,15 +285,17 @@ Each app is released from `main` with a tag: `android-v<version>` for the
 Android app, `desktop-v<version>` for Linux and Windows together.
 
 ```sh
+packaging/release.sh changes      # each app's changes since its last release
 packaging/release.sh android 0.4.0
-packaging/release.sh desktop 0.1.0
+packaging/release.sh desktop 0.1.0 --notes notes.md --publish
 ```
 
 The script checks that `main` matches GitHub's, that CI passed on it and
 that the version goes up, then pushes the tag. GitHub Actions builds the app
 (the APK signed with the release key in the repository's secrets; the Linux
-tarball and the Windows zip) and makes a draft release with the changes since
-the last one. Try the draft's files, then publish the release. The tag is the
+tarball and the Windows zip) and makes the release, with the notes given in
+`--notes` or else the commits since the last one. It stays a draft, to try
+its files and publish by hand, unless `--publish` is given. The tag is the
 only place the version is set.
 
 ## Status

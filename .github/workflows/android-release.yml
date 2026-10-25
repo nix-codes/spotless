@@ -1,11 +1,13 @@
 # Builds the Android app's release APK for a tag like android-v0.1.0, signs
-# it with the release key and puts it in a draft GitHub release, to look over
-# and publish by hand. packaging/release.sh makes the tag. The
-# desktop app is released on its own.
+# it with the release key and puts it in a GitHub release: a draft to look
+# over and publish by hand, or published once the APK is up if the tag says
+# so. packaging/release.sh makes the tag. The desktop app is released on its
+# own.
 #
 # The tag gives the version; the app's build reads it from SPOTLESS_VERSION.
-# The release notes list the commits since the previous android-v tag that
-# touch the app or the core it shares with the desktop.
+# The release notes are the ones in the tag's message, or else the commits
+# since the previous android-v tag that touch the app or the core it shares
+# with the desktop (packaging/release.sh notes).
 #
 # The key comes from the repository's secrets:
 #   ANDROID_KEYSTORE           the keystore file, base64-encoded
@@ -88,22 +90,22 @@ jobs:
           echo "CERT=$(sed -n 's/.*certificate SHA-256 digest: //p' certs.txt | head -1)" >> "$GITHUB_ENV"
           echo "SHA=$(sha256sum "$apk" | cut -d' ' -f1)" >> "$GITHUB_ENV"
 
-      - name: Draft release
+      - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          previous=$(git describe --tags --abbrev=0 --match 'android-v*' HEAD^ 2>/dev/null || true)
+          # The tag itself, with its message: checkout may leave only the commit.
+          git fetch -q --force origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           {
             echo "Spotless for Android $SPOTLESS_VERSION, for 64-bit ARM phones on Android 10 or later."
             echo
-            if [ -n "$previous" ]; then
-              echo "## Changes since ${previous#android-v}"
-              echo
-              git log --no-merges --format='- %s' "$previous..HEAD" -- android core
-              echo
-            fi
+            packaging/release.sh notes "$GITHUB_REF_NAME"
+            echo
             echo "APK SHA-256: \`$SHA\`"
             echo "Signing certificate SHA-256: \`$CERT\`"
           } > notes.md
           gh release create "$GITHUB_REF_NAME" "$APK" --draft \
             --title "Spotless for Android $SPOTLESS_VERSION" --notes-file notes.md
+          if git tag --list --format='%(contents:body)' "$GITHUB_REF_NAME" | grep -qx 'Publish: yes'; then
+            gh release edit "$GITHUB_REF_NAME" --draft=false
+          fi

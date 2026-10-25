@@ -1,0 +1,68 @@
+---
+name: release
+description: Prepares and makes a Spotless release, of the desktop app, the Android app or both. Sorts the changes since each app's last release by platform, has the release-notes agent draft notes for each app, and releases through packaging/release.sh once the user has picked the version. Use when the user wants to release, asks what a release would contain, or wants release notes drafted. "/release notes" drafts the notes only.
+---
+
+# Releasing Spotless
+
+The two apps are released on their own, each from `main` with its own tag:
+`desktop-v<x.y.z>` (Linux and Windows) and `android-v<x.y.z>`.
+`packaging/release.sh` does the releasing; this skill decides what to
+release and writes the notes. Everything here works without you too: the
+script alone releases with the commit subjects as notes.
+
+Arguments: an app (`desktop` or `android`) to look at only that one;
+`notes` to stop after the drafts, releasing nothing.
+
+## 1. What changed, for which app
+
+Run `packaging/release.sh changes`. For each app it lists the commits since
+its last release, marked `own`, `shared` or both. If an app has nothing,
+say so and leave it out.
+
+## 2. Draft the notes
+
+For each app with changes, start a `release-notes` agent (Agent tool,
+`subagent_type: "release-notes"`) with a prompt naming the app: "Draft the
+release notes for the desktop app." Start both in one message so they run
+side by side.
+
+## 3. Show the user
+
+For each app: the agent's **Worth a release?** line, the notes, and the
+left-out commits in one line each. Check the drafts first: an entry
+claiming something the commits don't do is worse than a missing one.
+When both apps are drafted, a shared change should read the same and sit
+in the same section in both; settle any difference before showing them.
+
+Then recommend which apps to release. With `notes`, stop here.
+
+## 4. Release, once the user says so
+
+Ask, for each app being released:
+
+- **The version.** Always ask; never pick it, even when the bump is
+  obvious. Mention the agent's suggested bump and the last version.
+- **Draft or published.** A draft is there to try the files first; a
+  published one is public at once.
+
+Also ask for changes to the notes, then write each app's final notes to its
+own file in the scratchpad, e.g. `<scratchpad>/notes-android.md`.
+
+Before running the script, `main` must be pushed and CI green on it: the
+script checks both and stops if not. Pushing `main` needs the user's say
+so, like any push; the release itself is the push of a tag, which the
+user's go-ahead in this step covers.
+
+Run, in the background (it waits for the build, which takes minutes):
+
+```sh
+packaging/release.sh <app> <x.y.z> --notes <file> [--publish] --yes
+```
+
+When it's done, give the user the release's link, and for a draft the
+command to publish it: `gh release edit <tag> --draft=false`.
+
+If the build fails, give the log's last error lines
+(`gh run view <run> --log-failed`). Don't delete the tag or the release
+without asking.

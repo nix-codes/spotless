@@ -1,12 +1,14 @@
 # Builds the desktop app for a tag like desktop-v0.1.0, for Linux and for
-# Windows, and puts both in a draft GitHub release, to look over and
-# publish by hand. packaging/release.sh makes the tag. The Android app is
-# released on its own.
+# Windows, and puts both in a GitHub release: a draft to look over and
+# publish by hand, or published once its files are up if the tag says so.
+# packaging/release.sh makes the tag. The Android app is released on its
+# own.
 #
 # The tag gives the version: it replaces the placeholder in Cargo.toml
 # before building, for the About line, the Windows details and the names.
-# The release notes list the commits since the previous desktop-v tag that
-# touch the desktop app or the core it shares with Android.
+# The release notes are the ones in the tag's message, or else the commits
+# since the previous desktop-v tag that touch the desktop app or the core it
+# shares with Android (packaging/release.sh notes).
 
 name: Desktop Release
 
@@ -94,7 +96,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Draft release
+    name: Release
     needs: [linux, windows]
     runs-on: ubuntu-24.04
     steps:
@@ -108,25 +110,24 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Draft release
+      - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The tag itself, with its message: checkout may leave only the commit.
+          git fetch -q --force origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           version=${GITHUB_REF_NAME#desktop-v}
-          previous=$(git describe --tags --abbrev=0 --match 'desktop-v*' HEAD^ 2>/dev/null || true)
           {
             echo "Spotless $version for Linux and Windows, 64-bit."
             echo
-            if [ -n "$previous" ]; then
-              echo "## Changes since ${previous#desktop-v}"
-              echo
-              git log --no-merges --format='- %s' "$previous..HEAD" -- \
-                src core build.rs Cargo.toml Cargo.lock packaging ':!packaging/android'
-              echo
-            fi
+            packaging/release.sh notes "$GITHUB_REF_NAME"
+            echo
             echo "SHA-256:"
             echo
             (cd dist && sha256sum -- *) | sed 's/^\([0-9a-f]*\)  \(.*\)/- `\2`: `\1`/'
           } > notes.md
           gh release create "$GITHUB_REF_NAME" dist/* --draft \
             --title "Spotless $version" --notes-file notes.md
+          if git tag --list --format='%(contents:body)' "$GITHUB_REF_NAME" | grep -qx 'Publish: yes'; then
+            gh release edit "$GITHUB_REF_NAME" --draft=false
+          fi
