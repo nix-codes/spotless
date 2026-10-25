@@ -96,6 +96,19 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
         private set
     /** The error last tapped away: hidden until the next action, which may meet it again. */
     var dismissed by mutableStateOf<String?>(null)
+    /** The playlist to bring the playing song into sight in, once it shows. */
+    var jump by mutableStateOf<ULong?>(null)
+
+    /**
+     * Shows the playlist the song plays from, or Play would start while
+     * stopped, placed as on opening it: a tap on the player's song.
+     */
+    fun jumpToPlaying() {
+        val list = player.playlist?.takeIf { player.track != null } ?: return
+        if (browse.open) apply(Action.CloseBrowse)
+        apply(Action.SelectPlaylist(list))
+        jump = list
+    }
 
     /** The colours Settings offers. */
     val phosphors = dev.spotless.core.phosphors()

@@ -2,6 +2,7 @@ package dev.spotless.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -85,6 +86,13 @@ private fun Scrolling(text: String, style: TextStyle, modifier: Modifier = Modif
 
 private fun playing(player: Player) = player.status == Status.PLAYING || player.status == Status.LOADING
 
+/** Tapped, the song shows in its playlist. */
+private fun Modifier.showsSong(core: Core) = clickable(
+    enabled = core.player.track != null && core.player.playlist != null,
+    onClickLabel = "Show the song in its playlist",
+    onClick = core::jumpToPlaying,
+)
+
 /** The player under the playlists: display, seek bar, transport, SHUF and REP. */
 @Composable
 fun PlayerPanel(core: Core) {
@@ -95,7 +103,7 @@ fun PlayerPanel(core: Core) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(
-            Modifier.fillMaxWidth().lcd().padding(horizontal = 12.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().showsSong(core).lcd().padding(horizontal = 12.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -195,7 +203,7 @@ fun MiniPlayer(core: Core) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicText(shownTime(player), style = mono(24.sp, Classic.lcd))
-        Scrolling(title(core), body(14.sp, Classic.lcd), Modifier.weight(1f))
+        Scrolling(title(core), body(14.sp, Classic.lcd), Modifier.weight(1f).showsSong(core))
         if (playing(player)) {
             GlyphButton(Glyph.Pause, "Pause", { core.apply(Action.TogglePause) })
         } else {

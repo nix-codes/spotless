@@ -611,9 +611,17 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
             return songs.indices.minBy { abs(tops[it] - at) }
         }
         // Opened on the cursor's song, with the row above it in sight.
-        val state = remember(list.id) {
+        fun opening(): Int {
             val at = songs.indexOfFirst { it.entry == list.cursor }
-            LazyListState(if (at > 0) at + starts.count { it <= at } - 1 else 0)
+            return if (at > 0) at + starts.count { it <= at } - 1 else 0
+        }
+        val state = remember(list.id) { LazyListState(opening()) }
+        // A tap on the player's song places it so again.
+        LaunchedEffect(core.jump, list.id) {
+            if (core.jump == list.id) {
+                core.jump = null
+                state.scrollToItem(opening())
+            }
         }
         ScrollingList(state, Modifier.fillMaxSize()) {
             songs.forEachIndexed { index, song ->
@@ -829,6 +837,13 @@ private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, se
     val now = queue.rows.indexOfFirst { it is SpotifyRow.Song && it.played == Played.NOW }
     LaunchedEffect(now >= 0) {
         if (now > 0) state.scrollToItem(now - 1)
+    }
+    // A tap on the player's song places it so again.
+    LaunchedEffect(core.jump, id) {
+        if (core.jump == id) {
+            core.jump = null
+            state.scrollToItem((now - 1).coerceAtLeast(0))
+        }
     }
     Column(modifier.fillMaxWidth().padding(horizontal = 8.dp).lcd().padding(2.dp)) {
         // Where it plays, always in sight: what can be done follows from it.
