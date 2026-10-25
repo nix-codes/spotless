@@ -195,7 +195,19 @@ pub(super) fn pl_clicked(response: egui::Response, view: &View, actions: &mut Ac
     }
 }
 
-/// The bitrate, then the volume and PL at the right end.
+/// EQ shows or hides the equaliser below the player.
+pub(super) fn eq_clicked(response: egui::Response, view: &View, actions: &mut Actions) {
+    let tip = if view.settings.equaliser_shown {
+        "Hide the equaliser (Alt+G)"
+    } else {
+        "Show the equaliser (Alt+G)"
+    };
+    if response.on_hover_text(tip).clicked() {
+        actions.push(Action::ToggleEqualiser);
+    }
+}
+
+/// The bitrate, then the volume, EQ and PL at the right end.
 fn info_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let label = |text: String| {
@@ -210,6 +222,9 @@ fn info_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
         let pl = small_button(ui, &palette, "PL", view.settings.playlists);
         pl_clicked(pl, view, actions);
+        ui.add_space(4.0);
+        let eq = small_button(ui, &palette, "EQ", view.settings.equaliser_shown);
+        eq_clicked(eq, view, actions);
         ui.add_space(8.0);
         ui.spacing_mut().slider_width = 90.0;
         let mut volume = inputs.volume;

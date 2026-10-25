@@ -12,7 +12,7 @@ use egui::{
 };
 
 use super::player_strip::{
-    HEIGHT, eject_clicked, length, now_lines, pl_clicked, rates, time_shown,
+    HEIGHT, eject_clicked, eq_clicked, length, now_lines, pl_clicked, rates, time_shown,
 };
 use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
@@ -330,7 +330,7 @@ fn small_display(
 }
 
 /// Under the song's display: the bitrate in small displays, then the
-/// volume and PL at the right end.
+/// volume, EQ and PL at the right end.
 fn info_row(
     ui: &mut Ui,
     rect: Rect,
@@ -376,11 +376,27 @@ fn info_row(
         true,
     );
     pl_clicked(response, view, actions);
-    if let Some(track) = paint.size("volume.track", unit) {
-        let at = pos2(
-            pl_at.x - GAP * unit - track.x,
-            rect.center().y - track.y / 2.0,
+    // EQ beside PL, as on Winamp's main window, where the skin has it.
+    let mut left = pl_at.x;
+    if let Some(eq) = paint.size("eq", unit) {
+        let eq_at = pos2(left - eq.x, rect.center().y - eq.y / 2.0);
+        let state = toggle_state(view.settings.equaliser_shown);
+        let response = button(
+            ui,
+            &painter,
+            paint,
+            eq_at,
+            unit,
+            "eq",
+            state,
+            "Equaliser",
+            true,
         );
+        eq_clicked(response, view, actions);
+        left = eq_at.x;
+    }
+    if let Some(track) = paint.size("volume.track", unit) {
+        let at = pos2(left - GAP * unit - track.x, rect.center().y - track.y / 2.0);
         if at.x >= x {
             volume(ui, &painter, paint, at, unit, inputs, actions);
         }
@@ -544,14 +560,14 @@ fn buttons_row(
     }
 }
 
-fn toggle_state(on: bool) -> State {
+pub(super) fn toggle_state(on: bool) -> State {
     if on { State::On } else { State::Normal }
 }
 
 /// A button drawn pressed while the pointer holds it down. `state` is
 /// Normal, or On for a toggle that is on.
 #[allow(clippy::too_many_arguments)]
-fn button(
+pub(super) fn button(
     ui: &Ui,
     painter: &Painter,
     paint: &SkinPaint,

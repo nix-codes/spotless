@@ -3,6 +3,7 @@
 //! Views read a [`View`] and push [`Action`]s; they never change state.
 
 mod browse_view;
+mod equaliser_view;
 mod keys;
 mod player_strip;
 mod playlist_view;
@@ -115,8 +116,10 @@ pub struct Inputs {
     pub settings: Option<settings_view::Form>,
     /// The settings category shown last, to open on next time.
     pub settings_category: settings_view::Category,
-    /// How the window was last sized for PL.
+    /// How the window was last sized for PL and EQ.
     pub fit: Fit,
+    /// The name being typed to save the equaliser's bands as a preset.
+    pub preset_name: Option<String>,
 }
 
 /// The window's size for PL: while the player shows alone, the height
@@ -125,12 +128,16 @@ pub struct Inputs {
 pub struct Fit {
     collapsed: Option<(f32, f32)>,
     expanded: Option<f32>,
+    /// Whether the equaliser showed when last drawn, and the height it
+    /// took with its title bar.
+    equaliser: Option<(bool, f32)>,
 }
 
 impl Inputs {}
 
 const TITLE_HEIGHT: f32 = 20.0;
 const TITLE: &str = "S P O T L E S S";
+const EQUALISER: &str = "E Q U A L I Z E R";
 const STATUS_HEIGHT: f32 = 30.0;
 const GUTTER: f32 = 10.0;
 /// The smallest the window can be made, while the playlists show.
@@ -193,6 +200,17 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     ui.scope_builder(UiBuilder::new().max_rect(strip), |ui| {
         player_strip::draw(ui, view, inputs, actions);
     });
+    let mut below = strip.bottom();
+    if view.settings.equaliser_shown {
+        let title = bar(ui, strip.bottom() + 6.0, EQUALISER);
+        let width = full.width() - 2.0 * GUTTER;
+        let section = Rect::from_min_size(
+            egui::pos2(full.left() + GUTTER, title.bottom()),
+            vec2(width, equaliser_view::height(view, width)),
+        );
+        equaliser_view::draw(ui, section, view, inputs, actions);
+        below = section.bottom();
+    }
 
     // With PL off the window is the player alone, unless Browse, the
     // settings, the keys or a question needs the room.
@@ -203,7 +221,8 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         && inputs.settings.is_none()
         && !inputs.help
         && inputs.closing.is_none();
-    let status_top = strip.bottom() + 6.0;
+    fit_equaliser(ui, &mut inputs.fit, below - strip.bottom(), collapsed);
+    let status_top = below + 6.0;
     fit_window(
         ui,
         full,
@@ -226,7 +245,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     } else {
         "P L A Y L I S T S"
     };
-    let separator = bar(ui, strip.bottom() + 6.0, screen);
+    let separator = bar(ui, below + 6.0, screen);
 
     let status = Rect::from_min_max(
         egui::pos2(full.left(), full.bottom() - STATUS_HEIGHT),
@@ -297,6 +316,33 @@ fn fit_window(ui: &Ui, full: Rect, fit: &mut Fit, height: Option<f32>) {
             send(ViewportCommand::InnerSize(vec2(screen.width(), height)));
         }
     }
+}
+
+/// Grows or shrinks the window by the equaliser's height when EQ shows
+/// or hides it (`extent`, 0 while hidden), so the playlists keep theirs.
+/// While the player shows alone, the height to give back changes instead.
+fn fit_equaliser(ui: &Ui, fit: &mut Fit, extent: f32, collapsed: bool) {
+    let shown = extent > 0.0;
+    // The first frame's window is as it was left, the equaliser included.
+    let Some((was_shown, before)) = fit.equaliser.replace((shown, extent)) else {
+        return;
+    };
+    // Its height also follows a skin's scale; only EQ moves the window.
+    if shown == was_shown {
+        return;
+    }
+    let change = extent - before;
+    if collapsed {
+        if let Some(height) = &mut fit.expanded {
+            *height += change;
+        }
+        return;
+    }
+    let screen = ui.ctx().content_rect();
+    ui.ctx().send_viewport_cmd(ViewportCommand::InnerSize(vec2(
+        screen.width(),
+        screen.height() + change,
+    )));
 }
 
 fn title_bar(ui: &Ui, rect: Rect, palette: &Palette, label: &str) {

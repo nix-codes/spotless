@@ -27,10 +27,12 @@ pub enum Sheet {
     Text,
     /// The playlist editor, for its colours.
     PlEdit,
+    /// The equaliser window: its switches, sliders and thumbs.
+    EqMain,
 }
 
 impl Sheet {
-    pub const ALL: [Sheet; 10] = [
+    pub const ALL: [Sheet; 11] = [
         Sheet::Main,
         Sheet::CButtons,
         Sheet::ShufRep,
@@ -41,6 +43,7 @@ impl Sheet {
         Sheet::NumsEx,
         Sheet::Text,
         Sheet::PlEdit,
+        Sheet::EqMain,
     ];
 
     /// The file's name, in lower case.
@@ -56,6 +59,7 @@ impl Sheet {
             Sheet::NumsEx => "nums_ex.bmp",
             Sheet::Text => "text.bmp",
             Sheet::PlEdit => "pledit.bmp",
+            Sheet::EqMain => "eqmain.bmp",
         }
     }
 }
@@ -131,6 +135,22 @@ sprites! {
     PL_PRESSED = (ShufRep, 69, 61, 23, 12);
     PL_LIT = (ShufRep, 23, 73, 23, 12);
     PL_LIT_PRESSED = (ShufRep, 69, 73, 23, 12);
+    /// The equaliser button, beside it: lit while the equaliser shows.
+    EQ = (ShufRep, 0, 61, 23, 12);
+    EQ_PRESSED = (ShufRep, 46, 61, 23, 12);
+    EQ_LIT = (ShufRep, 0, 73, 23, 12);
+    EQ_LIT_PRESSED = (ShufRep, 46, 73, 23, 12);
+
+    /// The equaliser's ON, lit while it is on, its PRESETS, and the
+    /// thumb its sliders share.
+    EQ_ON = (EqMain, 10, 119, 26, 12);
+    EQ_ON_PRESSED = (EqMain, 128, 119, 26, 12);
+    EQ_ON_LIT = (EqMain, 69, 119, 26, 12);
+    EQ_ON_LIT_PRESSED = (EqMain, 187, 119, 26, 12);
+    EQ_PRESETS = (EqMain, 224, 164, 44, 12);
+    EQ_PRESETS_PRESSED = (EqMain, 224, 176, 44, 12);
+    EQ_THUMB = (EqMain, 0, 164, 11, 11);
+    EQ_THUMB_PRESSED = (EqMain, 0, 176, 11, 11);
 
     POSITION_TRACK = (PosBar, 0, 0, 248, 10);
     POSITION_THUMB = (PosBar, 248, 0, 29, 10);
@@ -168,6 +188,19 @@ pub fn volume_frame(frame: u32) -> Sprite {
     Sprite::new(Sheet::Volume, 0, 15 * frame.min(SLIDER_FRAMES - 1), 68, 13)
 }
 
+/// An equaliser slider in the colour for its value, `frame` from 0
+/// (-12 dB) to 27 (+12 dB): two rows of fourteen.
+pub fn eq_slider_frame(frame: u32) -> Sprite {
+    let frame = frame.min(SLIDER_FRAMES - 1);
+    Sprite::new(
+        Sheet::EqMain,
+        13 + 15 * (frame % 14),
+        164 + 65 * (frame / 14),
+        14,
+        63,
+    )
+}
+
 /// A digit of the time display, from the plain or the extended sheet.
 pub fn digit(sheet: Sheet, value: u32) -> Sprite {
     Sprite::new(sheet, 9 * value.min(9), 0, 9, 13)
@@ -194,6 +227,14 @@ mod tests {
     fn indexed_sprites_stay_inside_their_sheets() {
         assert_eq!(volume_frame(27).y, 405);
         assert_eq!(volume_frame(99).y, 405);
+        assert_eq!(
+            eq_slider_frame(0),
+            Sprite::new(Sheet::EqMain, 13, 164, 14, 63)
+        );
+        assert_eq!(
+            eq_slider_frame(27),
+            Sprite::new(Sheet::EqMain, 208, 229, 14, 63)
+        );
         assert_eq!(digit(Sheet::Numbers, 9).x, 81);
         assert_eq!(digit(Sheet::NumsEx, 12).x, 81);
         assert_eq!(glyph(2, 30), Sprite::new(Sheet::Text, 150, 12, 5, 6));

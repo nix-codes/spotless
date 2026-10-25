@@ -56,12 +56,19 @@ pub fn convert(skin: &Skin, name: &str) -> Vec<(String, Vec<u8>)> {
         (Sheet::PlayPaus, "playpaus.png", (42, 9)),
         (Sheet::Text, "text.png", (155, 18)),
         (Sheet::PlEdit, "pledit.png", (280, 186)),
+        (Sheet::EqMain, "eqmain.png", (275, 315)),
     ] {
         if let Some(bitmap) = skin.sheet(sheet) {
             sheets.push((sheet, path, padded(&image(bitmap), size)));
         }
     }
     cut_backgrounds(&mut sheets);
+    // Of the equaliser's window, only its switches and thumb are used.
+    for (sheet, _, image) in &mut sheets {
+        if *sheet == Sheet::EqMain {
+            *image = only(image, &EQ_PIECES);
+        }
+    }
     colors(&mut manifest, &palette);
     for (_, path, image) in sheets {
         add(path, image);
@@ -77,6 +84,12 @@ pub fn convert(skin: &Skin, name: &str) -> Vec<(String, Vec<u8>)> {
         add("lcd.png", lcd(&main));
         add("display.png", crop(&main, DISPLAY));
         add("small-display.png", crop(&main, SMALL_DISPLAY));
+    }
+    if let Some(eqmain) = skin.sheet(Sheet::EqMain) {
+        add(
+            "eq-slider.png",
+            eq_slider(&padded(&image(eqmain), (275, 315))),
+        );
     }
     if let Some(pledit) = skin.sheet(Sheet::PlEdit) {
         let pledit = image(pledit);
@@ -206,6 +219,7 @@ fn player(manifest: &mut String, skin: &Skin) {
             ],
         ),
         ("pl", [s::PL, s::PL_PRESSED, s::PL_LIT, s::PL_LIT_PRESSED]),
+        ("eq", [s::EQ, s::EQ_PRESSED, s::EQ_LIT, s::EQ_LIT_PRESSED]),
     ];
     for (name, [normal, pressed, on, on_pressed]) in toggles {
         let all = [
@@ -255,6 +269,88 @@ fn player(manifest: &mut String, skin: &Skin) {
             ("pressed", s::VOLUME_THUMB_PRESSED),
         ],
     );
+    if skin.sheet(Sheet::EqMain).is_some() {
+        equaliser(manifest);
+    }
+}
+
+/// The equaliser's switches, sliders and thumb. Winamp redraws a slider
+/// in a colour for its value, green at the bottom to red at the top;
+/// the colours are stacked in `eq-slider.png`.
+fn equaliser(manifest: &mut String) {
+    use sprites as s;
+    let states = |manifest: &mut String, name: &str, states: &[(&str, Sprite)]| {
+        let list: Vec<String> = states
+            .iter()
+            .map(|(state, sprite)| format!("{state} = {}", reference(*sprite)))
+            .collect();
+        let _ = writeln!(manifest, "{name} = {{ {} }}", list.join(", "));
+    };
+    states(
+        manifest,
+        "equaliser.on",
+        &[
+            ("normal", s::EQ_ON),
+            ("pressed", s::EQ_ON_PRESSED),
+            ("on", s::EQ_ON_LIT),
+            ("on_pressed", s::EQ_ON_LIT_PRESSED),
+        ],
+    );
+    states(
+        manifest,
+        "equaliser.presets",
+        &[
+            ("normal", s::EQ_PRESETS),
+            ("pressed", s::EQ_PRESETS_PRESSED),
+        ],
+    );
+    states(
+        manifest,
+        "equaliser.thumb",
+        &[("normal", s::EQ_THUMB), ("pressed", s::EQ_THUMB_PRESSED)],
+    );
+    let frame = s::eq_slider_frame(0);
+    let _ = writeln!(
+        manifest,
+        "equaliser.slider = {{ image = {{ image = \"eq-slider.png\", rect = [0, 0, {w}, {h}] }}, slice = [0, 0], levels = {{ count = {}, step = {h} }} }}",
+        sprites::SLIDER_FRAMES,
+        w = frame.width,
+        h = frame.height,
+    );
+}
+
+/// The pieces of the equaliser's window used as they are.
+const EQ_PIECES: [Sprite; 8] = [
+    sprites::EQ_ON,
+    sprites::EQ_ON_PRESSED,
+    sprites::EQ_ON_LIT,
+    sprites::EQ_ON_LIT_PRESSED,
+    sprites::EQ_PRESETS,
+    sprites::EQ_PRESETS_PRESSED,
+    sprites::EQ_THUMB,
+    sprites::EQ_THUMB_PRESSED,
+];
+
+/// `image` with only `pieces` left, the rest clear.
+fn only(image: &RgbaImage, pieces: &[Sprite]) -> RgbaImage {
+    let mut kept = RgbaImage::new(image.width(), image.height());
+    for piece in pieces {
+        let cut = crop(image, (piece.x, piece.y, piece.width, piece.height));
+        image::imageops::replace(&mut kept, &cut, i64::from(piece.x), i64::from(piece.y));
+    }
+    kept
+}
+
+/// The equaliser's slider colours, one under the other from -12 dB to +12.
+fn eq_slider(eqmain: &RgbaImage) -> RgbaImage {
+    let first = sprites::eq_slider_frame(0);
+    let mut stacked = RgbaImage::new(first.width, first.height * sprites::SLIDER_FRAMES);
+    for n in 0..sprites::SLIDER_FRAMES {
+        let frame = sprites::eq_slider_frame(n);
+        let cut = crop(eqmain, (frame.x, frame.y, frame.width, frame.height));
+        image::imageops::replace(&mut stacked, &cut, 0, i64::from(n * first.height));
+    }
+    stacked
 }
 
 /// Text fields in the song's display box.
@@ -298,6 +394,7 @@ fn reference(sprite: Sprite) -> String {
         Sheet::PlayPaus => "playpaus.png",
         Sheet::Text => "text.png",
         Sheet::PlEdit => "pledit.png",
+        Sheet::EqMain => "eqmain.png",
         Sheet::Numbers | Sheet::NumsEx => "digits.png",
         Sheet::Main => "main.png",
     };
@@ -402,7 +499,7 @@ fn cut_backgrounds(sheets: &mut [(Sheet, &str, RgbaImage)]) {
         return;
     }
     let volume: Vec<Sprite> = (0..sprites::SLIDER_FRAMES).map(s::volume_frame).collect();
-    let pieces: [(Sheet, &[Sprite], f32); 6] = [
+    let pieces: [(Sheet, &[Sprite], f32); 7] = [
         (
             Sheet::CButtons,
             &[
@@ -436,9 +533,14 @@ fn cut_backgrounds(sheets: &mut [(Sheet, &str, RgbaImage)]) {
                 s::PL_PRESSED,
                 s::PL_LIT,
                 s::PL_LIT_PRESSED,
+                s::EQ,
+                s::EQ_PRESSED,
+                s::EQ_LIT,
+                s::EQ_LIT_PRESSED,
             ],
             MOST,
         ),
+        (Sheet::EqMain, &EQ_PIECES, MOST),
         (
             Sheet::Volume,
             &[s::VOLUME_THUMB, s::VOLUME_THUMB_PRESSED],
@@ -676,6 +778,7 @@ mod tests {
             ("numbers.bmp", bmp(99, 13)),
             ("text.bmp", bmp(155, 18)),
             ("pledit.bmp", bmp(280, 186)),
+            ("eqmain.bmp", bmp(275, 315)),
         ];
         let entries: Vec<(&str, &[u8], bool)> = sheets
             .iter()
@@ -722,6 +825,12 @@ mod tests {
         let (_, quiet, _) = volume.patches_at(format::State::Normal, 0.0, dst, 1.0);
         let (_, loud, _) = volume.patches_at(format::State::Normal, 1.0, dst, 1.0);
         assert_eq!(loud[0].src.top() - quiet[0].src.top(), 405.0);
+        // An equaliser slider in its colours: -12 dB at the top, +12 below.
+        let slider = skin.piece("equaliser.slider").unwrap();
+        let dst = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(14.0, 63.0));
+        let (_, low, _) = slider.patches_at(format::State::Normal, 0.0, dst, 1.0);
+        let (_, high, _) = slider.patches_at(format::State::Normal, 1.0, dst, 1.0);
+        assert_eq!(high[0].src.top() - low[0].src.top(), 27.0 * 63.0);
         let display = &skin.fonts[&format::Role::Display];
         assert_eq!(display.glyph(' ').map(|a| (a.x, a.y)), Some((150, 0)));
         assert_eq!(display.glyph('#').map(|a| (a.x, a.y)), Some((150, 6)));
@@ -757,6 +866,12 @@ mod tests {
         for square in [false, true] {
             let mut sheets = vec![(Sheet::CButtons, "cbuttons.png", buttons(square))];
             cut_backgrounds(&mut sheets);
+            // Of the equaliser's window, only its switches and thumb are used.
+            for (sheet, _, image) in &mut sheets {
+                if *sheet == Sheet::EqMain {
+                    *image = only(image, &EQ_PIECES);
+                }
+            }
             let image = &sheets[0].2;
             let corner = image.get_pixel(sprites::PLAY.x, sprites::PLAY.y).0[3];
             let middle = image.get_pixel(sprites::PLAY.x + 11, sprites::PLAY.y + 9).0[3];

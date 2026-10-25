@@ -52,7 +52,7 @@ const COLORS: [(&str, Field); 19] = [
 ];
 
 /// Groups of pieces under one name: `[pieces.seek.track]`.
-const GROUPS: [&str; 4] = ["status", "seek", "volume", "scrollbar"];
+const GROUPS: [&str; 5] = ["status", "seek", "volume", "scrollbar", "equaliser"];
 
 pub fn read(source: &Source, fallback_name: &str) -> Result<Skin, LoadError> {
     let bytes = source.read(MANIFEST).map_err(|_| LoadError::NoManifest)?;

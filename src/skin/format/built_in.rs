@@ -35,6 +35,14 @@ const WINAMP_CLASSIC: &[(&str, &[u8])] = &[
         include_bytes!("../built_in/winamp-classic/playpaus.png"),
     ),
     (
+        "eqmain.png",
+        include_bytes!("../built_in/winamp-classic/eqmain.png"),
+    ),
+    (
+        "eq-slider.png",
+        include_bytes!("../built_in/winamp-classic/eq-slider.png"),
+    ),
+    (
         "text.png",
         include_bytes!("../built_in/winamp-classic/text.png"),
     ),

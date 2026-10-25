@@ -77,6 +77,14 @@ pub enum Action {
 
     /// Shows or hides the playlists below the player (PL).
     TogglePlaylists,
+    /// Shows or hides the equaliser below the player (EQ).
+    ToggleEqualiser,
+    /// The equaliser's switch, preamp and bands, as they are now.
+    SetEqualiser(crate::playback::equaliser::Equaliser),
+    /// Saves the equaliser's bands as a preset by this name, in place of
+    /// one by the same name.
+    SaveEqualiserPreset(String),
+    DeleteEqualiserPreset(String),
 
     // The catalog
     ToggleBrowse,

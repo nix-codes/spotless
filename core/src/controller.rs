@@ -16,6 +16,7 @@ use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
 use crate::model::{ArtistRef, Library, Playback, Playlist, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
+use crate::playback::equaliser::{self, Preset};
 use crate::playback::outputs::Output;
 use crate::playback::transport::{Request, Transport};
 use crate::spotify::queue::{Row, SpotifyQueue};
@@ -264,6 +265,7 @@ impl Controller {
             Ok(backend) => (Some(backend), SessionState::Connecting),
             Err(error) => (None, SessionState::Failed(format!("{error:#}"))),
         };
+        equaliser::set(settings.equaliser);
         let mut browse = Browse::new(viewed, settings.covers);
         browse.recent_searches = history.searches;
         browse.recent = history.artists;
@@ -1006,6 +1008,35 @@ impl Controller {
                 self.state.settings.playlists = !self.state.settings.playlists;
                 self.mark_unsaved();
             }
+            Action::ToggleEqualiser => {
+                self.state.settings.equaliser_shown = !self.state.settings.equaliser_shown;
+                self.mark_unsaved();
+            }
+            Action::SetEqualiser(equaliser) => {
+                let equaliser = equaliser.clamped();
+                self.state.settings.equaliser = equaliser;
+                equaliser::set(equaliser);
+                self.mark_unsaved();
+            }
+            Action::SaveEqualiserPreset(name) => {
+                let name = name.trim().to_string();
+                if !name.is_empty() {
+                    let presets = &mut self.state.settings.equaliser_presets;
+                    let bands = self.state.settings.equaliser.bands;
+                    match presets.iter_mut().find(|preset| preset.name == name) {
+                        Some(preset) => preset.bands = bands,
+                        None => presets.push(Preset { name, bands }),
+                    }
+                    self.mark_unsaved();
+                }
+            }
+            Action::DeleteEqualiserPreset(name) => {
+                self.state
+                    .settings
+                    .equaliser_presets
+                    .retain(|preset| preset.name != name);
+                self.mark_unsaved();
+            }
             Action::ToggleCovers => {
                 browse.show_covers = !browse.show_covers;
                 self.state.settings.covers = browse.show_covers;
@@ -1271,6 +1302,7 @@ mod tests {
 
     use super::*;
     use crate::model::playlist::tests::entry;
+    use crate::playback::equaliser::Equaliser;
 
     /// A controller on empty folders, with a backend the test plays.
     struct Rig {
@@ -1336,6 +1368,42 @@ mod tests {
         assert_eq!(volume_level(0), 0);
         assert_eq!(volume_level(100), u16::MAX);
         assert_eq!(volume_level(250), u16::MAX);
+    }
+
+    #[test]
+    fn equaliser_presets_are_saved_by_name_and_deleted() {
+        let mut rig = Rig::new("equaliser");
+        let mut bands = [0.0; 10];
+        bands[0] = 3.0;
+        rig.controller.apply(Action::SetEqualiser(Equaliser {
+            on: true,
+            preamp: 40.0,
+            bands,
+        }));
+        let settings = |rig: &Rig| rig.controller.state().settings.clone();
+        assert_eq!(settings(&rig).equaliser.preamp, 12.0);
+        rig.controller
+            .apply(Action::SaveEqualiserPreset(" Mine ".into()));
+        rig.controller.apply(Action::SaveEqualiserPreset("".into()));
+        bands[0] = -3.0;
+        rig.controller.apply(Action::SetEqualiser(Equaliser {
+            on: true,
+            preamp: 0.0,
+            bands,
+        }));
+        rig.controller
+            .apply(Action::SaveEqualiserPreset("Mine".into()));
+        let presets = settings(&rig).equaliser_presets;
+        assert_eq!(presets.len(), 1);
+        assert_eq!(
+            (presets[0].name.as_str(), presets[0].bands[0]),
+            ("Mine", -3.0)
+        );
+        rig.controller
+            .apply(Action::DeleteEqualiserPreset("Mine".into()));
+        assert!(settings(&rig).equaliser_presets.is_empty());
+        rig.controller.apply(Action::ToggleEqualiser);
+        assert!(settings(&rig).equaliser_shown);
     }
 
     #[test]

@@ -14,6 +14,7 @@ use serde_json::{Map, Value};
 use crate::model::{ArtistRef, Library, PlaylistId};
 use crate::paths::Paths;
 use crate::phosphor::Phosphor;
+use crate::playback::equaliser::{Equaliser, Preset};
 
 const LIBRARY_VERSION: u32 = 1;
 
@@ -148,6 +149,11 @@ pub struct Settings {
     pub skin: Option<String>,
     /// The colour of the lists and the display.
     pub phosphor: Phosphor,
+    pub equaliser: Equaliser,
+    /// The equaliser shows below the player (EQ).
+    pub equaliser_shown: bool,
+    /// The equaliser's presets the user saved, in the order saved.
+    pub equaliser_presets: Vec<Preset>,
     raw: Map<String, Value>,
 }
 
@@ -241,6 +247,27 @@ impl Settings {
                 .map(String::from),
             skin: raw.get("skin").and_then(Value::as_str).map(String::from),
             phosphor: Phosphor::from_key(raw.get("phosphor").and_then(Value::as_str)),
+            equaliser: raw
+                .get("equaliser")
+                .and_then(|value| Equaliser::deserialize(value).ok())
+                .unwrap_or_default()
+                .clamped(),
+            equaliser_shown: flag("equaliser_shown"),
+            equaliser_presets: raw
+                .get("equaliser_presets")
+                .and_then(|value| Vec::<Preset>::deserialize(value).ok())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|preset| Preset {
+                    bands: Equaliser {
+                        bands: preset.bands,
+                        ..Equaliser::OFF
+                    }
+                    .clamped()
+                    .bands,
+                    ..preset
+                })
+                .collect(),
             raw: raw.clone(),
         }
     }
@@ -271,6 +298,13 @@ impl Settings {
             None => raw.remove("skin"),
         };
         raw.insert("phosphor".into(), self.phosphor.key().into());
+        if let Ok(equaliser) = serde_json::to_value(self.equaliser) {
+            raw.insert("equaliser".into(), equaliser);
+        }
+        raw.insert("equaliser_shown".into(), self.equaliser_shown.into());
+        if let Ok(presets) = serde_json::to_value(&self.equaliser_presets) {
+            raw.insert("equaliser_presets".into(), presets);
+        }
         raw
     }
 
@@ -387,6 +421,31 @@ mod tests {
         let settings = Settings::load(&paths);
         assert_eq!(settings.zoom, *ZOOM_RANGE.end());
         assert_eq!(settings.audio_cache_mb, 2048);
+    }
+
+    #[test]
+    fn the_equaliser_round_trips() {
+        let paths = temporary_paths("equaliser");
+        let mut settings = Settings::load(&paths);
+        assert_eq!(settings.equaliser, Equaliser::OFF);
+        assert!(!settings.equaliser_shown);
+        let mut bands = [0.0; 10];
+        bands[2] = -3.5;
+        settings.equaliser = Equaliser {
+            on: true,
+            preamp: -2.0,
+            bands,
+        };
+        settings.equaliser_shown = true;
+        settings.equaliser_presets = vec![Preset {
+            name: "Mine".into(),
+            bands,
+        }];
+        settings.save(&paths).unwrap();
+        let read = Settings::load(&paths);
+        assert_eq!(read.equaliser, settings.equaliser);
+        assert!(read.equaliser_shown);
+        assert_eq!(read.equaliser_presets, settings.equaliser_presets);
     }
 
     #[test]

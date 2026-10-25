@@ -48,6 +48,7 @@ eject = { normal = { image = "cbuttons.png", rect = [114, 0, 22, 16] }, pressed 
 shuffle = { normal = { image = "shufrep.png", rect = [28, 0, 47, 15] }, pressed = { image = "shufrep.png", rect = [28, 15, 47, 15] }, on = { image = "shufrep.png", rect = [28, 30, 47, 15] }, on_pressed = { image = "shufrep.png", rect = [28, 45, 47, 15] } }
 repeat = { normal = { image = "shufrep.png", rect = [0, 0, 28, 15] }, pressed = { image = "shufrep.png", rect = [0, 15, 28, 15] }, on = { image = "shufrep.png", rect = [0, 30, 28, 15] }, on_pressed = { image = "shufrep.png", rect = [0, 45, 28, 15] } }
 pl = { normal = { image = "shufrep.png", rect = [23, 61, 23, 12] }, pressed = { image = "shufrep.png", rect = [69, 61, 23, 12] }, on = { image = "shufrep.png", rect = [23, 73, 23, 12] }, on_pressed = { image = "shufrep.png", rect = [69, 73, 23, 12] } }
+eq = { normal = { image = "shufrep.png", rect = [0, 61, 23, 12] }, pressed = { image = "shufrep.png", rect = [46, 61, 23, 12] }, on = { image = "shufrep.png", rect = [0, 73, 23, 12] }, on_pressed = { image = "shufrep.png", rect = [46, 73, 23, 12] } }
 status.playing = { image = { image = "playpaus.png", rect = [0, 0, 9, 9] } }
 status.paused = { image = { image = "playpaus.png", rect = [9, 0, 9, 9] } }
 status.stopped = { image = { image = "playpaus.png", rect = [18, 0, 9, 9] } }
@@ -55,6 +56,10 @@ seek.track = { image = { image = "posbar.png", rect = [0, 0, 248, 10] }, slice =
 seek.thumb = { normal = { image = "posbar.png", rect = [248, 0, 29, 10] }, pressed = { image = "posbar.png", rect = [278, 0, 29, 10] } }
 volume.track = { image = { image = "volume.png", rect = [0, 0, 68, 13] }, slice = [2, 2], levels = { count = 28, step = 15 } }
 volume.thumb = { normal = { image = "volume.png", rect = [15, 422, 14, 11] }, pressed = { image = "volume.png", rect = [0, 422, 14, 11] } }
+equaliser.on = { normal = { image = "eqmain.png", rect = [10, 119, 26, 12] }, pressed = { image = "eqmain.png", rect = [128, 119, 26, 12] }, on = { image = "eqmain.png", rect = [69, 119, 26, 12] }, on_pressed = { image = "eqmain.png", rect = [187, 119, 26, 12] } }
+equaliser.presets = { normal = { image = "eqmain.png", rect = [224, 164, 44, 12] }, pressed = { image = "eqmain.png", rect = [224, 176, 44, 12] } }
+equaliser.thumb = { normal = { image = "eqmain.png", rect = [0, 164, 11, 11] }, pressed = { image = "eqmain.png", rect = [0, 176, 11, 11] } }
+equaliser.slider = { image = { image = "eq-slider.png", rect = [0, 0, 14, 63] }, slice = [0, 0], levels = { count = 28, step = 63 } }
 
 [pieces.field]
 image = "display.png"

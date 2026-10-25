@@ -13,7 +13,12 @@
 //! choice reopens the output on the next write, dropping the half second
 //! queued for the old one. A chosen device that isn't connected plays on
 //! the default one.
+//!
+//! The equaliser (`super::equaliser`) is applied to each piece of audio as
+//! it starts playing rather than when it is queued, so its sliders are
+//! heard at once, not half a second later.
 
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -22,6 +27,8 @@ use librespot_playback::audio_backend::{Sink, SinkError, SinkResult};
 use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
 use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
+
+use super::equaliser::Processor;
 
 /// Told why the output failed, in words for the status bar.
 pub type ErrorHook = Box<dyn Fn(String) + Send>;
@@ -43,6 +50,7 @@ pub struct RodioSink {
     /// The chosen output when `output` was opened.
     opened: Option<String>,
     on_error: ErrorHook,
+    equaliser: Arc<Mutex<Processor>>,
 }
 
 struct Output {
@@ -58,6 +66,7 @@ impl RodioSink {
             output: None,
             opened: None,
             on_error,
+            equaliser: Arc::new(Mutex::new(Processor::new(SAMPLE_RATE, NUM_CHANNELS.into()))),
         }
     }
 
@@ -130,12 +139,11 @@ impl Sink for RodioSink {
         let samples = packet
             .samples()
             .map_err(|e| SinkError::OnWrite(e.to_string()))?;
-        let samples: &[f32] = &converter.f64_to_f32(samples);
-        output.sink.append(rodio::buffer::SamplesBuffer::new(
-            NUM_CHANNELS as cpal::ChannelCount,
-            SAMPLE_RATE,
-            samples,
-        ));
+        output.sink.append(Equalised {
+            samples: converter.f64_to_f32(samples),
+            at: 0,
+            equaliser: Some(Arc::clone(&self.equaliser)),
+        });
         // Wait for room; a device that never drains has gone.
         let began = Instant::now();
         while output.sink.len() > QUEUE_LIMIT {
@@ -145,6 +153,53 @@ impl Sink for RodioSink {
             thread::sleep(Duration::from_millis(10));
         }
         Ok(())
+    }
+}
+
+/// A piece of audio, equalised when it starts playing.
+struct Equalised {
+    samples: Vec<f32>,
+    at: usize,
+    /// Until it has been applied.
+    equaliser: Option<Arc<Mutex<Processor>>>,
+}
+
+impl Iterator for Equalised {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        if let Some(equaliser) = self.equaliser.take() {
+            equaliser
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .process(&mut self.samples);
+        }
+        let sample = self.samples.get(self.at).copied();
+        self.at += 1;
+        sample
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let left = self.samples.len().saturating_sub(self.at);
+        (left, Some(left))
+    }
+}
+
+impl rodio::Source for Equalised {
+    fn current_span_len(&self) -> Option<usize> {
+        Some(self.samples.len().saturating_sub(self.at))
+    }
+
+    fn channels(&self) -> rodio::ChannelCount {
+        NUM_CHANNELS as rodio::ChannelCount
+    }
+
+    fn sample_rate(&self) -> rodio::SampleRate {
+        SAMPLE_RATE
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        None
     }
 }
 
