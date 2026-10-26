@@ -174,18 +174,6 @@ impl Canvas {
         ));
     }
 
-    /// An arc of radius `r` from angle `from` to `to`, in radians.
-    pub fn arc(&self, x: f32, y: f32, r: f32, from: f32, to: f32, width: f32, colour: Color32) {
-        let steps = ((to - from).abs() * r / 2.0).clamp(4.0, 64.0) as usize;
-        let points: Vec<(f32, f32)> = (0..=steps)
-            .map(|i| {
-                let a = from + (to - from) * i as f32 / steps as f32;
-                (x + a.cos() * r, y + a.sin() * r)
-            })
-            .collect();
-        self.line(&points, width, colour);
-    }
-
     /// A ring's piece from radius `r0` to `r1` and angle `from` to `to`,
     /// each point coloured by `colour(x, y)` in this canvas's units.
     pub fn sector(

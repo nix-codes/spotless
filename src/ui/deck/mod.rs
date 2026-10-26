@@ -68,8 +68,6 @@ pub struct Tape {
     pub song: String,
     pub playing: bool,
     pub counter: f32,
-    /// The VU meters' needles, 0–1.
-    pub needles: [f32; 2],
     pub disc: cd::Disc,
 }
 
@@ -87,7 +85,6 @@ pub struct Motion {
     levels: [f32; 2],
     level_tops: [f32; 2],
     level_holds: [f32; 2],
-    needles: [f32; 2],
     disc_angle: f32,
 }
 
@@ -139,7 +136,6 @@ impl Motion {
                 0.5 * dt,
                 dt,
             );
-            self.needles[side] += (level * 0.92 - self.needles[side]) * (dt * 6.0).min(1.0);
         }
         playing
             || self.winding
@@ -148,7 +144,6 @@ impl Motion {
                 .iter()
                 .chain(&self.level_tops)
                 .any(|top| *top > 0.0)
-            || self.needles.iter().any(|needle| *needle > 0.002)
     }
 
     /// Winds the tape on to `target`, the song's progress.
@@ -200,7 +195,6 @@ impl Motion {
             song,
             playing: view.player.status == Status::Playing,
             counter: self.counter,
-            needles: self.needles,
             disc: cd::Disc {
                 angle: self.disc_angle,
                 ..disc(view)
