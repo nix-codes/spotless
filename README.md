@@ -156,6 +156,9 @@ Spotify only allows playback in other apps for Premium accounts.
 - **Monitor colours**: the songs, the time and the song's name in the green
   of old terminals, or in amber, paper-white, a hi-fi's fluorescent
   teal, ice blue, deep blue or purple.
+- **An equaliser** (desktop, EQ or `Alt+G`), as Winamp's: a preamp and ten
+  bands from 60 Hz to 16 kHz, ±12 dB each, with Winamp's presets and your
+  own. It changes what Spotless plays, not another device's playback.
 - **The deck** (desktop, VIS or `Alt+V`): the player's buttons become the
   keys of an '80s Walkman whose cassette turns as the song plays, or of a
   reel-to-reel deck with VU meters; click it to switch. Beside it, the
