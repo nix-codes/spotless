@@ -160,8 +160,9 @@ Spotify only allows playback in other apps for Premium accounts.
   bands from 60 Hz to 16 kHz, ±12 dB each, with Winamp's presets and your
   own. It changes what Spotless plays, not another device's playback.
 - **The deck** (desktop, VIS or `Alt+V`): the player's buttons become the
-  keys of an '80s Walkman whose cassette turns as the song plays, or of a
-  reel-to-reel deck with VU meters; click it to switch. Beside it, the
+  keys of an '80s Walkman whose cassette turns as the song plays, of a
+  reel-to-reel deck with VU meters, or of a portable CD player whose disc
+  holds the whole playlist; click it to switch. Beside it, the
   music's spectrum and its left and right levels, as it plays.
 - **Settings** (F10): account, search, Last.fm, audio output, volume levelling,
   interface size, skin and colour, tray, and the audio and cover caches.

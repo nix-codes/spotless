@@ -50,6 +50,8 @@ pub enum DeckMedia {
     Cassette,
     /// Open reels on a reel-to-reel deck.
     Reel,
+    /// A disc in a portable CD player.
+    Cd,
 }
 
 impl DeckMedia {
@@ -57,21 +59,24 @@ impl DeckMedia {
         match self {
             Self::Cassette => "cassette",
             Self::Reel => "reel",
+            Self::Cd => "cd",
         }
     }
 
     pub fn from_key(key: Option<&str>) -> Self {
         match key {
             Some("reel") => Self::Reel,
+            Some("cd") => Self::Cd,
             _ => Self::Cassette,
         }
     }
 
-    /// The other one, which clicking the deck switches to.
+    /// The next one, which clicking the deck switches to.
     pub fn next(self) -> Self {
         match self {
             Self::Cassette => Self::Reel,
-            Self::Reel => Self::Cassette,
+            Self::Reel => Self::Cd,
+            Self::Cd => Self::Cassette,
         }
     }
 }
@@ -502,6 +507,9 @@ mod tests {
         let read = Settings::load(&paths);
         assert!(read.deck_shown);
         assert_eq!(read.deck_media, DeckMedia::Reel);
+        for media in [DeckMedia::Cassette, DeckMedia::Reel, DeckMedia::Cd] {
+            assert_eq!(DeckMedia::from_key(Some(media.key())), media);
+        }
     }
 
     #[test]

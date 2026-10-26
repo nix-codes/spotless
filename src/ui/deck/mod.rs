@@ -1,16 +1,19 @@
 //! The deck under the player (VIS): the player's buttons become the keys
-//! of a Walkman or a reel-to-reel deck, which plays the song on a cassette
-//! or open reels, with the music's spectrum and its left and right levels
-//! beside it.
+//! of a Walkman, a reel-to-reel deck or a portable CD player, which plays
+//! the song on a cassette, open reels or a disc, with the music's spectrum
+//! and its left and right levels beside it.
 //!
-//! The Walkman's keys stay where the buttons always are, standing out of
-//! its top edge; the reel deck has its keys along its bottom, as real ones
-//! do. Clicking the device switches to the other. The tape winds from the
-//! left reel to the right one as the song plays, and back fast when
-//! another starts; the reels turn only while it plays.
+//! The Walkman's and the CD player's keys stay where the buttons always
+//! are, standing out of their top edge; the reel deck has its keys along
+//! its bottom, as real ones do. Clicking the device switches to the next.
+//! The tape winds from the left reel to the right one as the song plays,
+//! and back fast when another starts; the reels turn only while it plays.
+//! The disc holds the whole playlist and turns while it plays, faster the
+//! nearer the centre the laser reads.
 
 mod canvas;
 mod cassette;
+mod cd;
 mod reel;
 mod walkman;
 
@@ -46,6 +49,9 @@ const SEGMENTS: usize = 16;
 const TAPE_SPEED: f32 = 48.0;
 /// How fast it winds to a new place, in songs per second.
 const WIND_SPEED: f32 = 1.6;
+/// How fast the disc turns, in radians per second where the laser reads at
+/// its whole radius; nearer the centre, faster.
+const DISC_SPEED: f32 = 2.4 * 0.417;
 const GREEN: Color32 = rgb(0x33e65f);
 const YELLOW: Color32 = rgb(0xffd02b);
 const RED: Color32 = rgb(0xff3b2b);
@@ -64,6 +70,7 @@ pub struct Tape {
     pub counter: f32,
     /// The VU meters' needles, 0–1.
     pub needles: [f32; 2],
+    pub disc: cd::Disc,
 }
 
 /// What moves from frame to frame.
@@ -81,6 +88,7 @@ pub struct Motion {
     level_tops: [f32; 2],
     level_holds: [f32; 2],
     needles: [f32; 2],
+    disc_angle: f32,
 }
 
 impl Motion {
@@ -95,31 +103,16 @@ impl Motion {
             }
             _ => 0.0,
         };
-        let drawn = self.drawn.get_or_insert(target);
-        let gap = target - *drawn;
-        let pack = |share: f32| match view.settings.deck_media {
-            DeckMedia::Cassette => cassette::pack(share),
-            DeckMedia::Reel => reel::pack(share) / 1.6,
-        };
-        let mut turn = |speed: f32, share: f32| {
-            self.angles[0] += speed / pack(1.0 - share) * dt;
-            self.angles[1] += speed / pack(share) * dt;
-        };
-        if gap.abs() > 0.02 || (self.winding && gap.abs() > 0.001) {
-            self.winding = true;
-            let step = (WIND_SPEED * dt).min(gap.abs()) * gap.signum();
-            *drawn += step;
-            turn(900.0 * gap.signum(), *drawn);
-            self.counter += 40.0 * dt * gap.signum();
-        } else {
+        if view.settings.deck_media == DeckMedia::Cd {
+            // A disc doesn't wind: the laser goes straight to its place.
+            self.drawn = Some(target);
             self.winding = false;
-            *drawn = target;
             if playing {
-                turn(TAPE_SPEED, target);
-                self.counter += 0.9 * dt;
+                self.disc_angle += DISC_SPEED / cd::radius(disc(view).at) * dt;
             }
+        } else {
+            self.wind(view, target, playing, dt);
         }
-        self.counter = self.counter.max(0.0);
 
         let share = |db: f32, floor: f32, top: f32| ((db - floor) / (top - floor)).clamp(0.0, 1.0);
         for band in 0..BANDS {
@@ -158,6 +151,35 @@ impl Motion {
             || self.needles.iter().any(|needle| *needle > 0.002)
     }
 
+    /// Winds the tape on to `target`, the song's progress.
+    fn wind(&mut self, view: &View, target: f32, playing: bool, dt: f32) {
+        let drawn = self.drawn.get_or_insert(target);
+        let gap = target - *drawn;
+        let pack = |share: f32| match view.settings.deck_media {
+            DeckMedia::Reel => reel::pack(share) / 1.6,
+            _ => cassette::pack(share),
+        };
+        let mut turn = |speed: f32, share: f32| {
+            self.angles[0] += speed / pack(1.0 - share) * dt;
+            self.angles[1] += speed / pack(share) * dt;
+        };
+        if gap.abs() > 0.02 || (self.winding && gap.abs() > 0.001) {
+            self.winding = true;
+            let step = (WIND_SPEED * dt).min(gap.abs()) * gap.signum();
+            *drawn += step;
+            turn(900.0 * gap.signum(), *drawn);
+            self.counter += 40.0 * dt * gap.signum();
+        } else {
+            self.winding = false;
+            *drawn = target;
+            if playing {
+                turn(TAPE_SPEED, target);
+                self.counter += 0.9 * dt;
+            }
+        }
+        self.counter = self.counter.max(0.0);
+    }
+
     fn tape(&self, view: &View) -> Tape {
         let (side, list, song) = match player_strip::playing_entry(view)
             .and_then(|(list, entry)| Some((view.list(list)?, entry)))
@@ -179,7 +201,48 @@ impl Motion {
             playing: view.player.status == Status::Playing,
             counter: self.counter,
             needles: self.needles,
+            disc: cd::Disc {
+                angle: self.disc_angle,
+                ..disc(view)
+            },
         }
+    }
+}
+
+/// The disc of the playlist playing, and where in it the song plays.
+fn disc(view: &View) -> cd::Disc {
+    let player = view.player;
+    let Some((list, index)) = player_strip::playing_entry(view)
+        .and_then(|(list, entry)| Some((view.list(list)?, entry)))
+        .and_then(|(list, entry)| Some((list, list.index_of(entry)?)))
+    else {
+        return cd::Disc::default();
+    };
+    let lengths: Vec<u64> = list
+        .entries()
+        .iter()
+        .map(|entry| u64::from(entry.track.duration_ms))
+        .collect();
+    let total = lengths.iter().sum::<u64>().max(1) as f32;
+    let mut ends = Vec::with_capacity(lengths.len());
+    let mut sum = 0;
+    for length in &lengths {
+        sum += length;
+        ends.push(sum as f32 / total);
+    }
+    let position = match player.status {
+        Status::Stopped => 0,
+        _ => player.position_now(),
+    };
+    let before: u64 = lengths[..index].iter().sum();
+    let length = lengths[index].max(1);
+    cd::Disc {
+        ends,
+        at: (before + u64::from(position).min(length)) as f32 / total,
+        number: index + 1,
+        seconds: position / 1000,
+        status: player.status,
+        angle: 0.0,
     }
 }
 
@@ -255,7 +318,7 @@ pub fn draw(
             let art = Rect::from_min_size(pos2(left, top), vec2(width, plate));
             (art, top + plate + MARGIN, top + plate + band, top)
         }
-        DeckMedia::Cassette => {
+        DeckMedia::Cassette | DeckMedia::Cd => {
             let body_top = keys.row.center().y;
             let bottom = top + band + WALKMAN_BODY * k;
             let canvas = Canvas {
@@ -263,14 +326,20 @@ pub fn draw(
                 origin: pos2(left, body_top),
                 k,
             };
-            walkman::draw(&canvas, (bottom - body_top) / k, &tape);
+            let height = (bottom - body_top) / k;
+            if media == DeckMedia::Cd {
+                cd::draw(&canvas, height, &tape);
+            } else {
+                walkman::draw(&canvas, height, &tape);
+            }
             let art = Rect::from_min_max(pos2(left, top + band), pos2(left + width, bottom));
             (art, top + MARGIN, bottom, top + band)
         }
     };
     let other = match media {
         DeckMedia::Cassette => "Play it on reels",
-        DeckMedia::Reel => "Play it on a cassette",
+        DeckMedia::Reel => "Play it on a CD",
+        DeckMedia::Cd => "Play it on a cassette",
     };
     if ui
         .interact(art, ui.id().with("deck media"), Sense::click())
