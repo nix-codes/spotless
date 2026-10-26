@@ -14,3 +14,4 @@ pub mod media;
 pub mod skin;
 pub mod tray;
 pub mod ui;
+pub mod update;

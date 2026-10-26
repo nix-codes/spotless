@@ -10,15 +10,15 @@ use crate::playback::engine::{PlayerSnapshot, Status};
 #[cfg(target_os = "linux")]
 mod mpris;
 #[cfg(target_os = "linux")]
-pub use mpris::{MediaControls, raise_running};
+pub use mpris::{MediaControls, raise_running, wait_for_exit};
 
 #[cfg(windows)]
 mod smtc;
 #[cfg(windows)]
-pub use smtc::{MediaControls, raise_running};
+pub use smtc::{MediaControls, raise_running, wait_for_exit};
 
 #[cfg(not(any(target_os = "linux", windows)))]
-pub use none::{MediaControls, raise_running};
+pub use none::{MediaControls, raise_running, wait_for_exit};
 
 /// What the desktop asks of the player.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -108,6 +108,8 @@ mod none {
     pub fn raise_running() -> bool {
         false
     }
+
+    pub fn wait_for_exit(_limit: std::time::Duration) {}
 
     pub struct MediaControls;
 

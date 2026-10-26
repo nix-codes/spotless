@@ -23,7 +23,9 @@ use windows::Media::{
 use windows::Storage::Streams::RandomAccessStreamReference;
 use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND};
-use windows::Win32::System::Threading::{CreateEventW, INFINITE, SetEvent, WaitForSingleObject};
+use windows::Win32::System::Threading::{
+    CreateEventW, INFINITE, OpenEventW, SYNCHRONIZATION_SYNCHRONIZE, SetEvent, WaitForSingleObject,
+};
 use windows::Win32::System::WinRT::ISystemMediaTransportControlsInterop;
 use windows::Win32::UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWindow};
 use windows::core::{HSTRING, Ref, w};
@@ -61,6 +63,21 @@ pub fn raise_running() -> bool {
     }
     let _ = RAISE.set(event.0 as usize);
     false
+}
+
+/// Waits, up to `limit`, for a Spotless that is quitting to close its raise
+/// event, so this one isn't taken for a second start.
+pub fn wait_for_exit(limit: std::time::Duration) {
+    let started = std::time::Instant::now();
+    while started.elapsed() < limit {
+        match unsafe { OpenEventW(SYNCHRONIZATION_SYNCHRONIZE, false, RAISE_EVENT) } {
+            Ok(event) => unsafe {
+                let _ = CloseHandle(event);
+            },
+            Err(_) => return,
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 }
 
 /// The window's media controls.

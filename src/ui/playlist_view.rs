@@ -1064,6 +1064,7 @@ mod tests {
             art: None,
             skin_note: None,
             skin_error: None,
+            update: &crate::update::Status::Unknown,
         };
         let ctx = egui::Context::default();
         let mut inputs = Inputs::default();

@@ -3,8 +3,12 @@ A minimal Spotify player in the spirit of Winamp. It needs Spotify Premium.
 
 Install
   Run ./install.sh. It installs Spotless for you only (no root needed):
-  ~/.local/bin/spotless and a launcher with its icon. Run it again from a
-  newer release's folder to update.
+  ~/.local/bin/spotless and a launcher with its icon.
+
+Update
+  Spotless says when a newer release is out and, once you agree, installs
+  it (F10, About). Running install.sh from a newer release's folder updates
+  it too.
 
   Or don't install it: ./spotless runs from this folder on its own.
 

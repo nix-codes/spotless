@@ -12,7 +12,7 @@
 pub mod font;
 pub mod format;
 pub mod sprites;
-mod zip;
+pub(crate) mod zip;
 
 use std::collections::HashMap;
 use std::path::Path;

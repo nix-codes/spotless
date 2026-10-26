@@ -139,6 +139,8 @@ pub struct Settings {
     pub audio_output: Option<String>,
     /// The tray icon, which closing the window hides Spotless in.
     pub tray: bool,
+    /// The desktop app looks for a newer release of itself once a day.
+    pub updates: bool,
     /// The Spotify tab can be used: off in Settings, it is never shown and
     /// Spotless never joins Spotify Connect.
     pub spotify_tab_enabled: bool,
@@ -233,6 +235,7 @@ impl Settings {
                 .filter(|mb| AUDIO_CACHE_SIZES.contains(mb))
                 .unwrap_or(2048),
             tray: raw.get("tray").and_then(Value::as_bool).unwrap_or(true),
+            updates: raw.get("updates").and_then(Value::as_bool).unwrap_or(true),
             spotify_tab_enabled: raw
                 .get("spotify_tab_enabled")
                 .and_then(Value::as_bool)
@@ -284,6 +287,7 @@ impl Settings {
         raw.insert("audio_cache".into(), self.audio_cache.into());
         raw.insert("audio_cache_mb".into(), self.audio_cache_mb.into());
         raw.insert("tray".into(), self.tray.into());
+        raw.insert("updates".into(), self.updates.into());
         raw.insert(
             "spotify_tab_enabled".into(),
             self.spotify_tab_enabled.into(),

@@ -3,6 +3,7 @@
 //! actions.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,6 +23,7 @@ use crate::ui::{
     self, Cover, Inputs, View,
     theme::{self, Palette},
 };
+use crate::update::{self, Updater};
 
 pub struct App {
     controller: Controller,
@@ -45,6 +47,9 @@ pub struct App {
     window_hidden: bool,
     /// Quitting for real: closing the window doesn't hide it.
     quitting: bool,
+    updater: Updater,
+    /// The updated program to start once this one has quit.
+    restart: Option<PathBuf>,
 }
 
 impl App {
@@ -89,6 +94,11 @@ impl App {
             tray,
             window_hidden: false,
             quitting: false,
+            updater: Updater::new({
+                let ctx = cc.egui_ctx.clone();
+                move || ctx.request_repaint()
+            }),
+            restart: None,
         };
         // A skin from the skins folder of an older Spotless is gone:
         // Spotless Classic takes its place.
@@ -183,6 +193,15 @@ impl App {
                 let skin = self.controller.state().settings.skin.clone();
                 if let Err(error) = self.use_skin(skin.as_deref()) {
                     self.skin_error = Some(error);
+                }
+            }
+            Desktop::SetUpdates(on) => self.controller.settings_mut().updates = on,
+            Desktop::CheckForUpdate => self.updater.check(),
+            Desktop::Update => self.updater.install(),
+            Desktop::Restart => {
+                if let Some(program) = self.updater.restart_into() {
+                    self.restart = Some(program.to_path_buf());
+                    self.quitting = true;
                 }
             }
             Desktop::LoadCover(url) => {
@@ -386,6 +405,10 @@ impl eframe::App for App {
         if let Some(wait) = self.controller.tick() {
             ctx.request_repaint_after(wait);
         }
+        let daily = self.controller.state().settings.updates;
+        if let Some(wait) = self.updater.tick(daily) {
+            ctx.request_repaint_after(wait);
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -426,6 +449,7 @@ impl eframe::App for App {
             skin_error: self.skin_error.as_deref(),
             art: self.art.as_deref(),
             skin_note: self.skin_note.as_deref(),
+            update: self.updater.status(),
         };
         ui::draw(ui, &view, &mut self.inputs, &mut actions);
         self.keep_zoom(ui.ctx());
@@ -461,6 +485,9 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.controller.save();
+        if let Some(program) = self.restart.take() {
+            update::restart(&program);
+        }
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {

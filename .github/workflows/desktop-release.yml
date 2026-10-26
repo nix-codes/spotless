@@ -9,6 +9,9 @@
 # The release notes are the ones in the tag's message, or else the commits
 # since the previous desktop-v tag that touch the desktop app or the core it
 # shares with Android (packaging/release.sh notes).
+#
+# SPOTLESS_RELEASE makes builds that update themselves (src/update.rs),
+# from the newest release's package once checked against its SHA256SUMS.
 
 name: Desktop Release
 
@@ -55,6 +58,8 @@ jobs:
         run: sed -i "0,/^version = \".*\"/s//version = \"${GITHUB_REF_NAME#desktop-v}\"/" Cargo.toml
 
       - name: Linux tarball
+        env:
+          SPOTLESS_RELEASE: "1"
         run: packaging/linux/build.sh
 
       - uses: actions/upload-artifact@v7
@@ -87,6 +92,8 @@ jobs:
         run: sed -i "0,/^version = \".*\"/s//version = \"${GITHUB_REF_NAME#desktop-v}\"/" Cargo.toml
 
       - name: Windows zip
+        env:
+          SPOTLESS_RELEASE: "1"
         run: packaging/windows/build.sh
 
       - uses: actions/upload-artifact@v7
@@ -117,16 +124,15 @@ jobs:
           # The tag itself, with its message: checkout may leave only the commit.
           git fetch -q --force origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           version=${GITHUB_REF_NAME#desktop-v}
+          # The packages' checksums, a file of their own beside them: Spotless
+          # checks an update against it, and sha256sum -c checks a download.
+          (cd dist && sha256sum -- *) > SHA256SUMS
           {
             echo "Spotless $version for Linux and Windows, 64-bit."
             echo
             packaging/release.sh notes "$GITHUB_REF_NAME"
-            echo
-            echo "SHA-256:"
-            echo
-            (cd dist && sha256sum -- *) | sed 's/^\([0-9a-f]*\)  \(.*\)/- `\2`: `\1`/'
           } > notes.md
-          gh release create "$GITHUB_REF_NAME" dist/* --draft \
+          gh release create "$GITHUB_REF_NAME" dist/* SHA256SUMS --draft \
             --title "Spotless $version" --notes-file notes.md
           if git tag --list --format='%(contents:body)' "$GITHUB_REF_NAME" | grep -qx 'Publish: yes'; then
             gh release edit "$GITHUB_REF_NAME" --draft=false

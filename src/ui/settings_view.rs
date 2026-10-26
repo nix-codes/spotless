@@ -23,6 +23,7 @@ use crate::lastfm::api::is_key;
 use crate::skin;
 use crate::spotify::webapi::REDIRECT_URI;
 use crate::store::AUDIO_CACHE_SIZES;
+use crate::update::{self, Release, Status};
 
 const DASHBOARD: &str = "https://developer.spotify.com/dashboard";
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
@@ -112,6 +113,12 @@ enum Item {
     /// One of the phosphors, in their order.
     Phosphor(usize),
     Tray,
+    /// Looking for updates once a day.
+    Updates,
+    /// CHECK NOW, UPDATE, TRY AGAIN or RESTART, as updating stands.
+    UpdateNow,
+    /// The update's release notes.
+    ReleaseNotes,
     AudioCache,
     CacheDown,
     CacheUp,
@@ -356,7 +363,13 @@ fn items(category: Category, view: &View, outputs: usize) -> Vec<Item> {
             Item::ClearAudio,
             Item::ClearCovers,
         ],
-        Category::About => vec![Item::Source],
+        Category::About if !update::ENABLED => vec![Item::Source],
+        Category::About => [Item::Updates]
+            .into_iter()
+            .chain(update_button(view.update).map(|_| Item::UpdateNow))
+            .chain(release(view.update).map(|_| Item::ReleaseNotes))
+            .chain([Item::Source])
+            .collect(),
     }
 }
 
@@ -825,6 +838,7 @@ impl Controls<'_, '_> {
         row(ui, palette, "Version", |ui| {
             value(ui, palette, concat!("Spotless ", env!("CARGO_PKG_VERSION")));
         });
+        self.updates(ui);
         row(ui, palette, "Source code", |ui| {
             let address = REPOSITORY.trim_start_matches("https://");
             let link = ui.link(RichText::new(address).color(palette.accent));
@@ -833,6 +847,96 @@ impl Controls<'_, '_> {
                 open_in_browser(REPOSITORY);
             }
             note(ui, palette, "Free software, under the MIT License.");
+        });
+    }
+
+    fn updates(&mut self, ui: &mut Ui) {
+        let palette = self.palette;
+        if !update::ENABLED {
+            row(ui, palette, "Updates", |ui| {
+                note(
+                    ui,
+                    palette,
+                    "This Spotless was built from source: git pull, then \
+                     packaging/install.sh, updates it.",
+                );
+            });
+            return;
+        }
+        let settings = self.view.settings;
+        row(ui, palette, "Look for updates", |ui| {
+            let switch = toggle(ui, palette, settings.updates);
+            self.ring(ui, Item::Updates, &switch);
+            if switch.clicked() || (self.pressed)(Item::Updates) {
+                self.actions.push(Desktop::SetUpdates(!settings.updates));
+            }
+            note(
+                ui,
+                palette,
+                "Once a day, on GitHub. Nothing is installed without asking.",
+            );
+        });
+        let status = self.view.update;
+        row(ui, palette, "Update", |ui| {
+            let current = concat!("Spotless ", env!("CARGO_PKG_VERSION"));
+            let (text, more) = match status {
+                Status::Unknown => ("Not looked for yet.".to_string(), None),
+                Status::Checking => ("Looking…".into(), None),
+                Status::Current => (format!("{current} is the newest."), None),
+                Status::Available(release) if release.installable() => (
+                    format!("Spotless {} is out.", release.version),
+                    Some("UPDATE installs it, and it starts the next time Spotless does.".into()),
+                ),
+                Status::Available(release) => (
+                    format!("Spotless {} is out.", release.version),
+                    Some(
+                        "Its release can't be checked from here, so Spotless doesn't install \
+                         it: download it from its page."
+                            .into(),
+                    ),
+                ),
+                Status::Installing(release) => {
+                    (format!("Downloading Spotless {}…", release.version), None)
+                }
+                Status::Installed(release) => (
+                    format!("Spotless {} is installed.", release.version),
+                    Some(
+                        "It starts the next time Spotless does. RESTART starts it now, \
+                         stopping the song playing."
+                            .into(),
+                    ),
+                ),
+                Status::Failed {
+                    release: None,
+                    error,
+                } => ("Couldn't look for updates.".into(), Some(error.clone())),
+                Status::Failed { error, .. } => ("Couldn't update.".into(), Some(error.clone())),
+            };
+            value(ui, palette, &text);
+            if let Some(more) = more {
+                note(ui, palette, &more);
+            }
+            ui.horizontal(|ui| {
+                if let Some((label, action)) = update_button(status) {
+                    let button = small_button(ui, palette, label, false);
+                    self.ring(ui, Item::UpdateNow, &button);
+                    if button.clicked() || (self.pressed)(Item::UpdateNow) {
+                        self.actions.push(action);
+                    }
+                }
+                if let Some(release) = release(status) {
+                    let text = if release.installable() {
+                        "What's new"
+                    } else {
+                        "Download"
+                    };
+                    let link = ui.link(RichText::new(text).color(palette.accent));
+                    self.ring(ui, Item::ReleaseNotes, &link);
+                    if link.clicked() || (self.pressed)(Item::ReleaseNotes) {
+                        open_in_browser(&release.page);
+                    }
+                }
+            });
         });
     }
 
@@ -1005,6 +1109,37 @@ fn radio(ui: &mut Ui, palette: &Palette, chosen: bool, text: &str) -> Response {
 }
 
 /// The skins to choose from, as (choice, label).
+/// The button that takes updating on from where it stands, and what it
+/// does.
+fn update_button(status: &Status) -> Option<(&'static str, Desktop)> {
+    match status {
+        Status::Unknown | Status::Current | Status::Failed { release: None, .. } => {
+            Some(("CHECK NOW", Desktop::CheckForUpdate))
+        }
+        Status::Available(release) if release.installable() => Some(("UPDATE", Desktop::Update)),
+        Status::Available(_) => None,
+        Status::Failed {
+            release: Some(_), ..
+        } => Some(("TRY AGAIN", Desktop::Update)),
+        Status::Installed(_) => Some(("RESTART", Desktop::Restart)),
+        Status::Checking | Status::Installing(_) => None,
+    }
+}
+
+/// The release found, while there is one to install or restart into.
+fn release(status: &Status) -> Option<&Release> {
+    match status {
+        Status::Available(release)
+        | Status::Installing(release)
+        | Status::Installed(release)
+        | Status::Failed {
+            release: Some(release),
+            ..
+        } => Some(release),
+        _ => None,
+    }
+}
+
 fn skin_rows() -> [(Option<String>, String); 2] {
     let winamp = skin::format::built_in::WINAMP_CLASSIC_KEY;
     [

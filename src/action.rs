@@ -15,6 +15,14 @@ pub enum Desktop {
     SetSkin(Option<String>),
     /// Colours the lists and the display like this monitor.
     SetPhosphor(crate::ui::theme::Phosphor),
+    /// Looking for updates once a day on or off.
+    SetUpdates(bool),
+    /// Looks for an update now.
+    CheckForUpdate,
+    /// Installs the update found.
+    Update,
+    /// Quits and starts the update installed.
+    Restart,
     /// Fetches a cover the catalog wants to show, unless it has it.
     LoadCover(String),
 }

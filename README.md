@@ -174,7 +174,9 @@ Spotify only allows playback in other apps for Premium accounts.
 2. Unzip it and run **install.cmd**. It installs Spotless for your user only
    (no administrator needed) to `%LOCALAPPDATA%\Programs\Spotless`, adds it to
    the Start menu, and lists it under *Settings > Apps* for uninstalling.
-   Run it again to update.
+   Spotless says when a newer release is out and, once you agree, installs
+   it (*Settings > About*); running a newer release's `install.cmd` updates
+   it too.
 
    Or skip installing: `Spotless.exe` runs on its own from any folder.
 3. Spotless isn't signed, so the first start may show *"Windows protected
@@ -193,7 +195,9 @@ and newer).
    unpack it.
 2. Run `./install.sh` in the `Spotless` folder. It installs
    `~/.local/bin/spotless` and a launcher with its icon, for your user only.
-   Run a newer release's `install.sh` to update; `./uninstall.sh` removes it.
+   Spotless says when a newer release is out and, once you agree, installs
+   it (*Settings > About*); running a newer release's `install.sh` updates
+   it too. `./uninstall.sh` removes it.
 
    Or skip installing: `./spotless` runs from the folder on its own.
 

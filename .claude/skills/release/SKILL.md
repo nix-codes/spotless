@@ -65,7 +65,10 @@ Ask, for each app being released:
 - **The version.** Offer the suggested one; release only with a version
   the user has confirmed or given.
 - **Draft or published.** A draft is there to try the files first; a
-  published one is public at once.
+  published one is public at once. For the desktop, publishing is also
+  what makes every installed Spotless offer it as an update (drafts are
+  invisible to them), so a draft is the safer choice when the release
+  changes anything risky.
 
 Also ask for changes to the notes, then write each app's final notes to its
 own file in the scratchpad, e.g. `<scratchpad>/notes-android.md`.
@@ -82,7 +85,9 @@ packaging/release.sh <app> <x.y.z> --notes <file> [--publish] --yes
 ```
 
 When it's done, give the user the release's link, and for a draft the
-command to publish it: `gh release edit <tag> --draft=false`.
+command to publish it: `gh release edit <tag> --draft=false`. If the
+script warned that a desktop release has no `SHA256SUMS`, say so: Spotless
+will only point at that release's page, not install it.
 
 If the build fails, give the log's last error lines
 (`gh run view <run> --log-failed`). Don't delete the tag or the release

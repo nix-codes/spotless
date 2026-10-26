@@ -28,6 +28,7 @@ use crate::playback::outputs::Output;
 use crate::skin::format::State;
 use crate::spotify::queue::SpotifyQueue;
 use crate::store::Settings;
+use crate::update::Status;
 pub use browse_view::Cover;
 use theme::Palette;
 use widgets::text_button;
@@ -74,6 +75,8 @@ pub struct View<'a> {
     pub skin_note: Option<&'a str>,
     /// Why the chosen skin couldn't be read.
     pub skin_error: Option<&'a str>,
+    /// Where updating Spotless stands.
+    pub update: &'a crate::update::Status,
 }
 
 impl View<'_> {
@@ -455,6 +458,11 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
     if button(ui, "F1 · KEYS") {
         inputs.help = true;
     }
+    if let Some(label) = update_label(view.update)
+        && button(ui, &label)
+    {
+        show_settings(view, inputs, actions, settings_view::Category::About);
+    }
     ui.painter()
         .with_clip_rect(inner.with_max_x(right - 10.0))
         .text(
@@ -472,6 +480,32 @@ pub(super) fn open_settings(view: &View, inputs: &mut Inputs, actions: &mut Acti
     actions.push(Action::CloseBrowse);
     actions.push(Action::MeasureStorage);
     actions.push(Action::ListOutputs);
+}
+
+/// The status bar's word on an update, whose button shows it in Settings.
+fn update_label(status: &Status) -> Option<String> {
+    match status {
+        Status::Available(release)
+        | Status::Failed {
+            release: Some(release),
+            ..
+        } => Some(format!("UPDATE · {}", release.version)),
+        Status::Installing(_) => Some("UPDATING…".into()),
+        Status::Installed(release) => Some(format!("RESTART · {}", release.version)),
+        _ => None,
+    }
+}
+
+/// Shows the settings at `category`, whether they are open or not.
+fn show_settings(
+    view: &View,
+    inputs: &mut Inputs,
+    actions: &mut Actions,
+    category: settings_view::Category,
+) {
+    close_settings(inputs);
+    inputs.settings_category = category;
+    open_settings(view, inputs, actions);
 }
 
 /// Leaves the settings, remembering the category shown.

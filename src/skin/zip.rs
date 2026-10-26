@@ -1,4 +1,5 @@
-//! The zip reader behind `.wsz` skin files.
+//! The zip reader behind `.wsz` skin files, and behind updates on Windows,
+//! whose package is a zip too.
 //!
 //! A skin is a small archive of stored or deflated entries and nothing more.
 //! The `zip` crate would be a new dependency for that narrow use, while
@@ -20,7 +21,8 @@ const STORED: u16 = 0;
 const DEFLATED: u16 = 8;
 const ENCRYPTED: u16 = 1;
 /// The most an entry may inflate to. Skin bitmaps run to a few hundred
-/// kilobytes; this stops a crafted archive from claiming gigabytes.
+/// kilobytes and Spotless.exe to a few tens of megabytes; this stops a
+/// crafted archive from claiming gigabytes.
 const ENTRY_LIMIT: usize = 64 << 20;
 
 #[derive(Debug, Error)]

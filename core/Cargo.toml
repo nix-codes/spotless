@@ -15,9 +15,9 @@ tokio.workspace = true
 open.workspace = true
 image.workspace = true
 dirs = "6"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
 rodio = { version = "0.21", default-features = false, features = ["playback"] }
 cpal = "0.16"
 # Last.fm: request signatures are MD5; the approval page opens in the browser.

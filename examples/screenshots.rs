@@ -226,6 +226,7 @@ impl Demo {
             art: look.art.as_deref(),
             skin_note: None,
             skin_error: None,
+            update: &spotless::update::Status::Unknown,
         };
         // The window's whole area, without the margin the harness keeps.
         let full = ctx.content_rect();

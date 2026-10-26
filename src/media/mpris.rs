@@ -43,6 +43,24 @@ pub fn raise_running() -> bool {
     })
 }
 
+/// Waits, up to `limit`, for a Spotless that is quitting to let go of its
+/// MPRIS name, so this one isn't taken for a second start.
+pub fn wait_for_exit(limit: std::time::Duration) {
+    let started = std::time::Instant::now();
+    let Ok(connection) = zbus::blocking::Connection::session() else {
+        return;
+    };
+    let Ok(bus) = zbus::blocking::fdo::DBusProxy::new(&connection) else {
+        return;
+    };
+    let Ok(name) = zbus::names::BusName::try_from(BUS_NAME) else {
+        return;
+    };
+    while started.elapsed() < limit && bus.name_has_owner(name.clone()).unwrap_or(false) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
 /// The running MPRIS service.
 pub struct MediaControls {
     updates: UnboundedSender<NowPlaying>,

@@ -5,7 +5,9 @@
 # version goes up. The Android Release workflow then builds and signs the
 # APK, or the Desktop Release one builds for Linux and Windows
 # (.github/workflows/), and puts it in a release: a draft to try and
-# publish by hand, or published at once with --publish.
+# publish by hand, or published at once with --publish. A published
+# desktop release is offered to every Spotless that looks for updates;
+# its SHA256SUMS is what they check the download against.
 #   packaging/release.sh changes
 #   packaging/release.sh android 0.4.0
 #   packaging/release.sh desktop 0.1.0 --notes notes.md --publish
@@ -211,7 +213,7 @@ if [ -n "$dry" ]; then
     trap 'rm -f "$message"; git tag -d "$tag" >/dev/null 2>&1 || true' EXIT
     git tag -a --cleanup=verbatim -F "$message" "$tag"
     if [ -n "$publish" ]; then state=published; else state="a draft"; fi
-    echo "The release would be $state, with these notes (and the downloads' checksums):"
+    echo "The release would be $state, with these notes:"
     echo
     notes "$tag"
     exit
@@ -255,9 +257,16 @@ done
 [ -n "$run" ] || fail "The workflow hasn't started: see gh run list --workflow $workflow"
 gh run watch "$run" --exit-status >/dev/null || fail "The build failed: gh run view $run --log-failed"
 url=$(gh release view "$tag" --json url --jq .url) || fail "The build passed, but $tag has no release"
+# Without its checksums, Spotless can't install the release itself, only
+# point at its page.
+if [ "$kind" = desktop ] &&
+    ! gh release view "$tag" --json assets --jq '.assets[].name' | grep -qx SHA256SUMS; then
+    echo "Warning: $tag has no SHA256SUMS: Spotless won't install it as an update" >&2
+fi
 if [ -n "$publish" ]; then
     echo "Published: $url"
 else
     echo "Draft ready: $url"
     echo "Try it, then publish it: gh release edit $tag --draft=false"
+    [ "$kind" != desktop ] || echo "Once published, Spotless offers it as an update."
 fi

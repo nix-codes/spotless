@@ -19,6 +19,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"
 open = "5"
 image = { version = "0.25", default-features = false, features = ["bmp", "jpeg", "png"] }
 env_logger = "0.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
 
 [package]
 name = "spotless"
@@ -55,6 +58,12 @@ flate2 = "1"
 # Spotless skins' manifests (src/skin/format/), keys kept in file order so
 # problems are listed as the author wrote them.
 toml = { version = "1", features = ["preserve_order"] }
+# Updates (src/update.rs): GitHub's releases, read and downloaded, and the
+# download checked against the release's SHA256SUMS.
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Media keys (MPRIS): the zbus egui already builds for accessibility.

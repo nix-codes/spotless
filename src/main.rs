@@ -12,12 +12,18 @@ fn main() -> Result<()> {
             .default_filter_or("warn,spotless=info,spotless_core=info,librespot=info"),
     )
     .init();
+    // Restarting into an update, the Spotless that started this one is
+    // still quitting.
+    if std::env::args().any(|arg| arg == spotless::update::RESTARTED) {
+        spotless::media::wait_for_exit(std::time::Duration::from_secs(10));
+    }
     // One Spotless at a time: they would share the sign-in ports and the
     // playlists file. A second start brings the first one forward.
     if spotless::media::raise_running() {
         log::info!("Spotless is already running; brought it forward");
         return Ok(());
     }
+    spotless::update::clean_up();
     let paths = Paths::new()?;
 
     // The installed .desktop file gives launchers the icon; this one is for
