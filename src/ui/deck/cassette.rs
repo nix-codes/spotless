@@ -1,5 +1,5 @@
 //! A cassette, 262 × 154 units: its shell, a label written in marker with
-//! the playlist and the song, and a window onto the two reels winding the
+//! the artist and the song, and a window onto the two reels winding the
 //! tape from left to right as the song plays.
 
 use egui::{Align2, Color32};
@@ -56,7 +56,7 @@ pub fn draw(c: &Canvas, tape: &Tape) {
     );
     let label = c.clipped(lx, ly, lw - 60.0, 26.0);
     label.text(
-        &tape.list,
+        &tape.artist,
         lx + 22.0,
         ly + 14.0,
         Face::Marker,
