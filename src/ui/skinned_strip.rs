@@ -12,8 +12,8 @@ use egui::{
 };
 
 use super::player_strip::{
-    HEIGHT, display_clicked, eject_clicked, eq_clicked, held, length, now_lines, pl_clicked, rates,
-    time_shown, vis_clicked,
+    HEIGHT, display_clicked, eject_clicked, eq_clicked, follow_press, held, length, now_lines,
+    pl_clicked, rates, time_shown, vis_clicked,
 };
 use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
@@ -566,7 +566,7 @@ pub fn buttons_row(
         x += size.x;
         at
     };
-    let [playing, paused] = held(view);
+    let [playing, paused] = held(ui, view, inputs);
     for (name, label, action) in TRANSPORT {
         let at = place(name, 0.0);
         let state = toggle_state(match name {
@@ -574,7 +574,10 @@ pub fn buttons_row(
             "pause" => paused,
             _ => false,
         });
-        if button(ui, &painter, paint, at, unit, name, state, label, ready).clicked() {
+        let response = button(ui, &painter, paint, at, unit, name, state, label, ready);
+        if matches!(action, Action::Play | Action::TogglePause) {
+            follow_press(ui, &response, action, view, inputs, actions);
+        } else if response.clicked() {
             actions.push(action);
         }
     }

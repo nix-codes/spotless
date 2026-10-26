@@ -123,6 +123,8 @@ pub struct Inputs {
     pub preset_name: Option<String>,
     /// The deck's reels, bars and needles as they move.
     pub deck: deck::Motion,
+    /// Play or Pause pressed and not yet answered by the player.
+    pub pressed: Option<player_strip::Pressed>,
 }
 
 /// The window's size for PL: while the player shows alone, the height

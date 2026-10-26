@@ -6,7 +6,8 @@
 use std::time::Duration;
 
 use egui::{
-    Align, Align2, CursorIcon, FontId, Id, Layout, Rect, Sense, Slider, Ui, UiBuilder, pos2, vec2,
+    Align, Align2, CursorIcon, FontId, Id, Layout, Rect, Response, Sense, Slider, Ui, UiBuilder,
+    pos2, vec2,
 };
 
 use super::widgets::{Glyph, glyph_button, glyph_toggle, paint_glyph, small_button};
@@ -24,6 +25,9 @@ const TITLE_HEIGHT: f32 = 44.0;
 const SEEK_HEIGHT: f32 = 18.0;
 /// While paused, the time is shown this long, then hidden as long.
 const BLINK: Duration = Duration::from_secs(1);
+/// How long Play or Pause stays down for a click the player hasn't
+/// answered, in seconds.
+const PRESS_HOLD: f64 = 1.0;
 
 /// Where the strip's buttons go, and how big they are together.
 pub struct Keys {
@@ -173,12 +177,82 @@ fn draw_title(ui: &Ui, rect: Rect, view: &View) {
 
 /// Which of Play and Pause stay pressed in: Play while a song plays,
 /// Pause while it is paused. Stop never does.
-pub(super) fn held(view: &View) -> [bool; 2] {
-    let status = view.player.status;
+///
+/// Pressed, Play or Pause shows what it asks for from the moment it goes
+/// down until the player gets there, so it doesn't pop up while the
+/// player catches up.
+pub(super) fn held(ui: &Ui, view: &View, inputs: &mut Inputs) -> [bool; 2] {
+    let mut status = view.player.status;
+    if let Some(press) = &inputs.pressed {
+        let there =
+            press.asked == status || (press.asked == Status::Playing && status == Status::Loading);
+        let waited = ui.input(|i| i.time) - press.since;
+        if press.clicked && (there || waited > PRESS_HOLD) {
+            inputs.pressed = None;
+        } else {
+            status = press.asked;
+            if press.clicked {
+                ui.ctx()
+                    .request_repaint_after(Duration::from_secs_f64(PRESS_HOLD - waited));
+            }
+        }
+    }
     [
         matches!(status, Status::Playing | Status::Loading),
         status == Status::Paused,
     ]
+}
+
+/// A press of Play or Pause not yet answered: what it asks the player
+/// for, when, and whether it was let go on the button (a click).
+pub struct Pressed {
+    asked: Status,
+    pause: bool,
+    since: f64,
+    clicked: bool,
+}
+
+/// Follows Play or Pause (`action`) through a press: down, it holds the
+/// state it asks for; clicked, it asks for it; let go off the button, it
+/// asks for nothing.
+pub(super) fn follow_press(
+    ui: &Ui,
+    response: &Response,
+    action: Action,
+    view: &View,
+    inputs: &mut Inputs,
+    actions: &mut Actions,
+) {
+    let pause = action == Action::TogglePause;
+    let asked = match (pause, view.player.status) {
+        (false, _) | (true, Status::Paused) => Some(Status::Playing),
+        (true, Status::Playing | Status::Loading) => Some(Status::Paused),
+        (true, Status::Stopped) => None,
+    };
+    let since = ui.input(|i| i.time);
+    let press = |clicked| {
+        asked.map(|asked| Pressed {
+            asked,
+            pause,
+            since,
+            clicked,
+        })
+    };
+    let mine = inputs.pressed.as_ref().is_some_and(|p| p.pause == pause);
+    if response.is_pointer_button_down_on() {
+        inputs.pressed = press(false);
+    } else if response.clicked() {
+        actions.push(action);
+        match &mut inputs.pressed {
+            Some(pressed) if mine && !pressed.clicked => {
+                pressed.clicked = true;
+                pressed.since = since;
+            }
+            _ => inputs.pressed = press(true),
+        }
+    } else if mine && inputs.pressed.as_ref().is_some_and(|p| !p.clicked) {
+        inputs.pressed = None;
+    }
 }
 
 /// Whether the time's digits show: while paused they blink, as in
@@ -403,13 +477,11 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
     if glyph_button(ui, &palette, Glyph::Previous, ready).clicked() {
         actions.push(Action::Previous);
     }
-    let [playing, paused] = held(view);
-    if glyph_toggle(ui, &palette, Glyph::Play, playing, ready).clicked() {
-        actions.push(Action::Play);
-    }
-    if glyph_toggle(ui, &palette, Glyph::Pause, paused, ready).clicked() {
-        actions.push(Action::TogglePause);
-    }
+    let [playing, paused] = held(ui, view, inputs);
+    let play = glyph_toggle(ui, &palette, Glyph::Play, playing, ready);
+    follow_press(ui, &play, Action::Play, view, inputs, actions);
+    let pause = glyph_toggle(ui, &palette, Glyph::Pause, paused, ready);
+    follow_press(ui, &pause, Action::TogglePause, view, inputs, actions);
     if glyph_button(ui, &palette, Glyph::Stop, ready).clicked() {
         actions.push(Action::Stop);
     }
