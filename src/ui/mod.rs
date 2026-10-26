@@ -136,6 +136,9 @@ pub struct Fit {
     /// Which of the deck and the equaliser showed when last drawn, and the
     /// height they took below the player.
     sections: Option<(Sections, f32)>,
+    /// The smallest height last asked of the window while the playlists
+    /// show, and the scale it was asked at.
+    least: Option<(f32, f32)>,
 }
 
 impl Inputs {}
@@ -145,8 +148,12 @@ const TITLE: &str = "S P O T L E S S";
 const EQUALISER: &str = "E Q U A L I Z E R";
 const STATUS_HEIGHT: f32 = 30.0;
 const GUTTER: f32 = 10.0;
-/// The smallest the window can be made, while the playlists show.
+/// The smallest the window can be made, while the playlists show with
+/// neither the deck nor the equaliser.
 pub const MIN_WINDOW: egui::Vec2 = vec2(560.0, 360.0);
+/// The least height left to the playlists, Browse or the settings, as
+/// MIN_WINDOW leaves them with the player alone above.
+const MIN_BODY: f32 = 148.0;
 /// The window's height for the playlists when none is known yet.
 const DEFAULT_HEIGHT: f32 = 600.0;
 
@@ -274,6 +281,14 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         egui::pos2(full.left() + GUTTER, separator.bottom() + 4.0),
         egui::pos2(full.right() - GUTTER, status.top() - 6.0),
     );
+    // The deck and the equaliser raise the least height, so the status bar
+    // never comes up over the playlists.
+    fit_least(
+        ui,
+        full,
+        &mut inputs.fit,
+        body.top() + MIN_BODY + 6.0 + STATUS_HEIGHT - full.top(),
+    );
     if let Some(form) = &mut inputs.settings {
         if settings_view::draw(ui, body, view, form, &mut inputs.tab, actions) {
             close_settings(inputs);
@@ -321,6 +336,7 @@ fn fit_window(ui: &Ui, full: Rect, fit: &mut Fit, height: Option<f32>) {
                 fit.expanded = Some(screen.height());
             }
             fit.collapsed = Some(wanted);
+            fit.least = None;
             send(ViewportCommand::MinInnerSize(vec2(MIN_WINDOW.x, height)));
             send(ViewportCommand::MaxInnerSize(vec2(16384.0, height)));
             send(ViewportCommand::InnerSize(vec2(screen.width(), height)));
@@ -331,10 +347,22 @@ fn fit_window(ui: &Ui, full: Rect, fit: &mut Fit, height: Option<f32>) {
             }
             let height = fit.expanded.unwrap_or(DEFAULT_HEIGHT);
             send(ViewportCommand::MaxInnerSize(egui::Vec2::INFINITY));
-            send(ViewportCommand::MinInnerSize(MIN_WINDOW));
             send(ViewportCommand::InnerSize(vec2(screen.width(), height)));
         }
     }
+}
+
+/// Keeps the window at least `height` points of its content `full` tall
+/// (and MIN_WINDOW), while the playlists show.
+fn fit_least(ui: &Ui, full: Rect, fit: &mut Fit, height: f32) {
+    let ctx = ui.ctx();
+    let height = height.max(MIN_WINDOW.y) + ctx.content_rect().height() - full.height();
+    let wanted = (height, ctx.pixels_per_point());
+    if fit.least == Some(wanted) {
+        return;
+    }
+    fit.least = Some(wanted);
+    ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(vec2(MIN_WINDOW.x, height)));
 }
 
 /// What shows below the player's top rows.
