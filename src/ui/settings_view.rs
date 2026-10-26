@@ -13,6 +13,7 @@ use egui::{
 
 use super::skin_paint;
 use super::theme::{self, Palette, Phosphor};
+use super::update_view::{release, update_button};
 use super::widgets::{field, small_action, small_button, text_button};
 use super::{View, scrollbar};
 use crate::action::{Action, Actions, Desktop};
@@ -23,7 +24,7 @@ use crate::lastfm::api::is_key;
 use crate::skin;
 use crate::spotify::webapi::REDIRECT_URI;
 use crate::store::AUDIO_CACHE_SIZES;
-use crate::update::{self, Release, Status};
+use crate::update::{self, Status};
 
 const DASHBOARD: &str = "https://developer.spotify.com/dashboard";
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
@@ -115,6 +116,8 @@ enum Item {
     Tray,
     /// Looking for updates once a day.
     Updates,
+    /// The bar announcing a newer release.
+    Notices,
     /// CHECK NOW, UPDATE, TRY AGAIN or RESTART, as updating stands.
     UpdateNow,
     /// The update's release notes.
@@ -364,7 +367,7 @@ fn items(category: Category, view: &View, outputs: usize) -> Vec<Item> {
             Item::ClearCovers,
         ],
         Category::About if !update::ENABLED => vec![Item::Source],
-        Category::About => [Item::Updates]
+        Category::About => [Item::Updates, Item::Notices]
             .into_iter()
             .chain(update_button(view.update).map(|_| Item::UpdateNow))
             .chain(release(view.update).map(|_| Item::ReleaseNotes))
@@ -876,6 +879,19 @@ impl Controls<'_, '_> {
                 "Once a day, on GitHub. Nothing is installed without asking.",
             );
         });
+        row(ui, palette, "Release notices", |ui| {
+            let switch = toggle(ui, palette, settings.update_notices);
+            self.ring(ui, Item::Notices, &switch);
+            if switch.clicked() || (self.pressed)(Item::Notices) {
+                self.actions
+                    .push(Desktop::SetUpdateNotices(!settings.update_notices));
+            }
+            note(
+                ui,
+                palette,
+                "A bar under the player says when one is out. Off, it shows only here.",
+            );
+        });
         let status = self.view.update;
         row(ui, palette, "Update", |ui| {
             let current = concat!("Spotless ", env!("CARGO_PKG_VERSION"));
@@ -1109,37 +1125,6 @@ fn radio(ui: &mut Ui, palette: &Palette, chosen: bool, text: &str) -> Response {
 }
 
 /// The skins to choose from, as (choice, label).
-/// The button that takes updating on from where it stands, and what it
-/// does.
-fn update_button(status: &Status) -> Option<(&'static str, Desktop)> {
-    match status {
-        Status::Unknown | Status::Current | Status::Failed { release: None, .. } => {
-            Some(("CHECK NOW", Desktop::CheckForUpdate))
-        }
-        Status::Available(release) if release.installable() => Some(("UPDATE", Desktop::Update)),
-        Status::Available(_) => None,
-        Status::Failed {
-            release: Some(_), ..
-        } => Some(("TRY AGAIN", Desktop::Update)),
-        Status::Installed(_) => Some(("RESTART", Desktop::Restart)),
-        Status::Checking | Status::Installing(_) => None,
-    }
-}
-
-/// The release found, while there is one to install or restart into.
-fn release(status: &Status) -> Option<&Release> {
-    match status {
-        Status::Available(release)
-        | Status::Installing(release)
-        | Status::Installed(release)
-        | Status::Failed {
-            release: Some(release),
-            ..
-        } => Some(release),
-        _ => None,
-    }
-}
-
 fn skin_rows() -> [(Option<String>, String); 2] {
     let winamp = skin::format::built_in::WINAMP_CLASSIC_KEY;
     [
@@ -1170,7 +1155,7 @@ fn output_rows(view: &View) -> Vec<(Option<String>, String)> {
 
 /// Opens a page in the browser. Not through egui, whose link opening is
 /// left out of the build.
-fn open_in_browser(url: &str) {
+pub(super) fn open_in_browser(url: &str) {
     if let Err(error) = open::that_detached(url) {
         log::warn!("unable to open {url}: {error}");
     }

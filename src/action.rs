@@ -17,6 +17,8 @@ pub enum Desktop {
     SetPhosphor(crate::ui::theme::Phosphor),
     /// Looking for updates once a day on or off.
     SetUpdates(bool),
+    /// The bar announcing a newer release on or off.
+    SetUpdateNotices(bool),
     /// Looks for an update now.
     CheckForUpdate,
     /// Installs the update found.

@@ -76,6 +76,8 @@ pub struct Release {
     pub version: Version,
     /// Its page on GitHub, with its notes and packages.
     pub page: String,
+    /// Its notes, in Markdown.
+    pub notes: String,
     /// This platform's package: its name and where to download it.
     package: (String, String),
     /// Where its SHA256SUMS is. Without one the package can't be checked,
@@ -299,6 +301,9 @@ struct GitHubRelease {
     #[serde(default)]
     prerelease: bool,
     html_url: String,
+    /// The notes; null when there are none.
+    #[serde(default)]
+    body: Option<String>,
     #[serde(default)]
     assets: Vec<GitHubAsset>,
 }
@@ -356,6 +361,7 @@ fn newest(releases: Vec<GitHubRelease>, current: Version, package: &str) -> Opti
             Some(Release {
                 version,
                 page: release.html_url.clone(),
+                notes: release.body.clone().unwrap_or_default(),
                 package: (name.clone(), url(&name)?),
                 sums: url(SUMS),
             })
@@ -549,6 +555,7 @@ mod tests {
             draft: false,
             prerelease: false,
             html_url: format!("https://github.com/nix-codes/spotless/releases/tag/{tag}"),
+            body: Some(format!("Spotless {tag}")),
             assets: assets
                 .iter()
                 .map(|name| GitHubAsset {
@@ -591,6 +598,7 @@ mod tests {
         );
         assert!(found.installable());
         assert!(found.page.ends_with("/desktop-v1.2.0"));
+        assert_eq!(found.notes, "Spotless desktop-v1.2.0");
     }
 
     #[test]

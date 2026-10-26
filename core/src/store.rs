@@ -141,6 +141,8 @@ pub struct Settings {
     pub tray: bool,
     /// The desktop app looks for a newer release of itself once a day.
     pub updates: bool,
+    /// A newer release found is announced in a bar under the player.
+    pub update_notices: bool,
     /// The Spotify tab can be used: off in Settings, it is never shown and
     /// Spotless never joins Spotify Connect.
     pub spotify_tab_enabled: bool,
@@ -236,6 +238,10 @@ impl Settings {
                 .unwrap_or(2048),
             tray: raw.get("tray").and_then(Value::as_bool).unwrap_or(true),
             updates: raw.get("updates").and_then(Value::as_bool).unwrap_or(true),
+            update_notices: raw
+                .get("update_notices")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
             spotify_tab_enabled: raw
                 .get("spotify_tab_enabled")
                 .and_then(Value::as_bool)
@@ -288,6 +294,7 @@ impl Settings {
         raw.insert("audio_cache_mb".into(), self.audio_cache_mb.into());
         raw.insert("tray".into(), self.tray.into());
         raw.insert("updates".into(), self.updates.into());
+        raw.insert("update_notices".into(), self.update_notices.into());
         raw.insert(
             "spotify_tab_enabled".into(),
             self.spotify_tab_enabled.into(),

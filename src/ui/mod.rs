@@ -13,6 +13,7 @@ pub mod skin_paint;
 mod skinned_strip;
 mod spotify_view;
 pub mod theme;
+mod update_view;
 pub mod widgets;
 
 use std::collections::HashMap;
@@ -28,7 +29,6 @@ use crate::playback::outputs::Output;
 use crate::skin::format::State;
 use crate::spotify::queue::SpotifyQueue;
 use crate::store::Settings;
-use crate::update::Status;
 pub use browse_view::Cover;
 use theme::Palette;
 use widgets::text_button;
@@ -123,6 +123,8 @@ pub struct Inputs {
     pub fit: Fit,
     /// The name being typed to save the equaliser's bands as a preset.
     pub preset_name: Option<String>,
+    /// The bar announcing a newer release.
+    pub update: update_view::Bar,
 }
 
 /// The window's size for PL: while the player shows alone, the height
@@ -214,6 +216,16 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         equaliser_view::draw(ui, section, view, inputs, actions);
         below = section.bottom();
     }
+    let equaliser = below - strip.bottom();
+    let notice = update_view::height(view, &inputs.update);
+    if notice > 0.0 {
+        let rect = Rect::from_min_size(
+            egui::pos2(full.left() + GUTTER, below + 6.0),
+            vec2(full.width() - 2.0 * GUTTER, notice),
+        );
+        update_view::draw(ui, rect, view, &mut inputs.update, actions);
+        below = rect.bottom();
+    }
 
     // With PL off the window is the player alone, unless Browse, the
     // settings, the keys or a question needs the room.
@@ -224,7 +236,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         && inputs.settings.is_none()
         && !inputs.help
         && inputs.closing.is_none();
-    fit_equaliser(ui, &mut inputs.fit, below - strip.bottom(), collapsed);
+    fit_equaliser(ui, &mut inputs.fit, equaliser, collapsed);
     let status_top = below + 6.0;
     fit_window(
         ui,
@@ -458,7 +470,7 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
     if button(ui, "F1 · KEYS") {
         inputs.help = true;
     }
-    if let Some(label) = update_label(view.update)
+    if let Some(label) = update_view::status_label(view)
         && button(ui, &label)
     {
         show_settings(view, inputs, actions, settings_view::Category::About);
@@ -480,20 +492,6 @@ pub(super) fn open_settings(view: &View, inputs: &mut Inputs, actions: &mut Acti
     actions.push(Action::CloseBrowse);
     actions.push(Action::MeasureStorage);
     actions.push(Action::ListOutputs);
-}
-
-/// The status bar's word on an update, whose button shows it in Settings.
-fn update_label(status: &Status) -> Option<String> {
-    match status {
-        Status::Available(release)
-        | Status::Failed {
-            release: Some(release),
-            ..
-        } => Some(format!("UPDATE · {}", release.version)),
-        Status::Installing(_) => Some("UPDATING…".into()),
-        Status::Installed(release) => Some(format!("RESTART · {}", release.version)),
-        _ => None,
-    }
 }
 
 /// Shows the settings at `category`, whether they are open or not.
