@@ -25,7 +25,7 @@ const REEL: f32 = 70.0;
 const HOLE_IN: f32 = 30.0;
 const HOLE_OUT: f32 = 56.0;
 const HOLE_HALF: f32 = 0.4;
-/// The size of the playlist's name on the rim.
+/// The size of the song's name on the rim.
 const TAG_SIZE: f32 = 10.0;
 /// Where the case's top edge is: the reels stand out over it.
 const CASE_TOP: f32 = 40.0;
@@ -179,7 +179,7 @@ pub fn draw(c: &Canvas, keys: f32, tape: &Tape) {
         Align2::RIGHT_CENTER,
     );
     // The reels last, over the tape's start and the case's top edge.
-    reel(c, lx, cy, rl, tape.angles[0], Some(&tape.list));
+    reel(c, lx, cy, rl, tape.angles[0], Some(&tape.song));
     reel(c, rx, cy, rr, tape.angles[1], None);
 }
 
@@ -334,18 +334,32 @@ fn reel(c: &Canvas, x: f32, y: f32, pack: f32, angle: f32, tag: Option<&str>) {
             rgb(0x6a6a6a),
         );
     }
-    // The playlist's name on a strip of masking tape round the rim,
-    // shrunk only if it would go more than three quarters of the way round.
+    // The song on a strip of masking tape round the rim, cut short if it
+    // would go more than halfway round.
     if let Some(tag) = tag {
         let middle = (HOLE_OUT + REEL) / 2.0;
         let pad = 4.0;
-        let widths: Vec<f32> = tag
-            .chars()
-            .map(|letter| c.width(&letter.to_string(), Face::Marker, TAG_SIZE))
-            .collect();
-        let natural: f32 = widths.iter().sum();
-        let fit = (0.75 * TAU * middle / natural).min(1.0);
-        let span = (natural * fit + 2.0 * pad) / middle;
+        let room = 0.5 * TAU * middle;
+        let width = |letter: char| c.width(&letter.to_string(), Face::Marker, TAG_SIZE);
+        let mut letters: Vec<(char, f32)> = tag.chars().map(|l| (l, width(l))).collect();
+        if letters.iter().map(|(_, w)| w).sum::<f32>() > room {
+            let ellipsis = 3.0 * width('.');
+            let mut used = 0.0;
+            let keep = letters
+                .iter()
+                .take_while(|(_, w)| {
+                    used += w;
+                    used + ellipsis <= room
+                })
+                .count();
+            letters.truncate(keep);
+            while letters.last().is_some_and(|(l, _)| l.is_whitespace()) {
+                letters.pop();
+            }
+            letters.extend([('.', ellipsis / 3.0); 3]);
+        }
+        let length: f32 = letters.iter().map(|(_, w)| w).sum();
+        let span = (length + 2.0 * pad) / middle;
         let start = angle - FRAC_PI_2 - span / 2.0;
         c.sector(
             x,
@@ -357,15 +371,14 @@ fn reel(c: &Canvas, x: f32, y: f32, pack: f32, angle: f32, tag: Option<&str>) {
             |_, _| rgb(0xe8dfc4),
         );
         let mut at = start + pad / middle;
-        for (letter, width) in tag.chars().zip(widths) {
-            let width = width * fit;
+        for (letter, width) in letters {
             let a = at + width / 2.0 / middle;
             c.text_centred_at_angle(
                 &letter.to_string(),
                 x + a.cos() * middle,
                 y + a.sin() * middle,
                 Face::Marker,
-                TAG_SIZE * fit,
+                TAG_SIZE,
                 rgb(0x1c2a6e),
                 a + FRAC_PI_2,
                 f32::MAX,
