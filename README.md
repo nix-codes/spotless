@@ -334,7 +334,7 @@ has only been tested under Wine and on GitHub's build machines so far. The
 Android app is newer still, and has been tried on one phone.
 
 Not there on purpose: Spotify's own playlists, podcasts, and anything
-social. Maybe later: an equalizer, importing Spotify playlists.
+social. Maybe later: importing Spotify playlists.
 
 ## Credits
 
