@@ -397,7 +397,7 @@ pub(super) fn vis_clicked(response: egui::Response, view: &View, actions: &mut A
     let tip = if view.settings.deck_shown {
         "Hide the deck (Alt+V)"
     } else {
-        "Show the deck: the music on a cassette or reels, its spectrum and levels (Alt+V)"
+        "Show the deck: the music on a cassette, reels, a CD or a record, its spectrum and levels (Alt+V)"
     };
     if response.on_hover_text(tip).clicked() {
         actions.push(Action::ToggleDeck);

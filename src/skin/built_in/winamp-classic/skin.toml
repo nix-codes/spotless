@@ -60,6 +60,8 @@ equaliser.on = { normal = { image = "eqmain.png", rect = [10, 119, 26, 12] }, pr
 equaliser.presets = { normal = { image = "eqmain.png", rect = [224, 164, 44, 12] }, pressed = { image = "eqmain.png", rect = [224, 176, 44, 12] } }
 equaliser.thumb = { normal = { image = "eqmain.png", rect = [0, 164, 11, 11] }, pressed = { image = "eqmain.png", rect = [0, 176, 11, 11] } }
 equaliser.slider = { image = { image = "eq-slider.png", rect = [0, 0, 14, 63] }, slice = [0, 0], levels = { count = 28, step = 63 } }
+vis = { normal = { image = "extra.png", rect = [0, 0, 28, 12] }, pressed = { image = "extra.png", rect = [28, 0, 28, 12] }, on = { image = "extra.png", rect = [56, 0, 28, 12] }, on_pressed = { image = "extra.png", rect = [84, 0, 28, 12] } }
+equaliser.reset = { normal = { image = "extra.png", rect = [0, 12, 44, 12] }, pressed = { image = "extra.png", rect = [44, 12, 44, 12] } }
 
 [pieces.field]
 image = "display.png"

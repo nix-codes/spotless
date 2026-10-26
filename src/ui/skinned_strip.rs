@@ -428,23 +428,33 @@ fn info_row(
         eq_clicked(response, view, actions);
         left = eq_at.x;
     }
-    // VIS beside EQ: Winamp has no art for it, so it's in the skin's
-    // button colours.
-    let vis = super::widgets::small_button_width(ui, "VIS");
-    let vis_rect = Rect::from_min_size(
-        pos2(
-            left - 2.0 * unit - vis,
-            rect.center().y - super::widgets::SMALL_HEIGHT / 2.0,
-        ),
-        vec2(vis, super::widgets::SMALL_HEIGHT),
-    );
-    let response = ui
-        .scope_builder(egui::UiBuilder::new().max_rect(vis_rect), |ui| {
-            super::widgets::small_button(ui, &palette, "VIS", view.settings.deck_shown)
-        })
-        .inner;
-    vis_clicked(response, view, actions);
-    left = vis_rect.left();
+    // VIS beside EQ: Winamp has no art for it, so a converted skin makes
+    // it from EQ's; without it, it's in the skin's button colours.
+    if let Some(vis) = paint.size("vis", unit) {
+        let vis_at = pos2(left - 2.0 * unit - vis.x, rect.center().y - vis.y / 2.0);
+        let state = toggle_state(view.settings.deck_shown);
+        let response = button(
+            ui, &painter, paint, vis_at, unit, "vis", state, "Deck", true,
+        );
+        vis_clicked(response, view, actions);
+        left = vis_at.x;
+    } else {
+        let vis = super::widgets::small_button_width(ui, "VIS");
+        let vis_rect = Rect::from_min_size(
+            pos2(
+                left - 2.0 * unit - vis,
+                rect.center().y - super::widgets::SMALL_HEIGHT / 2.0,
+            ),
+            vec2(vis, super::widgets::SMALL_HEIGHT),
+        );
+        let response = ui
+            .scope_builder(egui::UiBuilder::new().max_rect(vis_rect), |ui| {
+                super::widgets::small_button(ui, &palette, "VIS", view.settings.deck_shown)
+            })
+            .inner;
+        vis_clicked(response, view, actions);
+        left = vis_rect.left();
+    }
     if let Some(track) = paint.size("volume.track", unit) {
         let at = pos2(left - GAP * unit - track.x, rect.center().y - track.y / 2.0);
         if at.x >= x {

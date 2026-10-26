@@ -43,6 +43,10 @@ const WINAMP_CLASSIC: &[(&str, &[u8])] = &[
         include_bytes!("../built_in/winamp-classic/eq-slider.png"),
     ),
     (
+        "extra.png",
+        include_bytes!("../built_in/winamp-classic/extra.png"),
+    ),
+    (
         "text.png",
         include_bytes!("../built_in/winamp-classic/text.png"),
     ),
@@ -114,7 +118,14 @@ mod tests {
         assert_eq!(skin.name, "Winamp Classic");
         // Every image the manifest names is compiled in.
         assert_eq!(skin.images.len(), WINAMP_CLASSIC.len() - 1);
-        for piece in ["play", "titlebar", "field", "scrollbar.thumb"] {
+        for piece in [
+            "play",
+            "titlebar",
+            "field",
+            "scrollbar.thumb",
+            "vis",
+            "equaliser.reset",
+        ] {
             assert!(skin.piece(piece).is_some(), "{piece}");
         }
     }
