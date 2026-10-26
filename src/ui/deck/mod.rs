@@ -65,8 +65,7 @@ pub struct Tape {
     /// A for odd songs in the playlist, B for even ones.
     pub side: char,
     pub list: String,
-    /// The song with its number in the playlist, and without.
-    pub song: String,
+    /// The song's title as written on a tape (`short_title`).
     pub title: String,
     pub playing: bool,
     pub counter: f32,
@@ -178,24 +177,22 @@ impl Motion {
     }
 
     fn tape(&self, view: &View) -> Tape {
-        let (side, list, song, title) = match player_strip::playing_entry(view)
+        let (side, list, title) = match player_strip::playing_entry(view)
             .and_then(|(list, entry)| Some((view.list(list)?, entry)))
             .and_then(|(list, entry)| Some((list, list.index_of(entry)?, list.get(entry)?)))
         {
             Some((list, index, entry)) => (
                 if index % 2 == 0 { 'A' } else { 'B' },
                 list.name.clone(),
-                format!("{}. {}", index + 1, short_title(&entry.track.title)),
                 short_title(&entry.track.title).to_string(),
             ),
-            None => ('A', String::new(), String::new(), String::new()),
+            None => ('A', String::new(), String::new()),
         };
         Tape {
             progress: self.drawn.unwrap_or(0.0),
             angles: self.angles,
             side,
             list,
-            song,
             title,
             playing: view.player.status == Status::Playing,
             counter: self.counter,

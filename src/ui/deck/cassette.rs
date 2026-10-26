@@ -74,7 +74,7 @@ pub fn draw(c: &Canvas, tape: &Tape) {
         Align2::RIGHT_CENTER,
     );
     c.clipped(lx, ly + 30.0, lw, 18.0).text(
-        &tape.song,
+        &tape.title,
         lx + 10.0,
         ly + 39.0,
         Face::Marker,
