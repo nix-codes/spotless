@@ -356,12 +356,7 @@ impl Canvas {
         angle: f32,
         width: f32,
     ) {
-        let natural = self
-            .painter
-            .layout_no_wrap(text.into(), self.font(face, size), colour)
-            .size()
-            .x
-            / self.k;
+        let natural = self.width(text, face, size);
         let size = if natural > width {
             size * width / natural
         } else {
@@ -370,6 +365,15 @@ impl Canvas {
         let half = natural.min(width) / 2.0;
         let (start_x, start_y) = (x - angle.cos() * half, y - angle.sin() * half);
         self.text_at_angle(text, start_x, start_y, face, size, colour, angle);
+    }
+
+    /// How wide `text` is, in this canvas's units.
+    pub fn width(&self, text: &str, face: Face, size: f32) -> f32 {
+        self.painter
+            .layout_no_wrap(text.into(), self.font(face, size), Color32::WHITE)
+            .size()
+            .x
+            / self.k
     }
 
     /// Text with a `edge`-coloured outline round its letters.

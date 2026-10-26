@@ -23,8 +23,10 @@ const REEL: f32 = 70.0;
 /// The holes in the reels, from the hub out, and half their width in
 /// radians.
 const HOLE_IN: f32 = 30.0;
-const HOLE_OUT: f32 = 60.0;
+const HOLE_OUT: f32 = 56.0;
 const HOLE_HALF: f32 = 0.4;
+/// The size of the playlist's name on the rim.
+const TAG_SIZE: f32 = 10.0;
 /// Where the case's top edge is: the reels stand out over it.
 const CASE_TOP: f32 = 40.0;
 /// The case's wooden sides.
@@ -332,25 +334,44 @@ fn reel(c: &Canvas, x: f32, y: f32, pack: f32, angle: f32, tag: Option<&str>) {
             rgb(0x6a6a6a),
         );
     }
-    // Masking tape with the playlist's name, between the lower hole and
-    // the right one.
+    // The playlist's name on a strip of masking tape round the rim,
+    // shrunk only if it would go more than three quarters of the way round.
     if let Some(tag) = tag {
-        let a = angle + PI / 6.0;
-        let (tx, ty) = (x + a.cos() * 47.0, y + a.sin() * 47.0);
-        let along = a + FRAC_PI_2;
-        let (ax, ay) = (along.cos(), along.sin());
-        let (nx, ny) = (a.cos(), a.sin());
-        let corner = |s: f32, t: f32| (tx + ax * s + nx * t, ty + ay * s + ny * t);
-        c.polygon(
-            &[
-                corner(-28.0, -6.5),
-                corner(28.0, -6.5),
-                corner(28.0, 6.5),
-                corner(-28.0, 6.5),
-            ],
-            rgb(0xe8dfc4),
+        let middle = (HOLE_OUT + REEL) / 2.0;
+        let pad = 4.0;
+        let widths: Vec<f32> = tag
+            .chars()
+            .map(|letter| c.width(&letter.to_string(), Face::Marker, TAG_SIZE))
+            .collect();
+        let natural: f32 = widths.iter().sum();
+        let fit = (0.75 * TAU * middle / natural).min(1.0);
+        let span = (natural * fit + 2.0 * pad) / middle;
+        let start = angle - FRAC_PI_2 - span / 2.0;
+        c.sector(
+            x,
+            y,
+            HOLE_OUT + 1.0,
+            REEL - 1.0,
+            start,
+            start + span,
+            |_, _| rgb(0xe8dfc4),
         );
-        c.text_centred_at_angle(tag, tx, ty, Face::Marker, 10.0, rgb(0x1c2a6e), along, 52.0);
+        let mut at = start + pad / middle;
+        for (letter, width) in tag.chars().zip(widths) {
+            let width = width * fit;
+            let a = at + width / 2.0 / middle;
+            c.text_centred_at_angle(
+                &letter.to_string(),
+                x + a.cos() * middle,
+                y + a.sin() * middle,
+                Face::Marker,
+                TAG_SIZE * fit,
+                rgb(0x1c2a6e),
+                a + FRAC_PI_2,
+                f32::MAX,
+            );
+            at += width / middle;
+        }
     }
     // The gold hub, a dark ring, the cream cap and the spindle's keys.
     let gold = [
