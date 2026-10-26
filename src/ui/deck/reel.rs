@@ -11,13 +11,14 @@ use super::Tape;
 use super::canvas::{Canvas, Face, blend, rgb, rgba};
 
 pub const WIDTH: f32 = 336.0;
-/// The face above the keys.
-pub const PLATE: f32 = 214.0;
+/// The face above the keys: as tall as the Walkman's body, so the deck
+/// keeps its size whichever device plays.
+pub const PLATE: f32 = 172.0;
 /// A reel's hub, the tape round it when it holds the whole song, and the
 /// reel's flanges.
-const HUB: f32 = 20.0;
-const FULL: f32 = 58.0;
-const FLANGE: f32 = 62.0;
+const HUB: f32 = 16.0;
+const FULL: f32 = 46.0;
+const FLANGE: f32 = 50.0;
 const TAPE: Color32 = rgb(0x4a2e1a);
 
 /// The tape's radius on a reel holding `share` of it.
@@ -49,9 +50,9 @@ pub fn draw(c: &Canvas, keys: f32, tape: &Tape) {
     }
     c.outline(0.0, 0.0, w, h, 6.0, 1.0, rgb(0x6a6f77));
 
-    let (lx, rx, cy) = (80.0, w - 80.0, 70.0);
+    let (lx, rx, cy) = (80.0, w - 80.0, 56.0);
     let (rl, rr) = (pack(1.0 - tape.progress), pack(tape.progress));
-    let ty = 158.0;
+    let ty = 120.0;
     let (arm_l, arm_r) = ((20.0, ty - 8.0), (w - 20.0, ty - 8.0));
     // Tension arms from their pivots near the corners.
     c.line(&[(30.0, ty + 22.0), arm_l], 3.0, rgb(0x5a5f67));
@@ -115,7 +116,7 @@ pub fn draw(c: &Canvas, keys: f32, tape: &Tape) {
         Align2::CENTER_CENTER,
     );
     // Along the bottom: the counter, the VU meters, the name.
-    let by = PLATE - 18.0;
+    let by = PLATE - 12.0;
     c.rect(12.0, by - 8.0, 46.0, 16.0, 0.0, rgb(0x0a0a0c));
     c.outline(12.0, by - 8.0, 46.0, 16.0, 0.0, 1.0, rgb(0x55595f));
     let digits = format!("{:04}", tape.counter as u32 % 10_000);

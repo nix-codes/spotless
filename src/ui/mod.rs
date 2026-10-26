@@ -339,7 +339,7 @@ fn fit_window(ui: &Ui, full: Rect, fit: &mut Fit, height: Option<f32>) {
 #[derive(Clone, Copy, PartialEq)]
 struct Sections {
     equaliser: bool,
-    /// The deck, and what it plays on: the reels take more room.
+    /// The deck, and what it plays on.
     deck: Option<crate::store::DeckMedia>,
 }
 
