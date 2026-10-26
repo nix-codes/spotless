@@ -126,6 +126,9 @@ struct Shared {
     follow: Mutex<Option<(EntryId, SpotifyUri)>>,
     /// The player's state as last reported, to carry over to a new player.
     state: Mutex<PlayerSnapshot>,
+    /// The song the player is loading: the snapshot has it only once it's
+    /// loaded, and the song before until then.
+    loading: Mutex<Option<SpotifyUri>>,
     current: Mutex<Current>,
 }
 
@@ -173,6 +176,7 @@ impl Engine {
                 notify,
                 follow: Mutex::default(),
                 state: Mutex::default(),
+                loading: Mutex::default(),
             }
         });
         Ok(Self { shared })
@@ -278,10 +282,11 @@ impl Shared {
             state.position_ms,
         );
         let playing = matches!(state.status, Status::Playing | Status::Loading);
-        if state.status == Status::Stopped {
-            return None;
-        }
-        let uri = SpotifyUri::from_uri(&state.track.as_ref()?.uri).ok()?;
+        let uri = match (state.status, lock(&self.loading).clone()) {
+            (Status::Stopped, _) => return None,
+            (Status::Loading, Some(uri)) => uri,
+            _ => SpotifyUri::from_uri(&state.track.as_ref()?.uri).ok()?,
+        };
         Some((uri, playing, state.position_now()))
     }
 
@@ -295,14 +300,21 @@ impl Shared {
         current.player.stop();
         current.live = Arc::new(AtomicBool::new(true));
         *lock(&self.state) = PlayerSnapshot::default();
-        current.player = start_player(
-            &Arc::downgrade(self),
-            &current.session,
-            &self.mixer,
-            current.levelling,
-            &current.live,
-            &self.notify,
+        *lock(&self.loading) = None;
+        let old = std::mem::replace(
+            &mut current.player,
+            start_player(
+                &Arc::downgrade(self),
+                &current.session,
+                &self.mixer,
+                current.levelling,
+                &current.live,
+                &self.notify,
+            ),
         );
+        // Dropping a player waits for its threads, and one still loading
+        // a song on a network gone waits as long as that does.
+        tokio::task::spawn_blocking(move || drop(old));
         if let Some((track, playing, position_ms)) = then {
             current.player.load(track, playing, position_ms);
         }
@@ -394,6 +406,9 @@ async fn follow_songs(
         // playing one, as unavailable too, under the playing song's
         // request. The playing song goes on; the next one is loaded again
         // when it is due, and only a failure then counts.
+        if let PlayerEvent::Loading { track_id, .. } = &event {
+            *lock(&shared.loading) = Some(track_id.clone());
+        }
         if matches!(event, PlayerEvent::Unavailable { .. }) && state.status != Status::Loading {
             log::info!("the next song didn't load ahead; it is tried again when due");
             continue;

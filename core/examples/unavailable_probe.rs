@@ -2,12 +2,16 @@
 //! one Spotify won't play? The first must wait for the connection, not be
 //! skipped like the second, even while the session's socket hasn't noticed
 //! the network went (it can take a minute and a half): whether the network
-//! goes between songs, or in the middle of one still downloading.
+//! goes between songs, or in the middle of one still downloading. And when
+//! a downloaded song ends with no signal, and the signal comes back while
+//! the next one loads, it's the next one that plays, not the same again.
 //!
 //! The session goes through a proxy run here, which then "loses the
 //! network": it closes every connection but the session's own, and refuses
 //! new ones. For the middle of a song it first slows downloads to about
-//! twice the audio's rate. Plays at volume 0, so nothing is heard.
+//! twice the audio's rate. For no signal it answers nothing; once the
+//! signal is back, the session's own connection drops and the rest stay
+//! stuck on the old network. Plays at volume 0, so nothing is heard.
 //!
 //!   cargo run -p spotless-core --example unavailable_probe
 //!
@@ -23,6 +27,7 @@ use anyhow::{Context, Result, bail};
 use librespot_core::SpotifyUri;
 use librespot_core::config::SessionConfig;
 use librespot_core::session::Session;
+use spotless_core::model::EntryId;
 use spotless_core::paths::Paths;
 use spotless_core::playback::engine::{Engine, EngineEvent, Status};
 use spotless_core::spotify::{catalog, session};
@@ -44,10 +49,10 @@ async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let proxy = Proxy::start().await?;
     let paths = Paths::new()?;
-    let session = connect(&paths, &proxy).await?;
+    let mut session = connect(&paths, &proxy).await?;
     let tracks = catalog::link_tracks(&session, DEFAULT_ALBUM).await?;
-    let [_, first, second, third, fourth, ..] = tracks.as_slice() else {
-        bail!("the album needs five songs");
+    let [_, first, second, third, fourth, fifth, sixth, ..] = tracks.as_slice() else {
+        bail!("the album needs seven songs");
     };
 
     let (sender, mut events) = mpsc::unbounded_channel();
@@ -79,9 +84,36 @@ async fn main() -> Result<()> {
 
     println!("\nnetwork back: a new session, and the song again");
     proxy.restore();
-    engine.set_session(&connect(&paths, &proxy).await?);
+    session = connect(&paths, &proxy).await?;
+    engine.set_session(&session);
     engine.load(uri(&second.uri)?, 0);
     watch(&mut events, Duration::from_secs(5)).await;
+
+    // Before the next song is loaded ahead, 30 s from the end.
+    println!("\nthe end of a downloaded song, no signal for the next one");
+    engine.load(uri(&fifth.uri)?, fifth.duration_ms.saturating_sub(45_000));
+    engine.follow(Some((EntryId(6), uri(&sixth.uri)?)));
+    watch(&mut events, Duration::from_secs(5)).await;
+    proxy.stall();
+    watch_until(&mut events, Duration::from_secs(60), |event| {
+        matches!(event, EngineEvent::Followed(_))
+    })
+    .await;
+    watch(&mut events, Duration::from_secs(4)).await;
+
+    println!("\nsignal back while the next song loads: a new session");
+    proxy.unstall();
+    session.shutdown();
+    session = connect(&paths, &proxy).await?;
+    engine.set_session(&session);
+    let seen = watch(&mut events, Duration::from_secs(8)).await;
+    println!(
+        "  {}",
+        verdict(
+            seen.playing.as_deref() == Some(sixth.title.as_str()),
+            &format!("playing the next song, {}", sixth.title)
+        )
+    );
 
     println!("\ndownloads slowed, a song from its start");
     proxy.slow.store(true, Ordering::SeqCst);
@@ -108,7 +140,8 @@ async fn main() -> Result<()> {
     println!("\nnetwork back: a new session, and the song from where it stopped");
     proxy.restore();
     proxy.slow.store(false, Ordering::SeqCst);
-    engine.set_session(&connect(&paths, &proxy).await?);
+    session = connect(&paths, &proxy).await?;
+    engine.set_session(&session);
     engine.load(uri(&third.uri)?, seen.cut.unwrap_or_default());
     watch(&mut events, Duration::from_secs(5)).await;
 
@@ -163,6 +196,8 @@ struct Seen {
     unavailable: Option<bool>,
     /// A song was cut short here.
     cut: Option<u32>,
+    /// The song last seen playing.
+    playing: Option<String>,
 }
 
 /// Prints what the engine reports for `long`.
@@ -184,12 +219,18 @@ async fn watch_until(
         let at = began.elapsed().as_millis();
         let last = done(&event);
         match event {
-            EngineEvent::Snapshot(snapshot) => println!(
-                "  {at:>5} ms  {:?} at {} ms  {}",
-                snapshot.status,
-                snapshot.position_ms,
-                snapshot.error.unwrap_or_default()
-            ),
+            EngineEvent::Snapshot(snapshot) => {
+                let title = snapshot.track.map(|t| t.title).unwrap_or_default();
+                if snapshot.status == Status::Playing {
+                    seen.playing = Some(title.clone());
+                }
+                println!(
+                    "  {at:>5} ms  {:?} at {} ms  {title}  {}",
+                    snapshot.status,
+                    snapshot.position_ms,
+                    snapshot.error.unwrap_or_default()
+                );
+            }
             EngineEvent::Unavailable { offline } => {
                 seen.unavailable = Some(offline);
                 println!("  {at:>5} ms  unavailable, offline: {offline}");
@@ -208,13 +249,22 @@ async fn watch_until(
 }
 
 /// An HTTP CONNECT proxy that can lose the network but for the session's
-/// own connection, to an access point, and slow down the rest.
+/// own connection, to an access point, and slow down the rest; or lose
+/// the signal, answering nothing at all.
 struct Proxy {
     url: String,
     cut: Arc<AtomicBool>,
     slow: Arc<AtomicBool>,
-    /// Every connection but the access points'.
-    tunnels: Arc<Mutex<Vec<AbortHandle>>>,
+    stalled: Arc<AtomicBool>,
+    tunnels: Arc<Mutex<Vec<Tunnel>>>,
+}
+
+/// A connection through the proxy.
+struct Tunnel {
+    access_point: bool,
+    /// On a network without signal: it never answers again.
+    dead: Arc<AtomicBool>,
+    task: AbortHandle,
 }
 
 impl Proxy {
@@ -224,11 +274,13 @@ impl Proxy {
             url: format!("http://{}", listener.local_addr()?),
             cut: Arc::default(),
             slow: Arc::default(),
+            stalled: Arc::default(),
             tunnels: Arc::default(),
         };
-        let (cut, slow, tunnels) = (
+        let (cut, slow, stalled, tunnels) = (
             Arc::clone(&proxy.cut),
             Arc::clone(&proxy.slow),
+            Arc::clone(&proxy.stalled),
             Arc::clone(&proxy.tunnels),
         );
         tokio::spawn(async move {
@@ -236,9 +288,19 @@ impl Proxy {
                 if cut.load(Ordering::SeqCst) {
                     continue;
                 }
-                let (slow, tunnels) = (Arc::clone(&slow), Arc::clone(&tunnels));
+                let (slow, stalled, tunnels) = (
+                    Arc::clone(&slow),
+                    Arc::clone(&stalled),
+                    Arc::clone(&tunnels),
+                );
                 tokio::spawn(async move {
-                    let _ = tunnel(client, slow, tunnels).await;
+                    // Made on the network without signal: never answered.
+                    if stalled.load(Ordering::SeqCst) {
+                        let _client = client;
+                        std::future::pending::<()>().await;
+                    } else {
+                        let _ = tunnel(client, slow, tunnels).await;
+                    }
                 });
             }
         });
@@ -247,9 +309,32 @@ impl Proxy {
 
     fn cut(&self) {
         self.cut.store(true, Ordering::SeqCst);
-        for tunnel in self.tunnels.lock().unwrap().drain(..) {
-            tunnel.abort();
+        self.tunnels.lock().unwrap().retain(|tunnel| {
+            if !tunnel.access_point {
+                tunnel.task.abort();
+            }
+            tunnel.access_point
+        });
+    }
+
+    /// No signal: nothing goes through, nor is refused.
+    fn stall(&self) {
+        self.stalled.store(true, Ordering::SeqCst);
+        for tunnel in self.tunnels.lock().unwrap().iter() {
+            tunnel.dead.store(true, Ordering::SeqCst);
         }
+    }
+
+    /// The signal back, on a new network: the session's connection drops,
+    /// and the others stay stuck on the old one.
+    fn unstall(&self) {
+        self.stalled.store(false, Ordering::SeqCst);
+        self.tunnels.lock().unwrap().retain(|tunnel| {
+            if tunnel.access_point {
+                tunnel.task.abort();
+            }
+            !tunnel.access_point
+        });
     }
 
     fn restore(&self) {
@@ -260,7 +345,7 @@ impl Proxy {
 async fn tunnel(
     client: TcpStream,
     slow: Arc<AtomicBool>,
-    tunnels: Arc<Mutex<Vec<AbortHandle>>>,
+    tunnels: Arc<Mutex<Vec<Tunnel>>>,
 ) -> Result<()> {
     let mut client = BufReader::new(client);
     let mut request = String::new();
@@ -278,6 +363,8 @@ async fn tunnel(
     let mut client = client.into_inner();
     client.write_all(b"HTTP/1.1 200 OK\r\n\r\n").await?;
     let access_point = target.starts_with("ap");
+    let dead = Arc::new(AtomicBool::new(false));
+    let stuck = Arc::clone(&dead);
     let task = tokio::spawn(async move {
         let (mut client_read, mut client_write) = client.into_split();
         let (mut server_read, mut server_write) = server.into_split();
@@ -285,6 +372,9 @@ async fn tunnel(
         let down = async {
             let mut buffer = vec![0; SLOW_CHUNK];
             while let Ok(read @ 1..) = server_read.read(&mut buffer).await {
+                if stuck.load(Ordering::SeqCst) {
+                    std::future::pending::<()>().await;
+                }
                 if client_write.write_all(&buffer[..read]).await.is_err() {
                     break;
                 }
@@ -295,8 +385,10 @@ async fn tunnel(
         };
         let _ = tokio::join!(up, down);
     });
-    if !access_point {
-        tunnels.lock().unwrap().push(task.abort_handle());
-    }
+    tunnels.lock().unwrap().push(Tunnel {
+        access_point,
+        dead,
+        task: task.abort_handle(),
+    });
     Ok(())
 }
