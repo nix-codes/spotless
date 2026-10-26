@@ -334,6 +334,8 @@ fn start_player(
     // exist acts as a missing output.
     #[cfg(not(target_os = "android"))]
     let device = std::env::var("SPOTLESS_AUDIO_DEVICE").ok();
+    #[cfg(not(target_os = "android"))]
+    let soft_volume = mixer.get_soft_volume();
     let on_error = {
         let notify = Arc::clone(notify);
         let live = Arc::clone(live);
@@ -357,7 +359,7 @@ fn start_player(
         session.clone(),
         mixer.get_soft_volume(),
         #[cfg(not(target_os = "android"))]
-        move || Box::new(RodioSink::new(device, on_error)),
+        move || Box::new(RodioSink::new(device, on_error, soft_volume)),
         #[cfg(target_os = "android")]
         move || Box::new(AAudioSink::new(on_error)),
     );

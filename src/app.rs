@@ -56,6 +56,7 @@ impl App {
         let settings = &controller.state().settings;
         let palette = Palette::CLASSIC;
         palette.apply(&cc.egui_ctx);
+        ui::deck::install_fonts(&cc.egui_ctx);
         cc.egui_ctx.set_zoom_factor(settings.zoom);
 
         let (media_sender, media_events) = std::sync::mpsc::channel();

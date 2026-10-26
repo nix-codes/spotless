@@ -3,6 +3,7 @@
 //! Views read a [`View`] and push [`Action`]s; they never change state.
 
 mod browse_view;
+pub mod deck;
 mod equaliser_view;
 mod keys;
 mod player_strip;
@@ -120,6 +121,8 @@ pub struct Inputs {
     pub fit: Fit,
     /// The name being typed to save the equaliser's bands as a preset.
     pub preset_name: Option<String>,
+    /// The deck's reels, bars and needles as they move.
+    pub deck: deck::Motion,
 }
 
 /// The window's size for PL: while the player shows alone, the height
@@ -128,9 +131,9 @@ pub struct Inputs {
 pub struct Fit {
     collapsed: Option<(f32, f32)>,
     expanded: Option<f32>,
-    /// Whether the equaliser showed when last drawn, and the height it
-    /// took with its title bar.
-    equaliser: Option<(bool, f32)>,
+    /// Which of the deck and the equaliser showed when last drawn, and the
+    /// height they took below the player.
+    sections: Option<(Sections, f32)>,
 }
 
 impl Inputs {}
@@ -197,12 +200,16 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         egui::pos2(full.left() + GUTTER, strip_top),
         egui::pos2(full.right() - GUTTER, strip_top + player_strip::HEIGHT),
     );
+    let deck_shown = view.settings.deck_shown;
     ui.scope_builder(UiBuilder::new().max_rect(strip), |ui| {
-        player_strip::draw(ui, view, inputs, actions);
+        player_strip::draw(ui, view, inputs, actions, !deck_shown);
     });
     let mut below = strip.bottom();
+    if deck_shown {
+        below = deck::draw(ui, strip, view, inputs, actions);
+    }
     if view.settings.equaliser_shown {
-        let title = bar(ui, strip.bottom() + 6.0, EQUALISER);
+        let title = bar(ui, below + 6.0, EQUALISER);
         let width = full.width() - 2.0 * GUTTER;
         let section = Rect::from_min_size(
             egui::pos2(full.left() + GUTTER, title.bottom()),
@@ -221,7 +228,17 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         && inputs.settings.is_none()
         && !inputs.help
         && inputs.closing.is_none();
-    fit_equaliser(ui, &mut inputs.fit, below - strip.bottom(), collapsed);
+    let sections = Sections {
+        equaliser: view.settings.equaliser_shown,
+        deck: deck_shown.then_some(view.settings.deck_media),
+    };
+    fit_sections(
+        ui,
+        &mut inputs.fit,
+        sections,
+        below - strip.bottom(),
+        collapsed,
+    );
     let status_top = below + 6.0;
     fit_window(
         ui,
@@ -318,17 +335,26 @@ fn fit_window(ui: &Ui, full: Rect, fit: &mut Fit, height: Option<f32>) {
     }
 }
 
-/// Grows or shrinks the window by the equaliser's height when EQ shows
-/// or hides it (`extent`, 0 while hidden), so the playlists keep theirs.
-/// While the player shows alone, the height to give back changes instead.
-fn fit_equaliser(ui: &Ui, fit: &mut Fit, extent: f32, collapsed: bool) {
-    let shown = extent > 0.0;
-    // The first frame's window is as it was left, the equaliser included.
-    let Some((was_shown, before)) = fit.equaliser.replace((shown, extent)) else {
+/// What shows below the player's top rows.
+#[derive(Clone, Copy, PartialEq)]
+struct Sections {
+    equaliser: bool,
+    /// The deck, and what it plays on: the reels take more room.
+    deck: Option<crate::store::DeckMedia>,
+}
+
+/// Grows or shrinks the window by the change in height when EQ or VIS
+/// shows or hides a section, or the deck switches device (`extent`, what
+/// they take below the strip), so the playlists keep theirs. While the
+/// player shows alone, the height to give back changes instead.
+fn fit_sections(ui: &Ui, fit: &mut Fit, sections: Sections, extent: f32, collapsed: bool) {
+    // The first frame's window is as it was left, the sections included.
+    let Some((before_sections, before)) = fit.sections.replace((sections, extent)) else {
         return;
     };
-    // Its height also follows a skin's scale; only EQ moves the window.
-    if shown == was_shown {
+    // Their height also follows a skin's scale; only EQ, VIS and the
+    // deck's device move the window.
+    if sections == before_sections {
         return;
     }
     let change = extent - before;

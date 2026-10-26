@@ -85,6 +85,10 @@ pub enum Action {
     /// one by the same name.
     SaveEqualiserPreset(String),
     DeleteEqualiserPreset(String),
+    /// Shows or hides the deck below the player (VIS).
+    ToggleDeck,
+    /// What the deck plays the music on.
+    SetDeckMedia(crate::store::DeckMedia),
 
     // The catalog
     ToggleBrowse,

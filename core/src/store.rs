@@ -42,6 +42,40 @@ pub struct Tabs {
     pub spotify_at: usize,
 }
 
+/// What the desktop's deck plays the music on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DeckMedia {
+    /// A cassette in a Walkman.
+    #[default]
+    Cassette,
+    /// Open reels on a reel-to-reel deck.
+    Reel,
+}
+
+impl DeckMedia {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Cassette => "cassette",
+            Self::Reel => "reel",
+        }
+    }
+
+    pub fn from_key(key: Option<&str>) -> Self {
+        match key {
+            Some("reel") => Self::Reel,
+            _ => Self::Cassette,
+        }
+    }
+
+    /// The other one, which clicking the deck switches to.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Cassette => Self::Reel,
+            Self::Reel => Self::Cassette,
+        }
+    }
+}
+
 /// The saved playlists, or a fresh library with only Default.
 pub fn load_library(paths: &Paths) -> (Library, Tabs) {
     let path = paths.playlists();
@@ -154,6 +188,10 @@ pub struct Settings {
     pub equaliser_shown: bool,
     /// The equaliser's presets the user saved, in the order saved.
     pub equaliser_presets: Vec<Preset>,
+    /// The deck shows under the player (VIS): the music on a cassette or
+    /// reels, its spectrum and its levels.
+    pub deck_shown: bool,
+    pub deck_media: DeckMedia,
     raw: Map<String, Value>,
 }
 
@@ -268,6 +306,8 @@ impl Settings {
                     ..preset
                 })
                 .collect(),
+            deck_shown: flag("deck_shown"),
+            deck_media: DeckMedia::from_key(raw.get("deck_media").and_then(Value::as_str)),
             raw: raw.clone(),
         }
     }
@@ -305,6 +345,8 @@ impl Settings {
         if let Ok(presets) = serde_json::to_value(&self.equaliser_presets) {
             raw.insert("equaliser_presets".into(), presets);
         }
+        raw.insert("deck_shown".into(), self.deck_shown.into());
+        raw.insert("deck_media".into(), self.deck_media.key().into());
         raw
     }
 
@@ -446,6 +488,20 @@ mod tests {
         assert_eq!(read.equaliser, settings.equaliser);
         assert!(read.equaliser_shown);
         assert_eq!(read.equaliser_presets, settings.equaliser_presets);
+    }
+
+    #[test]
+    fn the_deck_round_trips() {
+        let paths = temporary_paths("deck");
+        let mut settings = Settings::load(&paths);
+        assert!(!settings.deck_shown);
+        assert_eq!(settings.deck_media, DeckMedia::Cassette);
+        settings.deck_shown = true;
+        settings.deck_media = DeckMedia::Reel;
+        settings.save(&paths).unwrap();
+        let read = Settings::load(&paths);
+        assert!(read.deck_shown);
+        assert_eq!(read.deck_media, DeckMedia::Reel);
     }
 
     #[test]

@@ -156,6 +156,10 @@ Spotify only allows playback in other apps for Premium accounts.
 - **Monitor colours**: the songs, the time and the song's name in the green
   of old terminals, or in amber, paper-white, a hi-fi's fluorescent
   teal, ice blue, deep blue or purple.
+- **The deck** (desktop, VIS or `Alt+V`): the player's buttons become the
+  keys of an '80s Walkman whose cassette turns as the song plays, or of a
+  reel-to-reel deck with VU meters; click it to switch. Beside it, the
+  music's spectrum and its left and right levels, as it plays.
 - **Settings** (F10): account, search, Last.fm, audio output, volume levelling,
   interface size, skin and colour, tray, and the audio and cover caches.
 - **One window, one copy**: starting Spotless again brings the running one
@@ -341,6 +345,12 @@ player was trimmed and reshaped from.
 It plays through [librespot](https://github.com/librespot-org/librespot)
 (a fork with a few fixes not yet released) and draws its window with
 [egui](https://github.com/emilk/egui).
+
+The deck is lettered in [Permanent Marker](https://fonts.google.com/specimen/Permanent+Marker)
+by Font Diner (Apache License 2.0) and
+[Audiowide](https://fonts.google.com/specimen/Audiowide) by Astigmatic (SIL
+Open Font License 1.1); their licences are beside them in
+`src/ui/deck/fonts`.
 
 Spotless is not made or endorsed by Spotify. Spotify is a trademark of
 Spotify AB.

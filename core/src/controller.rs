@@ -1012,6 +1012,14 @@ impl Controller {
                 self.state.settings.equaliser_shown = !self.state.settings.equaliser_shown;
                 self.mark_unsaved();
             }
+            Action::ToggleDeck => {
+                self.state.settings.deck_shown = !self.state.settings.deck_shown;
+                self.mark_unsaved();
+            }
+            Action::SetDeckMedia(media) => {
+                self.state.settings.deck_media = media;
+                self.mark_unsaved();
+            }
             Action::SetEqualiser(equaliser) => {
                 let equaliser = equaliser.clamped();
                 self.state.settings.equaliser = equaliser;
@@ -1404,6 +1412,19 @@ mod tests {
         assert!(settings(&rig).equaliser_presets.is_empty());
         rig.controller.apply(Action::ToggleEqualiser);
         assert!(settings(&rig).equaliser_shown);
+    }
+
+    #[test]
+    fn the_deck_shows_and_changes_media() {
+        let mut rig = Rig::new("deck");
+        let settings = |rig: &Rig| rig.controller.state().settings.clone();
+        rig.controller.apply(Action::ToggleDeck);
+        assert!(settings(&rig).deck_shown);
+        rig.controller
+            .apply(Action::SetDeckMedia(crate::store::DeckMedia::Reel));
+        assert_eq!(settings(&rig).deck_media, crate::store::DeckMedia::Reel);
+        rig.controller.apply(Action::ToggleDeck);
+        assert!(!settings(&rig).deck_shown);
     }
 
     #[test]
