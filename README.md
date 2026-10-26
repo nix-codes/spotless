@@ -346,7 +346,9 @@ It plays through [librespot](https://github.com/librespot-org/librespot)
 (a fork with a few fixes not yet released) and draws its window with
 [egui](https://github.com/emilk/egui).
 
-The deck is lettered in [Permanent Marker](https://fonts.google.com/specimen/Permanent+Marker)
+The deck was inspired by [Deck 90](https://github.com/djkollmax/deck-90),
+a retro hi-fi audio analyser with spinning cassettes and LED spectrums.
+It's lettered in [Permanent Marker](https://fonts.google.com/specimen/Permanent+Marker)
 by Font Diner (Apache License 2.0) and
 [Audiowide](https://fonts.google.com/specimen/Audiowide) by Astigmatic (SIL
 Open Font License 1.1); their licences are beside them in
