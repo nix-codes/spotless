@@ -65,7 +65,9 @@ pub struct Tape {
     /// A for odd songs in the playlist, B for even ones.
     pub side: char,
     pub list: String,
+    /// The song with its number in the playlist, and without.
     pub song: String,
+    pub title: String,
     pub playing: bool,
     pub counter: f32,
     pub disc: cd::Disc,
@@ -176,7 +178,7 @@ impl Motion {
     }
 
     fn tape(&self, view: &View) -> Tape {
-        let (side, list, song) = match player_strip::playing_entry(view)
+        let (side, list, song, title) = match player_strip::playing_entry(view)
             .and_then(|(list, entry)| Some((view.list(list)?, entry)))
             .and_then(|(list, entry)| Some((list, list.index_of(entry)?, list.get(entry)?)))
         {
@@ -184,8 +186,9 @@ impl Motion {
                 if index % 2 == 0 { 'A' } else { 'B' },
                 list.name.clone(),
                 format!("{}. {}", index + 1, short_title(&entry.track.title)),
+                short_title(&entry.track.title).to_string(),
             ),
-            None => ('A', String::new(), String::new()),
+            None => ('A', String::new(), String::new(), String::new()),
         };
         Tape {
             progress: self.drawn.unwrap_or(0.0),
@@ -193,6 +196,7 @@ impl Motion {
             side,
             list,
             song,
+            title,
             playing: view.player.status == Status::Playing,
             counter: self.counter,
             disc: cd::Disc {
@@ -204,20 +208,31 @@ impl Motion {
 }
 
 /// A song's title as written on a tape: without the version Spotify adds
-/// after " - " ("Insight - 2019 Digital Master") or in a closing bracket
-/// ("Song (Remastered 2009)").
+/// after " - " ("Insight - 2019 Digital Master"), nor anything in
+/// brackets before or after it ("(Don't Fear) The Reaper" is "The
+/// Reaper"). A title all in brackets stays as it is.
 fn short_title(title: &str) -> &str {
-    let title = title.split(" - ").next().unwrap_or(title).trim_end();
-    for (open, close) in [('(', ')'), ('[', ']')] {
-        if let Some(rest) = title.strip_suffix(close)
-            && let Some(at) = rest.rfind(open)
-            && at > 0
-            && rest[at..].to_lowercase().contains("remaster")
-        {
-            return title[..at].trim_end();
+    let mut title = title.split(" - ").next().unwrap_or(title).trim();
+    loop {
+        let before = title;
+        for (open, close) in [('(', ')'), ('[', ']')] {
+            if let Some(rest) = title.strip_prefix(open)
+                && let Some(at) = rest.find(close)
+                && !rest[at + 1..].trim().is_empty()
+            {
+                title = rest[at + 1..].trim_start();
+            }
+            if let Some(rest) = title.strip_suffix(close)
+                && let Some(at) = rest.rfind(open)
+                && !rest[..at].trim().is_empty()
+            {
+                title = rest[..at].trim_end();
+            }
+        }
+        if title == before {
+            return title;
         }
     }
-    title
 }
 
 /// The disc of the playlist playing, and where in it the song plays.
@@ -503,13 +518,15 @@ mod tests {
         assert_eq!(short_title("Starman (Remastered 2012)"), "Starman");
         assert_eq!(short_title("Song [2009 Remaster]"), "Song");
         assert_eq!(
-            short_title("(Don't Fear) The Reaper"),
-            "(Don't Fear) The Reaper"
+            short_title("(Don't Fear) The Reaper - Digital Remaster"),
+            "The Reaper"
         );
+        assert_eq!(short_title("Heroes (Single Version)"), "Heroes");
         assert_eq!(
-            short_title("Heroes (Single Version)"),
-            "Heroes (Single Version)"
+            short_title("(Sittin' On) The Dock (Of the Bay)"),
+            "The Dock"
         );
+        assert_eq!(short_title("(Untitled)"), "(Untitled)");
         assert_eq!(short_title("Insight"), "Insight");
     }
 }
