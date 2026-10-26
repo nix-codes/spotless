@@ -52,6 +52,8 @@ pub enum DeckMedia {
     Reel,
     /// A disc in a portable CD player.
     Cd,
+    /// A 7" single on a turntable.
+    Vinyl,
 }
 
 impl DeckMedia {
@@ -60,6 +62,7 @@ impl DeckMedia {
             Self::Cassette => "cassette",
             Self::Reel => "reel",
             Self::Cd => "cd",
+            Self::Vinyl => "vinyl",
         }
     }
 
@@ -67,6 +70,7 @@ impl DeckMedia {
         match key {
             Some("reel") => Self::Reel,
             Some("cd") => Self::Cd,
+            Some("vinyl") => Self::Vinyl,
             _ => Self::Cassette,
         }
     }
@@ -76,7 +80,8 @@ impl DeckMedia {
         match self {
             Self::Cassette => Self::Reel,
             Self::Reel => Self::Cd,
-            Self::Cd => Self::Cassette,
+            Self::Cd => Self::Vinyl,
+            Self::Vinyl => Self::Cassette,
         }
     }
 }
@@ -507,7 +512,12 @@ mod tests {
         let read = Settings::load(&paths);
         assert!(read.deck_shown);
         assert_eq!(read.deck_media, DeckMedia::Reel);
-        for media in [DeckMedia::Cassette, DeckMedia::Reel, DeckMedia::Cd] {
+        for media in [
+            DeckMedia::Cassette,
+            DeckMedia::Reel,
+            DeckMedia::Cd,
+            DeckMedia::Vinyl,
+        ] {
             assert_eq!(DeckMedia::from_key(Some(media.key())), media);
         }
     }

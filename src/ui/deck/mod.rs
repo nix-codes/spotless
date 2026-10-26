@@ -1,20 +1,23 @@
 //! The deck under the player (VIS): the player's buttons become the keys
-//! of a Walkman, a reel-to-reel deck or a portable CD player, which plays
-//! the song on a cassette, open reels or a disc, with the music's spectrum
-//! and its left and right levels beside it.
+//! of a Walkman, a reel-to-reel deck, a portable CD player or a turntable,
+//! which plays the song on a cassette, open reels, a disc or a single,
+//! with the music's spectrum and its left and right levels beside it.
 //!
-//! The Walkman's and the CD player's keys stay where the buttons always
-//! are, standing out of their top edge; the reel deck has its keys along
-//! its bottom, as real ones do. Clicking the device switches to the next.
+//! The Walkman's, the CD player's and the turntable's keys stay where the
+//! buttons always are, standing out of their top edge; the reel deck has
+//! its keys along its bottom, as real ones do. Clicking the device
+//! switches to the next.
 //! The tape winds from the left reel to the right one as the song plays,
 //! and back fast when another starts; the reels turn only while it plays.
 //! The disc holds the whole playlist and turns while it plays, faster the
-//! nearer the centre the laser reads.
+//! nearer the centre the laser reads. A single holds one song, and is
+//! changed for the next one's when the song changes.
 
 mod canvas;
 mod cassette;
 mod cd;
 mod reel;
+mod vinyl;
 mod walkman;
 
 pub use canvas::install_fonts;
@@ -52,6 +55,14 @@ const WIND_SPEED: f32 = 1.6;
 /// How fast the disc turns, in radians per second where the laser reads at
 /// its whole radius; nearer the centre, faster.
 const DISC_SPEED: f32 = 2.4 * 0.417;
+/// 45 rpm, in radians per second.
+const SINGLE_SPEED: f32 = 45.0 / 60.0 * std::f32::consts::TAU;
+/// When a record change's steps end, in seconds: the arm back at its rest,
+/// the old record off, the new one on the spindle, the arm on the record.
+const ARM_BACK: f32 = 0.35;
+const RECORD_OFF: f32 = 0.75;
+const RECORD_ON: f32 = 1.15;
+const ARM_DOWN: f32 = 1.6;
 const GREEN: Color32 = rgb(0x33e65f);
 const YELLOW: Color32 = rgb(0xffd02b);
 const RED: Color32 = rgb(0xff3b2b);
@@ -70,6 +81,7 @@ pub struct Tape {
     pub playing: bool,
     pub counter: f32,
     pub disc: cd::Disc,
+    pub turntable: vinyl::Turntable,
 }
 
 /// What moves from frame to frame.
@@ -87,6 +99,21 @@ pub struct Motion {
     level_tops: [f32; 2],
     level_holds: [f32; 2],
     disc_angle: f32,
+    /// The single on the platter, and the one being changed for it.
+    record: Option<vinyl::Record>,
+    change: Option<Change>,
+    spin: f32,
+    platter: f32,
+    arm: Option<f32>,
+    lift: f32,
+}
+
+/// A record being changed: how long since it began, the record going, and
+/// where the arm was.
+struct Change {
+    t: f32,
+    old: vinyl::Record,
+    from: f32,
 }
 
 impl Motion {
@@ -101,15 +128,31 @@ impl Motion {
             }
             _ => 0.0,
         };
-        if view.settings.deck_media == DeckMedia::Cd {
-            // A disc doesn't wind: the laser goes straight to its place.
-            self.drawn = Some(target);
-            self.winding = false;
-            if playing {
-                self.disc_angle += DISC_SPEED / cd::radius(disc(view).at) * dt;
+        let media = view.settings.deck_media;
+        let now = record(view);
+        if now != self.record {
+            if media == DeckMedia::Vinyl
+                && let (Some(old), Some(_)) = (self.record.take(), &now)
+            {
+                let from = self.arm.unwrap_or(vinyl::REST);
+                self.change = Some(Change { t: 0.0, old, from });
             }
-        } else {
-            self.wind(view, target, playing, dt);
+            self.record = now;
+        }
+        let mut moving = false;
+        match media {
+            DeckMedia::Cd | DeckMedia::Vinyl => {
+                // Neither winds: the laser or the arm goes to its place.
+                self.drawn = Some(target);
+                self.winding = false;
+                if media == DeckMedia::Cd && playing {
+                    self.disc_angle += DISC_SPEED / cd::radius(disc(view).at) * dt;
+                }
+                if media == DeckMedia::Vinyl {
+                    moving = self.play_records(view, target, playing, dt);
+                }
+            }
+            _ => self.wind(view, target, playing, dt),
         }
 
         let share = |db: f32, floor: f32, top: f32| ((db - floor) / (top - floor)).clamp(0.0, 1.0);
@@ -139,12 +182,89 @@ impl Motion {
             );
         }
         playing
+            || moving
             || self.winding
             || self
                 .tops
                 .iter()
                 .chain(&self.level_tops)
                 .any(|top| *top > 0.0)
+    }
+
+    /// Moves the record change on, the arm to `progress` through the song,
+    /// and the record and platter round; says whether anything moves.
+    fn play_records(&mut self, view: &View, progress: f32, playing: bool, dt: f32) -> bool {
+        if let Some(change) = &mut self.change {
+            change.t += dt;
+            if change.t >= ARM_DOWN {
+                self.change = None;
+            }
+        }
+        let resting = view.player.status == Status::Stopped || self.record.is_none();
+        let target = if resting {
+            vinyl::REST
+        } else {
+            vinyl::arm_for(progress)
+        };
+        let arm = self.arm.get_or_insert(target);
+        let before = *arm;
+        let rest = vinyl::REST;
+        match &self.change {
+            Some(c) if c.t < ARM_BACK => *arm = c.from + (rest - c.from) * ease(c.t / ARM_BACK),
+            Some(c) if c.t < RECORD_ON => *arm = rest,
+            Some(c) => {
+                *arm = rest + (target - rest) * ease((c.t - RECORD_ON) / (ARM_DOWN - RECORD_ON))
+            }
+            None => *arm += (target - *arm) * (dt * 8.0).min(1.0),
+        }
+        let arm_moved = (*arm - before).abs() > 0.0005;
+        let dropping = matches!(&self.change, Some(c) if (ARM_BACK..RECORD_ON).contains(&c.t));
+        if playing {
+            self.platter += SINGLE_SPEED * dt;
+            if !dropping {
+                self.spin += SINGLE_SPEED * dt;
+            }
+        }
+        let up = if matches!(&self.change, Some(c) if c.t < ARM_DOWN - 0.1) {
+            1.0
+        } else {
+            0.0
+        };
+        self.lift += (up - self.lift) * (dt * 10.0).min(1.0);
+        self.change.is_some() || arm_moved || self.lift > 0.01
+    }
+
+    /// The turntable as drawn: where the record is in a change, and the arm.
+    fn turntable(&self) -> vinyl::Turntable {
+        let still = |record: &vinyl::Record| vinyl::Placed {
+            record: record.clone(),
+            slide: 0.0,
+            lifted: 0.0,
+        };
+        let record = match &self.change {
+            Some(c) if c.t < ARM_BACK => Some(still(&c.old)),
+            Some(c) if c.t < RECORD_OFF => Some(vinyl::Placed {
+                slide: ease((c.t - ARM_BACK) / (RECORD_OFF - ARM_BACK)) * vinyl::SLIDE,
+                ..still(&c.old)
+            }),
+            Some(c) if c.t < RECORD_ON => {
+                // Slides on above the platter, then drops onto it.
+                let t = (c.t - RECORD_OFF) / (RECORD_ON - RECORD_OFF);
+                self.record.as_ref().map(|record| vinyl::Placed {
+                    slide: (1.0 - ease(t / 0.75)) * vinyl::SLIDE,
+                    lifted: 1.0 - ease((t - 0.75) / 0.25),
+                    ..still(record)
+                })
+            }
+            _ => self.record.as_ref().map(still),
+        };
+        vinyl::Turntable {
+            record,
+            spin: self.spin,
+            platter: self.platter,
+            arm: self.arm.unwrap_or(vinyl::REST),
+            lift: self.lift,
+        }
     }
 
     /// Winds the tape on to `target`, the song's progress.
@@ -200,8 +320,26 @@ impl Motion {
                 angle: self.disc_angle,
                 ..disc(view)
             },
+            turntable: self.turntable(),
         }
     }
+}
+
+/// Eases 0–1 in and out; clamped either side.
+fn ease(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// The single of the song playing: its title and its place in the
+/// playlist, which picks its label.
+fn record(view: &View) -> Option<vinyl::Record> {
+    let (list, entry) = player_strip::playing_entry(view)?;
+    let list = view.list(list)?;
+    Some(vinyl::Record {
+        title: short_title(&list.get(entry)?.track.title).to_string(),
+        label: list.index_of(entry)?,
+    })
 }
 
 /// A song's title as written on a tape: without the version Spotify adds
@@ -341,7 +479,7 @@ pub fn draw(
             let art = Rect::from_min_size(pos2(left, top), vec2(width, plate));
             (art, top + plate + MARGIN, top + plate + band, top)
         }
-        DeckMedia::Cassette | DeckMedia::Cd => {
+        DeckMedia::Cassette | DeckMedia::Cd | DeckMedia::Vinyl => {
             let body_top = keys.row.center().y;
             let bottom = top + band + WALKMAN_BODY * k;
             let canvas = Canvas {
@@ -350,10 +488,10 @@ pub fn draw(
                 k,
             };
             let height = (bottom - body_top) / k;
-            if media == DeckMedia::Cd {
-                cd::draw(&canvas, height, &tape);
-            } else {
-                walkman::draw(&canvas, height, &tape);
+            match media {
+                DeckMedia::Cd => cd::draw(&canvas, height, &tape),
+                DeckMedia::Vinyl => vinyl::draw(&canvas, height, &tape.turntable),
+                _ => walkman::draw(&canvas, height, &tape),
             }
             let art = Rect::from_min_max(pos2(left, top + band), pos2(left + width, bottom));
             (art, top + MARGIN, bottom, top + band)
@@ -362,7 +500,8 @@ pub fn draw(
     let other = match media {
         DeckMedia::Cassette => "Play it on reels",
         DeckMedia::Reel => "Play it on a CD",
-        DeckMedia::Cd => "Play it on a cassette",
+        DeckMedia::Cd => "Play it on a record",
+        DeckMedia::Vinyl => "Play it on a cassette",
     };
     if ui
         .interact(art, ui.id().with("deck media"), Sense::click())
