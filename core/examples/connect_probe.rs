@@ -64,7 +64,13 @@ async fn main() -> Result<()> {
         },
         session.clone(),
         mixer.get_soft_volume(),
-        || Box::new(RodioSink::new(None, Box::new(|e| eprintln!("output: {e}")))),
+        || {
+            Box::new(RodioSink::new(
+                None,
+                Box::new(|e| eprintln!("output: {e}")),
+                Box::new(librespot_playback::mixer::NoOpVolume),
+            ))
+        },
     );
     let config = ConnectConfig {
         name: "Spotless probe".into(),

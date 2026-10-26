@@ -54,6 +54,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("F2", "Rename the playlist"),
             ("Ctrl+B", "Browse / playlists"),
             ("Alt+G", "Show / hide the equaliser"),
+            ("Alt+V", "Show / hide the deck"),
             ("Ctrl+F", "Search"),
             ("Ctrl+V", "Add a pasted Spotify link"),
             ("F10", "Settings"),
@@ -264,6 +265,9 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     // Winamp's key for its equaliser.
     if take(i, Modifiers::ALT, Key::G) {
         actions.push(Action::ToggleEqualiser);
+    }
+    if take(i, Modifiers::ALT, Key::V) {
+        actions.push(Action::ToggleDeck);
     }
     if take(i, Modifiers::COMMAND, Key::B) {
         actions.push(Action::ToggleBrowse);

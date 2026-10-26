@@ -156,6 +156,15 @@ Spotify only allows playback in other apps for Premium accounts.
 - **Monitor colours**: the songs, the time and the song's name in the green
   of old terminals, or in amber, paper-white, a hi-fi's fluorescent
   teal, ice blue, deep blue or purple.
+- **An equaliser** (desktop, EQ or `Alt+G`), as Winamp's: a preamp and ten
+  bands from 60 Hz to 16 kHz, ±12 dB each, with Winamp's presets and your
+  own. It changes what Spotless plays, not another device's playback.
+- **The deck** (desktop, VIS or `Alt+V`): the player's buttons become the
+  keys of an '80s Walkman whose cassette turns as the song plays, of a
+  reel-to-reel deck whose tape winds from one reel to the other, of a
+  portable CD player whose disc holds the whole playlist, or of a
+  turntable that changes the single for each song; click it to switch. Beside it, the music's spectrum and its left and right levels,
+  as it plays.
 - **Settings** (F10): account, search, Last.fm, audio output, volume levelling,
   interface size, skin and colour, tray, and the audio and cover caches.
 - **One window, one copy**: starting Spotless again brings the running one
@@ -334,7 +343,7 @@ has only been tested under Wine and on GitHub's build machines so far. The
 Android app is newer still, and has been tried on one phone.
 
 Not there on purpose: Spotify's own playlists, podcasts, and anything
-social. Maybe later: an equalizer, importing Spotify playlists.
+social. Maybe later: importing Spotify playlists.
 
 ## Credits
 
@@ -345,6 +354,14 @@ player was trimmed and reshaped from.
 It plays through [librespot](https://github.com/librespot-org/librespot)
 (a fork with a few fixes not yet released) and draws its window with
 [egui](https://github.com/emilk/egui).
+
+The deck was inspired by [Deck 90](https://github.com/djkollmax/deck-90),
+a retro hi-fi audio analyser with spinning cassettes and LED spectrums.
+It's lettered in [Permanent Marker](https://fonts.google.com/specimen/Permanent+Marker)
+by Font Diner (Apache License 2.0) and
+[Audiowide](https://fonts.google.com/specimen/Audiowide) by Astigmatic (SIL
+Open Font License 1.1); their licences are beside them in
+`src/ui/deck/fonts`.
 
 Spotless is not made or endorsed by Spotify. Spotify is a trademark of
 Spotify AB.

@@ -16,7 +16,8 @@
 //!
 //! The equaliser (`super::equaliser`) is applied to each piece of audio as
 //! it starts playing rather than when it is queued, so its sliders are
-//! heard at once, not half a second later.
+//! heard at once, not half a second later. The deck's analyser
+//! (`super::analyser`) is fed it then too, with the volume taken out.
 
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -26,8 +27,10 @@ use cpal::traits::{DeviceTrait, HostTrait};
 use librespot_playback::audio_backend::{Sink, SinkError, SinkResult};
 use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
+use librespot_playback::mixer::VolumeGetter;
 use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
 
+use super::analyser;
 use super::equaliser::Processor;
 
 /// Told why the output failed, in words for the status bar.
@@ -51,6 +54,8 @@ pub struct RodioSink {
     opened: Option<String>,
     on_error: ErrorHook,
     equaliser: Arc<Mutex<Processor>>,
+    /// The volume the player turned the audio down by.
+    volume: Box<dyn VolumeGetter + Send>,
 }
 
 struct Output {
@@ -60,13 +65,18 @@ struct Output {
 
 impl RodioSink {
     /// Opens nothing yet: the device is opened by `start`.
-    pub fn new(device: Option<String>, on_error: ErrorHook) -> Self {
+    pub fn new(
+        device: Option<String>,
+        on_error: ErrorHook,
+        volume: Box<dyn VolumeGetter + Send>,
+    ) -> Self {
         Self {
             device,
             output: None,
             opened: None,
             on_error,
             equaliser: Arc::new(Mutex::new(Processor::new(SAMPLE_RATE, NUM_CHANNELS.into()))),
+            volume,
         }
     }
 
@@ -139,10 +149,16 @@ impl Sink for RodioSink {
         let samples = packet
             .samples()
             .map_err(|e| SinkError::OnWrite(e.to_string()))?;
+        let attenuation = self.volume.attenuation_factor() as f32;
         output.sink.append(Equalised {
             samples: converter.f64_to_f32(samples),
             at: 0,
             equaliser: Some(Arc::clone(&self.equaliser)),
+            unattenuate: if attenuation > 0.001 {
+                attenuation.recip()
+            } else {
+                0.0
+            },
         });
         // Wait for room; a device that never drains has gone.
         let began = Instant::now();
@@ -162,6 +178,8 @@ struct Equalised {
     at: usize,
     /// Until it has been applied.
     equaliser: Option<Arc<Mutex<Processor>>>,
+    /// Undoes the volume, for the analyser.
+    unattenuate: f32,
 }
 
 impl Iterator for Equalised {
@@ -173,6 +191,7 @@ impl Iterator for Equalised {
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .process(&mut self.samples);
+            analyser::feed(&self.samples, self.unattenuate);
         }
         let sample = self.samples.get(self.at).copied();
         self.at += 1;

@@ -6,7 +6,8 @@
 use std::time::Duration;
 
 use egui::{
-    Align, Align2, CursorIcon, FontId, Id, Layout, Rect, Sense, Slider, Ui, UiBuilder, pos2, vec2,
+    Align, Align2, CursorIcon, FontId, Id, Layout, Rect, Response, Sense, Slider, Ui, UiBuilder,
+    pos2, vec2,
 };
 
 use super::widgets::{Glyph, glyph_button, glyph_toggle, paint_glyph, small_button};
@@ -24,10 +25,67 @@ const TITLE_HEIGHT: f32 = 44.0;
 const SEEK_HEIGHT: f32 = 18.0;
 /// While paused, the time is shown this long, then hidden as long.
 const BLINK: Duration = Duration::from_secs(1);
+/// How long Play or Pause stays down for a click the player hasn't
+/// answered, in seconds.
+const PRESS_HOLD: f64 = 1.0;
 
-pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
+/// Where the strip's buttons go, and how big they are together.
+pub struct Keys {
+    /// The row they sit in, across the strip, centred on its middle.
+    pub row: Rect,
+    pub width: f32,
+    pub height: f32,
+    /// Points per image pixel, when the skin draws them.
+    unit: Option<f32>,
+}
+
+/// Transport, eject, shuffle and repeat of the plain strip, side by side:
+/// eight buttons, 4 points apart and 10 between the groups.
+const KEYS_WIDTH: f32 = 328.0;
+
+/// Where the buttons go in the strip `rect`.
+pub fn keys(ui: &Ui, view: &View, rect: Rect) -> Keys {
     if let Some(paint) = view.art.filter(|paint| paint.has_player()) {
-        return super::skinned_strip::draw(ui, view, paint, inputs, actions);
+        let (row, unit, width) = super::skinned_strip::keys(ui, paint, rect);
+        return Keys {
+            row,
+            width,
+            height: row.height(),
+            unit: Some(unit),
+        };
+    }
+    Keys {
+        row: Rect::from_min_max(
+            pos2(rect.left(), rect.top() + TOP + 8.0 + SEEK_HEIGHT + 8.0),
+            rect.max,
+        ),
+        width: KEYS_WIDTH,
+        height: super::widgets::BUTTON_HEIGHT,
+        unit: None,
+    }
+}
+
+/// The buttons, from the left of `rect` and centred on its middle.
+pub fn draw_keys(
+    ui: &mut Ui,
+    rect: Rect,
+    keys: &Keys,
+    view: &View,
+    inputs: &mut Inputs,
+    actions: &mut Actions,
+) {
+    match (keys.unit, view.art) {
+        (Some(unit), Some(paint)) => {
+            super::skinned_strip::buttons_row(ui, rect, view, paint, unit, inputs, actions);
+        }
+        _ => row(ui, rect, |ui| buttons_row(ui, view, inputs, actions)),
+    }
+}
+
+/// The strip; without its buttons when the deck has them.
+pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions, buttons: bool) {
+    if let Some(paint) = view.art.filter(|paint| paint.has_player()) {
+        return super::skinned_strip::draw(ui, view, paint, inputs, actions, buttons);
     }
     let rect = ui.max_rect();
     let lcd = Rect::from_min_size(rect.min, vec2(LCD_WIDTH, TOP));
@@ -48,8 +106,10 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         vec2(rect.width(), SEEK_HEIGHT),
     );
     row(ui, seek, |ui| seek_row(ui, view, inputs, actions));
-    let buttons = Rect::from_min_max(pos2(rect.left(), seek.bottom() + 8.0), rect.max);
-    row(ui, buttons, |ui| buttons_row(ui, view, inputs, actions));
+    if buttons {
+        let keys = keys(ui, view, rect);
+        row(ui, keys.row, |ui| buttons_row(ui, view, inputs, actions));
+    }
 }
 
 /// Lays `add` out left to right in `rect`, centred on its middle.
@@ -117,12 +177,82 @@ fn draw_title(ui: &Ui, rect: Rect, view: &View) {
 
 /// Which of Play and Pause stay pressed in: Play while a song plays,
 /// Pause while it is paused. Stop never does.
-pub(super) fn held(view: &View) -> [bool; 2] {
-    let status = view.player.status;
+///
+/// Pressed, Play or Pause shows what it asks for from the moment it goes
+/// down until the player gets there, so it doesn't pop up while the
+/// player catches up.
+pub(super) fn held(ui: &Ui, view: &View, inputs: &mut Inputs) -> [bool; 2] {
+    let mut status = view.player.status;
+    if let Some(press) = &inputs.pressed {
+        let there =
+            press.asked == status || (press.asked == Status::Playing && status == Status::Loading);
+        let waited = ui.input(|i| i.time) - press.since;
+        if press.clicked && (there || waited > PRESS_HOLD) {
+            inputs.pressed = None;
+        } else {
+            status = press.asked;
+            if press.clicked {
+                ui.ctx()
+                    .request_repaint_after(Duration::from_secs_f64(PRESS_HOLD - waited));
+            }
+        }
+    }
     [
         matches!(status, Status::Playing | Status::Loading),
         status == Status::Paused,
     ]
+}
+
+/// A press of Play or Pause not yet answered: what it asks the player
+/// for, when, and whether it was let go on the button (a click).
+pub struct Pressed {
+    asked: Status,
+    pause: bool,
+    since: f64,
+    clicked: bool,
+}
+
+/// Follows Play or Pause (`action`) through a press: down, it holds the
+/// state it asks for; clicked, it asks for it; let go off the button, it
+/// asks for nothing.
+pub(super) fn follow_press(
+    ui: &Ui,
+    response: &Response,
+    action: Action,
+    view: &View,
+    inputs: &mut Inputs,
+    actions: &mut Actions,
+) {
+    let pause = action == Action::TogglePause;
+    let asked = match (pause, view.player.status) {
+        (false, _) | (true, Status::Paused) => Some(Status::Playing),
+        (true, Status::Playing | Status::Loading) => Some(Status::Paused),
+        (true, Status::Stopped) => None,
+    };
+    let since = ui.input(|i| i.time);
+    let press = |clicked| {
+        asked.map(|asked| Pressed {
+            asked,
+            pause,
+            since,
+            clicked,
+        })
+    };
+    let mine = inputs.pressed.as_ref().is_some_and(|p| p.pause == pause);
+    if response.is_pointer_button_down_on() {
+        inputs.pressed = press(false);
+    } else if response.clicked() {
+        actions.push(action);
+        match &mut inputs.pressed {
+            Some(pressed) if mine && !pressed.clicked => {
+                pressed.clicked = true;
+                pressed.since = since;
+            }
+            _ => inputs.pressed = press(true),
+        }
+    } else if mine && inputs.pressed.as_ref().is_some_and(|p| !p.clicked) {
+        inputs.pressed = None;
+    }
 }
 
 /// Whether the time's digits show: while paused they blink, as in
@@ -231,7 +361,7 @@ pub(super) fn display_clicked(
 
 /// The playing song's playlist and row, or while stopped the one Play
 /// would start.
-fn playing_entry(view: &View) -> Option<(PlaylistId, EntryId)> {
+pub(super) fn playing_entry(view: &View) -> Option<(PlaylistId, EntryId)> {
     let list = view.playing_list.and_then(|id| view.list(id))?;
     Some((list.id, list.cursor().or(list.first())?))
 }
@@ -262,7 +392,19 @@ pub(super) fn eq_clicked(response: egui::Response, view: &View, actions: &mut Ac
     }
 }
 
-/// The bitrate, then the volume, EQ and PL at the right end.
+/// VIS shows or hides the deck below the player.
+pub(super) fn vis_clicked(response: egui::Response, view: &View, actions: &mut Actions) {
+    let tip = if view.settings.deck_shown {
+        "Hide the deck (Alt+V)"
+    } else {
+        "Show the deck: the music on a cassette, reels, a CD or a record, its spectrum and levels (Alt+V)"
+    };
+    if response.on_hover_text(tip).clicked() {
+        actions.push(Action::ToggleDeck);
+    }
+}
+
+/// The bitrate, then the volume, VIS, EQ and PL at the right end.
 fn info_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let label = |text: String| {
@@ -280,6 +422,9 @@ fn info_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         ui.add_space(4.0);
         let eq = small_button(ui, &palette, "EQ", view.settings.equaliser_shown);
         eq_clicked(eq, view, actions);
+        ui.add_space(4.0);
+        let vis = small_button(ui, &palette, "VIS", view.settings.deck_shown);
+        vis_clicked(vis, view, actions);
         ui.add_space(8.0);
         ui.spacing_mut().slider_width = 90.0;
         let mut volume = inputs.volume;
@@ -332,13 +477,11 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
     if glyph_button(ui, &palette, Glyph::Previous, ready).clicked() {
         actions.push(Action::Previous);
     }
-    let [playing, paused] = held(view);
-    if glyph_toggle(ui, &palette, Glyph::Play, playing, ready).clicked() {
-        actions.push(Action::Play);
-    }
-    if glyph_toggle(ui, &palette, Glyph::Pause, paused, ready).clicked() {
-        actions.push(Action::TogglePause);
-    }
+    let [playing, paused] = held(ui, view, inputs);
+    let play = glyph_toggle(ui, &palette, Glyph::Play, playing, ready);
+    follow_press(ui, &play, Action::Play, view, inputs, actions);
+    let pause = glyph_toggle(ui, &palette, Glyph::Pause, paused, ready);
+    follow_press(ui, &pause, Action::TogglePause, view, inputs, actions);
     if glyph_button(ui, &palette, Glyph::Stop, ready).clicked() {
         actions.push(Action::Stop);
     }

@@ -1,0 +1,675 @@
+//! The deck under the player (VIS): the player's buttons become the keys
+//! of a Walkman, a reel-to-reel deck, a portable CD player or a turntable,
+//! which plays the song on a cassette, open reels, a disc or a single,
+//! with the music's spectrum and its left and right levels beside it.
+//!
+//! The Walkman's, the CD player's and the turntable's keys stay where the
+//! buttons always are, standing out of their top edge; the reel deck has
+//! its keys along its bottom, as real ones do. Clicking the device
+//! switches to the next.
+//! The tape winds from the left reel to the right one as the song plays,
+//! and back fast when another starts; the reels turn only while it plays.
+//! The disc holds the whole playlist and turns while it plays, faster the
+//! nearer the centre the laser reads. A single holds one song, and is
+//! changed for the next one's when the song changes.
+
+mod canvas;
+mod cassette;
+mod cd;
+mod reel;
+mod vinyl;
+mod walkman;
+
+pub use canvas::install_fonts;
+
+use egui::{Align2, Color32, FontId, Painter, Rect, Sense, Ui, pos2, vec2};
+
+use super::{Inputs, View, player_strip, theme};
+use crate::action::{Action, Actions};
+use crate::playback::analyser::{self, BANDS, Reading};
+use crate::playback::engine::Status;
+use crate::store::DeckMedia;
+use canvas::{Canvas, rgb};
+
+/// Points round the keys, beside them and above and below.
+const SIDE: f32 = 4.0;
+const MARGIN: f32 = 6.0;
+/// Points between the device and the spectrum.
+const GAP: f32 = 10.0;
+/// The Walkman's body below the keys' band, in its units.
+const WALKMAN_BODY: f32 = 172.0;
+/// The levels' box under the spectrum, in points.
+const LEVELS_HEIGHT: f32 = 38.0;
+/// The bars span this many dB: a band at TOP fills its bar.
+const BAR_FLOOR: f32 = -60.0;
+const BAR_TOP: f32 = -6.0;
+/// The levels span -40 to 0 dBFS, in LEDs of a dB each.
+const LEVEL_FLOOR: f32 = -40.0;
+const LEVEL_LEDS: usize = 40;
+const SEGMENTS: usize = 16;
+/// How fast the tape moves, in the cassette's units per second; the reels
+/// turn by it, faster the less tape they hold.
+const TAPE_SPEED: f32 = 48.0;
+/// How fast it winds to a new place, in songs per second.
+const WIND_SPEED: f32 = 1.6;
+/// How fast the disc turns, in radians per second where the laser reads at
+/// its whole radius; nearer the centre, faster.
+const DISC_SPEED: f32 = 2.4 * 0.417;
+/// 45 rpm, in radians per second.
+const SINGLE_SPEED: f32 = 45.0 / 60.0 * std::f32::consts::TAU;
+/// When a record change's steps end, in seconds: the arm back at its rest,
+/// the old record off, the new one on the spindle, the arm on the record.
+const ARM_BACK: f32 = 0.35;
+const RECORD_OFF: f32 = 0.75;
+const RECORD_ON: f32 = 1.15;
+const ARM_DOWN: f32 = 1.6;
+const GREEN: Color32 = rgb(0x33e65f);
+const YELLOW: Color32 = rgb(0xffd02b);
+const RED: Color32 = rgb(0xff3b2b);
+
+/// What a frame of the device shows.
+pub struct Tape {
+    /// How much of the song has played: the share on the right reel.
+    pub progress: f32,
+    /// The left and right reels' turn, in radians.
+    pub angles: [f32; 2],
+    /// A for odd songs in the playlist, B for even ones.
+    pub side: char,
+    /// The song's artists, as the cassette's label has them.
+    pub artist: String,
+    /// The song's title as written on a tape (`short_title`).
+    pub title: String,
+    pub playing: bool,
+    pub counter: f32,
+    pub disc: cd::Disc,
+    pub turntable: vinyl::Turntable,
+}
+
+/// What moves from frame to frame.
+#[derive(Default)]
+pub struct Motion {
+    angles: [f32; 2],
+    counter: f32,
+    /// The song's progress as drawn, which winds to the real one.
+    drawn: Option<f32>,
+    winding: bool,
+    bars: [f32; BANDS],
+    tops: [f32; BANDS],
+    holds: [f32; BANDS],
+    levels: [f32; 2],
+    level_tops: [f32; 2],
+    level_holds: [f32; 2],
+    disc_angle: f32,
+    /// The single on the platter, and the one being changed for it.
+    record: Option<vinyl::Record>,
+    change: Option<Change>,
+    spin: f32,
+    platter: f32,
+    arm: Option<f32>,
+    lift: f32,
+}
+
+/// A record being changed: how long since it began, the record going, and
+/// where the arm was.
+struct Change {
+    t: f32,
+    old: vinyl::Record,
+    from: f32,
+}
+
+impl Motion {
+    /// Moves everything on by `dt` seconds; says whether anything still
+    /// moves.
+    fn step(&mut self, view: &View, reading: &Reading, dt: f32) -> bool {
+        let player = view.player;
+        let playing = player.status == Status::Playing;
+        let target = match &player.track {
+            Some(track) if track.duration_ms > 0 && player.status != Status::Stopped => {
+                (player.position_now() as f32 / track.duration_ms as f32).clamp(0.0, 1.0)
+            }
+            _ => 0.0,
+        };
+        let media = view.settings.deck_media;
+        let now = record(view);
+        if now != self.record {
+            if media == DeckMedia::Vinyl
+                && let (Some(old), Some(_)) = (self.record.take(), &now)
+            {
+                let from = self.arm.unwrap_or(vinyl::REST);
+                self.change = Some(Change { t: 0.0, old, from });
+            }
+            self.record = now;
+        }
+        let mut moving = false;
+        match media {
+            DeckMedia::Cd | DeckMedia::Vinyl => {
+                // Neither winds: the laser or the arm goes to its place.
+                self.drawn = Some(target);
+                self.winding = false;
+                if media == DeckMedia::Cd && playing {
+                    self.disc_angle += DISC_SPEED / cd::radius(disc(view).at) * dt;
+                }
+                if media == DeckMedia::Vinyl {
+                    moving = self.play_records(view, target, playing, dt);
+                }
+            }
+            _ => self.wind(view, target, playing, dt),
+        }
+
+        let share = |db: f32, floor: f32, top: f32| ((db - floor) / (top - floor)).clamp(0.0, 1.0);
+        for band in 0..BANDS {
+            let value = share(reading.bands[band], BAR_FLOOR, BAR_TOP);
+            fall(&mut self.bars[band], value, 1.6 * dt);
+            hold(
+                &mut self.tops[band],
+                &mut self.holds[band],
+                self.bars[band],
+                0.5,
+                0.7 * dt,
+                dt,
+            );
+        }
+        for side in 0..2 {
+            let value = share(reading.peaks[side], LEVEL_FLOOR, 0.0);
+            fall(&mut self.levels[side], value, 1.4 * dt);
+            let level = self.levels[side];
+            hold(
+                &mut self.level_tops[side],
+                &mut self.level_holds[side],
+                level,
+                0.8,
+                0.5 * dt,
+                dt,
+            );
+        }
+        playing
+            || moving
+            || self.winding
+            || self
+                .tops
+                .iter()
+                .chain(&self.level_tops)
+                .any(|top| *top > 0.0)
+    }
+
+    /// Moves the record change on, the arm to `progress` through the song,
+    /// and the record and platter round; says whether anything moves.
+    fn play_records(&mut self, view: &View, progress: f32, playing: bool, dt: f32) -> bool {
+        if let Some(change) = &mut self.change {
+            change.t += dt;
+            if change.t >= ARM_DOWN {
+                self.change = None;
+            }
+        }
+        let resting = view.player.status == Status::Stopped || self.record.is_none();
+        let target = if resting {
+            vinyl::REST
+        } else {
+            vinyl::arm_for(progress)
+        };
+        let arm = self.arm.get_or_insert(target);
+        let before = *arm;
+        let rest = vinyl::REST;
+        match &self.change {
+            Some(c) if c.t < ARM_BACK => *arm = c.from + (rest - c.from) * ease(c.t / ARM_BACK),
+            Some(c) if c.t < RECORD_ON => *arm = rest,
+            Some(c) => {
+                *arm = rest + (target - rest) * ease((c.t - RECORD_ON) / (ARM_DOWN - RECORD_ON))
+            }
+            None => *arm += (target - *arm) * (dt * 8.0).min(1.0),
+        }
+        let arm_moved = (*arm - before).abs() > 0.0005;
+        let dropping = matches!(&self.change, Some(c) if (ARM_BACK..RECORD_ON).contains(&c.t));
+        if playing {
+            self.platter += SINGLE_SPEED * dt;
+            if !dropping {
+                self.spin += SINGLE_SPEED * dt;
+            }
+        }
+        let up = if matches!(&self.change, Some(c) if c.t < ARM_DOWN - 0.1) {
+            1.0
+        } else {
+            0.0
+        };
+        self.lift += (up - self.lift) * (dt * 10.0).min(1.0);
+        self.change.is_some() || arm_moved || self.lift > 0.01
+    }
+
+    /// The turntable as drawn: where the record is in a change, and the arm.
+    fn turntable(&self) -> vinyl::Turntable {
+        let still = |record: &vinyl::Record| vinyl::Placed {
+            record: record.clone(),
+            slide: 0.0,
+            lifted: 0.0,
+        };
+        let record = match &self.change {
+            Some(c) if c.t < ARM_BACK => Some(still(&c.old)),
+            Some(c) if c.t < RECORD_OFF => Some(vinyl::Placed {
+                slide: ease((c.t - ARM_BACK) / (RECORD_OFF - ARM_BACK)) * vinyl::SLIDE,
+                ..still(&c.old)
+            }),
+            Some(c) if c.t < RECORD_ON => {
+                // Slides on above the platter, then drops onto it.
+                let t = (c.t - RECORD_OFF) / (RECORD_ON - RECORD_OFF);
+                self.record.as_ref().map(|record| vinyl::Placed {
+                    slide: (1.0 - ease(t / 0.75)) * vinyl::SLIDE,
+                    lifted: 1.0 - ease((t - 0.75) / 0.25),
+                    ..still(record)
+                })
+            }
+            _ => self.record.as_ref().map(still),
+        };
+        vinyl::Turntable {
+            record,
+            spin: self.spin,
+            platter: self.platter,
+            arm: self.arm.unwrap_or(vinyl::REST),
+            lift: self.lift,
+        }
+    }
+
+    /// Winds the tape on to `target`, the song's progress.
+    fn wind(&mut self, view: &View, target: f32, playing: bool, dt: f32) {
+        let drawn = self.drawn.get_or_insert(target);
+        let gap = target - *drawn;
+        let pack = |share: f32| match view.settings.deck_media {
+            DeckMedia::Reel => reel::pack(share) / 1.6,
+            _ => cassette::pack(share),
+        };
+        let mut turn = |speed: f32, share: f32| {
+            self.angles[0] += speed / pack(1.0 - share) * dt;
+            self.angles[1] += speed / pack(share) * dt;
+        };
+        if gap.abs() > 0.02 || (self.winding && gap.abs() > 0.001) {
+            self.winding = true;
+            let step = (WIND_SPEED * dt).min(gap.abs()) * gap.signum();
+            *drawn += step;
+            turn(900.0 * gap.signum(), *drawn);
+            self.counter += 40.0 * dt * gap.signum();
+        } else {
+            self.winding = false;
+            *drawn = target;
+            if playing {
+                turn(TAPE_SPEED, target);
+                self.counter += 0.9 * dt;
+            }
+        }
+        self.counter = self.counter.max(0.0);
+    }
+
+    fn tape(&self, view: &View) -> Tape {
+        let (side, artist, title) = match player_strip::playing_entry(view)
+            .and_then(|(list, entry)| Some((view.list(list)?, entry)))
+            .and_then(|(list, entry)| Some((list, list.index_of(entry)?, list.get(entry)?)))
+        {
+            Some((_, index, entry)) => (
+                if index % 2 == 0 { 'A' } else { 'B' },
+                entry
+                    .track
+                    .artists
+                    .iter()
+                    .map(|artist| artist.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                short_title(&entry.track.title).to_string(),
+            ),
+            None => ('A', String::new(), String::new()),
+        };
+        Tape {
+            progress: self.drawn.unwrap_or(0.0),
+            angles: self.angles,
+            side,
+            artist,
+            title,
+            playing: view.player.status == Status::Playing,
+            counter: self.counter,
+            disc: cd::Disc {
+                angle: self.disc_angle,
+                ..disc(view)
+            },
+            turntable: self.turntable(),
+        }
+    }
+}
+
+/// Eases 0–1 in and out; clamped either side.
+fn ease(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// The single of the song playing: its title and its place in the
+/// playlist, which picks its label.
+fn record(view: &View) -> Option<vinyl::Record> {
+    let (list, entry) = player_strip::playing_entry(view)?;
+    let list = view.list(list)?;
+    Some(vinyl::Record {
+        title: short_title(&list.get(entry)?.track.title).to_string(),
+        label: list.index_of(entry)?,
+    })
+}
+
+/// A song's title as written on a tape: without the version Spotify adds
+/// after " - " ("Insight - 2019 Digital Master"), nor anything in
+/// brackets before or after it ("(Don't Fear) The Reaper" is "The
+/// Reaper"). A title all in brackets stays as it is.
+fn short_title(title: &str) -> &str {
+    let mut title = title.split(" - ").next().unwrap_or(title).trim();
+    loop {
+        let before = title;
+        for (open, close) in [('(', ')'), ('[', ']')] {
+            if let Some(rest) = title.strip_prefix(open)
+                && let Some(at) = rest.find(close)
+                && !rest[at + 1..].trim().is_empty()
+            {
+                title = rest[at + 1..].trim_start();
+            }
+            if let Some(rest) = title.strip_suffix(close)
+                && let Some(at) = rest.rfind(open)
+                && !rest[..at].trim().is_empty()
+            {
+                title = rest[..at].trim_end();
+            }
+        }
+        if title == before {
+            return title;
+        }
+    }
+}
+
+/// The disc of the playlist playing, and where in it the song plays.
+fn disc(view: &View) -> cd::Disc {
+    let player = view.player;
+    let Some((list, index)) = player_strip::playing_entry(view)
+        .and_then(|(list, entry)| Some((view.list(list)?, entry)))
+        .and_then(|(list, entry)| Some((list, list.index_of(entry)?)))
+    else {
+        return cd::Disc::default();
+    };
+    let lengths: Vec<u64> = list
+        .entries()
+        .iter()
+        .map(|entry| u64::from(entry.track.duration_ms))
+        .collect();
+    let total = lengths.iter().sum::<u64>().max(1) as f32;
+    let mut ends = Vec::with_capacity(lengths.len());
+    let mut sum = 0;
+    for length in &lengths {
+        sum += length;
+        ends.push(sum as f32 / total);
+    }
+    let position = match player.status {
+        Status::Stopped => 0,
+        _ => player.position_now(),
+    };
+    let before: u64 = lengths[..index].iter().sum();
+    let length = lengths[index].max(1);
+    cd::Disc {
+        ends,
+        at: (before + u64::from(position).min(length)) as f32 / total,
+        number: index + 1,
+        seconds: position / 1000,
+        status: player.status,
+        angle: 0.0,
+    }
+}
+
+/// Rises at once to `value`, falls by at most `by`.
+fn fall(level: &mut f32, value: f32, by: f32) {
+    *level = if value > *level {
+        value
+    } else {
+        (*level - by).max(value)
+    };
+}
+
+/// A peak mark: up with `level`, held `seconds`, then falling by `by`.
+fn hold(top: &mut f32, held: &mut f32, level: f32, seconds: f32, by: f32, dt: f32) {
+    if level >= *top {
+        *top = level;
+        *held = seconds;
+    } else if *held > 0.0 {
+        *held -= dt;
+    } else {
+        *top = (*top - by).max(0.0);
+    }
+}
+
+/// A bar at `angle` from `r0` to `r1` round `x, y`, `width` across: a
+/// hub's tooth or key.
+#[allow(clippy::too_many_arguments)]
+fn spoke(c: &Canvas, x: f32, y: f32, angle: f32, r0: f32, r1: f32, width: f32, colour: Color32) {
+    let (ax, ay) = (angle.cos(), angle.sin());
+    let (nx, ny) = (-ay * width / 2.0, ax * width / 2.0);
+    c.polygon(
+        &[
+            (x + ax * r0 + nx, y + ay * r0 + ny),
+            (x + ax * r1 + nx, y + ay * r1 + ny),
+            (x + ax * r1 - nx, y + ay * r1 - ny),
+            (x + ax * r0 - nx, y + ay * r0 - ny),
+        ],
+        colour,
+    );
+}
+
+/// Draws the deck from the strip's buttons down, the buttons among it;
+/// returns its bottom.
+pub fn draw(
+    ui: &mut Ui,
+    strip: Rect,
+    view: &View,
+    inputs: &mut Inputs,
+    actions: &mut Actions,
+) -> f32 {
+    let keys = player_strip::keys(ui, view, strip);
+    let width = keys.width + 2.0 * SIDE;
+    let k = width / walkman::WIDTH;
+    let band = keys.height + 2.0 * MARGIN;
+    let top = keys.row.center().y - band / 2.0;
+    let left = strip.left();
+
+    let reading = analyser::read();
+    let dt = ui.input(|i| i.stable_dt).min(0.1);
+    let moving = inputs.deck.step(view, &reading, dt);
+    let tape = inputs.deck.tape(view);
+    let painter = ui.painter().clone();
+    let media = view.settings.deck_media;
+    let (art, keys_top, bottom, spectrum_top) = match media {
+        DeckMedia::Reel => {
+            let plate = reel::PLATE * k;
+            let canvas = Canvas {
+                painter: painter.clone(),
+                origin: pos2(left, top),
+                k,
+            };
+            reel::draw(&canvas, band / k, &tape);
+            let art = Rect::from_min_size(pos2(left, top), vec2(width, plate));
+            (art, top + plate + MARGIN, top + plate + band, top)
+        }
+        DeckMedia::Cassette | DeckMedia::Cd | DeckMedia::Vinyl => {
+            let body_top = keys.row.center().y;
+            let bottom = top + band + WALKMAN_BODY * k;
+            let canvas = Canvas {
+                painter: painter.clone(),
+                origin: pos2(left, body_top),
+                k,
+            };
+            let height = (bottom - body_top) / k;
+            match media {
+                DeckMedia::Cd => cd::draw(&canvas, height, &tape),
+                DeckMedia::Vinyl => vinyl::draw(&canvas, height, &tape.turntable),
+                _ => walkman::draw(&canvas, height, &tape),
+            }
+            let art = Rect::from_min_max(pos2(left, top + band), pos2(left + width, bottom));
+            (art, top + MARGIN, bottom, top + band)
+        }
+    };
+    let other = match media {
+        DeckMedia::Cassette => "Play it on reels",
+        DeckMedia::Reel => "Play it on a CD",
+        DeckMedia::Cd => "Play it on a record",
+        DeckMedia::Vinyl => "Play it on a cassette",
+    };
+    if ui
+        .interact(art, ui.id().with("deck media"), Sense::click())
+        .on_hover_text(other)
+        .clicked()
+    {
+        actions.push(Action::SetDeckMedia(media.next()));
+    }
+    let row = Rect::from_min_size(pos2(left + SIDE, keys_top), vec2(keys.width, keys.height));
+    player_strip::draw_keys(ui, row, &keys, view, inputs, actions);
+
+    let zone = Rect::from_min_max(
+        pos2(left + width + GAP, spectrum_top),
+        pos2(strip.right(), bottom),
+    );
+    if zone.width() > 60.0 {
+        let spectrum = Rect::from_min_max(
+            zone.min,
+            pos2(zone.right(), zone.bottom() - LEVELS_HEIGHT - 6.0),
+        );
+        let levels = Rect::from_min_max(pos2(zone.left(), zone.bottom() - LEVELS_HEIGHT), zone.max);
+        draw_spectrum(&painter, spectrum, view, &inputs.deck);
+        draw_levels(&painter, levels, view, &inputs.deck);
+    }
+    if moving {
+        ui.ctx().request_repaint();
+    }
+    bottom
+}
+
+/// An LED's colour, lit or not, `place` of the way up its column (0–1).
+fn led(place: f32, lit: bool) -> Color32 {
+    let colour = if place >= 0.87 {
+        RED
+    } else if place >= 0.62 {
+        YELLOW
+    } else {
+        GREEN
+    };
+    if lit {
+        colour
+    } else {
+        colour.gamma_multiply(0.14)
+    }
+}
+
+fn draw_spectrum(painter: &Painter, rect: Rect, view: &View, motion: &Motion) {
+    let palette = view.palette;
+    theme::inset(painter, rect, Color32::BLACK, &palette);
+    let labels = 16.0;
+    let inner = Rect::from_min_max(rect.min + vec2(10.0, 10.0), rect.max - vec2(10.0, labels));
+    let column = inner.width() / BANDS as f32;
+    let segment = inner.height() / SEGMENTS as f32;
+    for band in 0..BANDS {
+        let x = inner.left() + band as f32 * column;
+        let lit = (motion.bars[band] * SEGMENTS as f32).round() as usize;
+        let top = ((motion.tops[band] * SEGMENTS as f32).round() as usize).min(SEGMENTS);
+        for s in 0..SEGMENTS {
+            let y = inner.bottom() - (s + 1) as f32 * segment;
+            let on = s < lit || (top > 0 && s + 1 == top && top > lit);
+            let cell = Rect::from_min_size(
+                pos2(x + column * 0.12, y + segment * 0.12),
+                vec2(column * 0.76, segment * 0.76),
+            );
+            painter.rect_filled(cell, 0.0, led(s as f32 / SEGMENTS as f32, on));
+        }
+    }
+    let font = FontId::monospace(8.0);
+    for (hz, label) in [
+        (60.0, "60"),
+        (150.0, "150"),
+        (400.0, "400"),
+        (1000.0, "1K"),
+        (2500.0, "2.5K"),
+        (6000.0, "6K"),
+        (15000.0, "15K"),
+    ] {
+        let x = inner.left() + analyser::place(hz) * column;
+        painter.text(
+            pos2(x, rect.bottom() - labels / 2.0 - 2.0),
+            Align2::CENTER_CENTER,
+            label,
+            font.clone(),
+            palette.chrome,
+        );
+    }
+}
+
+fn draw_levels(painter: &Painter, rect: Rect, view: &View, motion: &Motion) {
+    let palette = view.palette;
+    theme::inset(painter, rect, Color32::BLACK, &palette);
+    let font = FontId::monospace(8.0);
+    let left = rect.left() + 20.0;
+    let width = rect.right() - 10.0 - left;
+    let cell = width / LEVEL_LEDS as f32;
+    for (side, name) in ["L", "R"].into_iter().enumerate() {
+        let y = rect.top() + 6.0 + side as f32 * 11.0;
+        painter.text(
+            pos2(rect.left() + 10.0, y + 4.0),
+            Align2::CENTER_CENTER,
+            name,
+            font.clone(),
+            palette.chrome,
+        );
+        let lit = (motion.levels[side] * LEVEL_LEDS as f32).round() as usize;
+        let top = (motion.level_tops[side] * LEVEL_LEDS as f32).round() as usize;
+        for i in 0..LEVEL_LEDS {
+            let db = LEVEL_FLOOR + (i + 1) as f32;
+            let colour = if db > -3.0 {
+                RED
+            } else if db > -10.0 {
+                YELLOW
+            } else {
+                GREEN
+            };
+            let on = i < lit || (top > 0 && i + 1 == top && top > lit);
+            let led =
+                Rect::from_min_size(pos2(left + i as f32 * cell + 1.0, y), vec2(cell - 2.5, 8.0));
+            painter.rect_filled(
+                led,
+                0.0,
+                if on {
+                    colour
+                } else {
+                    colour.gamma_multiply(0.14)
+                },
+            );
+        }
+    }
+    for db in [-40, -30, -20, -10, -6, -3, 0] {
+        let x = left + (db as f32 - LEVEL_FLOOR) / -LEVEL_FLOOR * width;
+        painter.text(
+            pos2(x, rect.bottom() - 7.0),
+            Align2::CENTER_CENTER,
+            db.to_string(),
+            font.clone(),
+            palette.chrome,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::short_title;
+
+    #[test]
+    fn a_tape_leaves_out_the_version() {
+        assert_eq!(short_title("Insight - 2019 Digital Master"), "Insight");
+        assert_eq!(short_title("Heroes - 2017 Remaster"), "Heroes");
+        assert_eq!(short_title("Starman (Remastered 2012)"), "Starman");
+        assert_eq!(short_title("Song [2009 Remaster]"), "Song");
+        assert_eq!(
+            short_title("(Don't Fear) The Reaper - Digital Remaster"),
+            "The Reaper"
+        );
+        assert_eq!(short_title("Heroes (Single Version)"), "Heroes");
+        assert_eq!(
+            short_title("(Sittin' On) The Dock (Of the Bay)"),
+            "The Dock"
+        );
+        assert_eq!(short_title("(Untitled)"), "(Untitled)");
+        assert_eq!(short_title("Insight"), "Insight");
+    }
+}

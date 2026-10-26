@@ -30,7 +30,11 @@ fn main() {
         .or_else(|| listed.first().map(|o| o.name.clone()))
         .expect("an output to choose");
 
-    let mut sink = RodioSink::new(None, Box::new(|message| println!("error: {message}")));
+    let mut sink = RodioSink::new(
+        None,
+        Box::new(|message| println!("error: {message}")),
+        Box::new(librespot_playback::mixer::NoOpVolume),
+    );
     let mut converter = Converter::new(None);
     sink.start().expect("the default output opens");
     play_silence(&mut sink, &mut converter, Duration::from_secs(2));

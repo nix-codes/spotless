@@ -97,8 +97,12 @@ pub fn convert(skin: &Skin, name: &str) -> Vec<(String, Vec<u8>)> {
         add("title.png", title(&pledit));
     }
 
+    let extra = extra(skin);
+    if let Some(extra) = &extra {
+        add("extra.png", extra.image.clone());
+    }
     if skin.missing_art().is_empty() {
-        player(&mut manifest, skin);
+        player(&mut manifest, skin, extra.as_ref());
     }
     chrome(&mut manifest, skin.sheet(Sheet::Main).is_some());
     if skin.sheet(Sheet::PlEdit).is_some() {
@@ -137,7 +141,7 @@ fn colors(manifest: &mut String, palette: &Palette) {
 }
 
 /// The player strip's pieces and fonts.
-fn player(manifest: &mut String, skin: &Skin) {
+fn player(manifest: &mut String, skin: &Skin, extra: Option<&Extra>) {
     let digits = match skin.digits() {
         Some(Sheet::NumsEx) => "0123456789 -",
         _ => "0123456789",
@@ -272,6 +276,9 @@ fn player(manifest: &mut String, skin: &Skin) {
     if skin.sheet(Sheet::EqMain).is_some() {
         equaliser(manifest);
     }
+    if let Some(extra) = extra {
+        extra.pieces(manifest);
+    }
 }
 
 /// The equaliser's switches, sliders and thumb. Winamp redraws a slider
@@ -402,6 +409,272 @@ fn reference(sprite: Sprite) -> String {
         "{{ image = \"{image}\", rect = [{}, {}, {}, {}] }}",
         sprite.x, sprite.y, sprite.width, sprite.height
     )
+}
+
+/// Buttons Winamp never had, made from its own so they match: VIS from
+/// EQ, widened, its letters in the skin's text font and its ink; RESET
+/// from PRESETS, keeping its own letters R to T. Both are in
+/// `extra.png`, VIS's four states along the top and RESET's two under
+/// them.
+struct Extra {
+    image: RgbaImage,
+    vis: Option<(u32, u32)>,
+    reset: Option<(u32, u32)>,
+}
+
+impl Extra {
+    fn pieces(&self, manifest: &mut String) {
+        let at = |x: u32, y: u32, (w, h): (u32, u32)| {
+            format!("{{ image = \"extra.png\", rect = [{x}, {y}, {w}, {h}] }}")
+        };
+        if let Some(size) = self.vis {
+            let states: Vec<String> = ["normal", "pressed", "on", "on_pressed"]
+                .iter()
+                .enumerate()
+                .map(|(i, state)| format!("{state} = {}", at(i as u32 * size.0, 0, size)))
+                .collect();
+            let _ = writeln!(manifest, "vis = {{ {} }}", states.join(", "));
+        }
+        if let Some(size) = self.reset {
+            let top = self.vis.map_or(0, |(_, h)| h);
+            let _ = writeln!(
+                manifest,
+                "equaliser.reset = {{ normal = {}, pressed = {} }}",
+                at(0, top, size),
+                at(size.0, top, size),
+            );
+        }
+    }
+}
+
+fn extra(skin: &Skin) -> Option<Extra> {
+    use sprites as s;
+    let cut = |sprite: Sprite| {
+        let sheet = image(skin.sheet(sprite.sheet)?);
+        Some(crop(
+            &sheet,
+            (sprite.x, sprite.y, sprite.width, sprite.height),
+        ))
+    };
+    let text = skin.sheet(Sheet::Text).map(image);
+    let vis: Option<Vec<RgbaImage>> = text.as_ref().and_then(|text| {
+        [s::EQ, s::EQ_PRESSED, s::EQ_LIT, s::EQ_LIT_PRESSED]
+            .into_iter()
+            .map(|sprite| vis(&cut(sprite)?, text))
+            .collect()
+    });
+    let reset: Option<Vec<RgbaImage>> = [s::EQ_PRESETS, s::EQ_PRESETS_PRESSED]
+        .into_iter()
+        .map(|sprite| reset(&cut(sprite)?))
+        .collect();
+    // All of a button's states the same size, or none of them.
+    let even = |states: Option<Vec<RgbaImage>>| {
+        states.filter(|states| {
+            states
+                .iter()
+                .all(|state| state.dimensions() == states[0].dimensions())
+        })
+    };
+    let (vis, reset) = (even(vis), even(reset));
+    if vis.is_none() && reset.is_none() {
+        return None;
+    }
+    let size =
+        |states: &Option<Vec<RgbaImage>>| states.as_ref().map(|states| states[0].dimensions());
+    let (vis_size, reset_size) = (size(&vis), size(&reset));
+    let width = vis_size
+        .map_or(0, |(w, _)| 4 * w)
+        .max(reset_size.map_or(0, |(w, _)| 2 * w));
+    let height = vis_size.map_or(0, |(_, h)| h) + reset_size.map_or(0, |(_, h)| h);
+    let mut sheet = RgbaImage::new(width, height);
+    for (i, state) in vis.iter().flatten().enumerate() {
+        image::imageops::replace(&mut sheet, state, i as i64 * i64::from(state.width()), 0);
+    }
+    let top = vis_size.map_or(0, |(_, h)| i64::from(h));
+    for (i, state) in reset.iter().flatten().enumerate() {
+        image::imageops::replace(&mut sheet, state, i as i64 * i64::from(state.width()), top);
+    }
+    Some(Extra {
+        image: sheet,
+        vis: vis_size,
+        reset: reset_size,
+    })
+}
+
+/// A button's face colour, the pixels inside its bevel that stand out
+/// from it (its letters, and a light if it has one), and those pixels'
+/// columns in runs: one run a letter.
+struct Lettering {
+    face: Rgba<u8>,
+    marked: Vec<bool>,
+    runs: Vec<(u32, u32)>,
+}
+
+fn lettering(button: &RgbaImage) -> Lettering {
+    let (w, h) = button.dimensions();
+    let inside = |x: u32, y: u32| x >= 2 && y >= 2 && x + 2 < w && y + 2 < h;
+    let mut counts: std::collections::HashMap<Rgba<u8>, usize> = Default::default();
+    for (x, y, colour) in button.enumerate_pixels() {
+        if inside(x, y) {
+            *counts.entry(*colour).or_default() += 1;
+        }
+    }
+    let face = counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map_or(Rgba([0, 0, 0, 0]), |(colour, _)| colour);
+    let mut marked: Vec<bool> = (0..w * h)
+        .map(|i| {
+            let (x, y) = (i % w, i / w);
+            inside(x, y) && distance(*button.get_pixel(x, y), face) > 48
+        })
+        .collect();
+    // A row or column standing out along most of the face is the bevel's
+    // shading, not lettering.
+    let (across, down) = (w.saturating_sub(4), h.saturating_sub(4));
+    for y in 0..h {
+        if (0..w).filter(|&x| marked[(y * w + x) as usize]).count() as u32 * 10 > across * 7 {
+            (0..w).for_each(|x| marked[(y * w + x) as usize] = false);
+        }
+    }
+    for x in 0..w {
+        if (0..h).filter(|&y| marked[(y * w + x) as usize]).count() as u32 * 10 > down * 7 {
+            (0..h).for_each(|y| marked[(y * w + x) as usize] = false);
+        }
+    }
+    let mut runs = Vec::new();
+    let mut start = None;
+    for x in 0..=w {
+        let any = x < w && (0..h).any(|y| marked[(y * w + x) as usize]);
+        match (any, start) {
+            (true, None) => start = Some(x),
+            (false, Some(from)) => {
+                // What touches the bevel is its shading too.
+                if from > 2 && x + 2 < w {
+                    runs.push((from, x));
+                }
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    Lettering { face, marked, runs }
+}
+
+fn distance(a: Rgba<u8>, b: Rgba<u8>) -> u32 {
+    (0..3).map(|i| a[i].abs_diff(b[i]) as u32).sum()
+}
+
+/// The commonest colour among `button`'s marked pixels from column
+/// `from` on: the ink its letters are in.
+fn ink(button: &RgbaImage, lettering: &Lettering, from: u32) -> Rgba<u8> {
+    let w = button.width();
+    let mut counts: std::collections::HashMap<Rgba<u8>, usize> = Default::default();
+    for (x, y, colour) in button.enumerate_pixels() {
+        if x >= from && lettering.marked[(y * w + x) as usize] {
+            *counts.entry(*colour).or_default() += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map_or(Rgba([0, 0, 0, 255]), |(colour, _)| colour)
+}
+
+/// The top of the lettering from column `from` on.
+fn letters_top(button: &RgbaImage, lettering: &Lettering, from: u32) -> u32 {
+    let (w, h) = button.dimensions();
+    (0..h)
+        .find(|y| (from..w).any(|x| lettering.marked[(y * w + x) as usize]))
+        .unwrap_or(3)
+}
+
+/// EQ as VIS: the light kept, the letters cleared, the face widened to
+/// fit three letters of the text font drawn in the button's ink.
+fn vis(eq: &RgbaImage, text: &RgbaImage) -> Option<RgbaImage> {
+    let lettering = lettering(eq);
+    // The light, then the letters.
+    let (&(start, _), &(_, end)) = (lettering.runs.get(1)?, lettering.runs.last()?);
+    let (w, h) = eq.dimensions();
+    let ink = ink(eq, &lettering, start);
+    let top = letters_top(eq, &lettering, start);
+    let glyphs: Vec<Vec<(u32, u32)>> = "VIS".chars().map(|c| glyph(text, c)).collect();
+    let widths: Vec<u32> = glyphs
+        .iter()
+        .map(|dots| dots.iter().map(|&(x, _)| x + 1).max().unwrap_or(1))
+        .collect();
+    let needed = widths.iter().sum::<u32>() + widths.len() as u32 - 1;
+    let wider = (start + needed + (w - end)).saturating_sub(w);
+    // The face cleared of letters, then widened at the column after them.
+    let mut cleared = eq.clone();
+    for (x, y, colour) in cleared.enumerate_pixels_mut() {
+        if x >= start && lettering.marked[(y * w + x) as usize] {
+            *colour = lettering.face;
+        }
+    }
+    let mut out = RgbaImage::new(w + wider, h);
+    for (x, y, colour) in out.enumerate_pixels_mut() {
+        let from = if x < end {
+            x
+        } else if x < end + wider {
+            end
+        } else {
+            x - wider
+        };
+        *colour = *cleared.get_pixel(from, y);
+    }
+    let mut at = start;
+    for (dots, width) in glyphs.iter().zip(&widths) {
+        for &(dx, dy) in dots {
+            if at + dx < out.width() && top + dy < h {
+                out.put_pixel(at + dx, top + dy, ink);
+            }
+        }
+        at += width + 1;
+    }
+    Some(out)
+}
+
+/// A letter of the text font as the dots that stand out from its
+/// background, blank columns on the left dropped.
+fn glyph(text: &RgbaImage, character: char) -> Vec<(u32, u32)> {
+    let cell = crate::skin::font::glyph(character);
+    let space = crate::skin::font::glyph(' ');
+    let background = pixel(text, space.x, space.y);
+    let dots: Vec<(u32, u32)> = (0..cell.height)
+        .flat_map(|y| (0..cell.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| distance(pixel(text, cell.x + x, cell.y + y), background) > 48)
+        .collect();
+    let left = dots.iter().map(|&(x, _)| x).min().unwrap_or(0);
+    dots.into_iter().map(|(x, y)| (x - left, y)).collect()
+}
+
+/// PRESETS as RESET: its letters cleared, then its own R, E, S, E and T
+/// put back in the middle.
+fn reset(presets: &RgbaImage) -> Option<RgbaImage> {
+    let lettering = lettering(presets);
+    if lettering.runs.len() != 7 {
+        return None;
+    }
+    let (w, h) = presets.dimensions();
+    let (from, to) = (lettering.runs[1].0, lettering.runs[5].1);
+    let (first, last) = (lettering.runs[0].0, lettering.runs[6].1);
+    let shift = (first + last) as i64 / 2 - (from + to) as i64 / 2;
+    let mut out = presets.clone();
+    for (x, y, colour) in out.enumerate_pixels_mut() {
+        if lettering.marked[(y * w + x) as usize] {
+            *colour = lettering.face;
+        }
+    }
+    for x in from..to {
+        for y in 0..h {
+            if lettering.marked[(y * w + x) as usize] {
+                let to_x = (x as i64 + shift) as u32;
+                out.put_pixel(to_x, y, *presets.get_pixel(x, y));
+            }
+        }
+    }
+    Some(out)
 }
 
 /// The time's box as a 4x4 image: its corners, its edges from the
@@ -816,6 +1089,10 @@ mod tests {
                     | "small_button"
                     | "switch"
                     | "radio"
+                    // Made from the buttons' lettering, which this
+                    // skin's plain bitmaps haven't.
+                    | "vis"
+                    | "equaliser.reset"
             );
             assert_eq!(skin.piece(name).is_some(), expected, "{name}");
         }

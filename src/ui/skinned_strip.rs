@@ -12,8 +12,8 @@ use egui::{
 };
 
 use super::player_strip::{
-    HEIGHT, display_clicked, eject_clicked, eq_clicked, held, length, now_lines, pl_clicked, rates,
-    time_shown,
+    HEIGHT, display_clicked, eject_clicked, eq_clicked, follow_press, held, length, now_lines,
+    pl_clicked, rates, time_shown, vis_clicked,
 };
 use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
@@ -151,21 +151,50 @@ pub fn title_bar(ui: &Ui, rect: Rect, view: &View, paint: &SkinPaint, unit: f32,
     painter.galley(at, text, view.palette.title);
 }
 
+/// Where the strip's top left corner goes in `rect`, at `unit`.
+fn origin(ui: &Ui, rect: Rect, rows: &Rows, unit: f32) -> Pos2 {
+    pos2(
+        rect.left(),
+        rect.top() + (rect.height() - rows.total * unit) / 2.0,
+    )
+    .round_to_pixels(ui.pixels_per_point())
+}
+
+/// The buttons' row in the strip `rect`, the points per pixel they're
+/// drawn at, and how wide they are together.
+pub fn keys(ui: &Ui, paint: &SkinPaint, rect: Rect) -> (Rect, f32, f32) {
+    let unit = unit(paint, rect.width());
+    let rows = Rows::of(paint);
+    let origin = origin(ui, rect, &rows, unit);
+    let row = Rect::from_min_max(
+        pos2(rect.left(), origin.y + rows.buttons_y * unit),
+        pos2(
+            rect.right(),
+            origin.y + (rows.buttons_y + rows.buttons) * unit,
+        ),
+    );
+    let width = |name: &str| paint.size(name, unit).map_or(0.0, |size| size.x);
+    let buttons: f32 = [
+        "previous", "play", "pause", "stop", "next", "eject", "shuffle", "repeat",
+    ]
+    .into_iter()
+    .map(width)
+    .sum();
+    (row, unit, buttons + 2.0 * GAP * unit)
+}
+
 pub fn draw(
     ui: &mut Ui,
     view: &View,
     paint: &SkinPaint,
     inputs: &mut Inputs,
     actions: &mut Actions,
+    with_buttons: bool,
 ) {
     let rect = ui.max_rect();
     let unit = unit(paint, rect.width());
     let rows = Rows::of(paint);
-    let origin = pos2(
-        rect.left(),
-        rect.top() + (rect.height() - rows.total * unit) / 2.0,
-    )
-    .round_to_pixels(ui.pixels_per_point());
+    let origin = origin(ui, rect, &rows, unit);
     let y = |pixels: f32| origin.y + pixels * unit;
 
     let lcd_width = time_width(paint) * unit + 2.0 * LCD_MARGIN;
@@ -191,7 +220,9 @@ pub fn draw(
         pos2(rect.left(), y(rows.buttons_y)),
         pos2(rect.right(), y(rows.buttons_y + rows.buttons)),
     );
-    buttons_row(ui, buttons, view, paint, unit, inputs, actions);
+    if with_buttons {
+        buttons_row(ui, buttons, view, paint, unit, inputs, actions);
+    }
 }
 
 /// Where the time's parts go from the status icon's left, in image
@@ -397,6 +428,33 @@ fn info_row(
         eq_clicked(response, view, actions);
         left = eq_at.x;
     }
+    // VIS beside EQ: Winamp has no art for it, so a converted skin makes
+    // it from EQ's; without it, it's in the skin's button colours.
+    if let Some(vis) = paint.size("vis", unit) {
+        let vis_at = pos2(left - 2.0 * unit - vis.x, rect.center().y - vis.y / 2.0);
+        let state = toggle_state(view.settings.deck_shown);
+        let response = button(
+            ui, &painter, paint, vis_at, unit, "vis", state, "Deck", true,
+        );
+        vis_clicked(response, view, actions);
+        left = vis_at.x;
+    } else {
+        let vis = super::widgets::small_button_width(ui, "VIS");
+        let vis_rect = Rect::from_min_size(
+            pos2(
+                left - 2.0 * unit - vis,
+                rect.center().y - super::widgets::SMALL_HEIGHT / 2.0,
+            ),
+            vec2(vis, super::widgets::SMALL_HEIGHT),
+        );
+        let response = ui
+            .scope_builder(egui::UiBuilder::new().max_rect(vis_rect), |ui| {
+                super::widgets::small_button(ui, &palette, "VIS", view.settings.deck_shown)
+            })
+            .inner;
+        vis_clicked(response, view, actions);
+        left = vis_rect.left();
+    }
     if let Some(track) = paint.size("volume.track", unit) {
         let at = pos2(left - GAP * unit - track.x, rect.center().y - track.y / 2.0);
         if at.x >= x {
@@ -499,7 +557,7 @@ fn seek_bar(
 }
 
 /// Transport, eject, shuffle and repeat, each centred in the row.
-fn buttons_row(
+pub fn buttons_row(
     ui: &mut Ui,
     rect: Rect,
     view: &View,
@@ -518,7 +576,7 @@ fn buttons_row(
         x += size.x;
         at
     };
-    let [playing, paused] = held(view);
+    let [playing, paused] = held(ui, view, inputs);
     for (name, label, action) in TRANSPORT {
         let at = place(name, 0.0);
         let state = toggle_state(match name {
@@ -526,7 +584,10 @@ fn buttons_row(
             "pause" => paused,
             _ => false,
         });
-        if button(ui, &painter, paint, at, unit, name, state, label, ready).clicked() {
+        let response = button(ui, &painter, paint, at, unit, name, state, label, ready);
+        if matches!(action, Action::Play | Action::TogglePause) {
+            follow_press(ui, &response, action, view, inputs, actions);
+        } else if response.clicked() {
             actions.push(action);
         }
     }
