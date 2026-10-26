@@ -343,14 +343,14 @@ fn reel(c: &Canvas, x: f32, y: f32, pack: f32, angle: f32, tag: Option<&str>) {
         let corner = |s: f32, t: f32| (tx + ax * s + nx * t, ty + ay * s + ny * t);
         c.polygon(
             &[
-                corner(-24.0, -5.0),
-                corner(24.0, -5.0),
-                corner(24.0, 5.0),
-                corner(-24.0, 5.0),
+                corner(-28.0, -6.5),
+                corner(28.0, -6.5),
+                corner(28.0, 6.5),
+                corner(-28.0, 6.5),
             ],
             rgb(0xe8dfc4),
         );
-        c.text_centred_at_angle(tag, tx, ty, Face::Marker, 7.0, rgb(0x1c2a6e), along, 44.0);
+        c.text_centred_at_angle(tag, tx, ty, Face::Marker, 10.0, rgb(0x1c2a6e), along, 52.0);
     }
     // The gold hub, a dark ring, the cream cap and the spindle's keys.
     let gold = [
