@@ -183,7 +183,7 @@ impl Motion {
             Some((list, index, entry)) => (
                 if index % 2 == 0 { 'A' } else { 'B' },
                 list.name.clone(),
-                format!("{}. {}", index + 1, entry.track.title),
+                format!("{}. {}", index + 1, short_title(&entry.track.title)),
             ),
             None => ('A', String::new(), String::new()),
         };
@@ -201,6 +201,23 @@ impl Motion {
             },
         }
     }
+}
+
+/// A song's title as written on a tape: without the version Spotify adds
+/// after " - " ("Insight - 2019 Digital Master") or in a closing bracket
+/// ("Song (Remastered 2009)").
+fn short_title(title: &str) -> &str {
+    let title = title.split(" - ").next().unwrap_or(title).trim_end();
+    for (open, close) in [('(', ')'), ('[', ']')] {
+        if let Some(rest) = title.strip_suffix(close)
+            && let Some(at) = rest.rfind(open)
+            && at > 0
+            && rest[at..].to_lowercase().contains("remaster")
+        {
+            return title[..at].trim_end();
+        }
+    }
+    title
 }
 
 /// The disc of the playlist playing, and where in it the song plays.
@@ -472,5 +489,27 @@ fn draw_levels(painter: &Painter, rect: Rect, view: &View, motion: &Motion) {
             font.clone(),
             palette.chrome,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::short_title;
+
+    #[test]
+    fn a_tape_leaves_out_the_version() {
+        assert_eq!(short_title("Insight - 2019 Digital Master"), "Insight");
+        assert_eq!(short_title("Heroes - 2017 Remaster"), "Heroes");
+        assert_eq!(short_title("Starman (Remastered 2012)"), "Starman");
+        assert_eq!(short_title("Song [2009 Remaster]"), "Song");
+        assert_eq!(
+            short_title("(Don't Fear) The Reaper"),
+            "(Don't Fear) The Reaper"
+        );
+        assert_eq!(
+            short_title("Heroes (Single Version)"),
+            "Heroes (Single Version)"
+        );
+        assert_eq!(short_title("Insight"), "Insight");
     }
 }
