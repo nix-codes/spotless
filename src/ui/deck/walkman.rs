@@ -38,7 +38,7 @@ pub fn draw(c: &Canvas, height: f32, tape: &Tape) {
         ..c.clipped(x0, y0, x1 - x0, y1 - y0)
     };
     cassette::draw(&inside, tape);
-    c.polygon(&window, rgba(0x0a0e1a, 0.36));
+    c.polygon(&window, rgba(0x0a0e1a, 0.2));
 
     // Printed on the glass: how much tape is left…
     let glass = c.clipped(x0, y0, x1 - x0, y1 - y0);
@@ -46,7 +46,7 @@ pub fn draw(c: &Canvas, height: f32, tape: &Tape) {
     for (i, mark) in ["100", "50", "0"].into_iter().enumerate() {
         let (xs, ys, xe) = (x0 + 60.0, y0 + 62.0 + i as f32 * 22.0, x1 - 32.0);
         let end = ys - 0.17 * (xe - xs);
-        glass.line(&[(xs, ys), (xe, end)], 0.8, rgba(0xe8ecf2, 0.7));
+        glass.line(&[(xs, ys), (xe, end)], 0.8, rgba(0xe8ecf2, 0.45));
         glass.circle(xs + (xe - xs) * 0.62, ys + (end - ys) * 0.62, 1.6, ink);
         glass.text(
             mark,

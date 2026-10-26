@@ -90,7 +90,7 @@ pub fn draw(c: &Canvas, tape: &Tape) {
         2.0 * (dx + FULL + 4.0),
         42.0,
     );
-    c.rect(wx, wy, ww, wh, 6.0, rgb(0x121218));
+    c.rect(wx, wy, ww, wh, 6.0, rgb(0x2a2a32));
     let window = c.clipped(wx, wy, ww, wh);
     reel(
         &window,
@@ -114,24 +114,33 @@ pub fn draw(c: &Canvas, tape: &Tape) {
     }
 }
 
-/// A reel: the tape wound to radius `r`, and the white hub with its six
-/// teeth turned to `angle`.
+/// A reel: the tape wound to radius `r`, its edge catching the light, and
+/// the white hub turned to `angle`, its six teeth and the clamp holding
+/// the tape's end, which shows it turning.
 fn reel(c: &Canvas, x: f32, y: f32, r: f32, angle: f32) {
-    let stops = [(0.0, rgb(0x3a2414)), (1.0, rgb(0x6b4428))];
+    let stops = [
+        (0.0, rgb(0x4a2e1a)),
+        (0.7, rgb(0x8a5a36)),
+        (1.0, rgb(0x9a6a42)),
+    ];
     let steps = 8;
     for i in (0..=steps).rev() {
         let t = i as f32 / steps as f32;
         c.circle(x, y, HUB + (r - HUB) * t, blend(&stops, t));
     }
     let mut ring = HUB + 4.0;
-    while ring < r {
-        c.ring(x, y, ring, 1.0, rgba(0x000000, 0.25));
-        ring += 5.0;
+    while ring < r - 1.0 {
+        c.ring(x, y, ring, 0.8, rgba(0x000000, 0.2));
+        ring += 4.0;
     }
-    c.circle(x, y, HUB, rgb(0xe8e6df));
-    c.circle(x, y, HUB - 4.0, rgb(0x16161c));
+    c.ring(x, y, r - 0.5, 1.0, rgb(0xd09a68));
+    let white = rgb(0xeeece6);
+    c.circle(x, y, HUB, white);
+    c.circle(x, y, HUB - 3.5, rgb(0x16161c));
     for tooth in 0..6 {
         let a = angle + tooth as f32 * std::f32::consts::FRAC_PI_3;
-        super::spoke(c, x, y, a, HUB - 7.0, HUB - 2.0, 1.6, rgb(0xe8e6df));
+        super::spoke(c, x, y, a, HUB - 7.5, HUB - 2.0, 2.6, white);
     }
+    let clamp = angle + std::f32::consts::FRAC_PI_6;
+    super::spoke(c, x, y, clamp, HUB - 3.0, HUB + 0.5, 3.0, rgb(0x2a2a32));
 }
