@@ -1067,7 +1067,10 @@ fn slim_rows(
         return;
     }
     let height = 17.0;
+    // Named, so it doesn't take the scroll of the playlist drawn here
+    // before Browse opened.
     let mut area = ScrollArea::vertical()
+        .id_salt("slim-rows")
         .auto_shrink([false, false])
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
     let view_height = ui.available_height();

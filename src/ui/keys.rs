@@ -103,13 +103,27 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
 
 pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let ctx = ui.ctx();
-    // Typing in a field, or a question waiting for an answer: the keys
-    // belong to them.
-    if ctx.text_edit_focused()
-        || inputs.closing.is_some()
-        || inputs.renaming.is_some()
-        || inputs.spotify_pick.is_some()
-    {
+    // A question waiting for an answer: the keys belong to it.
+    if inputs.closing.is_some() || inputs.renaming.is_some() || inputs.spotify_pick.is_some() {
+        return;
+    }
+    // Browse's tabs, even from a field: they take the keyboard to theirs.
+    // Ctrl+F and F3: SEARCH, in its field; F4: YOUR SPOTIFY, in the field
+    // that finds a playlist.
+    if matches!(view.session, SessionState::Ready { .. }) {
+        ui.input_mut(|i| {
+            if take(i, Modifiers::COMMAND, Key::F) || take(i, Modifiers::NONE, Key::F3) {
+                actions.push(Action::ShowBrowseTab(BrowseTab::Search));
+                inputs.focus_search = true;
+            }
+            if take(i, Modifiers::NONE, Key::F4) {
+                actions.push(Action::ShowBrowseTab(BrowseTab::Spotify));
+                browse_view::focus_spotify(&mut inputs.nav);
+            }
+        });
+    }
+    // Typing in a field: the other keys belong to it.
+    if ctx.text_edit_focused() {
         return;
     }
     ui.input_mut(|i| {
@@ -283,16 +297,6 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     }
     if take(i, Modifiers::COMMAND, Key::B) {
         actions.push(Action::ToggleBrowse);
-    }
-    // Ctrl+F and F3: SEARCH, in its field; F4: YOUR SPOTIFY, in the field
-    // that finds a playlist.
-    if take(i, Modifiers::COMMAND, Key::F) || take(i, Modifiers::NONE, Key::F3) {
-        actions.push(Action::ShowBrowseTab(BrowseTab::Search));
-        inputs.focus_search = true;
-    }
-    if take(i, Modifiers::NONE, Key::F4) {
-        actions.push(Action::ShowBrowseTab(BrowseTab::Spotify));
-        browse_view::focus_spotify(&mut inputs.nav);
     }
 
     // Ctrl+V arrives as a paste. Text that isn't a Spotify link is left alone.

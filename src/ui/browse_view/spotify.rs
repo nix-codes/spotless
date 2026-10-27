@@ -111,15 +111,17 @@ fn playlist_list(
         .chain(shown.iter().filter(|p| p.owner.is_some()))
         .copied()
         .collect();
+    // Enter leaves the field (it lets go of the keyboard itself) for the
+    // songs, the first highlighted.
+    if edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+        nav.area = Area::Results;
+        nav.keyboard = true;
+        nav.row = Some(0);
+        nav.reveal = true;
+    }
     if edit.has_focus() {
         nav.area = Area::Lists;
-        let (up, down, enter) = ui.input(|i| {
-            (
-                i.key_pressed(Key::ArrowUp),
-                i.key_pressed(Key::ArrowDown),
-                i.key_pressed(Key::Enter),
-            )
-        });
+        let (up, down) = ui.input(|i| (i.key_pressed(Key::ArrowUp), i.key_pressed(Key::ArrowDown)));
         let at = order.iter().position(|p| Some(p.uri.as_str()) == open);
         let next = match (up, down, at) {
             (true, _, Some(at)) => Some(at.saturating_sub(1)),
@@ -131,15 +133,6 @@ fn playlist_list(
             actions.push(Action::OpenSpotifyPlaylist(playlist.uri.clone()));
             nav.keyboard = true;
             nav.list_reveal = true;
-        }
-        if enter {
-            // To the songs, the first highlighted.
-            ui.ctx()
-                .memory_mut(|m| m.surrender_focus(Id::new(FILTER_ID)));
-            nav.area = Area::Results;
-            nav.keyboard = true;
-            nav.row = Some(0);
-            nav.reveal = true;
         }
     }
     ui.add_space(6.0);
@@ -255,6 +248,9 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
     if all {
         nav.marked = (0..tracks.len()).collect();
     }
+    if keys {
+        extend(ui, nav, tracks.len());
+    }
     if undo && browse.undo.as_ref().is_some_and(|u| u.playlist == uri) {
         actions.push(Action::UndoSpotifyRemoval);
     }
@@ -273,7 +269,7 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
             actions.push(Action::AddAlbum(uri.to_string()));
         }
         if editable {
-            let rem = ui.add_enabled_ui(!nav.marked.is_empty(), |ui| {
+            let rem = ui.add_enabled_ui(!chosen(nav).is_empty(), |ui| {
                 small_button(ui, &palette, "REM", false)
             });
             let hint = "Removes the selected songs from this playlist on Spotify (Delete)";
@@ -326,6 +322,41 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
     nav.row = nav.row.map(|row| row.min(nav.rows.saturating_sub(1)));
     nav.act = None;
     nav.reveal = false;
+}
+
+/// Shift with the arrows, PgUp / PgDn or Home / End: the highlight moves
+/// and the selection stretches to it from where it started, as in a tab.
+fn extend(ui: &Ui, nav: &mut Nav, len: usize) {
+    let last = len.saturating_sub(1);
+    let from = nav.row.unwrap_or(0);
+    let to = ui.input(|i| {
+        if !(i.modifiers.shift && !i.modifiers.command && !i.modifiers.alt) {
+            return None;
+        }
+        if i.key_pressed(Key::ArrowDown) {
+            Some(from + 1)
+        } else if i.key_pressed(Key::ArrowUp) {
+            Some(from.saturating_sub(1))
+        } else if i.key_pressed(Key::PageDown) {
+            Some(from + super::PAGE_ROWS)
+        } else if i.key_pressed(Key::PageUp) {
+            Some(from.saturating_sub(super::PAGE_ROWS))
+        } else if i.key_pressed(Key::Home) {
+            Some(0)
+        } else if i.key_pressed(Key::End) {
+            Some(last)
+        } else {
+            None
+        }
+    });
+    let Some(to) = to.map(|to| to.min(last)) else {
+        return;
+    };
+    let anchor = *nav.anchor.get_or_insert(from);
+    nav.marked = (anchor.min(to)..=anchor.max(to)).collect();
+    nav.row = Some(to);
+    nav.reveal = true;
+    nav.keyboard = true;
 }
 
 /// A song of the playlist shown.
