@@ -85,15 +85,14 @@ Spotify only allows playback in other apps for Premium accounts.
   page is just the discography: All, Albums, Singles & EPs, Appears on;
   Albums first, oldest first, songs opening inline. **+ ADD** adds a whole
   album to the playlist shown alongside. Pasting a Spotify link adds it too.
-  Browse also lists your Spotify playlists, yours (Liked Songs first)
-  apart from the ones you follow, with who made those: the arrow shows a
-  playlist's songs in place, and its name opens its page, to add it whole
-  or song by song (desktop).
-- **Tidy your Spotify playlists** (desktop): on the page of one of your
-  own, or Liked Songs, select songs as in a tab and press Delete or REM
-  to take them out of it on Spotify (from Liked Songs, that un-likes
-  them). UNDO in the status bar, or Ctrl+Z, puts them back where they
-  were. The playlists you follow can't be changed.
+- **Your Spotify** (desktop): Browse's second tab (F4; SEARCH is F3) lists
+  your Spotify playlists, yours (Liked Songs first) apart from the ones
+  you follow, with a field to find one by name; the one chosen shows its
+  songs alongside, to add whole or song by song. On your own playlists
+  and Liked Songs, select songs as in a tab and press Delete or REM to
+  take them out on Spotify (from Liked Songs, that un-likes them); UNDO
+  in the status bar, or Ctrl+Z, puts them back where they were. The
+  playlists you follow can't be changed.
 - **Copy to Spotify** (desktop): right-click songs, *Copy to > Spotify
   playlist…*, and pick one of your own playlists (type to find it) or make
   a new one; right-click a tab, *Save to Spotify…*, to make a new playlist

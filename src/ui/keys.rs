@@ -12,9 +12,10 @@ use egui::{
 use super::scrollbar::{self, Scrollbar};
 use super::theme::{self, Palette};
 use super::widgets::text_button;
-use super::{Inputs, View, player_strip};
+use super::{Inputs, View, browse_view, player_strip};
 use crate::action::{Action, Actions, Desktop};
 use crate::backend::SessionState;
+use crate::browse::BrowseTab;
 use crate::model::PlaylistId;
 use crate::playback::engine::Status;
 
@@ -56,7 +57,8 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+B", "Browse / playlists"),
             ("Alt+G", "Show / hide the equaliser"),
             ("Alt+V", "Show / hide the deck"),
-            ("Ctrl+F", "Search"),
+            ("F3 or Ctrl+F", "Browse: search"),
+            ("F4", "Browse: your Spotify playlists"),
             ("Ctrl+V", "Add a pasted Spotify link"),
             ("F10", "Settings"),
             ("F1 or ?", "This list"),
@@ -86,7 +88,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Enter", "Search; open; play a song"),
             ("Insert or A", "Add the album or song"),
             ("Delete", "Remove from the playlist"),
-            ("Ctrl+A", "Select a Spotify playlist's songs"),
+            ("Ctrl+A", "Select all of a Spotify playlist"),
             ("Ctrl+Z", "Put back songs removed from Spotify"),
             ("Alt+1 … 4", "All, Albums, Singles, Appears on"),
             ("Ctrl+S", "Oldest / newest first"),
@@ -282,11 +284,15 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     if take(i, Modifiers::COMMAND, Key::B) {
         actions.push(Action::ToggleBrowse);
     }
-    if take(i, Modifiers::COMMAND, Key::F) {
-        if !browsing {
-            actions.push(Action::ToggleBrowse);
-        }
+    // Ctrl+F and F3: SEARCH, in its field; F4: YOUR SPOTIFY, in the field
+    // that finds a playlist.
+    if take(i, Modifiers::COMMAND, Key::F) || take(i, Modifiers::NONE, Key::F3) {
+        actions.push(Action::ShowBrowseTab(BrowseTab::Search));
         inputs.focus_search = true;
+    }
+    if take(i, Modifiers::NONE, Key::F4) {
+        actions.push(Action::ShowBrowseTab(BrowseTab::Spotify));
+        browse_view::focus_spotify(&mut inputs.nav);
     }
 
     // Ctrl+V arrives as a paste. Text that isn't a Spotify link is left alone.

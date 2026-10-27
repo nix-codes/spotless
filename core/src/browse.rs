@@ -4,6 +4,8 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+
 use crate::model::catalog::{Discography, Place, ReleaseTab, SearchResults, SpotifyPlaylist};
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 
@@ -18,8 +20,15 @@ pub enum Page {
     Search(String),
     /// An artist's discography, by URI.
     Artist(String),
-    /// A Spotify playlist's songs, or Liked Songs', by URI.
-    Playlist(String),
+}
+
+/// Browse's two tabs: the catalogue, searched, and the account's own
+/// Spotify playlists.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrowseTab {
+    #[default]
+    Search,
+    Spotify,
 }
 
 /// Songs taken out of a Spotify playlist or Liked Songs, to put back.
@@ -42,6 +51,9 @@ pub enum Loadable<T> {
 
 pub struct Browse {
     pub open: bool,
+    pub shown: BrowseTab,
+    /// The Spotify playlist YOUR SPOTIFY shows, or Liked Songs, by URI.
+    pub spotify_open: Option<String>,
     /// The current page is the last.
     history: Vec<Page>,
     pub searches: HashMap<String, Loadable<SearchResults>>,
@@ -84,6 +96,8 @@ impl Browse {
     pub fn new(target: PlaylistId, show_covers: bool) -> Self {
         Self {
             open: false,
+            shown: BrowseTab::default(),
+            spotify_open: None,
             history: vec![Page::Home],
             searches: HashMap::new(),
             artists: HashMap::new(),

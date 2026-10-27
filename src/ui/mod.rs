@@ -185,7 +185,10 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     let elsewhere = actions.core().any(|action| {
         matches!(
             action,
-            Action::ToggleBrowse | Action::SelectPlaylist(_) | Action::NewPlaylist
+            Action::ToggleBrowse
+                | Action::ShowBrowseTab(_)
+                | Action::SelectPlaylist(_)
+                | Action::NewPlaylist
         )
     });
     if settings_open && (elsewhere || inputs.renaming.is_some() || inputs.focus_search) {

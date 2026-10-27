@@ -26,10 +26,12 @@ use super::widgets::{
 use super::{Inputs, View};
 use crate::action::{Action, Actions, Desktop};
 use crate::backend::SearchState;
-use crate::browse::{Loadable, Page};
+use crate::browse::{BrowseTab, Loadable, Page};
 use crate::lastfm;
-use crate::model::catalog::{Release, ReleaseTab, SpotifyPlaylist};
+use crate::model::catalog::{Release, ReleaseTab};
 use crate::model::{ArtistRef, EntryId, TrackRef, playlist::Playlist};
+
+mod spotify;
 
 const SLIM_WIDTH: f32 = 250.0;
 const ROW_HEIGHT: f32 = 22.0;
@@ -80,17 +82,31 @@ pub struct Nav {
     /// one Shift-clicks reach from.
     marked: BTreeSet<usize>,
     anchor: Option<usize>,
+    /// What YOUR SPOTIFY's list of playlists is narrowed to, and whether
+    /// its field should take the keyboard.
+    filter: String,
+    focus_filter: bool,
+    /// Bring the playlist shown into view in that list.
+    list_reveal: bool,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Area {
     Search,
+    /// YOUR SPOTIFY's list of playlists, with the field that finds one.
+    Lists,
     #[default]
     Results,
     Slim,
 }
 
-const AREAS: [Area; 3] = [Area::Search, Area::Results, Area::Slim];
+/// The areas of each tab, in Tab's order.
+fn areas(tab: BrowseTab) -> [Area; 3] {
+    match tab {
+        BrowseTab::Search => [Area::Search, Area::Results, Area::Slim],
+        BrowseTab::Spotify => [Area::Lists, Area::Results, Area::Slim],
+    }
+}
 
 #[derive(Clone, Copy)]
 enum Act {
@@ -132,11 +148,17 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
     theme::panel(ui.painter(), slim, &palette);
 
     let page = view.browse.page();
+    let searching = view.browse.shown == BrowseTab::Search;
+    let page_key = match &view.browse.spotify_open {
+        _ if searching => page_id(page),
+        Some(uri) => format!("spotify-tab:{uri}"),
+        None => "spotify-tab".into(),
+    };
     let nav = &mut inputs.nav;
     // A new page starts at its top, highlighted only when the keyboard got
     // there (Enter on a search or an artist).
-    if nav.page != page_id(page) {
-        nav.page = page_id(page);
+    if nav.page != page_key {
+        nav.page = page_key.clone();
         nav.row = nav.keyboard.then_some(0);
         nav.rows = 0;
         nav.marked.clear();
@@ -145,16 +167,29 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
     if ui.input(|i| i.pointer.any_pressed()) {
         nav.keyboard = false;
     }
+    // An area of the other tab: this one's like it.
+    nav.area = match nav.area {
+        Area::Search if !searching => Area::Lists,
+        Area::Lists if searching => Area::Results,
+        area => area,
+    };
     switch_area(ui, view, inputs);
     keyboard(ui, view, &mut inputs.nav, actions);
     match inputs.nav.area {
-        Area::Results if inputs.nav.keyboard => theme::focus_ring(ui.painter(), catalog, &palette),
+        Area::Results if inputs.nav.keyboard && searching => {
+            theme::focus_ring(ui.painter(), catalog, &palette)
+        }
         Area::Slim if inputs.nav.keyboard => theme::focus_ring(ui.painter(), slim, &palette),
         _ => {}
     }
     // The search prompt's button, to set search up in the settings.
     let mut set_up = false;
     ui.scope_builder(UiBuilder::new().max_rect(catalog.shrink(PAD)), |ui| {
+        tabs(ui, view, inputs, actions);
+        ui.add_space(PAD);
+        if !searching {
+            return spotify::draw(ui, view, inputs, actions);
+        }
         search_bar(ui, view, inputs, actions);
         ui.add_space(PAD);
         let nav = &mut inputs.nav;
@@ -170,7 +205,6 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
                         search_page(ui, view, nav, query, &mut set_up, actions);
                     }
                     Page::Artist(uri) => artist_page(ui, view, nav, uri, actions),
-                    Page::Playlist(uri) => playlist_page(ui, view, nav, uri, actions),
                 }
             })
         });
@@ -190,6 +224,13 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
     }
 }
 
+/// Puts the keyboard in YOUR SPOTIFY's field that finds a playlist.
+pub(super) fn focus_spotify(nav: &mut Nav) {
+    nav.area = Area::Lists;
+    nav.focus_filter = true;
+    nav.keyboard = true;
+}
+
 /// Tab and Shift+Tab: the next or previous area. Into the search field
 /// puts the keyboard there; out of it takes the keyboard away.
 fn switch_area(ui: &Ui, view: &View, inputs: &mut Inputs) {
@@ -199,7 +240,7 @@ fn switch_area(ui: &Ui, view: &View, inputs: &mut Inputs) {
     let nav = &mut inputs.nav;
     nav.keyboard = true;
     // The search field is passed over while search isn't set up.
-    let areas: Vec<Area> = AREAS
+    let areas: Vec<Area> = areas(view.browse.shown)
         .into_iter()
         .filter(|&a| a != Area::Search || searchable(view))
         .collect();
@@ -212,6 +253,12 @@ fn switch_area(ui: &Ui, view: &View, inputs: &mut Inputs) {
         ui.ctx()
             .memory_mut(|m| m.surrender_focus(Id::new(SEARCH_ID)));
     }
+    if nav.area == Area::Lists {
+        nav.focus_filter = true;
+    } else {
+        ui.ctx()
+            .memory_mut(|m| m.surrender_focus(Id::new(spotify::FILTER_ID)));
+    }
     if nav.area == Area::Results && nav.row.is_none() {
         nav.row = Some(0);
     }
@@ -222,7 +269,7 @@ fn page_id(page: &Page) -> String {
     match page {
         Page::Home => "home".into(),
         Page::Search(query) => format!("search:{query}"),
-        Page::Artist(uri) | Page::Playlist(uri) => uri.clone(),
+        Page::Artist(uri) => uri.clone(),
     }
 }
 
@@ -230,7 +277,8 @@ fn keyboard(ui: &Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
     if ui.ctx().text_edit_focused() {
         return;
     }
-    let artist_page = matches!(view.browse.page(), Page::Artist(_));
+    let searching = view.browse.shown == BrowseTab::Search;
+    let artist_page = searching && matches!(view.browse.page(), Page::Artist(_));
     ui.input(|i| {
         let plain = i.modifiers.is_none();
         if i.key_pressed(Key::Escape) {
@@ -238,7 +286,7 @@ fn keyboard(ui: &Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
         }
         let back = (i.modifiers.alt && i.key_pressed(Key::ArrowLeft))
             || (plain && i.key_pressed(Key::Backspace));
-        if back && view.browse.can_go_back() {
+        if back && searching && view.browse.can_go_back() {
             actions.push(Action::Back);
         }
         if plain && i.key_pressed(Key::C) {
@@ -303,14 +351,13 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actio
         if text_button(ui, &palette, "BACK", false, view.browse.can_go_back()).clicked() {
             actions.push(Action::Back);
         }
-        let close_width = 210.0;
         let enabled = searchable(view);
         let hint = if enabled {
             "Search artists, albums, songs…"
         } else {
             "Search isn't set up yet"
         };
-        let width = (ui.available_width() - close_width).max(80.0);
+        let width = ui.available_width().max(80.0);
         let field = ui
             .add_enabled_ui(enabled, |ui| {
                 field(
@@ -337,15 +384,42 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actio
                 inputs.nav.keyboard = true;
             }
         }
-        if text_button(ui, &palette, "PICS", view.browse.show_covers, true)
-            .on_hover_text("Show album covers and artist pictures")
-            .clicked()
-        {
-            actions.push(Action::ToggleCovers);
+    });
+}
+
+/// SEARCH and YOUR SPOTIFY on the left; PICS and the way back to the
+/// playlists on the right.
+fn tabs(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
+    let palette = view.palette;
+    let shown = view.browse.shown;
+    ui.horizontal(|ui| {
+        for (tab, label, key) in [
+            (BrowseTab::Search, "SEARCH", "F3"),
+            (BrowseTab::Spotify, "YOUR SPOTIFY", "F4"),
+        ] {
+            if text_button(ui, &palette, label, shown == tab, true)
+                .on_hover_text(key)
+                .clicked()
+                && shown != tab
+            {
+                actions.push(Action::ShowBrowseTab(tab));
+                inputs.nav.area = match tab {
+                    BrowseTab::Search => Area::Results,
+                    BrowseTab::Spotify => Area::Lists,
+                };
+            }
         }
-        if text_button(ui, &palette, "ESC · PLAYLISTS", false, true).clicked() {
-            actions.push(Action::CloseBrowse);
-        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if text_button(ui, &palette, "ESC · PLAYLISTS", false, true).clicked() {
+                actions.push(Action::CloseBrowse);
+            }
+            if text_button(ui, &palette, "PICS", view.browse.show_covers, true)
+                .on_hover_text("Show album covers and artist pictures")
+                .clicked()
+            {
+                actions.push(Action::ToggleCovers);
+            }
+        });
     });
 }
 
@@ -377,107 +451,6 @@ fn home(ui: &mut Ui, view: &View, nav: &mut Nav, set_up: &mut bool, actions: &mu
         section(ui, view, "RECENTLY VIEWED");
         for artist in &view.browse.recent {
             artist_row(ui, view, nav, artist, None, actions);
-        }
-    }
-    match &view.browse.spotify_playlists {
-        None => {}
-        Some(Loadable::Loading) => {
-            section(ui, view, "YOUR SPOTIFY PLAYLISTS");
-            note(ui, view, "Reading your playlists…");
-        }
-        Some(Loadable::Failed(error)) => {
-            section(ui, view, "YOUR SPOTIFY PLAYLISTS");
-            note(ui, view, error);
-        }
-        Some(Loadable::Ready(playlists)) => {
-            // Liked Songs and the account's own, which can be changed, then
-            // those it follows, which can't.
-            section(ui, view, "YOUR SPOTIFY PLAYLISTS");
-            for playlist in playlists.iter().filter(|p| p.owner.is_none()) {
-                spotify_playlist(ui, view, nav, playlist, actions);
-            }
-            if playlists.iter().any(|p| p.owner.is_some()) {
-                section(ui, view, "PLAYLISTS YOU FOLLOW");
-                for playlist in playlists.iter().filter(|p| p.owner.is_some()) {
-                    spotify_playlist(ui, view, nav, playlist, actions);
-                }
-            }
-        }
-    }
-}
-
-/// One of the account's Spotify playlists: added whole like an album, its
-/// songs shown below it with the arrow, or on its own page.
-fn spotify_playlist(
-    ui: &mut Ui,
-    view: &View,
-    nav: &mut Nav,
-    playlist: &SpotifyPlaylist,
-    actions: &mut Actions,
-) {
-    let palette = view.palette;
-    let expanded = view.browse.expanded.contains(&playlist.uri);
-    let count = match playlist.tracks {
-        1 => "1 song".to_string(),
-        n => format!("{n} songs"),
-    };
-    let owner = playlist.owner.as_ref().map(|owner| format!("by {owner}"));
-    let row = row(
-        ui,
-        &palette,
-        nav,
-        ROW_HEIGHT,
-        Some("+ ADD"),
-        |painter, rect| {
-            chevron(
-                painter,
-                pos2(rect.left() + 5.0, rect.center().y),
-                expanded,
-                palette.dim,
-            );
-            let text = Rect::from_min_max(pos2(rect.left() + 16.0, rect.top()), rect.max);
-            let mut parts = vec![(playlist.name.as_str(), body(), palette.list_fg)];
-            if let Some(owner) = &owner {
-                parts.push((owner.as_str(), body(), palette.dim));
-            }
-            parts.push((count.as_str(), mono(), palette.dim));
-            spans(painter, text, &parts);
-        },
-    );
-    if row.response.drag_started() {
-        row.response.dnd_set_drag_payload(CatalogDrag::Album {
-            uri: playlist.uri.clone(),
-            title: playlist.name.clone(),
-        });
-    }
-    let on_arrow = row
-        .response
-        .interact_pointer_pos()
-        .is_some_and(|p| p.x < row.response.rect.left() + 20.0);
-    if row.button || matches!(row.act, Some(Act::Add)) {
-        actions.push(Action::AddAlbum(playlist.uri.clone()));
-    } else if row.response.clicked() && on_arrow {
-        actions.push(Action::ToggleAlbum(playlist.uri.clone()));
-    } else if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
-        actions.push(Action::OpenSpotifyPlaylist(playlist.uri.clone()));
-    }
-    if !expanded {
-        return;
-    }
-    match view.browse.albums.get(&playlist.uri) {
-        None | Some(Loadable::Loading) => indented_note(ui, view, "Reading the songs…"),
-        Some(Loadable::Failed(error)) => indented_note(ui, view, error),
-        Some(Loadable::Ready(tracks)) => {
-            ui.horizontal_top(|ui| {
-                ui.add_space(16.0);
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    for (i, track) in tracks.iter().enumerate() {
-                        song(ui, view, nav, i + 1, track, true, actions);
-                    }
-                });
-            });
-            ui.add_space(4.0);
         }
     }
 }
@@ -558,238 +531,6 @@ fn search_page(
             song(ui, view, nav, i + 1, track, true, actions);
         }
     }
-}
-
-/// A Spotify playlist's songs, or Liked Songs'. Selected as in a tab
-/// (click, Ctrl, Shift, Ctrl+A), they can be added, and taken out with
-/// Delete or REM when the playlist is the account's own (Ctrl+Z puts them
-/// back).
-fn playlist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut Actions) {
-    let palette = view.palette;
-    let browse = view.browse;
-    let playlist = browse.spotify_playlist(uri);
-    let editable = browse.editable(uri);
-    ui.horizontal(|ui| {
-        let name = playlist.map_or("Spotify playlist", |p| p.name.as_str());
-        ui.label(RichText::new(name).size(22.0).color(palette.current));
-        let tag = match playlist.and_then(|p| p.owner.as_ref()) {
-            Some(owner) => format!("FOLLOWED · BY {}", owner.to_uppercase()),
-            None => "YOURS".into(),
-        };
-        ui.label(RichText::new(tag).monospace().size(10.0).color(palette.dim));
-    });
-    ui.add_space(8.0);
-    let tracks = match browse.albums.get(uri) {
-        None | Some(Loadable::Loading) => return note(ui, view, "Reading the songs…"),
-        Some(Loadable::Failed(error)) => return note(ui, view, error),
-        Some(Loadable::Ready(tracks)) => tracks,
-    };
-    nav.marked.retain(|&i| i < tracks.len());
-    // Arrows move the selection with the highlight.
-    if nav.reveal
-        && nav.keyboard
-        && let Some(row) = nav.row
-    {
-        nav.marked = BTreeSet::from([row]);
-        nav.anchor = Some(row);
-    }
-    let keys = nav.area == Area::Results && !ui.ctx().text_edit_focused();
-    let (delete, all, undo) = ui.input(|i| {
-        (
-            keys && i.key_pressed(Key::Delete),
-            keys && i.modifiers.command && i.key_pressed(Key::A),
-            keys && i.modifiers.command && i.key_pressed(Key::Z),
-        )
-    });
-    if all {
-        nav.marked = (0..tracks.len()).collect();
-    }
-    if undo && browse.undo.as_ref().is_some_and(|u| u.playlist == uri) {
-        actions.push(Action::UndoSpotifyRemoval);
-    }
-    // The selection, else the highlighted song.
-    let chosen = |nav: &Nav| -> Vec<usize> {
-        match (nav.marked.is_empty(), nav.row) {
-            (false, _) => nav.marked.iter().copied().collect(),
-            (true, Some(row)) if row < tracks.len() => vec![row],
-            _ => Vec::new(),
-        }
-    };
-    let mut remove = delete && editable;
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-        if small_button(ui, &palette, "+ ADD ALL", false).clicked() {
-            actions.push(Action::AddAlbum(uri.to_string()));
-        }
-        let can_remove = editable && !nav.marked.is_empty();
-        let rem = ui.add_enabled_ui(can_remove, |ui| small_button(ui, &palette, "REM", false));
-        let hint = if editable {
-            "Removes the selected songs from this playlist on Spotify (Delete)"
-        } else {
-            "Only your own playlists can be changed"
-        };
-        if rem
-            .inner
-            .on_hover_text(hint)
-            .on_disabled_hover_text(hint)
-            .clicked()
-        {
-            remove = true;
-        }
-        ui.add_space(8.0);
-        let count = match (tracks.len(), nav.marked.len()) {
-            (1, 0) => "1 song".to_string(),
-            (n, 0) => format!("{n} songs"),
-            (n, marked) => format!("{marked} of {n} selected"),
-        };
-        ui.label(
-            RichText::new(count)
-                .monospace()
-                .size(11.0)
-                .color(palette.dim),
-        );
-    });
-    ui.add_space(6.0);
-    if remove {
-        let rows = chosen(nav);
-        if !rows.is_empty() {
-            actions.push(Action::RemoveFromSpotify(uri.to_string(), rows.clone()));
-            // The highlight stays where the first song was.
-            nav.row = rows
-                .first()
-                .map(|&r| r.min(tracks.len().saturating_sub(rows.len() + 1)));
-            nav.marked.clear();
-            nav.anchor = None;
-        }
-    }
-    if tracks.is_empty() {
-        return note(ui, view, "No songs.");
-    }
-    for (i, track) in tracks.iter().enumerate() {
-        playlist_song(ui, view, nav, i, track, tracks, editable, uri, actions);
-    }
-}
-
-/// A song on a Spotify playlist's page.
-#[allow(clippy::too_many_arguments)]
-fn playlist_song(
-    ui: &mut Ui,
-    view: &View,
-    nav: &mut Nav,
-    index: usize,
-    track: &TrackRef,
-    tracks: &[TrackRef],
-    editable: bool,
-    uri: &str,
-    actions: &mut Actions,
-) {
-    let palette = view.palette;
-    let marked = nav.marked.contains(&index);
-    let number = format!("{:>3}", index + 1);
-    let seconds = track.duration_ms / 1000;
-    let duration = format!("{}:{:02}", seconds / 60, seconds % 60);
-    let artists = track
-        .artists
-        .iter()
-        .map(|a| a.name.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
-    let row = row(
-        ui,
-        &palette,
-        nav,
-        TRACK_HEIGHT,
-        Some("+"),
-        |painter, rect| {
-            if marked {
-                painter.rect_filled(rect.expand2(vec2(4.0, 0.0)), 0.0, palette.selected_bg);
-            }
-            let right = painter.text(
-                rect.right_center() - vec2(4.0, 0.0),
-                Align2::RIGHT_CENTER,
-                &duration,
-                mono(),
-                palette.dim,
-            );
-            let text = Rect::from_min_max(rect.min, pos2(right.left() - 8.0, rect.bottom()));
-            spans(
-                painter,
-                text,
-                &[
-                    (number.as_str(), mono(), palette.dim),
-                    (artists.as_str(), body(), palette.list_fg),
-                    ("-", body(), palette.dim),
-                    (track.title.as_str(), body(), palette.list_fg),
-                    (track.album.name.as_str(), body(), palette.dim),
-                ],
-            );
-        },
-    );
-    let response = &row.response;
-    if response.clicked() || (response.secondary_clicked() && !marked) {
-        let modifiers = ui.input(|i| i.modifiers);
-        if response.clicked() && modifiers.command {
-            if !nav.marked.remove(&index) {
-                nav.marked.insert(index);
-            }
-        } else if response.clicked() && modifiers.shift {
-            let from = nav.anchor.unwrap_or(index);
-            nav.marked = (from.min(index)..=from.max(index)).collect();
-        } else {
-            nav.marked = BTreeSet::from([index]);
-        }
-        if !(response.clicked() && modifiers.shift) {
-            nav.anchor = Some(index);
-        }
-    }
-    // What a drag, a key or the menu takes: the selection, if this song
-    // is in it.
-    let these = |nav: &Nav| -> Vec<TrackRef> {
-        if nav.marked.contains(&index) {
-            nav.marked
-                .iter()
-                .filter_map(|&i| tracks.get(i))
-                .cloned()
-                .collect()
-        } else {
-            vec![track.clone()]
-        }
-    };
-    if response.drag_started() {
-        response.dnd_set_drag_payload(CatalogDrag::Tracks(these(nav)));
-    }
-    if row.button {
-        actions.push(Action::AddTracks(vec![track.clone()]));
-    } else if matches!(row.act, Some(Act::Add)) {
-        actions.push(Action::AddTracks(these(nav)));
-    } else if response.double_clicked() || matches!(row.act, Some(Act::Open)) {
-        actions.push(Action::PlayNow(track.clone()));
-    }
-    let target = view
-        .library
-        .get(view.browse.target)
-        .map_or("the playlist", |list| list.name.as_str());
-    response.context_menu(|ui| {
-        let item = |ui: &mut Ui, name: &str, enabled: bool| {
-            let label = RichText::new(name).monospace().size(11.0);
-            ui.add_enabled(enabled, egui::Button::new(label).frame_when_inactive(false))
-        };
-        if item(ui, &format!("Add to {target}"), true).clicked() {
-            actions.push(Action::AddTracks(these(nav)));
-        }
-        let remove = item(ui, "Remove from this playlist", editable)
-            .on_disabled_hover_text("Only your own playlists can be changed");
-        if remove.clicked() {
-            let rows = if nav.marked.contains(&index) {
-                nav.marked.iter().copied().collect()
-            } else {
-                vec![index]
-            };
-            actions.push(Action::RemoveFromSpotify(uri.to_string(), rows));
-            nav.marked.clear();
-            nav.anchor = None;
-        }
-    });
 }
 
 fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut Actions) {

@@ -128,7 +128,10 @@ pub enum Action {
     DropAlbum(String, usize),
     /// Puts a song after the target playlist's current one and plays it.
     PlayNow(TrackRef),
-    /// Opens a Spotify playlist's page, or Liked Songs', by URI.
+    /// Shows this tab of Browse, opening Browse if needed.
+    ShowBrowseTab(crate::browse::BrowseTab),
+    /// Shows a Spotify playlist's songs in YOUR SPOTIFY, or Liked Songs',
+    /// by URI.
     OpenSpotifyPlaylist(String),
     /// Removes songs from a Spotify playlist of the account's own, or
     /// from Liked Songs (un-likes them), by their index among its songs

@@ -287,6 +287,8 @@ impl Controller {
         let mut browse = Browse::new(viewed, settings.covers);
         browse.recent_searches = history.searches;
         browse.recent = history.artists;
+        browse.shown = history.tab;
+        browse.spotify_open = history.spotify_playlist;
         Self {
             paths,
             backend,
@@ -1112,9 +1114,20 @@ impl Controller {
             Action::AddAlbum(album) => self.add_album(album, None),
             Action::DropAlbum(album, at) => self.add_album(album, Some(at)),
             Action::ReadSpotifyPlaylists => self.read_spotify_playlists(),
+            Action::ShowBrowseTab(tab) => {
+                let browse = &mut self.state.browse;
+                browse.shown = tab;
+                if !browse.open {
+                    browse.open = true;
+                    browse.target = self.state.viewed;
+                    self.read_spotify_playlists();
+                }
+                self.mark_unsaved();
+            }
             Action::OpenSpotifyPlaylist(uri) => {
-                self.state.browse.go(Page::Playlist(uri.clone()));
+                self.state.browse.spotify_open = Some(uri.clone());
                 self.read_album(uri);
+                self.mark_unsaved();
             }
             Action::RemoveFromSpotify(uri, rows) => self.remove_from_spotify(uri, rows),
             Action::UndoSpotifyRemoval => {
@@ -1311,7 +1324,7 @@ impl Controller {
         for playlist in &playlists {
             let browse = &mut self.state.browse;
             let shown = browse.expanded.contains(&playlist.uri)
-                || *browse.page() == Page::Playlist(playlist.uri.clone());
+                || browse.spotify_open.as_ref() == Some(&playlist.uri);
             let stale = match browse.albums.get(&playlist.uri) {
                 Some(Loadable::Ready(songs)) => !shown || songs.len() != playlist.tracks,
                 Some(Loadable::Failed(_)) => true,
@@ -1585,6 +1598,8 @@ impl Controller {
         let history = store::History {
             searches: state.browse.recent_searches.clone(),
             artists: state.browse.recent.clone(),
+            tab: state.browse.shown,
+            spotify_playlist: state.browse.spotify_open.clone(),
         };
         if let Err(error) = store::save_history(&self.paths, &history) {
             log::error!("{error:#}");
@@ -1842,8 +1857,8 @@ mod tests {
         rig.controller
             .apply(Action::OpenSpotifyPlaylist(uri.clone()));
         assert_eq!(
-            *rig.controller.state().browse.page(),
-            Page::Playlist(uri.clone())
+            rig.controller.state().browse.spotify_open.as_ref(),
+            Some(&uri)
         );
         // An episode at 1 and a song gone at 4 aren't shown.
         let places = [0, 2, 3, 5].map(Place::At).to_vec();

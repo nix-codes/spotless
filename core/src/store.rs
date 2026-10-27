@@ -145,13 +145,19 @@ pub fn save_library(paths: &Paths, library: &Library, tabs: Tabs) -> Result<()> 
     write_atomically(&paths.playlists(), &serde_json::to_vec(&file)?)
 }
 
-/// What Browse's home page lists: recent searches and artists, newest first.
+/// What Browse's home page lists: recent searches and artists, newest
+/// first; and where Browse was left.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct History {
     #[serde(default)]
     pub searches: Vec<String>,
     #[serde(default)]
     pub artists: Vec<ArtistRef>,
+    #[serde(default)]
+    pub tab: crate::browse::BrowseTab,
+    /// The Spotify playlist YOUR SPOTIFY showed.
+    #[serde(default)]
+    pub spotify_playlist: Option<String>,
 }
 
 /// The saved history, or an empty one.

@@ -589,8 +589,7 @@ pub struct BrowseView {
 pub(crate) fn browse(state: &State) -> BrowseView {
     let browse = &state.browse;
     let page = match browse.page() {
-        // The app has no Spotify playlist pages (yet): never opened there.
-        Page::Home | Page::Playlist(_) => BrowsePage::Home {
+        Page::Home => BrowsePage::Home {
             searches: browse.recent_searches.clone(),
             recent: browse.recent.iter().map(Into::into).collect(),
         },
