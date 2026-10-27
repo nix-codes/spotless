@@ -18,7 +18,9 @@ use spotless::controller::Controller;
 use spotless::demo;
 use spotless::paths::Paths;
 use spotless::phosphor::Phosphor;
+use spotless::playback::analyser;
 use spotless::skin::format::built_in::WINAMP_CLASSIC_KEY;
+use spotless::store::DeckMedia;
 use spotless::ui::{self, Cover, Inputs, View};
 
 /// The window's size, as Spotless opens at.
@@ -40,6 +42,8 @@ struct Shot {
     skin: Option<&'static str>,
     phosphor: Phosphor,
     screen: Screen,
+    /// The deck under the player (VIS), playing on this.
+    deck: Option<DeckMedia>,
 }
 
 const fn shot(
@@ -53,12 +57,21 @@ const fn shot(
         skin,
         phosphor,
         screen,
+        deck: None,
+    }
+}
+
+/// The playlists with the deck showing, on `media`.
+const fn deck(file: &'static str, media: DeckMedia) -> Shot {
+    Shot {
+        deck: Some(media),
+        ..shot(file, None, Phosphor::Green, Screen::Playlists)
     }
 }
 
 const WINAMP: Option<&str> = Some(WINAMP_CLASSIC_KEY);
 
-const SHOTS: [Shot; 6] = [
+const SHOTS: [Shot; 10] = [
     shot("playlist.png", None, Phosphor::Green, Screen::Playlists),
     shot("browse-winamp.png", WINAMP, Phosphor::Green, Screen::Browse),
     shot(
@@ -80,6 +93,10 @@ const SHOTS: [Shot; 6] = [
         Phosphor::Green,
         Screen::Settings("Display"),
     ),
+    deck("deck-cassette.png", DeckMedia::Cassette),
+    deck("deck-reel.png", DeckMedia::Reel),
+    deck("deck-cd.png", DeckMedia::Cd),
+    deck("deck-vinyl.png", DeckMedia::Vinyl),
 ];
 
 fn main() -> Result<()> {
@@ -136,6 +153,8 @@ struct Demo {
     /// The skin, loaded on the first frame, with the context.
     look: Option<Look>,
     covers: HashMap<String, Cover>,
+    /// The music the deck hears, when it shows.
+    sound: Option<Vec<f32>>,
 }
 
 impl Demo {
@@ -145,6 +164,10 @@ impl Demo {
         settings.skin = shot.skin.map(String::from);
         settings.phosphor = shot.phosphor;
         settings.volume = 70;
+        if let Some(media) = shot.deck {
+            settings.deck_shown = true;
+            settings.deck_media = media;
+        }
         let mut inputs = Inputs {
             volume: 70,
             ..Inputs::default()
@@ -169,6 +192,7 @@ impl Demo {
             inputs,
             look: None,
             covers: HashMap::new(),
+            sound: shot.deck.map(|_| demo::sound()),
         }
     }
 
@@ -196,6 +220,10 @@ impl Demo {
                 );
                 self.covers.insert(url, Cover::Ready(texture));
             }
+        }
+        // The song as it sounds now, as the audio output would feed it.
+        if let Some(sound) = &self.sound {
+            analyser::feed(sound, 1.0);
         }
         let player = state.now_playing();
         let tabs = state.tabs();

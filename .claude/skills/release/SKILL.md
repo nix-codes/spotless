@@ -22,7 +22,7 @@ say so and leave it out.
 
 Also follow the `screenshots` skill (`.claude/skills/screenshots/`) up to
 its commit step, drawing only the released app's screenshots (`android`
-for Android; `playlist browse phosphor settings` for the desktop), and
+for Android; `playlist browse phosphor settings deck` for the desktop), and
 show what changed with the notes in step 3. Refreshed screenshots are
 committed, with the user's say-so, before the release: it is made from
 `main` as pushed.

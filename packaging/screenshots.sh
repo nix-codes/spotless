@@ -7,7 +7,8 @@
 #   packaging/screenshots.sh browse android   only the files starting so
 #
 # The desktop's are drawn by examples/screenshots.rs, with a GPU wgpu can
-# draw with (Vulkan, Metal or DirectX 12) or Mesa's software renderer. The
+# draw with (Vulkan, Metal or DirectX 12) or Mesa's software renderer,
+# the deck's (deck-*.png) hearing a made-up moment of the song. The
 # Android app's by its ScreenshotTest (android/app/src/test), on this
 # computer with Robolectric, from the core built for it here; it needs the
 # Android SDK the app builds with.

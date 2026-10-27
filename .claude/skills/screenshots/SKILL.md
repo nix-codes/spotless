@@ -11,7 +11,12 @@ nobody's account or library is in them:
 
 - the desktop's by `examples/screenshots.rs`, the real interface drawn
   without a window; its `SHOTS` list says which files there are and what
-  each shows;
+  each shows. The `deck-*.png` ones show the deck (VIS) on each of its
+  players; the example feeds the deck a made-up moment of the song
+  (`demo::sound`) every frame, as the audio output would, so the
+  spectrum and the levels show music rather than silence. The deck moves,
+  but the harness steps a fixed time per frame, so it's drawn at the same
+  moment every time;
 - the Android app's (`android*.png`) by
   `android/app/src/test/java/dev/spotless/ScreenshotTest.kt`, the real
   Compose screens drawn on this computer with Robolectric and Roborazzi,
@@ -36,7 +41,10 @@ the committed one, saved to the scratchpad with
 `git show HEAD:docs/screenshots/<file> > <scratchpad>/old-<file>`, and
 say in a line what is different (the selection's colour, a new button…).
 Check each new image too: the screen it should show, nothing cut off or
-missing, covers drawn in the same colours in both apps. A screenshot that
+missing, covers drawn in the same colours in both apps. In a deck shot:
+the player it's named after, the song's names on it readable, and the
+spectrum and the levels lit (all dark means the example's sound no
+longer reaches the deck). A screenshot that
 looks wrong points at the drawing code or at a real bug in the interface:
 say which, don't commit it.
 
@@ -50,7 +58,8 @@ it is drawn for nothing), and fix any difference. A file that's no
 longer drawn is deleted.
 
 If either app gained something a reader of the README would want to see
-that no shot shows, suggest adding one (to `SHOTS`, or a test in
+that no shot shows (a new player for the deck, say, which needs its own
+`deck-*.png`), suggest adding one (to `SHOTS`, or a test in
 `ScreenshotTest`) and a place for it in the README. Edit the README only
 with the user's go-ahead. Keep its shape: one or two images at the top for
 a first look, the rest under Screenshots, and at most two colours (green

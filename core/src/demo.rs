@@ -108,6 +108,44 @@ fn cover_url(n: usize) -> String {
     format!("{COVER_PREFIX}{n}")
 }
 
+/// A moment of the song playing, made up: interleaved stereo at the
+/// player's rate, a chord and its overtones over a little noise, louder
+/// low than high as music is, for the desktop deck's spectrum and levels.
+pub fn sound() -> Vec<f32> {
+    const FRAMES: usize = 2048;
+    const NOTES: [(f32, f32); 10] = [
+        (55.0, 0.30),
+        (110.0, 0.22),
+        (165.0, 0.12),
+        (330.0, 0.10),
+        (440.0, 0.08),
+        (660.0, 0.05),
+        (1320.0, 0.03),
+        (2640.0, 0.015),
+        (5280.0, 0.008),
+        (10_560.0, 0.004),
+    ];
+    let rate = librespot_playback::SAMPLE_RATE as f32;
+    // The noise from a fixed seed, so the same moment always sounds the same.
+    let mut seed: u32 = 0x5107_1e55;
+    let mut noise = || {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (seed >> 8) as f32 / (1 << 24) as f32 - 0.5
+    };
+    let mut samples = Vec::with_capacity(FRAMES * 2);
+    for frame in 0..FRAMES {
+        let t = frame as f32 / rate;
+        let chord: f32 = NOTES
+            .iter()
+            .map(|(hz, level)| level * (std::f32::consts::TAU * hz * t).sin())
+            .sum();
+        // The right a little quieter than the left, so the meters differ.
+        samples.push(chord + 0.01 * noise());
+        samples.push(0.8 * chord + 0.01 * noise());
+    }
+    samples
+}
+
 /// The cover at a demo URL: two colours split by a slant, and a disc.
 /// None for any other URL.
 pub fn cover(url: &str) -> Option<CoverImage> {
