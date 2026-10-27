@@ -121,17 +121,37 @@ fn playlist_list(
         nav.row = Some(0);
         nav.reveal = true;
     }
-    if edit.has_focus() {
+    // The arrows and PgUp / PgDn in the field, or in the list after a
+    // click took the keyboard from the field; Home / End too out of it.
+    let typing = edit.has_focus();
+    if typing {
         nav.area = Area::Lists;
-        let (up, down) = ui.input(|i| (i.key_pressed(Key::ArrowUp), i.key_pressed(Key::ArrowDown)));
+    }
+    if typing || (nav.area == Area::Lists && !ui.ctx().text_edit_focused()) {
         let at = order.iter().position(|p| Some(p.uri.as_str()) == open);
-        let next = match (up, down, at) {
-            (true, _, Some(at)) => Some(at.saturating_sub(1)),
-            (_, true, Some(at)) => Some((at + 1).min(order.len().saturating_sub(1))),
-            (true, _, None) | (_, true, None) => Some(0),
-            _ => None,
-        };
-        if let Some(playlist) = next.and_then(|n| order.get(n)) {
+        let last = order.len().saturating_sub(1);
+        let next = ui.input(|i| {
+            if !i.modifiers.is_none() {
+                return None;
+            }
+            let from = at.unwrap_or(0);
+            if i.key_pressed(Key::ArrowDown) {
+                Some(at.map_or(0, |at| at + 1))
+            } else if i.key_pressed(Key::ArrowUp) {
+                Some(from.saturating_sub(1))
+            } else if i.key_pressed(Key::PageDown) {
+                Some(from + super::PAGE_ROWS)
+            } else if i.key_pressed(Key::PageUp) {
+                Some(from.saturating_sub(super::PAGE_ROWS))
+            } else if !typing && i.key_pressed(Key::Home) {
+                Some(0)
+            } else if !typing && i.key_pressed(Key::End) {
+                Some(last)
+            } else {
+                None
+            }
+        });
+        if let Some(playlist) = next.and_then(|n| order.get(n.min(last))) {
             actions.push(Action::OpenSpotifyPlaylist(playlist.uri.clone()));
             nav.keyboard = true;
             nav.list_reveal = true;

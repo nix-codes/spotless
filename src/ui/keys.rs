@@ -89,7 +89,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Insert or A", "Add the album or song"),
             ("Delete", "Remove from the playlist"),
             ("Ctrl+A", "Select all of a Spotify playlist"),
-            ("Ctrl+Z", "Put back songs removed from Spotify"),
+            ("Ctrl+Z", "Put back what was removed from Spotify"),
             ("Alt+1 … 4", "All, Albums, Singles, Appears on"),
             ("Ctrl+S", "Oldest / newest first"),
             ("Ctrl+E", "Show / hide all songs"),
