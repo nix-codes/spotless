@@ -148,7 +148,16 @@ pub struct Fit {
     least: Option<(f32, f32)>,
 }
 
-impl Inputs {}
+impl Fit {
+    /// The window's height, `height` points now, as it is with the
+    /// playlists showing.
+    pub fn with_playlists(&self, height: f32) -> f32 {
+        match self.collapsed {
+            Some(_) => self.expanded.unwrap_or(DEFAULT_HEIGHT),
+            None => height,
+        }
+    }
+}
 
 const TITLE_HEIGHT: f32 = 20.0;
 const TITLE: &str = "S P O T L E S S";

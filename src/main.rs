@@ -30,13 +30,21 @@ fn main() -> Result<()> {
     // the window itself, so a start from a terminal shows it too.
     let icon =
         eframe::icon_data::from_png_bytes(include_bytes!("../packaging/icons/spotless-256.png"))?;
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("Spotless")
+        .with_app_id("spotless")
+        .with_icon(icon)
+        .with_inner_size([960.0, 600.0])
+        .with_min_inner_size(spotless::ui::MIN_WINDOW);
+    // The window opens where it was left, as big.
+    if let Some(place) = spotless::store::Settings::load(&paths).window {
+        viewport = viewport.with_inner_size(place.size);
+        if let Some(position) = place.position {
+            viewport = viewport.with_position(position);
+        }
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Spotless")
-            .with_app_id("spotless")
-            .with_icon(icon)
-            .with_inner_size([960.0, 600.0])
-            .with_min_inner_size(spotless::ui::MIN_WINDOW),
+        viewport,
         ..Default::default()
     };
     // Raw mouse motion is of no use to Spotless, and eframe repaints for

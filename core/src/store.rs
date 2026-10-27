@@ -42,6 +42,20 @@ pub struct Tabs {
     pub spotify_at: usize,
 }
 
+/// Where the desktop's window was and how big, to open it there again.
+/// In points at a zoom of 1.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WindowPlace {
+    /// The window's outer top left corner; None where the desktop doesn't
+    /// tell (Wayland).
+    #[serde(default)]
+    pub position: Option<[f32; 2]>,
+    /// Its content's size, as tall as it is with the playlists showing.
+    pub size: [f32; 2],
+    #[serde(default)]
+    pub maximized: bool,
+}
+
 /// What the desktop's deck plays the music on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DeckMedia {
@@ -206,6 +220,8 @@ pub struct Settings {
     /// reels, its spectrum and its levels.
     pub deck_shown: bool,
     pub deck_media: DeckMedia,
+    /// The desktop's window, as it was left.
+    pub window: Option<WindowPlace>,
     raw: Map<String, Value>,
 }
 
@@ -327,6 +343,15 @@ impl Settings {
                 .collect(),
             deck_shown: flag("deck_shown"),
             deck_media: DeckMedia::from_key(raw.get("deck_media").and_then(Value::as_str)),
+            window: raw
+                .get("window")
+                .and_then(|value| WindowPlace::deserialize(value).ok())
+                .filter(|place| {
+                    place
+                        .size
+                        .iter()
+                        .all(|side| side.is_finite() && *side > 0.0)
+                }),
             raw: raw.clone(),
         }
     }
@@ -368,6 +393,10 @@ impl Settings {
         }
         raw.insert("deck_shown".into(), self.deck_shown.into());
         raw.insert("deck_media".into(), self.deck_media.key().into());
+        match self.window.map(serde_json::to_value) {
+            Some(Ok(window)) => raw.insert("window".into(), window),
+            _ => raw.remove("window"),
+        };
         raw
     }
 
@@ -469,6 +498,23 @@ mod tests {
         let raw: Value = serde_json::from_slice(&std::fs::read(paths.settings()).unwrap()).unwrap();
         assert_eq!(raw["web_client_id"], "abc");
         assert_eq!(raw["shuffle"], true);
+    }
+
+    #[test]
+    fn the_window_place_is_kept_and_a_broken_one_dropped() {
+        let paths = temporary_paths("window");
+        assert_eq!(Settings::load(&paths).window, None);
+        let place = WindowPlace {
+            position: Some([120.0, 80.0]),
+            size: [900.0, 640.0],
+            maximized: false,
+        };
+        let mut settings = Settings::load(&paths);
+        settings.window = Some(place);
+        settings.save(&paths).unwrap();
+        assert_eq!(Settings::load(&paths).window, Some(place));
+        std::fs::write(paths.settings(), br#"{"window":{"size":[0,600]}}"#).unwrap();
+        assert_eq!(Settings::load(&paths).window, None);
     }
 
     #[test]

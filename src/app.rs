@@ -63,6 +63,11 @@ impl App {
         palette.apply(&cc.egui_ctx);
         ui::deck::install_fonts(&cc.egui_ctx);
         cc.egui_ctx.set_zoom_factor(settings.zoom);
+        // Maximised from the start, the window manager would not take it.
+        if settings.window.is_some_and(|place| place.maximized) {
+            cc.egui_ctx
+                .send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+        }
 
         let (media_sender, media_events) = std::sync::mpsc::channel();
         let ctx = cc.egui_ctx.clone();
@@ -301,6 +306,39 @@ impl App {
         }
     }
 
+    /// Keeps where the window is and how big, to open it there next time.
+    /// A maximised window keeps the size it had before.
+    fn keep_window_place(&mut self, ctx: &egui::Context) {
+        let (outer, minimized, maximized) = ctx.input(|i| {
+            let viewport = i.viewport();
+            (
+                viewport.outer_rect,
+                viewport.minimized.unwrap_or(false),
+                viewport.maximized.unwrap_or(false),
+            )
+        });
+        if minimized {
+            return;
+        }
+        let zoom = ctx.zoom_factor();
+        let kept = self.controller.state().settings.window;
+        let size = ctx.content_rect().size();
+        let place = store::WindowPlace {
+            position: match (maximized, kept) {
+                (true, Some(kept)) => kept.position,
+                _ => outer.map(|outer| (outer.min.to_vec2() * zoom).into()),
+            },
+            size: match (maximized, kept) {
+                (true, Some(kept)) => kept.size,
+                _ => [size.x * zoom, self.inputs.fit.with_playlists(size.y) * zoom],
+            },
+            maximized,
+        };
+        if kept != Some(place) {
+            self.controller.settings_mut().window = Some(place);
+        }
+    }
+
     /// Draws with Winamp Classic, or Spotless Classic for anything else.
     /// A skin that can't be read leaves things as they are.
     fn use_skin(&mut self, skin: Option<&str>) -> Result<(), String> {
@@ -456,6 +494,7 @@ impl eframe::App for App {
         };
         ui::draw(ui, &view, &mut self.inputs, &mut actions);
         self.keep_zoom(ui.ctx());
+        self.keep_window_place(ui.ctx());
         // What the actions change is saved and shown by the next logic pass.
         if !actions.is_empty() {
             ui.ctx().request_repaint();
