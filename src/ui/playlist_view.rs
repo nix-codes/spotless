@@ -972,7 +972,7 @@ pub(super) fn row_menu(
     let mut chosen = None;
     let item = |ui: &mut Ui, name: &str, enabled: bool| {
         let label = RichText::new(name).monospace().size(11.0);
-        ui.add_enabled(enabled, egui::Button::new(label).frame(false))
+        ui.add_enabled(enabled, egui::Button::new(label).frame_when_inactive(false))
     };
     let targets = |ui: &mut Ui,
                    chosen: &mut Option<Choice>,

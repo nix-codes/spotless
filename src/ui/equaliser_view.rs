@@ -260,7 +260,10 @@ fn presets_menu(button: &Response, view: &View, inputs: &mut Inputs, actions: &m
         }));
     };
     let item = |ui: &mut Ui, name: &str| {
-        ui.add(egui::Button::new(RichText::new(name).monospace().size(11.0)).frame(false))
+        ui.add(
+            egui::Button::new(RichText::new(name).monospace().size(11.0))
+                .frame_when_inactive(false),
+        )
     };
     egui::Popup::menu(button).show(|ui| {
         egui::Grid::new("eq-presets")
