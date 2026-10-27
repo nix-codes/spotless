@@ -10,10 +10,10 @@ use std::time::{Duration, Instant};
 
 use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState, SpotifyRequest, Storage};
-use crate::browse::{Browse, Loadable, Page};
+use crate::browse::{Browse, Loadable, Page, Removal};
 use crate::browser::{self, Browser};
 use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
-use crate::model::catalog::{SpotifyPlaylist, SpotifyTarget};
+use crate::model::catalog::{Place, SpotifyPlaylist, SpotifyTarget};
 use crate::model::{ArtistRef, EntryId, Library, Playback, Playlist, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
@@ -233,6 +233,22 @@ impl Controller {
             Loadable::Ready(crate::demo::discography()),
         );
         state.browse.spotify_playlists = Some(Loadable::Ready(crate::demo::spotify_playlists()));
+        // Late Trains, the first of them, holds some of the playing songs.
+        if let Some(list) = state.library.get(demo.playing) {
+            let songs: Vec<TrackRef> = list
+                .entries()
+                .iter()
+                .take(12)
+                .map(|e| e.track.clone())
+                .collect();
+            let places = (0..songs.len()).map(Place::At).collect();
+            let uri = crate::demo::spotify_playlists()[1].uri.clone();
+            state
+                .browse
+                .places
+                .insert(uri.clone(), (Vec::new(), places));
+            state.browse.albums.insert(uri, Loadable::Ready(songs));
+        }
         // Started as a double-click would, with the engine's part told
         // by hand: there is no engine.
         let _ = state
@@ -470,14 +486,19 @@ impl Controller {
                         .collect();
                     self.pending_adds.retain(|(uri, _, _)| *uri != album);
                     match result {
-                        Ok(tracks) => {
+                        Ok(songs) => {
                             for (list, at) in pending {
-                                self.insert_tracks(list, at, tracks.clone());
+                                self.insert_tracks(list, at, songs.tracks.clone());
                             }
-                            self.state
-                                .browse
-                                .albums
-                                .insert(album, Loadable::Ready(tracks));
+                            let browse = &mut self.state.browse;
+                            if songs.places.is_empty() {
+                                browse.places.remove(&album);
+                            } else {
+                                browse
+                                    .places
+                                    .insert(album.clone(), (songs.revision, songs.places));
+                            }
+                            browse.albums.insert(album, Loadable::Ready(songs.tracks));
                         }
                         Err(error) => {
                             if !pending.is_empty() {
@@ -491,6 +512,11 @@ impl Controller {
                     }
                 }
                 Event::SpotifyPlaylists(result) => self.spotify_playlists_read(result),
+                Event::SpotifyEdited {
+                    removal,
+                    undo,
+                    result,
+                } => self.spotify_edited(removal, undo, result),
                 Event::CopiedToSpotify {
                     target,
                     songs,
@@ -1086,8 +1112,93 @@ impl Controller {
             Action::AddAlbum(album) => self.add_album(album, None),
             Action::DropAlbum(album, at) => self.add_album(album, Some(at)),
             Action::ReadSpotifyPlaylists => self.read_spotify_playlists(),
+            Action::OpenSpotifyPlaylist(uri) => {
+                self.state.browse.go(Page::Playlist(uri.clone()));
+                self.read_album(uri);
+            }
+            Action::RemoveFromSpotify(uri, rows) => self.remove_from_spotify(uri, rows),
+            Action::UndoSpotifyRemoval => {
+                if let Some(removal) = self.state.browse.undo.take() {
+                    self.state.notice =
+                        Some(format!("Putting the songs back in “{}”…", removal.name));
+                    self.send(Command::PutBackOnSpotify(removal));
+                }
+            }
             Action::CopyToSpotify(target, tracks) => self.copy_to_spotify(target, tracks),
             _ => {}
+        }
+    }
+
+    /// Takes songs off the page at once, and out of the Spotify playlist,
+    /// by their places when it was read: Spotify fits removals made since
+    /// to how it is now.
+    fn remove_from_spotify(&mut self, uri: String, mut rows: Vec<usize>) {
+        let browse = &mut self.state.browse;
+        if !matches!(self.state.session, SessionState::Ready { .. }) || !browse.editable(&uri) {
+            return;
+        }
+        let name = browse
+            .spotify_playlist(&uri)
+            .map(|p| p.name.clone())
+            .unwrap_or_default();
+        let (Some(Loadable::Ready(tracks)), Some((revision, places))) =
+            (browse.albums.get_mut(&uri), browse.places.get_mut(&uri))
+        else {
+            return;
+        };
+        rows.sort_unstable();
+        rows.dedup();
+        rows.retain(|&row| row < tracks.len() && row < places.len());
+        if rows.is_empty() {
+            return;
+        }
+        let songs: Vec<(Place, String)> = rows
+            .iter()
+            .map(|&row| (places[row], tracks[row].uri.clone()))
+            .collect();
+        for &row in rows.iter().rev() {
+            tracks.remove(row);
+            places.remove(row);
+        }
+        let revision = revision.clone();
+        let notice = format!("Removed {} from “{name}”.", count_songs(songs.len()));
+        let removal = Removal {
+            playlist: uri,
+            name,
+            songs,
+            notice,
+        };
+        self.send(Command::RemoveFromSpotify { removal, revision });
+    }
+
+    fn spotify_edited(&mut self, removal: Removal, undo: bool, result: Result<(), String>) {
+        match result {
+            Ok(()) if undo => {
+                self.state.notice = Some(format!(
+                    "Put {} back in “{}”.",
+                    count_songs(removal.songs.len()),
+                    removal.name
+                ));
+            }
+            Ok(()) => {
+                self.state.notice = Some(removal.notice.clone());
+                self.state.browse.undo = Some(removal.clone());
+            }
+            Err(error) => self.state.error = Some(error),
+        }
+        // Spotify's places from now on (an undo needs them), and the count.
+        self.reread_songs(removal.playlist);
+        self.read_spotify_playlists();
+    }
+
+    /// Reads a Spotify playlist's songs again, still showing those read.
+    fn reread_songs(&mut self, uri: String) {
+        match self.state.browse.albums.get(&uri) {
+            Some(Loadable::Ready(_)) => self.send(Command::Album(uri)),
+            _ => {
+                self.state.browse.albums.remove(&uri);
+                self.read_album(uri);
+            }
         }
     }
 
@@ -1116,12 +1227,11 @@ impl Controller {
     ) {
         match result {
             Ok(_) => {
-                let songs = match songs {
-                    1 => "1 song".to_string(),
-                    n => format!("{n} songs"),
-                };
-                self.state.notice =
-                    Some(format!("Copied {songs} to “{}” on Spotify.", target.name()));
+                self.state.notice = Some(format!(
+                    "Copied {} to “{}” on Spotify.",
+                    count_songs(songs),
+                    target.name()
+                ));
                 // The new count makes the songs read before stale.
                 self.read_spotify_playlists();
             }
@@ -1200,17 +1310,18 @@ impl Controller {
         };
         for playlist in &playlists {
             let browse = &mut self.state.browse;
-            let shown = browse.expanded.contains(&playlist.uri);
+            let shown = browse.expanded.contains(&playlist.uri)
+                || *browse.page() == Page::Playlist(playlist.uri.clone());
             let stale = match browse.albums.get(&playlist.uri) {
                 Some(Loadable::Ready(songs)) => !shown || songs.len() != playlist.tracks,
                 Some(Loadable::Failed(_)) => true,
                 Some(Loadable::Loading) | None => false,
             };
-            if stale {
+            if stale && shown {
+                self.reread_songs(playlist.uri.clone());
+            } else if stale {
                 browse.albums.remove(&playlist.uri);
-                if shown {
-                    self.read_album(playlist.uri.clone());
-                }
+                browse.places.remove(&playlist.uri);
             }
         }
         self.state.browse.spotify_playlists = Some(Loadable::Ready(playlists));
@@ -1493,6 +1604,14 @@ fn seed() -> u64 {
         .map_or(0, |d| d.as_nanos() as u64)
 }
 
+/// "1 song", "3 songs".
+fn count_songs(count: usize) -> String {
+    match count {
+        1 => "1 song".to_string(),
+        n => format!("{n} songs"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc;
@@ -1500,6 +1619,7 @@ mod tests {
     use tokio::sync::mpsc::UnboundedReceiver;
 
     use super::*;
+    use crate::model::catalog::Songs;
     use crate::model::playlist::tests::entry;
     use crate::playback::equaliser::Equaliser;
 
@@ -1560,6 +1680,14 @@ mod tests {
 
     fn tracks(ids: impl IntoIterator<Item = u64>) -> Vec<TrackRef> {
         ids.into_iter().map(|id| entry(id).track).collect()
+    }
+
+    /// An album's songs, as read.
+    fn songs(tracks: Vec<TrackRef>) -> Songs {
+        Songs {
+            tracks,
+            ..Songs::default()
+        }
     }
 
     #[test]
@@ -1632,7 +1760,7 @@ mod tests {
         assert_eq!(rig.songs(), ["Song 1", "Song 2"]);
         rig.tell(Event::Album {
             album: "spotify:album:a".into(),
-            result: Ok(tracks([7, 8])),
+            result: Ok(songs(tracks([7, 8]))),
         });
         assert_eq!(rig.songs(), ["Song 1", "Song 7", "Song 8", "Song 2"]);
     }
@@ -1661,7 +1789,7 @@ mod tests {
             rig.controller.apply(Action::ToggleAlbum(uri.into()));
             rig.tell(Event::Album {
                 album: uri.into(),
-                result: Ok(tracks([1, 2])),
+                result: Ok(songs(tracks([1, 2]))),
             });
         }
         rig.controller
@@ -1694,6 +1822,91 @@ mod tests {
         rig.tell(Event::SpotifyPlaylists(Err("offline".into())));
         let browse = &rig.controller.state().browse;
         assert!(matches!(&browse.spotify_playlists, Some(Loadable::Ready(p)) if p.len() == 1));
+    }
+
+    #[test]
+    fn songs_removed_from_a_spotify_playlist_go_by_their_places_and_come_back() {
+        let mut rig = Rig::new("remove-from-spotify");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        let playlist = |uri: &str, owner: Option<&str>| SpotifyPlaylist {
+            uri: uri.into(),
+            name: "Mine".into(),
+            tracks: 4,
+            owner: owner.map(String::from),
+        };
+        rig.tell(Event::SpotifyPlaylists(Ok(vec![
+            playlist("spotify:playlist:mine", None),
+            playlist("spotify:playlist:theirs", Some("Them")),
+        ])));
+        let uri = "spotify:playlist:mine".to_string();
+        rig.controller
+            .apply(Action::OpenSpotifyPlaylist(uri.clone()));
+        assert_eq!(
+            *rig.controller.state().browse.page(),
+            Page::Playlist(uri.clone())
+        );
+        // An episode at 1 and a song gone at 4 aren't shown.
+        let places = [0, 2, 3, 5].map(Place::At).to_vec();
+        rig.tell(Event::Album {
+            album: uri.clone(),
+            result: Ok(Songs {
+                tracks: tracks([1, 2, 3, 4]),
+                places,
+                revision: vec![7],
+            }),
+        });
+        rig.sent();
+        rig.controller
+            .apply(Action::RemoveFromSpotify(uri.clone(), vec![3, 1]));
+        let shown = |rig: &Rig| match rig.controller.state().browse.albums.get(&uri) {
+            Some(Loadable::Ready(tracks)) => tracks.iter().map(|t| t.title.clone()).collect(),
+            _ => Vec::new(),
+        };
+        assert_eq!(shown(&rig), ["Song 1", "Song 3"]);
+        let removal = match rig.sent().pop() {
+            Some(Command::RemoveFromSpotify { removal, revision }) => {
+                assert_eq!(revision, [7]);
+                removal
+            }
+            other => panic!("sent {other:?}"),
+        };
+        let places: Vec<Place> = removal.songs.iter().map(|(place, _)| *place).collect();
+        assert_eq!(places, [Place::At(2), Place::At(5)]);
+        rig.tell(Event::SpotifyEdited {
+            removal: removal.clone(),
+            undo: false,
+            result: Ok(()),
+        });
+        assert_eq!(
+            rig.controller.state().notice.as_deref(),
+            Some("Removed 2 songs from “Mine”.")
+        );
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::Album(a) if *a == uri))
+        );
+        rig.controller.apply(Action::UndoSpotifyRemoval);
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::PutBackOnSpotify(r) if *r == removal))
+        );
+        assert!(rig.controller.state().browse.undo.is_none());
+
+        // Others' playlists can't be changed.
+        let theirs = "spotify:playlist:theirs".to_string();
+        rig.tell(Event::Album {
+            album: theirs.clone(),
+            result: Ok(Songs {
+                tracks: tracks([1]),
+                places: vec![Place::At(0)],
+                revision: vec![1],
+            }),
+        });
+        rig.controller
+            .apply(Action::RemoveFromSpotify(theirs, vec![0]));
+        assert!(rig.sent().is_empty());
     }
 
     #[test]

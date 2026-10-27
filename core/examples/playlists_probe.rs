@@ -39,10 +39,10 @@ async fn main() -> Result<()> {
         println!(
             "{}: {} of {} songs read in {:?}, first: {:?}",
             playlist.name,
-            songs.len(),
+            songs.tracks.len(),
             playlist.tracks,
             began.elapsed(),
-            songs.first().map(|s| &s.title)
+            songs.tracks.first().map(|s| &s.title)
         );
     }
     Ok(())

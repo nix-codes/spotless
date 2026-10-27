@@ -17,7 +17,9 @@ use librespot_protocol::extension_kind::ExtensionKind;
 use librespot_protocol::playlist4_external::SelectedListContent;
 use protobuf::{EnumOrUnknown, Message};
 
-use crate::model::catalog::{Discography, Release, ReleaseGroup, SpotifyPlaylist, tidy};
+use crate::model::catalog::{
+    Discography, Place, Release, ReleaseGroup, Songs, SpotifyPlaylist, tidy,
+};
 use crate::model::{AlbumRef, ArtistRef, TrackRef};
 
 /// Accepts `spotify:` URIs and `open.spotify.com` links.
@@ -53,7 +55,10 @@ pub async fn link_tracks(session: &Session, text: &str) -> Result<Vec<TrackRef>>
             let album = first_release(session, &uri).await?;
             album_tracks(session, &album).await?
         }
-        uri @ SpotifyUri::Playlist { .. } => playlist_tracks(session, &uri).await?,
+        uri @ SpotifyUri::Playlist { .. } => {
+            let (tracks, _) = playlist_tracks(session, &uri).await?;
+            tracks.into_iter().map(|(uri, _)| uri).collect()
+        }
         _ => bail!("only tracks, albums, playlists and artists can be added"),
     };
     tracks(session, uris).await
@@ -66,20 +71,26 @@ async fn album_tracks(session: &Session, album: &SpotifyUri) -> Result<Vec<Spoti
     Ok(album.tracks().cloned().collect())
 }
 
-/// A playlist's tracks, leaving out its podcast episodes and local files.
-async fn playlist_tracks(session: &Session, playlist: &SpotifyUri) -> Result<Vec<SpotifyUri>> {
+/// A playlist's tracks with their places, leaving out its podcast
+/// episodes and local files, and the revision read.
+async fn playlist_tracks(
+    session: &Session,
+    playlist: &SpotifyUri,
+) -> Result<(Vec<(SpotifyUri, Place)>, Vec<u8>)> {
     let playlist = Playlist::get(session, playlist)
         .await
         .context("playlist not found")?;
-    Ok(playlist
+    let tracks = playlist
         .tracks()
-        .filter(|uri| matches!(uri, SpotifyUri::Track { .. }))
-        .cloned()
-        .collect())
+        .enumerate()
+        .filter(|(_, uri)| matches!(uri, SpotifyUri::Track { .. }))
+        .map(|(at, uri)| (uri.clone(), Place::At(at)))
+        .collect();
+    Ok((tracks, playlist.revision))
 }
 
 /// Liked Songs' tracks, the latest liked first, as Spotify lists them.
-async fn liked_tracks(session: &Session) -> Result<Vec<SpotifyUri>> {
+async fn liked_tracks(session: &Session) -> Result<Vec<(SpotifyUri, Place)>> {
     let mut items = Vec::new();
     let mut token = String::new();
     loop {
@@ -101,7 +112,10 @@ async fn liked_tracks(session: &Session) -> Result<Vec<SpotifyUri>> {
     items.sort_by_key(|item| std::cmp::Reverse(item.added_at));
     Ok(items
         .iter()
-        .filter_map(|item| SpotifyUri::from_uri(&item.uri).ok())
+        .filter_map(|item| {
+            let uri = SpotifyUri::from_uri(&item.uri).ok()?;
+            Some((uri, Place::Liked(item.added_at)))
+        })
         .collect())
 }
 
@@ -182,21 +196,32 @@ async fn display_name(session: &Session, user: &str) -> String {
 /// Reads the tracks' metadata, keeping their order and repeats (a playlist
 /// may have a song twice). Tracks Spotify doesn't know are left out.
 pub async fn tracks(session: &Session, uris: Vec<SpotifyUri>) -> Result<Vec<TrackRef>> {
+    let tagged = uris.into_iter().map(|uri| (uri, ())).collect();
+    let found = tracks_with(session, tagged).await?;
+    Ok(found.into_iter().map(|(track, ())| track).collect())
+}
+
+/// Like [`tracks`], each track keeping what it came with.
+async fn tracks_with<T>(
+    session: &Session,
+    uris: Vec<(SpotifyUri, T)>,
+) -> Result<Vec<(TrackRef, T)>> {
     let mut seen = HashSet::new();
     let unique: Vec<SpotifyUri> = uris
         .iter()
+        .map(|(uri, _)| uri)
         .filter(|uri| seen.insert(uri.to_uri()))
         .cloned()
         .collect();
     let read = read_many::<Track>(session, &unique, ExtensionKind::TRACK_V4).await?;
-    let found: Vec<TrackRef> = uris
-        .iter()
-        .filter_map(|uri| {
+    let found: Vec<(TrackRef, T)> = uris
+        .into_iter()
+        .filter_map(|(uri, tag)| {
             let track = read.get(&uri.to_uri());
             if track.is_none() {
                 log::warn!("track {uri} unavailable");
             }
-            track.map(track_ref)
+            Some((track_ref(track?), tag))
         })
         .collect();
     if found.is_empty() {
@@ -392,20 +417,33 @@ fn image_url(covers: &Images) -> Option<String> {
         .map(|image| format!("https://i.scdn.co/image/{}", image.id.to_base16()))
 }
 
-/// The songs of an album, a playlist or Liked Songs, by URI, in order.
-pub async fn songs(session: &Session, uri: &str) -> Result<Vec<TrackRef>> {
-    let uris = if uri == LIKED_SONGS {
-        liked_tracks(session).await?
+/// The songs of an album, a playlist or Liked Songs, by URI, in order;
+/// a playlist's and Liked Songs' with their places.
+pub async fn songs(session: &Session, uri: &str) -> Result<Songs> {
+    let (uris, revision, placed) = if uri == LIKED_SONGS {
+        (liked_tracks(session).await?, Vec::new(), true)
     } else {
         match parse_uri(uri)? {
-            uri @ SpotifyUri::Playlist { .. } => playlist_tracks(session, &uri).await?,
-            uri => album_tracks(session, &uri).await?,
+            uri @ SpotifyUri::Playlist { .. } => {
+                let (uris, revision) = playlist_tracks(session, &uri).await?;
+                (uris, revision, true)
+            }
+            uri => {
+                let uris = album_tracks(session, &uri).await?;
+                let uris = uris.into_iter().map(|uri| (uri, Place::At(0))).collect();
+                (uris, Vec::new(), false)
+            }
         }
     };
     if uris.is_empty() {
         bail!("no songs in it");
     }
-    tracks(session, uris).await
+    let (tracks, places) = tracks_with(session, uris).await?.into_iter().unzip();
+    Ok(Songs {
+        tracks,
+        places: if placed { places } else { Vec::new() },
+        revision,
+    })
 }
 
 #[cfg(test)]

@@ -528,7 +528,8 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
         ),
     };
     let inner = rect.shrink2(vec2(GUTTER, 0.0));
-    // Buttons from the right: SETTINGS, then KEYS.
+    // Buttons from the right: SETTINGS, then KEYS, then UNDO after a
+    // removal.
     let mut right = inner.right();
     let mut button = |ui: &mut Ui, label: &str| {
         let width = widgets::small_button_width(ui, label);
@@ -545,6 +546,13 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
     }
     if button(ui, "F1 · KEYS") {
         inputs.help = true;
+    }
+    // Songs just removed from a Spotify playlist can be put back.
+    let undo = view.browse.undo.as_ref().is_some_and(|removal| {
+        view.error.is_none() && view.notice == Some(removal.notice.as_str())
+    });
+    if undo && button(ui, "UNDO") {
+        actions.push(Action::UndoSpotifyRemoval);
     }
     if let Some(label) = update_view::status_label(view)
         && button(ui, &label)

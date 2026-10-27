@@ -16,10 +16,12 @@ use librespot_core::session::Session;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::time::MissedTickBehavior;
 
+use crate::browse::Removal;
 use crate::browser::Browser;
 use crate::images::CoverImage;
 use crate::lastfm::{self, LastFmState, Scrobbler, api::Keys};
-use crate::model::catalog::{Discography, SearchResults, SpotifyPlaylist, SpotifyTarget};
+use crate::model::catalog::Place;
+use crate::model::catalog::{Discography, SearchResults, Songs, SpotifyPlaylist, SpotifyTarget};
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot, Status};
@@ -63,6 +65,14 @@ pub enum Command {
         target: SpotifyTarget,
         songs: Vec<String>,
     },
+    /// Takes songs out of a Spotify playlist, by their places in it at
+    /// this revision, or out of Liked Songs.
+    RemoveFromSpotify {
+        removal: Removal,
+        revision: Vec<u8>,
+    },
+    /// Puts removed songs back.
+    PutBackOnSpotify(Removal),
     /// An album cover, by image URL.
     Cover(String),
     /// The personal app search signs in with changed (None: no app).
@@ -193,9 +203,15 @@ pub enum Event {
     },
     Album {
         album: String,
-        result: Result<Vec<TrackRef>, String>,
+        result: Result<Songs, String>,
     },
     SpotifyPlaylists(Result<Vec<SpotifyPlaylist>, String>),
+    /// Songs removed from a Spotify playlist, or put back with `undo`.
+    SpotifyEdited {
+        removal: Removal,
+        undo: bool,
+        result: Result<(), String>,
+    },
     /// Songs copied to a Spotify playlist: its URI, once they are.
     CopiedToSpotify {
         target: SpotifyTarget,
@@ -760,6 +776,57 @@ impl Worker {
                 (self.emit)(Event::Spotify(Some(queue)));
             }
         }
+    }
+
+    /// Removes songs from a Spotify playlist or Liked Songs, as they were
+    /// at `revision`; or with None puts them back.
+    fn edit_spotify(&mut self, removal: Removal, revision: Option<Vec<u8>>) {
+        let Some(session) = self.session.clone() else {
+            return;
+        };
+        let emit = Arc::clone(&self.emit);
+        tokio::spawn(async move {
+            let rows: Vec<(usize, String)> = removal
+                .songs
+                .iter()
+                .filter_map(|(place, uri)| match place {
+                    Place::At(at) => Some((*at, uri.clone())),
+                    Place::Liked(_) => None,
+                })
+                .collect();
+            let liked: Vec<(String, i64)> = removal
+                .songs
+                .iter()
+                .filter_map(|(place, uri)| match place {
+                    Place::Liked(at) => Some((uri.clone(), *at)),
+                    Place::At(_) => None,
+                })
+                .collect();
+            let playlist = &removal.playlist;
+            let result = if playlist == catalog::LIKED_SONGS {
+                match revision {
+                    Some(_) => {
+                        let uris: Vec<String> = liked.into_iter().map(|(uri, _)| uri).collect();
+                        playlists::unlike(&session, &uris).await
+                    }
+                    None => playlists::like(&session, &liked).await,
+                }
+            } else {
+                match &revision {
+                    Some(revision) => {
+                        playlists::remove_at(&session, playlist, revision.clone(), &rows)
+                            .await
+                            .map(|_| ())
+                    }
+                    None => playlists::put_back(&session, playlist, &rows).await,
+                }
+            };
+            emit(Event::SpotifyEdited {
+                removal,
+                undo: revision.is_none(),
+                result: result.map_err(|e| format!("{e:#}")),
+            });
+        });
     }
 
     fn spotify(&mut self, request: SpotifyRequest) {
@@ -1360,6 +1427,10 @@ impl Worker {
                     emit(Event::SpotifyPlaylists(result));
                 });
             }
+            Command::RemoveFromSpotify { removal, revision } => {
+                self.edit_spotify(removal, Some(revision));
+            }
+            Command::PutBackOnSpotify(removal) => self.edit_spotify(removal, None),
             Command::CopyToSpotify { target, songs } => {
                 let Some(session) = self.session.clone() else {
                     return;

@@ -68,6 +68,28 @@ pub struct SpotifyPlaylist {
     pub owner: Option<String>,
 }
 
+/// Where a song read from a Spotify playlist or Liked Songs is there:
+/// what removing it, and putting it back, needs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Place {
+    /// Its position in the playlist, counting what Spotless leaves out
+    /// (podcast episodes, songs gone from Spotify).
+    At(usize),
+    /// When it was liked, in seconds since 1970.
+    Liked(i64),
+}
+
+/// The songs of an album or a Spotify playlist, as read.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Songs {
+    pub tracks: Vec<TrackRef>,
+    /// Each song's place, for a Spotify playlist or Liked Songs; empty for
+    /// an album.
+    pub places: Vec<Place>,
+    /// The playlist's revision they were read at.
+    pub revision: Vec<u8>,
+}
+
 /// Where songs copied to Spotify go.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SpotifyTarget {

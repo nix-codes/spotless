@@ -85,16 +85,21 @@ Spotify only allows playback in other apps for Premium accounts.
   page is just the discography: All, Albums, Singles & EPs, Appears on;
   Albums first, oldest first, songs opening inline. **+ ADD** adds a whole
   album to the playlist shown alongside. Pasting a Spotify link adds it too.
-  Browse also lists your Spotify playlists, Liked Songs first, with who
-  made the ones you follow: open one to see its songs, add it whole or
-  song by song (desktop).
+  Browse also lists your Spotify playlists, yours (Liked Songs first)
+  apart from the ones you follow, with who made those: the arrow shows a
+  playlist's songs in place, and its name opens its page, to add it whole
+  or song by song (desktop).
+- **Tidy your Spotify playlists** (desktop): on the page of one of your
+  own, or Liked Songs, select songs as in a tab and press Delete or REM
+  to take them out of it on Spotify (from Liked Songs, that un-likes
+  them). UNDO in the status bar, or Ctrl+Z, puts them back where they
+  were. The playlists you follow can't be changed.
 - **Copy to Spotify** (desktop): right-click songs, *Copy to > Spotify
   playlist…*, and pick one of your own playlists (type to find it) or make
   a new one; right-click a tab, *Save to Spotify…*, to make a new playlist
   of all its songs. A new playlist's name is asked first, the tab's to
   start with. It's a copy, made once: changing the tab later doesn't
-  change the Spotify playlist. Spotless only ever adds songs to your
-  Spotify playlists, never removes any.
+  change the Spotify playlist.
 - **Pics are optional**: album covers and artists' pictures. Off by default
   on the desktop, on by default on Android; either way, they show in the
   catalogue only. Playlists stay text.

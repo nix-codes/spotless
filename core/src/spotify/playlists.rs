@@ -1,15 +1,16 @@
 //! Writes to the account's Spotify playlists over the librespot session,
-//! as Spotify's own clients do: a new playlist, and songs added to the end
-//! of one. Spotless never removes anything from them.
+//! as Spotify's own clients do: a new playlist, songs added to the end of
+//! one, songs removed and put back; and songs liked and un-liked.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use librespot_core::session::Session;
 use librespot_core::{SpotifyId, SpotifyUri};
+use librespot_protocol::collection2v2::CollectionItem;
 use librespot_protocol::playlist4_external::{
     Add, ChangeInfo, CreateListReply, Delta, Item, ItemAttributes, ListAttributes,
-    ListAttributesPartialState, ListChanges, ListUpdateRequest, Op, SelectedListContent,
+    ListAttributesPartialState, ListChanges, ListUpdateRequest, Op, Rem, SelectedListContent,
     UpdateListAttributes, op,
 };
 use protobuf::{Message, MessageField};
@@ -89,10 +90,134 @@ pub async fn create(session: &Session, name: &str, songs: &[String]) -> Result<S
 
 /// Adds songs (track URIs) to the end of a playlist.
 pub async fn add(session: &Session, playlist: &str, songs: &[String]) -> Result<()> {
+    let revision = revision(session, playlist).await?;
+    write(session, playlist, revision, None, songs).await
+}
+
+/// Songs of a playlist, by their place in it and URI.
+pub type Rows = [(usize, String)];
+
+/// Removes these songs from a playlist, each by its place, so that only
+/// that copy of a song there twice goes. Refused, with an `Aborted` error,
+/// if the playlist changed since `revision`, rather than removing other
+/// songs. Answers the new revision.
+pub async fn remove_at(
+    session: &Session,
+    playlist: &str,
+    revision: Vec<u8>,
+    rows: &Rows,
+) -> Result<Vec<u8>> {
+    let mut rows = rows.to_vec();
+    // From the last, so the places of those before stay the same.
+    rows.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
+    let ops = rows
+        .into_iter()
+        .map(|(at, uri)| Op {
+            kind: Some(op::Kind::REM.into()),
+            rem: MessageField::some(Rem {
+                from_index: Some(at as i32),
+                length: Some(1),
+                items: vec![item(uri)],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .collect();
+    post(session, playlist, Some(revision), ops).await
+}
+
+/// Like [`remove_at`], on the playlist as it is now.
+pub async fn remove(session: &Session, playlist: &str, rows: &Rows) -> Result<Vec<u8>> {
+    let revision = revision(session, playlist).await?;
+    remove_at(session, playlist, revision.unwrap_or_default(), rows).await
+}
+
+/// Puts removed songs back at the places they had.
+pub async fn put_back(session: &Session, playlist: &str, rows: &Rows) -> Result<()> {
+    let mut rows = rows.to_vec();
+    // From the first, so each lands where it was.
+    rows.sort_by_key(|(at, _)| *at);
+    let ops = rows
+        .into_iter()
+        .map(|(at, uri)| Op {
+            kind: Some(op::Kind::ADD.into()),
+            add: MessageField::some(Add {
+                from_index: Some(at as i32),
+                items: vec![item(uri)],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .collect();
+    let revision = revision(session, playlist).await?;
+    post(session, playlist, revision, ops).await.map(|_| ())
+}
+
+/// Takes songs (track URIs) out of Liked Songs.
+pub async fn unlike(session: &Session, songs: &[String]) -> Result<()> {
+    let items = songs
+        .iter()
+        .map(|uri| CollectionItem {
+            uri: uri.clone(),
+            is_removed: true,
+            ..Default::default()
+        })
+        .collect();
+    session
+        .spclient()
+        .write_collection("collection", items)
+        .await
+        .context("Spotify didn't un-like the songs")?;
+    Ok(())
+}
+
+/// Likes songs (track URIs), each liked at the time given (seconds since
+/// 1970), as when un-liked, so they go back where they were.
+pub async fn like(session: &Session, songs: &[(String, i64)]) -> Result<()> {
+    let items = songs
+        .iter()
+        .map(|(uri, added_at)| CollectionItem {
+            uri: uri.clone(),
+            added_at: *added_at,
+            ..Default::default()
+        })
+        .collect();
+    session
+        .spclient()
+        .write_collection("collection", items)
+        .await
+        .context("Spotify didn't like the songs")?;
+    Ok(())
+}
+
+async fn revision(session: &Session, playlist: &str) -> Result<Option<Vec<u8>>> {
     let id = playlist_id(playlist)?;
     let bytes = session.spclient().get_playlist_range(&id, 0, 0).await?;
-    let header = SelectedListContent::parse_from_bytes(&bytes)?;
-    write(session, playlist, header.revision, None, songs).await
+    Ok(SelectedListContent::parse_from_bytes(&bytes)?.revision)
+}
+
+/// Sends one change, answering the new revision.
+async fn post(
+    session: &Session,
+    playlist: &str,
+    base: Option<Vec<u8>>,
+    ops: Vec<Op>,
+) -> Result<Vec<u8>> {
+    let id = playlist_id(playlist)?;
+    let reply = session
+        .spclient()
+        .post_playlist_changes(&id, &changes(session, base, ops))
+        .await?;
+    Ok(SelectedListContent::parse_from_bytes(&reply)?
+        .revision
+        .unwrap_or_default())
+}
+
+fn item(uri: String) -> Item {
+    Item {
+        uri: Some(uri),
+        ..Default::default()
+    }
 }
 
 /// Applies `first` (if any) and adds the songs, a batch per change, each
@@ -101,11 +226,9 @@ async fn write(
     session: &Session,
     playlist: &str,
     mut revision: Option<Vec<u8>>,
-    first: Option<Op>,
+    mut first: Option<Op>,
     songs: &[String],
 ) -> Result<()> {
-    let id = playlist_id(playlist)?;
-    let mut first = first;
     let mut batches: Vec<&[String]> = songs.chunks(BATCH).collect();
     if batches.is_empty() {
         batches.push(&[]);
@@ -116,13 +239,7 @@ async fn write(
             ops.push(Op {
                 kind: Some(op::Kind::ADD.into()),
                 add: MessageField::some(Add {
-                    items: batch
-                        .iter()
-                        .map(|uri| Item {
-                            uri: Some(uri.clone()),
-                            ..Default::default()
-                        })
-                        .collect(),
+                    items: batch.iter().cloned().map(item).collect(),
                     add_last: Some(true),
                     ..Default::default()
                 }),
@@ -132,12 +249,10 @@ async fn write(
         if ops.is_empty() {
             continue;
         }
-        let reply = session
-            .spclient()
-            .post_playlist_changes(&id, &changes(session, revision.take(), ops))
+        let next = post(session, playlist, revision.take(), ops)
             .await
             .context("Spotify didn't take the songs")?;
-        revision = SelectedListContent::parse_from_bytes(&reply)?.revision;
+        revision = Some(next);
     }
     Ok(())
 }

@@ -128,6 +128,14 @@ pub enum Action {
     DropAlbum(String, usize),
     /// Puts a song after the target playlist's current one and plays it.
     PlayNow(TrackRef),
+    /// Opens a Spotify playlist's page, or Liked Songs', by URI.
+    OpenSpotifyPlaylist(String),
+    /// Removes songs from a Spotify playlist of the account's own, or
+    /// from Liked Songs (un-likes them), by their index among its songs
+    /// read.
+    RemoveFromSpotify(String, Vec<usize>),
+    /// Puts the songs removed last back where they were.
+    UndoSpotifyRemoval,
     /// Reads the account's Spotify playlists again (Browse does on
     /// opening), for choosing one to copy songs to.
     ReadSpotifyPlaylists,

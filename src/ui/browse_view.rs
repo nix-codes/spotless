@@ -10,6 +10,8 @@
 //! back to the playlists, Backspace or Alt+Left back a page. Ctrl+F (in `keys.rs`) jumps to the
 //! search field.
 
+use std::collections::BTreeSet;
+
 use egui::{
     Align2, Color32, FontId, Id, Key, Painter, Rect, Response, RichText, ScrollArea, Sense, Stroke,
     StrokeKind, TextEdit, Ui, UiBuilder, pos2, vec2,
@@ -74,6 +76,10 @@ pub struct Nav {
     slim: Option<EntryId>,
     slim_reveal: Option<usize>,
     slim_offset: f32,
+    /// The songs selected on a Spotify playlist's page, by index, and the
+    /// one Shift-clicks reach from.
+    marked: BTreeSet<usize>,
+    anchor: Option<usize>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -133,6 +139,8 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
         nav.page = page_id(page);
         nav.row = nav.keyboard.then_some(0);
         nav.rows = 0;
+        nav.marked.clear();
+        nav.anchor = None;
     }
     if ui.input(|i| i.pointer.any_pressed()) {
         nav.keyboard = false;
@@ -162,6 +170,7 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
                         search_page(ui, view, nav, query, &mut set_up, actions);
                     }
                     Page::Artist(uri) => artist_page(ui, view, nav, uri, actions),
+                    Page::Playlist(uri) => playlist_page(ui, view, nav, uri, actions),
                 }
             })
         });
@@ -213,7 +222,7 @@ fn page_id(page: &Page) -> String {
     match page {
         Page::Home => "home".into(),
         Page::Search(query) => format!("search:{query}"),
-        Page::Artist(uri) => uri.clone(),
+        Page::Artist(uri) | Page::Playlist(uri) => uri.clone(),
     }
 }
 
@@ -381,16 +390,24 @@ fn home(ui: &mut Ui, view: &View, nav: &mut Nav, set_up: &mut bool, actions: &mu
             note(ui, view, error);
         }
         Some(Loadable::Ready(playlists)) => {
+            // Liked Songs and the account's own, which can be changed, then
+            // those it follows, which can't.
             section(ui, view, "YOUR SPOTIFY PLAYLISTS");
-            for playlist in playlists {
+            for playlist in playlists.iter().filter(|p| p.owner.is_none()) {
                 spotify_playlist(ui, view, nav, playlist, actions);
+            }
+            if playlists.iter().any(|p| p.owner.is_some()) {
+                section(ui, view, "PLAYLISTS YOU FOLLOW");
+                for playlist in playlists.iter().filter(|p| p.owner.is_some()) {
+                    spotify_playlist(ui, view, nav, playlist, actions);
+                }
             }
         }
     }
 }
 
-/// One of the account's Spotify playlists: opened like an album, its
-/// songs below it, and added whole like one.
+/// One of the account's Spotify playlists: added whole like an album, its
+/// songs shown below it with the arrow, or on its own page.
 fn spotify_playlist(
     ui: &mut Ui,
     view: &View,
@@ -433,10 +450,16 @@ fn spotify_playlist(
             title: playlist.name.clone(),
         });
     }
+    let on_arrow = row
+        .response
+        .interact_pointer_pos()
+        .is_some_and(|p| p.x < row.response.rect.left() + 20.0);
     if row.button || matches!(row.act, Some(Act::Add)) {
         actions.push(Action::AddAlbum(playlist.uri.clone()));
-    } else if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
+    } else if row.response.clicked() && on_arrow {
         actions.push(Action::ToggleAlbum(playlist.uri.clone()));
+    } else if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
+        actions.push(Action::OpenSpotifyPlaylist(playlist.uri.clone()));
     }
     if !expanded {
         return;
@@ -535,6 +558,238 @@ fn search_page(
             song(ui, view, nav, i + 1, track, true, actions);
         }
     }
+}
+
+/// A Spotify playlist's songs, or Liked Songs'. Selected as in a tab
+/// (click, Ctrl, Shift, Ctrl+A), they can be added, and taken out with
+/// Delete or REM when the playlist is the account's own (Ctrl+Z puts them
+/// back).
+fn playlist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut Actions) {
+    let palette = view.palette;
+    let browse = view.browse;
+    let playlist = browse.spotify_playlist(uri);
+    let editable = browse.editable(uri);
+    ui.horizontal(|ui| {
+        let name = playlist.map_or("Spotify playlist", |p| p.name.as_str());
+        ui.label(RichText::new(name).size(22.0).color(palette.current));
+        let tag = match playlist.and_then(|p| p.owner.as_ref()) {
+            Some(owner) => format!("FOLLOWED · BY {}", owner.to_uppercase()),
+            None => "YOURS".into(),
+        };
+        ui.label(RichText::new(tag).monospace().size(10.0).color(palette.dim));
+    });
+    ui.add_space(8.0);
+    let tracks = match browse.albums.get(uri) {
+        None | Some(Loadable::Loading) => return note(ui, view, "Reading the songs…"),
+        Some(Loadable::Failed(error)) => return note(ui, view, error),
+        Some(Loadable::Ready(tracks)) => tracks,
+    };
+    nav.marked.retain(|&i| i < tracks.len());
+    // Arrows move the selection with the highlight.
+    if nav.reveal
+        && nav.keyboard
+        && let Some(row) = nav.row
+    {
+        nav.marked = BTreeSet::from([row]);
+        nav.anchor = Some(row);
+    }
+    let keys = nav.area == Area::Results && !ui.ctx().text_edit_focused();
+    let (delete, all, undo) = ui.input(|i| {
+        (
+            keys && i.key_pressed(Key::Delete),
+            keys && i.modifiers.command && i.key_pressed(Key::A),
+            keys && i.modifiers.command && i.key_pressed(Key::Z),
+        )
+    });
+    if all {
+        nav.marked = (0..tracks.len()).collect();
+    }
+    if undo && browse.undo.as_ref().is_some_and(|u| u.playlist == uri) {
+        actions.push(Action::UndoSpotifyRemoval);
+    }
+    // The selection, else the highlighted song.
+    let chosen = |nav: &Nav| -> Vec<usize> {
+        match (nav.marked.is_empty(), nav.row) {
+            (false, _) => nav.marked.iter().copied().collect(),
+            (true, Some(row)) if row < tracks.len() => vec![row],
+            _ => Vec::new(),
+        }
+    };
+    let mut remove = delete && editable;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+        if small_button(ui, &palette, "+ ADD ALL", false).clicked() {
+            actions.push(Action::AddAlbum(uri.to_string()));
+        }
+        let can_remove = editable && !nav.marked.is_empty();
+        let rem = ui.add_enabled_ui(can_remove, |ui| small_button(ui, &palette, "REM", false));
+        let hint = if editable {
+            "Removes the selected songs from this playlist on Spotify (Delete)"
+        } else {
+            "Only your own playlists can be changed"
+        };
+        if rem
+            .inner
+            .on_hover_text(hint)
+            .on_disabled_hover_text(hint)
+            .clicked()
+        {
+            remove = true;
+        }
+        ui.add_space(8.0);
+        let count = match (tracks.len(), nav.marked.len()) {
+            (1, 0) => "1 song".to_string(),
+            (n, 0) => format!("{n} songs"),
+            (n, marked) => format!("{marked} of {n} selected"),
+        };
+        ui.label(
+            RichText::new(count)
+                .monospace()
+                .size(11.0)
+                .color(palette.dim),
+        );
+    });
+    ui.add_space(6.0);
+    if remove {
+        let rows = chosen(nav);
+        if !rows.is_empty() {
+            actions.push(Action::RemoveFromSpotify(uri.to_string(), rows.clone()));
+            // The highlight stays where the first song was.
+            nav.row = rows
+                .first()
+                .map(|&r| r.min(tracks.len().saturating_sub(rows.len() + 1)));
+            nav.marked.clear();
+            nav.anchor = None;
+        }
+    }
+    if tracks.is_empty() {
+        return note(ui, view, "No songs.");
+    }
+    for (i, track) in tracks.iter().enumerate() {
+        playlist_song(ui, view, nav, i, track, tracks, editable, uri, actions);
+    }
+}
+
+/// A song on a Spotify playlist's page.
+#[allow(clippy::too_many_arguments)]
+fn playlist_song(
+    ui: &mut Ui,
+    view: &View,
+    nav: &mut Nav,
+    index: usize,
+    track: &TrackRef,
+    tracks: &[TrackRef],
+    editable: bool,
+    uri: &str,
+    actions: &mut Actions,
+) {
+    let palette = view.palette;
+    let marked = nav.marked.contains(&index);
+    let number = format!("{:>3}", index + 1);
+    let seconds = track.duration_ms / 1000;
+    let duration = format!("{}:{:02}", seconds / 60, seconds % 60);
+    let artists = track
+        .artists
+        .iter()
+        .map(|a| a.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let row = row(
+        ui,
+        &palette,
+        nav,
+        TRACK_HEIGHT,
+        Some("+"),
+        |painter, rect| {
+            if marked {
+                painter.rect_filled(rect.expand2(vec2(4.0, 0.0)), 0.0, palette.selected_bg);
+            }
+            let right = painter.text(
+                rect.right_center() - vec2(4.0, 0.0),
+                Align2::RIGHT_CENTER,
+                &duration,
+                mono(),
+                palette.dim,
+            );
+            let text = Rect::from_min_max(rect.min, pos2(right.left() - 8.0, rect.bottom()));
+            spans(
+                painter,
+                text,
+                &[
+                    (number.as_str(), mono(), palette.dim),
+                    (artists.as_str(), body(), palette.list_fg),
+                    ("-", body(), palette.dim),
+                    (track.title.as_str(), body(), palette.list_fg),
+                    (track.album.name.as_str(), body(), palette.dim),
+                ],
+            );
+        },
+    );
+    let response = &row.response;
+    if response.clicked() || (response.secondary_clicked() && !marked) {
+        let modifiers = ui.input(|i| i.modifiers);
+        if response.clicked() && modifiers.command {
+            if !nav.marked.remove(&index) {
+                nav.marked.insert(index);
+            }
+        } else if response.clicked() && modifiers.shift {
+            let from = nav.anchor.unwrap_or(index);
+            nav.marked = (from.min(index)..=from.max(index)).collect();
+        } else {
+            nav.marked = BTreeSet::from([index]);
+        }
+        if !(response.clicked() && modifiers.shift) {
+            nav.anchor = Some(index);
+        }
+    }
+    // What a drag, a key or the menu takes: the selection, if this song
+    // is in it.
+    let these = |nav: &Nav| -> Vec<TrackRef> {
+        if nav.marked.contains(&index) {
+            nav.marked
+                .iter()
+                .filter_map(|&i| tracks.get(i))
+                .cloned()
+                .collect()
+        } else {
+            vec![track.clone()]
+        }
+    };
+    if response.drag_started() {
+        response.dnd_set_drag_payload(CatalogDrag::Tracks(these(nav)));
+    }
+    if row.button {
+        actions.push(Action::AddTracks(vec![track.clone()]));
+    } else if matches!(row.act, Some(Act::Add)) {
+        actions.push(Action::AddTracks(these(nav)));
+    } else if response.double_clicked() || matches!(row.act, Some(Act::Open)) {
+        actions.push(Action::PlayNow(track.clone()));
+    }
+    let target = view
+        .library
+        .get(view.browse.target)
+        .map_or("the playlist", |list| list.name.as_str());
+    response.context_menu(|ui| {
+        let item = |ui: &mut Ui, name: &str, enabled: bool| {
+            let label = RichText::new(name).monospace().size(11.0);
+            ui.add_enabled(enabled, egui::Button::new(label).frame_when_inactive(false))
+        };
+        if item(ui, &format!("Add to {target}"), true).clicked() {
+            actions.push(Action::AddTracks(these(nav)));
+        }
+        let remove = item(ui, "Remove from this playlist", editable)
+            .on_disabled_hover_text("Only your own playlists can be changed");
+        if remove.clicked() {
+            let rows = if nav.marked.contains(&index) {
+                nav.marked.iter().copied().collect()
+            } else {
+                vec![index]
+            };
+            actions.push(Action::RemoveFromSpotify(uri.to_string(), rows));
+            nav.marked.clear();
+            nav.anchor = None;
+        }
+    });
 }
 
 fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut Actions) {

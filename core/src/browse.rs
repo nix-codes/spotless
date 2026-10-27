@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use crate::model::catalog::{Discography, ReleaseTab, SearchResults, SpotifyPlaylist};
+use crate::model::catalog::{Discography, Place, ReleaseTab, SearchResults, SpotifyPlaylist};
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 
 /// How long rows just added light up in the slim column.
@@ -18,6 +18,19 @@ pub enum Page {
     Search(String),
     /// An artist's discography, by URI.
     Artist(String),
+    /// A Spotify playlist's songs, or Liked Songs', by URI.
+    Playlist(String),
+}
+
+/// Songs taken out of a Spotify playlist or Liked Songs, to put back.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Removal {
+    pub playlist: String,
+    pub name: String,
+    /// Each song's place and URI.
+    pub songs: Vec<(Place, String)>,
+    /// What the status bar said once they were gone, with UNDO beside it.
+    pub notice: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -37,9 +50,15 @@ pub struct Browse {
     pub similar_artists: HashMap<String, Loadable<Vec<String>>>,
     /// The songs of albums and of Spotify playlists, by URI.
     pub albums: HashMap<String, Loadable<Vec<TrackRef>>>,
+    /// Where the songs read of Spotify playlists and Liked Songs are
+    /// there, by URI: the revision read, and each song's place, in the
+    /// order of `albums`' songs.
+    pub places: HashMap<String, (Vec<u8>, Vec<Place>)>,
     /// The account's own Spotify playlists, Liked Songs first; None until
     /// asked for.
     pub spotify_playlists: Option<Loadable<Vec<SpotifyPlaylist>>>,
+    /// The songs removed last, while they can be put back.
+    pub undo: Option<Removal>,
     /// Albums and Spotify playlists shown with their songs.
     pub expanded: HashSet<String>,
     pub tab: ReleaseTab,
@@ -70,7 +89,9 @@ impl Browse {
             artists: HashMap::new(),
             similar_artists: HashMap::new(),
             albums: HashMap::new(),
+            places: HashMap::new(),
             spotify_playlists: None,
+            undo: None,
             expanded: HashSet::new(),
             tab: ReleaseTab::default(),
             similar: false,
@@ -131,6 +152,21 @@ impl Browse {
 
     pub fn forget_search(&mut self, query: &str) {
         self.recent_searches.retain(|q| q != query);
+    }
+
+    /// One of the account's Spotify playlists, or Liked Songs, by URI.
+    pub fn spotify_playlist(&self, uri: &str) -> Option<&SpotifyPlaylist> {
+        match &self.spotify_playlists {
+            Some(Loadable::Ready(playlists)) => playlists.iter().find(|p| p.uri == uri),
+            _ => None,
+        }
+    }
+
+    /// Whether songs can be removed from this Spotify playlist: Liked
+    /// Songs and the account's own can, others' it follows can't.
+    pub fn editable(&self, uri: &str) -> bool {
+        self.spotify_playlist(uri)
+            .is_some_and(|playlist| playlist.owner.is_none())
     }
 
     pub fn flash(&mut self, entries: impl IntoIterator<Item = EntryId>) {
