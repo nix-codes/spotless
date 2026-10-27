@@ -124,6 +124,9 @@ fn playlist_list(
     // The arrows and PgUp / PgDn in the field, or in the list after a
     // click took the keyboard from the field; Home / End too out of it.
     let typing = edit.has_focus();
+    // The playlist moved to, scrolled into view now: it's shown from the
+    // next frame.
+    let mut reveal = None;
     if typing {
         nav.area = Area::Lists;
     }
@@ -154,13 +157,12 @@ fn playlist_list(
         if let Some(playlist) = next.and_then(|n| order.get(n.min(last))) {
             actions.push(Action::OpenSpotifyPlaylist(playlist.uri.clone()));
             nav.keyboard = true;
-            nav.list_reveal = true;
+            reveal = Some(playlist.uri.as_str());
         }
     }
     ui.add_space(6.0);
     let id = Id::new("spotify-list-scrollbar");
     let area = ScrollArea::vertical().id_salt("spotify-list");
-    let reveal = std::mem::take(&mut nav.list_reveal);
     scrollbar::show(ui, view, id, area, |area, ui| {
         area.show(ui, |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -174,23 +176,27 @@ fn playlist_list(
                     continue;
                 }
                 ui.add_space(4.0);
-                ui.label(
-                    RichText::new(title)
-                        .monospace()
-                        .size(10.0)
-                        .color(palette.chrome),
-                );
+                let heading = ui
+                    .label(
+                        RichText::new(title)
+                            .monospace()
+                            .size(10.0)
+                            .color(palette.chrome),
+                    )
+                    .rect;
                 ui.add_space(2.0);
-                for playlist in group {
+                for (at, playlist) in group.into_iter().enumerate() {
                     let chosen = open == Some(playlist.uri.as_str());
                     let (rect, response) = ui
                         .allocate_exact_size(vec2(ui.available_width(), LIST_ROW), Sense::click());
                     let painter = ui.painter();
+                    // The first of a group with its heading.
+                    if reveal == Some(playlist.uri.as_str()) {
+                        let shown = if at == 0 { rect.union(heading) } else { rect };
+                        ui.scroll_to_rect(shown, None);
+                    }
                     if chosen {
                         painter.rect_filled(rect, 0.0, palette.selected_bg);
-                        if reveal {
-                            ui.scroll_to_rect(rect, None);
-                        }
                     } else if response.hovered() {
                         painter.rect_filled(rect, 0.0, palette.hi.gamma_multiply(0.35));
                     }

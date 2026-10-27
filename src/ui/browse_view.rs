@@ -86,8 +86,6 @@ pub struct Nav {
     /// its field should take the keyboard.
     filter: String,
     focus_filter: bool,
-    /// Bring the playlist shown into view in that list.
-    list_reveal: bool,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
