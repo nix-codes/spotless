@@ -11,6 +11,11 @@ The playlists in the Winamp Classic look, and Browse in Spotless Classic:
 </tr>
 </table>
 
+Browsing an artist's albums in the Winamp Classic look, beside the
+playlist they're added to:
+
+![Browsing an artist's albums in the Winamp Classic look, beside the playlist they're added to](screenshots/browse-winamp.png)
+
 The colour of the lists and the display, chosen in Settings: green, amber
 and five more.
 

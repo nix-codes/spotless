@@ -49,7 +49,7 @@ The body, when there is one, says why and how, in a short paragraph.
 
 ## Screenshots
 
-The screenshots (two at the top of the README, the rest in
+The screenshots (one at the top of the README, the rest in
 `docs/screenshots.md`) are drawn, never taken by hand, from the core's
 made-up library (`core/src/demo.rs`, `Controller::demo`):
 `packaging/screenshots.sh` runs `examples/screenshots.rs` for the desktop

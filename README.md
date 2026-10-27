@@ -16,8 +16,6 @@ account.
 
 ![Spotless playing a playlist, in the Spotless Classic look](docs/screenshots/playlist.png)
 
-![Browsing an artist's albums in the Winamp Classic look, beside the playlist they're added to](docs/screenshots/browse-winamp.png)
-
 More in [Screenshots](docs/screenshots.md).
 
 ## How it's different
