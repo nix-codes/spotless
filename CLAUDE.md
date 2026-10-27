@@ -1,8 +1,11 @@
 # Spotless
 
 A minimal Spotify player in the spirit of Winamp, as two apps on one Rust
-core. README.md says what it is and how to build and install it;
-android/README.md does the same for the Android app.
+core. README.md is for people using it: what it is, how to install it,
+first start, credits. docs/screenshots.md holds the rest of the
+screenshots and docs/about.md the longer story (why, every feature, your
+data, status). DEVELOPMENT.md is building, checks and releasing;
+android/README.md is building the Android app.
 
 ## Layout
 
@@ -46,7 +49,8 @@ The body, when there is one, says why and how, in a short paragraph.
 
 ## Screenshots
 
-The README's screenshots are drawn, never taken by hand, from the core's
+The screenshots (two at the top of the README, the rest in
+`docs/screenshots.md`) are drawn, never taken by hand, from the core's
 made-up library (`core/src/demo.rs`, `Controller::demo`):
 `packaging/screenshots.sh` runs `examples/screenshots.rs` for the desktop
 and the Android app's `ScreenshotTest` (Robolectric, on the core built for

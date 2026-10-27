@@ -22,7 +22,8 @@ nobody's account or library is in them:
   Compose screens drawn on this computer with Robolectric and Roborazzi,
   on the core built for it; one test per file.
 
-The README places them.
+The README shows one or two of them at the top, and `docs/screenshots.md`
+shows the rest.
 
 Arguments: file name starts (e.g. `browse android`) to draw only those.
 
@@ -48,25 +49,25 @@ longer reaches the deck). A screenshot that
 looks wrong points at the drawing code or at a real bug in the interface:
 say which, don't commit it.
 
-## 3. The README
+## 3. The pages
 
-Redrawing changes no text: the README shows the files by name, so a
-redrawn one shows there as it is. The README needs editing only when the
-files themselves change. Check that every image the README shows is in
-`docs/screenshots/` and that every file there is shown in the README (or
-it is drawn for nothing), and fix any difference. A file that's no
-longer drawn is deleted.
+Redrawing changes no text: `README.md` and `docs/screenshots.md` show the
+files by name, so a redrawn one shows there as it is. The pages need
+editing only when the files themselves change. Check that every
+screenshot either page shows is in `docs/screenshots/` and that every
+file there is shown on one of them (or it is drawn for nothing), and fix
+any difference. A file that's no longer drawn is deleted.
 
-If either app gained something a reader of the README would want to see
-that no shot shows (a new player for the deck, say, which needs its own
+If either app gained something a reader would want to see that no shot
+shows (a new player for the deck, say, which needs its own
 `deck-*.png`), suggest adding one (to `SHOTS`, or a test in
-`ScreenshotTest`) and a place for it in the README. Edit the README only
-with the user's go-ahead. Keep its shape: one or two images at the top for
-a first look, the rest under Screenshots, and at most two colours (green
-and amber).
+`ScreenshotTest`) and a place for it on `docs/screenshots.md`. Edit the
+pages only with the user's go-ahead. Keep their shape: one or two images
+at the top of the README for a first look, the rest on
+`docs/screenshots.md`, and at most two colours (green and amber).
 
 ## 4. Commit, if the user wants
 
-Commit only the screenshots (and the README or what draws them, if
+Commit only the screenshots (and the pages or what draws them, if
 changed with them), with a subject such as `README screenshots show the
 new Spotify tab`. Push only when asked.

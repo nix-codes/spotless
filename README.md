@@ -8,87 +8,17 @@ the way.
 Spotless runs on Linux, Windows and Android, and needs a Spotify Premium
 account.
 
+<p align="center">
+<a href="#windows"><img src="docs/download/windows.png" width="300" alt="Download for Windows"></a>
+<a href="#linux"><img src="docs/download/linux.png" width="300" alt="Download for Linux"></a>
+<a href="#android"><img src="docs/download/android.png" width="300" alt="Download for Android"></a>
+</p>
+
 ![Spotless playing a playlist, in the Spotless Classic look](docs/screenshots/playlist.png)
 
 ![Browsing an artist's albums in the Winamp Classic look, beside the playlist they're added to](docs/screenshots/browse-winamp.png)
 
-## Screenshots
-
-The playlists in the Winamp Classic look, and Browse in Spotless Classic:
-
-<table>
-<tr>
-<td><img src="docs/screenshots/playlist-winamp.png" alt="A playlist in the Winamp Classic look"></td>
-<td><img src="docs/screenshots/browse.png" alt="Browsing an artist's albums in the Spotless Classic look"></td>
-</tr>
-</table>
-
-The colour of the lists and the display, chosen in Settings: green, amber
-and five more.
-
-<table>
-<tr>
-<td><img src="docs/screenshots/playlist.png" alt="The playlists in green"><br>Green</td>
-<td><img src="docs/screenshots/phosphor-amber.png" alt="The playlists in amber"><br>Amber</td>
-</tr>
-</table>
-
-The deck (VIS), on each of its four players:
-
-<table>
-<tr>
-<td><img src="docs/screenshots/deck-cassette.png" alt="The deck as a Walkman, the song's cassette in it, beside the music's spectrum and levels"><br>Walkman</td>
-<td><img src="docs/screenshots/deck-reel.png" alt="The deck as a reel-to-reel, the song and its artists on masking tape on a reel"><br>Reel-to-reel</td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/deck-cd.png" alt="The deck as a portable CD player, the disc turning"><br>CD player</td>
-<td><img src="docs/screenshots/deck-vinyl.png" alt="The deck as a turntable, the song's single on the platter"><br>Turntable</td>
-</tr>
-</table>
-
-The settings, where the look and the colour are chosen:
-
-![The settings' Display page, with the looks and the colours to choose from](docs/screenshots/settings.png)
-
-The Android app, playing a playlist and browsing an artist's albums:
-
-<table>
-<tr>
-<td><img src="docs/screenshots/android.png" width="300" alt="The Android app playing a playlist, with an album's name above its songs"></td>
-<td><img src="docs/screenshots/android-browse.png" width="300" alt="The Android app browsing an artist's albums, with covers"></td>
-</tr>
-</table>
-
-## The name
-
-**Spotless** is *Spotify* with *less*:
-
-- **Less Spotify**: less of Spotify's design, its screens, its feeds and its
-  way of doing things.
-- **Less**, as in less of everything: a minimal player with only what you use.
-- And **spotless** as in clean and neat: an interface without the noise and
-  clutter.
-
-## Why
-
-Spotify's own app has frustrated me for years:
-
-- **It's slow.**
-- **It's noisy.** It's cluttered with things I don't need or rarely use:
-  artist promotions, recommendations, recent listens and more.
-- **What I do use is hard to reach.** Listening to albums means going back and
-  forth between screens, and coming back often loses the place you scrolled
-  to.
-- **It can't be navigated with the keyboard.** There are a few shortcuts,
-  but getting around (searching, opening an artist, picking an album,
-  adding it) takes the mouse.
-- **The queue works against you.** It's one queue for all your devices, so
-  a computer can't play its own without overwriting your phone's. Press Play
-  on an album and the rest of its songs go behind your queue, where nothing
-  clears them (someone made a silent track just for that). And you can't put
-  an album first for a while without wrecking the queue you had.
-
-Spotless is the player I wanted instead.
+More in [Screenshots](docs/screenshots.md).
 
 ## How it's different
 
@@ -101,87 +31,25 @@ Spotless is the player I wanted instead.
 | The screen | Home feeds, recommendations, podcasts and more | A player, your playlists, and the catalogue when you ask for it |
 | The keyboard | A few shortcuts | Everything works from the keyboard (F1 lists the keys) |
 
-## Who it's for
+## Features
 
-- **People who miss Winamp**, or players like it (AIMP, foobar2000,
-  MediaMonkey): one compact window, a playlist you build yourself, and a
-  player that does what you tell it.
-- **Anyone who wants a simpler Spotify**: fewer screens, nothing competing
-  for attention, just finding music and playing it.
-- **Album listeners**, who want an artist's albums in order and whole
-  albums in their playlists, without the detours.
-- **Keyboard users**: every action has a key.
-- **Anyone using several devices** who wants this computer's music to stay
-  separate from the phone's.
+- **Local playlists in tabs**, kept between sessions; playing a song
+  doesn't use it up.
+- **Browse**: search, then an artist's albums oldest first, songs opening
+  inline; **+ ADD** puts a whole album in a playlist.
+- **Gapless playback** at 320 kbps, with Shuffle, Repeat and Play next.
+- **Made for the keyboard**: everything works without the mouse.
+- **Two looks**, Spotless Classic and Winamp Classic, in green, amber and
+  five more colours.
+- **An equaliser** and **the deck**, a Walkman, reel-to-reel, CD player or
+  turntable beside the music's spectrum (desktop).
+- **Last.fm scrobbling**, media keys, and a tray icon.
+
+The whole list, and why Spotless exists, is in [About](docs/about.md).
 
 It isn't for you if you rely on Spotify's own playlists, recommendations
 or podcasts, or if you don't have Premium: Spotless leaves those out, and
 Spotify only allows playback in other apps for Premium accounts.
-
-## Features
-
-- **Local playlists in tabs.** As many as you like, saved between sessions. A
-  *Default* playlist is always there. Rename a tab by double-clicking it;
-  reorder songs and tabs by dragging.
-- **Playlists aren't used up.** Playing a song doesn't remove it: each
-  playlist has its own place, which you can move back and forth, and
-  viewing another tab never changes what plays. At the end, playback stops
-  and goes back to the top (or loops, with Repeat).
-- **Play next.** Mark songs with `Q` to play them next, in order, without
-  moving them. Marks clear once they've played.
-- **Shuffle and Repeat**, where Previous goes back through what actually
-  played.
-- **Gapless playback** at 320 kbps, with optional volume levelling.
-- **One stream at a time**, as Spotify allows. Start playing on your phone
-  and Spotless pauses; press play in Spotless and it pauses your phone.
-  Spotless watches your devices through Spotify Connect without showing up
-  in their lists, and its own playback stays out of your account's queue.
-- **The Spotify tab**, optional: your account's queue, as Spotify's own
-  apps show it, with Spotless as a Spotify Connect device to play it on.
-  What played, the song playing, then the songs queued and the rest of the
-  album or playlist. Play a song of it to take the queue over; while another
-  device holds it, the tab only shows it until you **TAKE OVER**, and the
-  player's buttons control that device. Add songs from Browse, remove them,
-  clear the queue, or copy its songs to a playlist. Close the tab and
-  Spotless leaves Connect; *Settings > Playback* turns it off.
-- **Browse**: search shows Artists, Albums and Songs separately. An artist's
-  page is just the discography: All, Albums, Singles & EPs, Appears on;
-  Albums first, oldest first, songs opening inline. **+ ADD** adds a whole
-  album to the playlist shown alongside. Pasting a Spotify link adds it too.
-- **Pics are optional**: album covers and artists' pictures. Off by default
-  on the desktop, on by default on Android; either way, they show in the
-  catalogue only. Playlists stay text.
-- **Last.fm scrobbling**, optional, sent by Spotless itself. Spotify's
-  Last.fm link only hears of what plays through Spotify Connect, which
-  Spotless's playlists stay out of so they never take over your account's
-  queue.
-  Listens made offline are sent later. The same API key gives an artist's
-  page **Similar**: the artists Last.fm's listeners play alongside it.
-- **Made for the keyboard.** Everything works without the mouse: playback,
-  moving between tabs and through playlists, searching and browsing an
-  artist's albums, adding them, and Settings. F1 lists the keys.
-- **Your desktop's controls**: media keys, the system's now-playing display
-  (MPRIS on Linux, the media overlay on Windows), and a tray icon; closing
-  the window keeps Spotless playing there.
-- **Two looks**: Spotless Classic, and Winamp Classic, drawn with Winamp's
-  own buttons, digits, font, seek bar and volume. Pick one in Settings >
-  Display.
-- **Monitor colours**: the songs, the time and the song's name in the green
-  of old terminals, or in amber, paper-white, a hi-fi's fluorescent
-  teal, ice blue, deep blue or purple.
-- **An equaliser** (desktop, EQ or `Alt+G`), as Winamp's: a preamp and ten
-  bands from 60 Hz to 16 kHz, ±12 dB each, with Winamp's presets and your
-  own. It changes what Spotless plays, not another device's playback.
-- **The deck** (desktop, VIS or `Alt+V`): the player's buttons become the
-  keys of an '80s Walkman whose cassette turns as the song plays, of a
-  reel-to-reel deck whose tape winds from one reel to the other, of a
-  portable CD player whose disc holds the whole playlist, or of a
-  turntable that changes the single for each song; click it to switch. Beside it, the music's spectrum and its left and right levels,
-  as it plays.
-- **Settings** (F10): account, search, Last.fm, audio output, volume levelling,
-  interface size, skin and colour, tray, and the audio and cover caches.
-- **One window, one copy**: starting Spotless again brings the running one
-  forward.
 
 ## Install
 
@@ -189,10 +57,6 @@ Spotify only allows playback in other apps for Premium accounts.
 
 1. Download `spotless-<version>-windows-x64.zip` from the
    [Releases](https://github.com/nix-codes/spotless/releases) page.
-   Until there's a release, the latest build is on the
-   [Actions](https://github.com/nix-codes/spotless/actions) page: open the
-   newest successful run and download **spotless-windows-x64** under
-   *Artifacts*.
 2. Unzip it and run **install.cmd**. It installs Spotless for your user only
    (no administrator needed) to `%LOCALAPPDATA%\Programs\Spotless`, adds it to
    the Start menu, and lists it under *Settings > Apps* for uninstalling.
@@ -223,26 +87,11 @@ and newer).
 
    Or skip installing: `./spotless` runs from the folder on its own.
 
-#### From source
+Choosing the audio output needs PipeWire or PulseAudio (`pactl`), and the
+tray icon needs a panel that shows StatusNotifierItem icons (KDE, most
+others; on GNOME, the AppIndicator extension).
 
-1. Install [Rust](https://rustup.rs) and the ALSA headers:
-   - Debian, Ubuntu: `sudo apt install build-essential pkg-config libasound2-dev`
-   - Fedora: `sudo dnf install gcc pkgconf-pkg-config alsa-lib-devel`
-   - Arch: `sudo pacman -S base-devel alsa-lib`
-2. Build and install it for your user:
-
-   ```sh
-   git clone https://github.com/nix-codes/spotless.git
-   cd spotless
-   packaging/install.sh
-   ```
-
-   This installs `~/.local/bin/spotless` and a launcher with its icon. Run it
-   again after `git pull` to update; `packaging/uninstall.sh` removes it.
-
-On Linux, choosing the audio output needs PipeWire or PulseAudio (`pactl`),
-and the tray icon needs a panel that shows StatusNotifierItem icons (KDE,
-most others; on GNOME, the AppIndicator extension).
+To build it from source instead, see [Development](DEVELOPMENT.md).
 
 ### Android
 
@@ -291,72 +140,18 @@ under *Search* there, with **CONNECT** to approve it.
    2. Paste its API key and shared secret in *Settings (F10) > Last.fm* and
       click **CONNECT**. Your browser asks you to allow Spotless.
 
-   **Why an API account of your own?** Linking Last.fm in your Spotify
-   account doesn't help here: Spotify only scrobbles what plays through
-   Spotify Connect, and a player that joins Connect takes over your
-   account's playback, replacing the queue on your other devices. So
-   Spotless's playlists stay out of Connect and Spotless scrobbles them by
-   itself. To do that, Last.fm requires every app to sign its requests
-   with an API key and a shared secret; unlike Spotify, it has no sign-in
-   that works without a secret. A key built into Spotless would put that
-   secret in public source code, where anyone could copy and misuse it,
-   and every Spotless user would share its limits and lose scrobbling if
-   Last.fm revoked it. Your own API account is used only by your copy of
-   Spotless.
+   [Why an API account of your own?](docs/about.md#lastfm)
 
 Press **F1** at any time for the keys.
 
-## Your data
+## More
 
-Your settings and playlists stay on your computer:
-
-| | Linux | Windows |
-|---|---|---|
-| Settings, playlists, sign-in | `~/.config/spotless` | `%APPDATA%\spotless` |
-| Audio and cover caches | `~/.cache/spotless` | `%LOCALAPPDATA%\spotless` |
-
-Uninstalling keeps these; delete the folders to remove them too.
-
-## Building from source
-
-```sh
-cargo run --release
-```
-
-The toolchain version is pinned in `rust-toolchain.toml`; rustup picks it up
-on its own. On Windows, building also needs the Visual Studio Build Tools.
-The Windows zip can be built from Linux with `packaging/windows/build.sh`,
-using Rust's `x86_64-pc-windows-gnullvm` target and
-[llvm-mingw](https://github.com/mstorsjo/llvm-mingw).
-
-## Releasing
-
-Each app is released from `main` with a tag: `android-v<version>` for the
-Android app, `desktop-v<version>` for Linux and Windows together.
-
-```sh
-packaging/release.sh changes      # each app's changes since its last release
-packaging/release.sh android 0.4.0
-packaging/release.sh desktop 0.1.0 --notes notes.md --publish
-packaging/release.sh desktop 0.1.0 --notes notes.md --dry-run  # tags nothing
-```
-
-The script checks that `main` matches GitHub's, that CI passed on it and
-that the version goes up, then pushes the tag. GitHub Actions builds the app
-(the APK signed with the release key in the repository's secrets; the Linux
-tarball and the Windows zip) and makes the release, with the notes given in
-`--notes` or else the commits since the last one. It stays a draft, to try
-its files and publish by hand, unless `--publish` is given. The tag is the
-only place the version is set.
-
-## Status
-
-Spotless is young. Linux is its main platform; the Windows build is new and
-has only been tested under Wine and on GitHub's build machines so far. The
-Android app is newer still, and has been tried on one phone.
-
-Not there on purpose: Spotify's own playlists, podcasts, and anything
-social. Maybe later: importing Spotify playlists.
+- [Screenshots](docs/screenshots.md): both looks, the colours, the deck and
+  the Android app.
+- [About](docs/about.md): the name, why Spotless exists, who it's for, every
+  feature, where your data is kept, and how far along it is.
+- [Development](DEVELOPMENT.md): building from source, the checks, and
+  releasing.
 
 ## Credits
 
@@ -368,8 +163,8 @@ It plays through [librespot](https://github.com/librespot-org/librespot)
 (a fork with a few fixes not yet released) and draws its window with
 [egui](https://github.com/emilk/egui).
 
-The deck was inspired by [Deck 90](https://github.com/djkollmax/deck-90),
-a retro hi-fi audio analyser with spinning cassettes and LED spectrums.
+The deck was inspired by [Deck 90](https://github.com/djkollmax/deck-90)
+by djkollmax, a retro hi-fi audio analyser with spinning cassettes and LED spectrums.
 It's lettered in [Permanent Marker](https://fonts.google.com/specimen/Permanent+Marker)
 by Font Diner (Apache License 2.0) and
 [Audiowide](https://fonts.google.com/specimen/Audiowide) by Astigmatic (SIL
