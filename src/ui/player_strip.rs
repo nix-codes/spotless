@@ -333,10 +333,8 @@ pub fn eject_clicked(
         "Browse (Ctrl+B)"
     };
     if response.on_hover_text(tip).clicked() {
+        super::browse_view::opening(view, inputs);
         actions.push(Action::ToggleBrowse);
-        if !view.browse.open {
-            inputs.focus_search = true;
-        }
     }
 }
 

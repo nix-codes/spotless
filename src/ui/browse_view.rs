@@ -222,6 +222,18 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
     }
 }
 
+/// Browse is opening (Ctrl+B, BROWSE, + ADD): the keyboard goes to the
+/// field of the tab it opens on, to type at once.
+pub(super) fn opening(view: &View, inputs: &mut Inputs) {
+    if view.browse.open {
+        return;
+    }
+    match view.browse.shown {
+        BrowseTab::Search => inputs.focus_search = true,
+        BrowseTab::Spotify => focus_spotify(&mut inputs.nav),
+    }
+}
+
 /// Puts the keyboard in YOUR SPOTIFY's field that finds a playlist.
 pub(super) fn focus_spotify(nav: &mut Nav) {
     nav.area = Area::Lists;

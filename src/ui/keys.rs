@@ -296,6 +296,7 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
         actions.push(Action::ToggleDeck);
     }
     if take(i, Modifiers::COMMAND, Key::B) {
+        browse_view::opening(view, inputs);
         actions.push(Action::ToggleBrowse);
     }
 

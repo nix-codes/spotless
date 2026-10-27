@@ -648,8 +648,8 @@ fn toolbar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         if small_action(ui, &palette, "+ ADD", true).clicked() {
+            super::browse_view::opening(view, inputs);
             actions.push(Action::ToggleBrowse);
-            inputs.focus_search = true;
         }
         if small_action(ui, &palette, "REM", any).clicked() {
             remove(list, &mut inputs.selection, selected.clone(), actions);

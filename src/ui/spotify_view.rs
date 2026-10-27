@@ -158,9 +158,14 @@ pub fn draw(
             Choice::ToggleMarks => {}
         }
     }
-    ui.scope_builder(UiBuilder::new().max_rect(toolbar_rect), |ui| {
-        toolbar(ui, view, queue, selection, actions);
-    });
+    let adding = ui
+        .scope_builder(UiBuilder::new().max_rect(toolbar_rect), |ui| {
+            toolbar(ui, view, queue, selection, actions)
+        })
+        .inner;
+    if adding {
+        super::browse_view::opening(view, inputs);
+    }
     if let Some(dragging) = DragAndDrop::payload::<RowDrag>(ui.ctx()) {
         let movable = queue.movable(&dragging.0);
         let label = playlist_view::drag_label(ui, dragging.0.len(), onto_tab, movable);
@@ -313,7 +318,7 @@ fn toolbar(
     queue: &SpotifyQueue,
     selection: &BTreeSet<EntryId>,
     actions: &mut Actions,
-) {
+) -> bool {
     let palette = view.palette;
     let removable = removable(queue, selection);
     ui.horizontal(|ui| {
@@ -328,7 +333,8 @@ fn toolbar(
         {
             actions.push(Action::TakeOverSpotify);
         }
-        if small_action(ui, &palette, "+ ADD", queue.takes_songs()).clicked() {
+        let adding = small_action(ui, &palette, "+ ADD", queue.takes_songs()).clicked();
+        if adding {
             actions.push(Action::ToggleBrowse);
         }
         let can_remove = queue.takes_songs() && !removable.is_empty();
@@ -352,7 +358,9 @@ fn toolbar(
                     .color(palette.dim),
             );
         });
-    });
+        adding
+    })
+    .inner
 }
 
 /// The place of the row with this ID.
