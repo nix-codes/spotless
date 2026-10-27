@@ -6,11 +6,10 @@
 //! or another device; on the song playing, plays it here. While another
 //! device holds the queue, the tab only shows it, and TAKE OVER brings it
 //! here, paused. While Spotless has it, or no device has, + ADD adds songs
-//! to it (taking it over), and CLEAR stops and empties it; while Spotless
-//! has it, Delete or REM removes songs to come. Rows drag onto a
-//! playlist's tab to copy them there, or, while Spotless has the queue, to
-//! move songs to come with Shift held; right-click for a menu that does the
-//! same, to a new playlist too, or removes them.
+//! to it and Delete or REM removes songs to come (taking it over), and
+//! CLEAR stops and empties it. Rows drag onto a playlist's tab to copy them
+//! there, or, then, to move songs to come with Shift held; right-click for
+//! a menu that does the same, to a new playlist too, or removes them.
 //!
 //! Keys as in a playlist: Up/Down, PageUp/PageDown and Home/End move the
 //! selection, with Shift they extend it; Ctrl+A selects all.
@@ -269,7 +268,7 @@ fn draw_row(
     let menu = Menu {
         unmovable: unmovable(queue, &rows),
         marked: None,
-        can_remove: open && queue.held_here() && !removable(queue, selection).is_empty(),
+        can_remove: open && queue.takes_songs() && !removable(queue, selection).is_empty(),
     };
     let chosen = playlist_view::row_menu(&response, view, menu);
     if response.drag_started() {
@@ -287,8 +286,8 @@ fn draw_row(
 fn unmovable(queue: &SpotifyQueue, rows: &[EntryId]) -> Option<&'static str> {
     if queue.movable(rows) {
         None
-    } else if !queue.held_here() {
-        Some("Songs leave the queue only while Spotless has it. TAKE OVER the queue first.")
+    } else if !queue.takes_songs() {
+        Some("Another device has the queue. TAKE OVER the queue first.")
     } else {
         Some("Only songs to come can leave the queue.")
     }
@@ -327,7 +326,7 @@ fn toolbar(
         if small_action(ui, &palette, "+ ADD", queue.takes_songs()).clicked() {
             actions.push(Action::ToggleBrowse);
         }
-        let can_remove = queue.held_here() && !removable.is_empty();
+        let can_remove = queue.takes_songs() && !removable.is_empty();
         if small_action(ui, &palette, "REM", can_remove).clicked() {
             actions.push(Action::Remove(PlaylistId::SPOTIFY, removable));
         }
@@ -395,7 +394,7 @@ fn keyboard(
                 .unwrap_or(SpotifyQueue::row_id(queue.before.len()));
             actions.push(Action::PlayEntry(PlaylistId::SPOTIFY, row));
         }
-        Key::Delete if queue.held_here() => {
+        Key::Delete if queue.takes_songs() => {
             let rows = removable(queue, selection);
             if !rows.is_empty() {
                 actions.push(Action::Remove(PlaylistId::SPOTIFY, rows));

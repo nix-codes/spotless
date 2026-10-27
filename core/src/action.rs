@@ -133,7 +133,7 @@ pub enum Action {
     CopyTo(PlaylistId, Vec<TrackRef>),
     /// Moves these songs of a playlist to the end of another. To the
     /// Spotify tab: queues them, leaving them where they were if Spotify
-    /// won't take them. From it: only songs to come, while Spotless has the
-    /// queue.
+    /// won't take them. From it: only songs to come, unless another device
+    /// has the queue.
     MoveTo(PlaylistId, PlaylistId, Vec<EntryId>),
 }

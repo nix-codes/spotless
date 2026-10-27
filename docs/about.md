@@ -59,7 +59,7 @@ Spotify only allows playback in other apps for Premium accounts.
   them there, or hold Shift as you drop them to move them. Or right-click
   them: *Copy to* or *Move to* another playlist, the Spotify tab's queue,
   or a new playlist. Songs still to come move out of the Spotify tab too,
-  while Spotless has the queue.
+  unless another device has the queue.
 - **Playlists aren't used up.** Playing a song doesn't remove it: each
   playlist has its own place, which you can move back and forth, and
   viewing another tab never changes what plays. At the end, playback stops

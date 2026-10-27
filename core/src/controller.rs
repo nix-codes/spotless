@@ -1197,7 +1197,7 @@ impl Controller {
     }
 
     /// Copies songs to come of the account's queue to a playlist and takes
-    /// them out of the queue, while Spotless has it.
+    /// them out of the queue, unless another device has it.
     fn move_from_spotify(&mut self, to: PlaylistId, rows: Vec<EntryId>) {
         let Some(queue) = &self.state.spotify else {
             return;
@@ -2294,6 +2294,17 @@ mod tests {
         // Held by the phone: nothing moves.
         assert_eq!(move_rows(&mut rig, vec![1]), Vec::<Vec<_>>::new());
         assert!(titles(&rig, PlaylistId::DEFAULT).is_empty());
+        // Held by no device: it moves, Spotless taking the queue over.
+        rig.tell(Event::Spotify(Some(SpotifyQueue {
+            device: None,
+            device_id: None,
+            status: Status::Stopped,
+            ..queue.clone()
+        })));
+        assert_eq!(
+            move_rows(&mut rig, vec![1]),
+            [vec![(0, entry(8).track.uri)]]
+        );
         rig.tell(Event::Spotify(Some(SpotifyQueue {
             device: Some("Spotless".into()),
             device_id: Some("spotless".into()),
@@ -2306,7 +2317,7 @@ mod tests {
             move_rows(&mut rig, vec![1]),
             [vec![(0, entry(8).track.uri)]]
         );
-        assert_eq!(titles(&rig, PlaylistId::DEFAULT), ["Song 8"]);
+        assert_eq!(titles(&rig, PlaylistId::DEFAULT), ["Song 8", "Song 8"]);
         assert_eq!(
             rig.controller.state().notice.as_deref(),
             Some("Moved 1 song to Default")

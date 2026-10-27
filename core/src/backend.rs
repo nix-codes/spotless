@@ -284,11 +284,14 @@ struct Clearing {
     here_at: Option<Instant>,
 }
 
-/// Songs asked to be added while no device held the queue: since `asked`,
-/// while the queue comes here to take them; it came at `here_at`.
+/// Songs asked to be added or removed while no device held the queue:
+/// since `asked`, while the queue comes here to take the changes; it came
+/// at `here_at`.
 struct Adding {
     asked: Instant,
     uris: Vec<String>,
+    /// The songs to come to remove, by place and URI as shown when asked.
+    remove: Vec<(usize, String)>,
     here_at: Option<Instant>,
 }
 
@@ -799,23 +802,26 @@ impl Worker {
             return;
         }
         // No device holds the queue, so none takes changes to it: Spotless
-        // takes it over, without playing it, and adds the songs once it has
-        // it, as CLEAR does.
-        if let SpotifyRequest::Add(uris) = &request
+        // takes it over, without playing it, and adds or removes the songs
+        // once it has it, as CLEAR does.
+        if let SpotifyRequest::Add(_) | SpotifyRequest::Remove(_) = &request
             && !self.queue.here
             && self.queue.device.is_none()
         {
-            match &mut self.adding {
-                Some(adding) => adding.uris.extend(uris.iter().cloned()),
-                None => {
-                    log::info!("taking the queue over, to add to it");
-                    remote.play_here();
-                    self.adding = Some(Adding {
-                        asked: Instant::now(),
-                        uris: uris.clone(),
-                        here_at: None,
-                    });
+            let adding = self.adding.get_or_insert_with(|| {
+                log::info!("taking the queue over, to change it");
+                remote.play_here();
+                Adding {
+                    asked: Instant::now(),
+                    uris: Vec::new(),
+                    remove: Vec::new(),
+                    here_at: None,
                 }
+            });
+            match request {
+                SpotifyRequest::Add(uris) => adding.uris.extend(uris),
+                SpotifyRequest::Remove(songs) => adding.remove.extend(songs),
+                _ => {}
             }
             self.add_next();
             return;
@@ -922,18 +928,19 @@ impl Worker {
         Some(tokio::time::Instant::from_std(here_at + CLEAR_SETTLE))
     }
 
-    /// Adds the songs waiting, once the queue taken over for them is here
-    /// and settled: added sooner, the handover still finishing would drop
-    /// them.
+    /// Removes and adds the songs waiting, once the queue taken over for
+    /// them is here and settled: changed sooner, the handover still
+    /// finishing would undo the changes. The songs to remove are found again
+    /// by URI if the handover moved them.
     fn add_next(&mut self) {
         let (Some(adding), Some(remote)) = (&mut self.adding, &self.remote) else {
             return;
         };
         if adding.asked.elapsed() >= PLAY_HERE_WAIT {
-            log::warn!("Spotify didn't hand the queue over to add to it");
+            log::warn!("Spotify didn't hand the queue over to change it");
             self.adding = None;
             (self.emit)(Event::Error(
-                "Spotify didn't hand the queue over to Spotless, so the songs weren't added."
+                "Spotify didn't hand the queue over to Spotless, so the queue wasn't changed."
                     .into(),
             ));
             return;
@@ -946,7 +953,12 @@ impl Worker {
         if !settled && here_at.elapsed() < CLEAR_SETTLE {
             return;
         }
-        remote.add(&adding.uris);
+        if !adding.remove.is_empty() {
+            remote.remove(self.queue.find_again(&adding.remove));
+        }
+        if !adding.uris.is_empty() {
+            remote.add(&adding.uris);
+        }
         self.adding = None;
     }
 

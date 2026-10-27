@@ -92,17 +92,17 @@ impl SpotifyQueue {
     }
 
     /// These rows can be taken out, to move them to a playlist: songs to
-    /// come, while Spotless has the queue.
+    /// come, while the queue takes changes.
     pub fn movable(&self, rows: &[EntryId]) -> bool {
-        self.held_here()
+        self.takes_songs()
             && !rows.is_empty()
             && rows
                 .iter()
                 .all(|&id| matches!(self.row(id), Some(Row::Next(_))))
     }
 
-    /// Songs can be added: Spotless has it, or no device does, and Spotless
-    /// takes it over for them.
+    /// Songs can be added or removed: Spotless has it, or no device does,
+    /// and Spotless takes it over for them.
     pub fn takes_songs(&self) -> bool {
         self.held_here() || self.device.is_none()
     }
@@ -132,6 +132,27 @@ impl SpotifyQueue {
             (Some(device), false, Status::Stopped) => format!("Stopped on {device}."),
             (Some(device), false, _) => format!("Paused on {device}."),
         }
+    }
+
+    /// Songs to come to remove (place, URI), as they were shown, at their
+    /// places now: each where it was if still there, else the first place
+    /// with its URI not taken by another; dropped if gone.
+    pub fn find_again(&self, songs: &[(usize, String)]) -> Vec<(usize, String)> {
+        let now: Vec<&Queued> = self.parts.iter().flat_map(|part| &part.songs).collect();
+        let mut found: Vec<(usize, String)> = Vec::new();
+        for (index, uri) in songs {
+            let free = |song: &&&Queued| found.iter().all(|(i, _)| *i != song.index);
+            let at = now
+                .iter()
+                .filter(free)
+                .find(|song| song.index == *index && song.track.uri == *uri)
+                .or_else(|| now.iter().filter(free).find(|song| song.track.uri == *uri))
+                .map(|song| song.index);
+            if let Some(at) = at {
+                found.push((at, uri.clone()));
+            }
+        }
+        found
     }
 
     /// The tab's rows in order: before, now, then each part.
@@ -306,5 +327,23 @@ mod tests {
         assert!(queue.active());
         queue.position_ms = 30_000;
         assert_eq!(queue.snapshot().status, Status::Paused);
+    }
+
+    #[test]
+    fn songs_to_remove_are_found_again_where_the_handover_put_them() {
+        let queue = queue();
+        let uri = |name: &str| format!("spotify:track:{name}");
+        // Still where they were.
+        assert_eq!(queue.find_again(&[(2, uri("c"))]), [(2, uri("c"))]);
+        // Moved, or gone.
+        assert_eq!(
+            queue.find_again(&[(5, uri("c")), (0, uri("gone"))]),
+            [(2, uri("c"))]
+        );
+        // The same song twice, at one place: once.
+        assert_eq!(
+            queue.find_again(&[(2, uri("c")), (7, uri("c"))]),
+            [(2, uri("c"))]
+        );
     }
 }

@@ -8,7 +8,7 @@
 //! moves the selection, Ctrl+A selects all. Up/Down, PageUp/PageDown and
 //! Home/End move the selection; with Shift they extend it. Dragged onto
 //! another tab, the selection is copied there, or moved with Shift held
-//! (from the Spotify tab, songs to come while Spotless has the queue);
+//! (from the Spotify tab, songs to come, unless another device has it);
 //! right-click for a menu that does the same.
 
 use std::collections::BTreeSet;
