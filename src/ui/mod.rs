@@ -291,12 +291,18 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         egui::pos2(full.right() - GUTTER, status.top() - 6.0),
     );
     // The deck and the equaliser raise the least height, so the status bar
-    // never comes up over the playlists.
+    // never comes up over the playlists; the settings raise it further, to
+    // fit their categories.
+    let least_body = if inputs.settings.is_some() {
+        settings_view::MIN_HEIGHT
+    } else {
+        MIN_BODY
+    };
     fit_least(
         ui,
         full,
         &mut inputs.fit,
-        body.top() + MIN_BODY + 6.0 + STATUS_HEIGHT - full.top(),
+        body.top() + least_body + 6.0 + STATUS_HEIGHT - full.top(),
     );
     if let Some(form) = &mut inputs.settings {
         if settings_view::draw(ui, body, view, form, &mut inputs.tab, actions) {
@@ -362,16 +368,20 @@ fn fit_window(ui: &Ui, full: Rect, fit: &mut Fit, height: Option<f32>) {
 }
 
 /// Keeps the window at least `height` points of its content `full` tall
-/// (and MIN_WINDOW), while the playlists show.
+/// (and MIN_WINDOW), while the playlists show; a shorter one grows.
 fn fit_least(ui: &Ui, full: Rect, fit: &mut Fit, height: f32) {
     let ctx = ui.ctx();
-    let height = height.max(MIN_WINDOW.y) + ctx.content_rect().height() - full.height();
+    let screen = ctx.content_rect();
+    let height = height.max(MIN_WINDOW.y) + screen.height() - full.height();
     let wanted = (height, ctx.pixels_per_point());
     if fit.least == Some(wanted) {
         return;
     }
     fit.least = Some(wanted);
     ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(vec2(MIN_WINDOW.x, height)));
+    if screen.height() < height {
+        ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(screen.width(), height)));
+    }
 }
 
 /// What shows below the player's top rows.

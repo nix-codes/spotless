@@ -40,6 +40,9 @@ const LIST_ROW: f32 = 26.0;
 const LABEL_WIDTH: f32 = 150.0;
 const ROW_GAP: f32 = 14.0;
 const PAD: f32 = 10.0;
+/// The header's height, and the gap below it.
+const HEADER: f32 = 30.0;
+const HEADER_GAP: f32 = 6.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Category {
@@ -145,6 +148,9 @@ pub fn open(view: &View, category: Category) -> Form {
     }
 }
 
+/// The least height the screen needs: the header and every category.
+pub const MIN_HEIGHT: f32 = HEADER + HEADER_GAP + LIST_ROW * CATEGORIES.len() as f32 + 12.0;
+
 /// Draws the screen in `rect`. True when it should close.
 pub fn draw(
     ui: &mut Ui,
@@ -214,8 +220,8 @@ pub fn draw(
     let mut close = !typing && escape;
 
     // The header, the categories and the panel.
-    let header = Rect::from_min_size(rect.min, vec2(rect.width(), 30.0));
-    let body = Rect::from_min_max(pos2(rect.left(), header.bottom() + 6.0), rect.max);
+    let header = Rect::from_min_size(rect.min, vec2(rect.width(), HEADER));
+    let body = Rect::from_min_max(pos2(rect.left(), header.bottom() + HEADER_GAP), rect.max);
     let list = Rect::from_min_size(body.min, vec2(LIST_WIDTH, body.height()));
     let panel = Rect::from_min_max(pos2(list.right() + PAD, body.top()), body.max);
     ui.scope_builder(UiBuilder::new().max_rect(header), |ui| {
