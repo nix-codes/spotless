@@ -8,4 +8,4 @@ pub mod playlist;
 
 pub use library::Library;
 pub use playback::{Playback, Step};
-pub use playlist::{AlbumRef, ArtistRef, Entry, EntryId, Playlist, PlaylistId, TrackRef};
+pub use playlist::{AlbumRef, ArtistRef, Entry, EntryId, Playlist, PlaylistId, Run, TrackRef};

@@ -58,6 +58,17 @@ pub struct Entry {
     pub track: TrackRef,
 }
 
+/// A run of songs the list shows together. Two or more in a row from one
+/// album are an `album` run, under a header with its name. The songs
+/// between those, each alone from its album there, make one plain run,
+/// set off from the album before it by a line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Run {
+    pub start: usize,
+    pub len: usize,
+    pub album: bool,
+}
+
 /// Invariant: unless `detached`, the cursor is set exactly when the
 /// playlist has entries.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -120,6 +131,33 @@ impl Playlist {
 
     pub fn index_of(&self, id: EntryId) -> Option<usize> {
         self.entries.iter().position(|entry| entry.id == id)
+    }
+
+    /// The list cut into runs, in order; see [`Run`].
+    pub fn runs(&self) -> Vec<Run> {
+        let mut runs: Vec<Run> = Vec::new();
+        let mut start = 0;
+        while start < self.entries.len() {
+            let album = &self.entries[start].track.album.uri;
+            let len = if album.is_empty() {
+                1
+            } else {
+                self.entries[start..]
+                    .iter()
+                    .take_while(|entry| entry.track.album.uri == *album)
+                    .count()
+            };
+            match runs.last_mut() {
+                Some(last) if len == 1 && !last.album => last.len += 1,
+                _ => runs.push(Run {
+                    start,
+                    len,
+                    album: len > 1,
+                }),
+            }
+            start += len;
+        }
+        runs
     }
 
     pub fn get(&self, id: EntryId) -> Option<&Entry> {
@@ -279,6 +317,41 @@ pub(crate) mod tests {
 
     pub fn ids(list: &Playlist) -> Vec<u64> {
         list.entries().iter().map(|entry| entry.id.0).collect()
+    }
+
+    #[test]
+    fn albums_of_two_or_more_get_a_run_and_lone_songs_share_one() {
+        let mut list = Playlist::new(PlaylistId(1), "Test");
+        let on = |id, album: &str| {
+            let mut entry = entry(id);
+            entry.track.album.uri = album.to_string();
+            entry
+        };
+        list.append(vec![
+            on(1, "a"),
+            on(2, "b"),
+            on(3, "b"),
+            on(4, "b"),
+            on(5, "c"),
+            on(6, "d"),
+            on(7, ""),
+            on(8, ""),
+            on(9, "e"),
+            on(10, "e"),
+            on(11, "f"),
+        ]);
+        let run = |start, len, album| Run { start, len, album };
+        assert_eq!(
+            list.runs(),
+            [
+                run(0, 1, false),
+                run(1, 3, true),
+                run(4, 4, false),
+                run(8, 2, true),
+                run(10, 1, false),
+            ]
+        );
+        assert_eq!(Playlist::new(PlaylistId(1), "Test").runs(), []);
     }
 
     #[test]

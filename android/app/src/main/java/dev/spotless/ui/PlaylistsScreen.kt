@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.ImeAction
@@ -88,7 +89,8 @@ private val HEADER = 30.dp
  * The main screen: the playlist tabs, the viewed playlist, and the player.
  * Holding a song selects it, for Q NEXT, copying, removing and moving;
  * holding another then selects every song from the last one picked up to
- * it. Each album's run of songs sits under a header with its name.
+ * it. Two or more songs in a row from one album sit under a header with
+ * its name; a line sets off the lone songs that follow.
  *
  * The Spotify tab, while Spotless is in Spotify Connect, shows the
  * account's queue instead: what played, the song playing, then what comes.
@@ -597,7 +599,7 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
         }
         val songs = list.songs
         // Where each album's run starts, and how far down each song sits.
-        val starts = songs.indices.filter { it == 0 || songs[it].track.album.uri != songs[it - 1].track.album.uri }
+        val starts = songs.indices.filter { songs[it].albumRun > 0u }
         val tops = FloatArray(songs.size)
         var y = 0f
         for (i in songs.indices) {
@@ -626,8 +628,7 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
         ScrollingList(state, Modifier.fillMaxSize()) {
             songs.forEachIndexed { index, song ->
                 if (index in starts) {
-                    val end = starts.firstOrNull { it > index } ?: songs.size
-                    val run = songs.subList(index, end).map { it.entry }
+                    val run = songs.subList(index, index + song.albumRun.toInt()).map { it.entry }
                     val all = selected.containsAll(run)
                     item(key = "album ${song.entry}") {
                         AlbumHeader(
@@ -664,7 +665,8 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
                         chosen = chosen,
                         selecting = selected.isNotEmpty(),
                         lifted = d?.entry == song.entry,
-                        modifier = Modifier.zIndex(if (d?.entry == song.entry) 1f else 0f).graphicsLayer { translationY = shift },
+                        modifier = Modifier.zIndex(if (d?.entry == song.entry) 1f else 0f).graphicsLayer { translationY = shift }
+                            .then(if (song.setOff) Modifier.setOff() else Modifier),
                         tap = {
                             when {
                                 selected.isEmpty() -> core.apply(Action.PlayEntry(list.id, song.entry))
@@ -712,6 +714,12 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
             }
         }
     }
+}
+
+/** The line over a lone song that follows an album's run. */
+private fun Modifier.setOff() = drawWithContent {
+    drawContent()
+    drawLine(Classic.lcd.copy(alpha = 0.3f), Offset(0f, 0.5f), Offset(size.width, 0.5f), 1.dp.toPx())
 }
 
 /** Above an album's run of songs: its name and the first song's artist. */
@@ -879,7 +887,7 @@ private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, se
                         val chosen = row.entry in selected
                         val index = songs.indexOf(row)
                         SongRow(
-                            null, Song(row.entry, row.track, null),
+                            null, Song(row.entry, row.track, null, 0u, false),
                             current = row.played == Played.NOW,
                             chosen = chosen,
                             selecting = selected.isNotEmpty(),

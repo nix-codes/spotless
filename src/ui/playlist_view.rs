@@ -24,7 +24,7 @@ use super::widgets::{
 };
 use super::{Inputs, View, spotify_view};
 use crate::action::{Action, Actions};
-use crate::model::{EntryId, Playlist, PlaylistId};
+use crate::model::{EntryId, Playlist, PlaylistId, Run};
 use crate::playback::engine::Status;
 
 const ROW_HEIGHT: f32 = 18.0;
@@ -58,8 +58,8 @@ pub struct Selection {
     /// The scroll offset last frame, and the row to bring into view.
     offset: f32,
     reveal: Option<usize>,
-    /// The playlist shown last frame, and the row to put at the top on
-    /// opening another: the one above the cursor's song.
+    /// The playlist shown last frame, and the song to open another on,
+    /// with the line above it at the top.
     shown: Option<PlaylistId>,
     open_at: Option<usize>,
 }
@@ -91,7 +91,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         selection.shown = Some(view.playlist.id);
         let list = view.playlist;
         let at = list.cursor().and_then(|id| list.index_of(id));
-        selection.open_at = Some(at.map_or(0, |at| at.saturating_sub(1)));
+        selection.open_at = Some(at.unwrap_or(0));
     }
     // The item spacing after the tabs makes up the rest of the gap.
     ui.add_space(LIST_GAP - ui.spacing().item_spacing.y);
@@ -117,7 +117,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
             selection.select(entry, index);
             // Placed as on opening the playlist, not just brought into view.
             selection.reveal = None;
-            selection.open_at = Some(index.saturating_sub(1));
+            selection.open_at = Some(index);
         }
     }
     inputs
@@ -621,6 +621,30 @@ fn toolbar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
     });
 }
 
+/// A line of the list: the header over an album's run, or a song, by its
+/// index.
+#[derive(Clone, Copy)]
+enum Line {
+    Header(Run),
+    Song(usize),
+}
+
+/// The list's lines, and the line each song is on.
+fn lines(list: &Playlist) -> (Vec<Line>, Vec<usize>) {
+    let mut lines = Vec::with_capacity(list.len());
+    let mut line_of = Vec::with_capacity(list.len());
+    for run in list.runs() {
+        if run.album {
+            lines.push(Line::Header(run));
+        }
+        for index in run.start..run.start + run.len {
+            line_of.push(lines.len());
+            lines.push(Line::Song(index));
+        }
+    }
+    (lines, line_of)
+}
+
 fn draw_rows(
     ui: &mut Ui,
     view: &View,
@@ -633,10 +657,18 @@ fn draw_rows(
     let mut area = ScrollArea::vertical()
         .auto_shrink([false, false])
         .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden);
-    let furthest = (list.len() as f32 * ROW_HEIGHT - ui.available_height()).max(0.0);
+    let (lines, line_of) = lines(list);
+    // The songs after an album's run that aren't one: a line sets them off.
+    let set_off: BTreeSet<usize> = list
+        .runs()
+        .into_iter()
+        .filter(|run| !run.album && run.start > 0)
+        .map(|run| run.start)
+        .collect();
+    let furthest = (lines.len() as f32 * ROW_HEIGHT - ui.available_height()).max(0.0);
     let thumb_to = bar.interact(ui, slot, selection.offset, furthest);
     if let Some(index) = selection.reveal.take() {
-        let top = index as f32 * ROW_HEIGHT;
+        let top = line_of[index.min(list.len() - 1)] as f32 * ROW_HEIGHT;
         let height = ui.available_height();
         let offset = if top < selection.offset {
             top
@@ -648,7 +680,8 @@ fn draw_rows(
         area = area.vertical_scroll_offset(offset);
     }
     if let Some(index) = selection.open_at.take() {
-        area = area.vertical_scroll_offset((index as f32 * ROW_HEIGHT).min(furthest));
+        let line = line_of[index.min(list.len() - 1)].saturating_sub(1);
+        area = area.vertical_scroll_offset((line as f32 * ROW_HEIGHT).min(furthest));
     }
     if let Some(offset) = thumb_to {
         area = area.vertical_scroll_offset(offset);
@@ -662,9 +695,23 @@ fn draw_rows(
     // Rows touch. show_rows counts the spacing into each row's height, so
     // it is set before: inside, it would fit a row less in every three.
     ui.spacing_mut().item_spacing.y = 0.0;
-    let output = area.show_rows(ui, ROW_HEIGHT, list.len(), |ui, range| {
+    let output = area.show_rows(ui, ROW_HEIGHT, lines.len(), |ui, range| {
         let viewport = ui.clip_rect();
-        for index in range {
+        for line in range {
+            let index = match lines[line] {
+                Line::Song(index) => index,
+                Line::Header(run) => {
+                    let rect = header(ui, view, selection, run, actions);
+                    if dragging.is_some()
+                        && let Some(p) = pointer
+                        && viewport.contains(p)
+                        && rect.y_range().contains(p.y)
+                    {
+                        drop_at = Some((run.start, rect.bottom()));
+                    }
+                    continue;
+                }
+            };
             let entry = &list.entries()[index];
             let (rect, response) = ui.allocate_exact_size(
                 vec2(ui.available_width(), ROW_HEIGHT),
@@ -679,6 +726,13 @@ fn draw_rows(
                 theme::focus_ring(&painter, rect.expand(1.0), &palette);
             }
             paint_row(&painter, rect, &palette, list, index, number_width, current);
+            if set_off.contains(&index) {
+                painter.hline(
+                    rect.x_range(),
+                    rect.top() + 0.5,
+                    Stroke::new(1.0, palette.lcd.gamma_multiply(0.3)),
+                );
+            }
 
             if response.double_clicked() {
                 selection.select(entry.id, index);
@@ -745,7 +799,7 @@ fn draw_rows(
     {
         drop_at = Some((
             list.len(),
-            output.inner_rect.top() - output.state.offset.y + list.len() as f32 * ROW_HEIGHT,
+            output.inner_rect.top() - output.state.offset.y + lines.len() as f32 * ROW_HEIGHT,
         ));
     }
     let Some((index, y)) = drop_at else { return };
@@ -759,6 +813,83 @@ fn draw_rows(
     {
         actions.push(Action::Move(rows.0.clone(), index));
     }
+}
+
+/// The background of an album's header.
+fn header_bg(palette: &Palette) -> Color32 {
+    palette.lcd.gamma_multiply(0.12)
+}
+
+/// The header over an album's run: its name and its first song's artist.
+/// A click selects the run (Ctrl adds or takes it away); a double-click
+/// plays it.
+fn header(
+    ui: &mut Ui,
+    view: &View,
+    selection: &mut Selection,
+    run: Run,
+    actions: &mut Actions,
+) -> Rect {
+    let palette = view.palette;
+    let list = view.playlist;
+    let songs = &list.entries()[run.start..run.start + run.len];
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
+    let chosen = songs.iter().all(|entry| selection.rows.contains(&entry.id));
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(
+        rect,
+        0.0,
+        if chosen {
+            palette.selected_bg
+        } else {
+            header_bg(&palette)
+        },
+    );
+    let mark = Rect::from_center_size(pos2(rect.left() + 6.0, rect.center().y), vec2(2.0, 10.0));
+    painter.rect_filled(mark, 0.0, palette.accent);
+    let track = &songs[0].track;
+    let font = FontId::monospace(10.0);
+    let name = painter.text(
+        pos2(rect.left() + 14.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        track.album.name.to_uppercase(),
+        font.clone(),
+        palette.lcd,
+    );
+    if let Some(artist) = track.artists.first() {
+        painter.text(
+            pos2(name.right(), rect.center().y),
+            Align2::LEFT_CENTER,
+            format!("  ·  {}", artist.name.to_uppercase()),
+            font,
+            palette.dim,
+        );
+    }
+    let first = songs[0].id;
+    if response.double_clicked() {
+        selection.select(first, run.start);
+        selection.reveal = None;
+        actions.push(Action::PlayEntry(list.id, first));
+        return rect;
+    }
+    if response.clicked() {
+        let ids = songs.iter().map(|entry| entry.id);
+        if ui.input(|i| i.modifiers.command) {
+            if chosen {
+                for id in ids {
+                    selection.rows.remove(&id);
+                }
+            } else {
+                selection.rows.extend(ids);
+            }
+        } else {
+            selection.rows = ids.collect();
+        }
+        selection.anchor = Some(first);
+        selection.cursor = Some(first);
+    }
+    rect
 }
 
 fn paint_row(

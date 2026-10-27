@@ -344,6 +344,11 @@ pub struct Song {
     pub track: Track,
     /// The number of its Q mark: it plays next, in that order.
     pub mark: Option<u32>,
+    /// It starts a run of this many songs from one album, under a header
+    /// with its name; 0 if not.
+    pub album_run: u32,
+    /// It follows an album's run without starting one: a line sets it off.
+    pub set_off: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
@@ -358,16 +363,23 @@ pub struct PlaylistView {
 
 pub(crate) fn playlist(state: &State, id: PlaylistId) -> Option<PlaylistView> {
     let list = state.library.get(id)?;
+    let runs = list.runs();
+    let run_at = |index: usize| runs.iter().find(|run| run.start == index);
     Some(PlaylistView {
         id: list.id.0,
         name: list.name.clone(),
         songs: list
             .entries()
             .iter()
-            .map(|entry| Song {
+            .enumerate()
+            .map(|(index, entry)| Song {
                 entry: entry.id.0,
                 track: (&entry.track).into(),
                 mark: list.mark_number(entry.id).map(count),
+                album_run: run_at(index)
+                    .filter(|run| run.album)
+                    .map_or(0, |run| count(run.len)),
+                set_off: run_at(index).is_some_and(|run| !run.album && index > 0),
             })
             .collect(),
         cursor: list.cursor().map(|id| id.0),
