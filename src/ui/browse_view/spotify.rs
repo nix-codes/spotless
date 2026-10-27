@@ -4,7 +4,9 @@
 //! finds a playlist by name) show the next one at once, Enter goes to its
 //! songs. The songs are selected as in a tab (click, Ctrl, Shift, Ctrl+A)
 //! and added; on the account's own playlists and Liked Songs, Delete or
-//! REM takes them out on Spotify, and Ctrl+Z puts them back.
+//! REM takes them out on Spotify, and Ctrl+Z puts them back. A playlist
+//! itself is deleted, or unfollowed if it's someone else's, from its
+//! menu or the button beside its name; UNDO puts it back.
 
 use std::collections::BTreeSet;
 
@@ -14,7 +16,7 @@ use egui::{
 
 use super::{Act, Area, CatalogDrag, Nav, PAD, TRACK_HEIGHT, body, mono, note, row, spans};
 use crate::action::{Action, Actions};
-use crate::browse::Loadable;
+use crate::browse::{Loadable, Undo};
 use crate::model::TrackRef;
 use crate::model::catalog::SpotifyPlaylist;
 use crate::ui::scrollbar;
@@ -197,6 +199,16 @@ fn playlist_list(
                         actions.push(Action::OpenSpotifyPlaylist(playlist.uri.clone()));
                         nav.area = Area::Lists;
                     }
+                    if view.browse.unlistable(&playlist.uri) {
+                        response.context_menu(|ui| {
+                            let label =
+                                RichText::new(unlist_label(playlist)).monospace().size(11.0);
+                            let button = egui::Button::new(label).frame_when_inactive(false);
+                            if ui.add(button).clicked() {
+                                actions.push(Action::UnlistSpotifyPlaylist(playlist.uri.clone()));
+                            }
+                        });
+                    }
                 }
             }
             if order.is_empty() {
@@ -206,8 +218,16 @@ fn playlist_list(
     });
 }
 
-/// The playlist chosen: its name, whose it is, + ADD ALL and REM, and its
-/// songs.
+/// What taking a playlist out of the account's list does to it.
+fn unlist_label(playlist: &SpotifyPlaylist) -> &'static str {
+    match playlist.owner {
+        None => "Delete playlist",
+        Some(_) => "Unfollow playlist",
+    }
+}
+
+/// The playlist chosen: its name, whose it is, DELETE or UNFOLLOW, + ADD
+/// ALL and REM, and its songs.
 fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut Actions) {
     let palette = view.palette;
     let browse = view.browse;
@@ -221,6 +241,22 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
             None => "YOURS".into(),
         };
         ui.label(RichText::new(tag).monospace().size(10.0).color(palette.dim));
+        if let Some(playlist) = playlist.filter(|p| browse.unlistable(&p.uri)) {
+            let (label, hint) = match playlist.owner {
+                None => ("DELETE", "Deletes this playlist on Spotify"),
+                Some(_) => (
+                    "UNFOLLOW",
+                    "Takes this playlist out of your Spotify playlists",
+                ),
+            };
+            ui.add_space(4.0);
+            if small_button(ui, &palette, label, false)
+                .on_hover_text(hint)
+                .clicked()
+            {
+                actions.push(Action::UnlistSpotifyPlaylist(playlist.uri.clone()));
+            }
+        }
     });
     ui.add_space(6.0);
     let tracks = match browse.albums.get(uri) {
@@ -251,7 +287,12 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
     if keys {
         extend(ui, nav, tracks.len());
     }
-    if undo && browse.undo.as_ref().is_some_and(|u| u.playlist == uri) {
+    let undoable = match &browse.undo {
+        Some(Undo::Songs(removal)) => removal.playlist == uri,
+        Some(Undo::Playlist(_)) => true,
+        None => false,
+    };
+    if undo && undoable {
         actions.push(Action::UndoSpotifyRemoval);
     }
     // The selection, else the highlighted song.

@@ -36,7 +36,7 @@ More in [Screenshots](docs/screenshots.md).
   doesn't use it up.
 - **Browse**: search, then an artist's albums oldest first, songs opening
   inline; **+ ADD** puts a whole album in a playlist. Your Spotify
-  playlists and Liked Songs are there too, to copy from or tidy, and
+  playlists and Liked Songs are there too, to copy from, tidy or delete, and
   songs or a whole tab can be copied to Spotify playlists (desktop).
 - **Gapless playback** at 320 kbps, with Shuffle, Repeat and Play next.
 - **Made for the keyboard**: everything works without the mouse.

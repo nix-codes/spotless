@@ -42,6 +42,36 @@ pub struct Removal {
     pub notice: String,
 }
 
+/// A Spotify playlist taken out of the account's list (deleted, if its
+/// own, else unfollowed), to put back.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Unlisted {
+    pub playlist: String,
+    pub name: String,
+    /// Where it was in the list, folders counted, and how it was listed
+    /// (Spotify's own record of it).
+    pub at: usize,
+    pub item: Vec<u8>,
+    pub notice: String,
+}
+
+/// What UNDO, or Ctrl+Z, puts back on Spotify.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Undo {
+    Songs(Removal),
+    Playlist(Unlisted),
+}
+
+impl Undo {
+    /// What the status bar said once it was done.
+    pub fn notice(&self) -> &str {
+        match self {
+            Undo::Songs(removal) => &removal.notice,
+            Undo::Playlist(unlisted) => &unlisted.notice,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Loadable<T> {
     Loading,
@@ -69,8 +99,8 @@ pub struct Browse {
     /// The account's own Spotify playlists, Liked Songs first; None until
     /// asked for.
     pub spotify_playlists: Option<Loadable<Vec<SpotifyPlaylist>>>,
-    /// The songs removed last, while they can be put back.
-    pub undo: Option<Removal>,
+    /// The songs or playlist removed last, while they can be put back.
+    pub undo: Option<Undo>,
     /// Albums and Spotify playlists shown with their songs.
     pub expanded: HashSet<String>,
     pub tab: ReleaseTab,
@@ -181,6 +211,12 @@ impl Browse {
     pub fn editable(&self, uri: &str) -> bool {
         self.spotify_playlist(uri)
             .is_some_and(|playlist| playlist.owner.is_none())
+    }
+
+    /// Whether this Spotify playlist can be taken out of the account's
+    /// list: any but Liked Songs.
+    pub fn unlistable(&self, uri: &str) -> bool {
+        uri != crate::spotify::catalog::LIKED_SONGS && self.spotify_playlist(uri).is_some()
     }
 
     pub fn flash(&mut self, entries: impl IntoIterator<Item = EntryId>) {

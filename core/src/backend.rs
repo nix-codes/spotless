@@ -16,7 +16,7 @@ use librespot_core::session::Session;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::time::MissedTickBehavior;
 
-use crate::browse::Removal;
+use crate::browse::{Removal, Unlisted};
 use crate::browser::Browser;
 use crate::images::CoverImage;
 use crate::lastfm::{self, LastFmState, Scrobbler, api::Keys};
@@ -73,6 +73,15 @@ pub enum Command {
     },
     /// Puts removed songs back.
     PutBackOnSpotify(Removal),
+    /// Takes a playlist out of the account's list; `notice` is what the
+    /// status bar says once it's out.
+    UnlistSpotifyPlaylist {
+        playlist: String,
+        name: String,
+        notice: String,
+    },
+    /// Puts a playlist taken out back in the account's list.
+    RelistSpotifyPlaylist(Unlisted),
     /// An album cover, by image URL.
     Cover(String),
     /// The personal app search signs in with changed (None: no app).
@@ -211,6 +220,12 @@ pub enum Event {
         removal: Removal,
         undo: bool,
         result: Result<(), String>,
+    },
+    /// A playlist taken out of the account's list, or put back with
+    /// `undo`.
+    SpotifyUnlisted {
+        result: Result<Unlisted, String>,
+        undo: bool,
     },
     /// Songs copied to a Spotify playlist: its URI, once they are.
     CopiedToSpotify {
@@ -1431,6 +1446,46 @@ impl Worker {
                 self.edit_spotify(removal, Some(revision));
             }
             Command::PutBackOnSpotify(removal) => self.edit_spotify(removal, None),
+            Command::UnlistSpotifyPlaylist {
+                playlist,
+                name,
+                notice,
+            } => {
+                let Some(session) = self.session.clone() else {
+                    return;
+                };
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = match playlists::unlist(&session, &playlist).await {
+                        Ok((at, item)) => Ok(Unlisted {
+                            playlist,
+                            name,
+                            at,
+                            item,
+                            notice,
+                        }),
+                        Err(e) => Err(format!("{e:#}")),
+                    };
+                    emit(Event::SpotifyUnlisted {
+                        result,
+                        undo: false,
+                    });
+                });
+            }
+            Command::RelistSpotifyPlaylist(unlisted) => {
+                let Some(session) = self.session.clone() else {
+                    return;
+                };
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result =
+                        match playlists::relist(&session, unlisted.at, &unlisted.item).await {
+                            Ok(()) => Ok(unlisted),
+                            Err(e) => Err(format!("{e:#}")),
+                        };
+                    emit(Event::SpotifyUnlisted { result, undo: true });
+                });
+            }
             Command::CopyToSpotify { target, songs } => {
                 let Some(session) = self.session.clone() else {
                     return;

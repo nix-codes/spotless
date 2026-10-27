@@ -137,7 +137,11 @@ pub enum Action {
     /// from Liked Songs (un-likes them), by their index among its songs
     /// read.
     RemoveFromSpotify(String, Vec<usize>),
-    /// Puts the songs removed last back where they were.
+    /// Takes a Spotify playlist out of the account's list, by URI:
+    /// deletes it if it's the account's own, else unfollows it. Never
+    /// Liked Songs.
+    UnlistSpotifyPlaylist(String),
+    /// Puts the songs or playlist removed last back where they were.
     UndoSpotifyRemoval,
     /// Reads the account's Spotify playlists again (Browse does on
     /// opening), for choosing one to copy songs to.

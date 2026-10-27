@@ -550,10 +550,12 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
     if button(ui, "F1 · KEYS") {
         inputs.help = true;
     }
-    // Songs just removed from a Spotify playlist can be put back.
-    let undo = view.browse.undo.as_ref().is_some_and(|removal| {
-        view.error.is_none() && view.notice == Some(removal.notice.as_str())
-    });
+    // Songs or a playlist just removed on Spotify can be put back.
+    let undo = view
+        .browse
+        .undo
+        .as_ref()
+        .is_some_and(|undo| view.error.is_none() && view.notice == Some(undo.notice()));
     if undo && button(ui, "UNDO") {
         actions.push(Action::UndoSpotifyRemoval);
     }

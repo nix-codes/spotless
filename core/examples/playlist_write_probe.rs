@@ -5,10 +5,14 @@
 //! it is first in the account's list and not on the public profile.
 //! `fill URI` adds 432 songs to it, more than one change takes. `delete
 //! URI` takes it out of the list again (as Spotify's own Delete does).
+//! `unlist` makes a throwaway one, takes it out of the list with
+//! `spotify::playlists::unlist`, puts it back with `relist` and checks it's
+//! where it was, then takes it out again.
 //!
 //!   cargo run -p spotless-core --example playlist_write_probe -- create
 //!   cargo run -p spotless-core --example playlist_write_probe -- fill spotify:playlist:…
 //!   cargo run -p spotless-core --example playlist_write_probe -- delete spotify:playlist:…
+//!   cargo run -p spotless-core --example playlist_write_probe -- unlist
 //!
 //! Sign in through the app first: this reuses its saved credential.
 
@@ -41,6 +45,7 @@ async fn main() -> Result<()> {
         Some("create") => create(&session).await,
         Some("edit") => edit(&session).await,
         Some("liked") => liked(&session).await,
+        Some("unlist") => unlist(&session).await,
         Some("leftovers") => {
             let root = rootlist(&session).await?;
             for (item, meta) in root.contents.items.iter().zip(&root.contents.meta_items) {
@@ -159,6 +164,35 @@ async fn edit(session: &Session) -> Result<()> {
     let back = Playlist::get(session, &target).await?;
     println!("put back: {:?}", show(&back));
     delete(session, &uri).await
+}
+
+/// Takes a throwaway playlist out of the list and puts it back, second,
+/// where it was moved to before.
+async fn unlist(session: &Session) -> Result<()> {
+    let uri = playlists::create(session, "Spotless test", &[]).await?;
+    let place =
+        |root: &SelectedListContent| root.contents.items.iter().position(|i| i.uri() == uri);
+    // Second in the list, behind the one that was first.
+    let (at, item) = playlists::unlist(session, &uri).await?;
+    println!("made, was at {at}");
+    playlists::relist(session, 1, &item).await?;
+    println!("put second: at {:?}", place(&rootlist(session).await?));
+    let (at, item) = playlists::unlist(session, &uri).await?;
+    println!(
+        "taken out from {at}: listed {:?}",
+        place(&rootlist(session).await?)
+    );
+    playlists::relist(session, at, &item).await?;
+    let root = rootlist(session).await?;
+    let back = root.contents.items.iter().find(|i| i.uri() == uri);
+    println!(
+        "put back: at {:?}, public={:?}",
+        place(&root),
+        back.map(|i| i.attributes.public)
+    );
+    playlists::unlist(session, &uri).await?;
+    println!("taken out: listed {:?}", place(&rootlist(session).await?));
+    Ok(())
 }
 
 /// Un-likes the latest liked song and likes it again with its date.

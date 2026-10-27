@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState, SpotifyRequest, Storage};
-use crate::browse::{Browse, Loadable, Page, Removal};
+use crate::browse::{Browse, Loadable, Page, Removal, Undo, Unlisted};
 use crate::browser::{self, Browser};
 use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
 use crate::model::catalog::{Place, SpotifyPlaylist, SpotifyTarget};
@@ -519,6 +519,7 @@ impl Controller {
                     undo,
                     result,
                 } => self.spotify_edited(removal, undo, result),
+                Event::SpotifyUnlisted { result, undo } => self.spotify_unlisted(result, undo),
                 Event::CopiedToSpotify {
                     target,
                     songs,
@@ -1130,13 +1131,19 @@ impl Controller {
                 self.mark_unsaved();
             }
             Action::RemoveFromSpotify(uri, rows) => self.remove_from_spotify(uri, rows),
-            Action::UndoSpotifyRemoval => {
-                if let Some(removal) = self.state.browse.undo.take() {
+            Action::UnlistSpotifyPlaylist(uri) => self.unlist_spotify_playlist(uri),
+            Action::UndoSpotifyRemoval => match self.state.browse.undo.take() {
+                Some(Undo::Songs(removal)) => {
                     self.state.notice =
                         Some(format!("Putting the songs back in “{}”…", removal.name));
                     self.send(Command::PutBackOnSpotify(removal));
                 }
-            }
+                Some(Undo::Playlist(unlisted)) => {
+                    self.state.notice = Some(format!("Putting “{}” back…", unlisted.name));
+                    self.send(Command::RelistSpotifyPlaylist(unlisted));
+                }
+                None => {}
+            },
             Action::CopyToSpotify(target, tracks) => self.copy_to_spotify(target, tracks),
             _ => {}
         }
@@ -1195,12 +1202,72 @@ impl Controller {
             }
             Ok(()) => {
                 self.state.notice = Some(removal.notice.clone());
-                self.state.browse.undo = Some(removal.clone());
+                self.state.browse.undo = Some(Undo::Songs(removal.clone()));
             }
             Err(error) => self.state.error = Some(error),
         }
         // Spotify's places from now on (an undo needs them), and the count.
         self.reread_songs(removal.playlist);
+        self.read_spotify_playlists();
+    }
+
+    /// Takes a Spotify playlist off YOUR SPOTIFY at once, the one beside
+    /// it shown if it was, and out of the account's list.
+    fn unlist_spotify_playlist(&mut self, uri: String) {
+        let browse = &mut self.state.browse;
+        if !matches!(self.state.session, SessionState::Ready { .. }) || !browse.unlistable(&uri) {
+            return;
+        }
+        let Some(Loadable::Ready(playlists)) = &mut browse.spotify_playlists else {
+            return;
+        };
+        // As the list shows them: the account's own, then those followed.
+        let order: Vec<&SpotifyPlaylist> = playlists
+            .iter()
+            .filter(|p| p.owner.is_none())
+            .chain(playlists.iter().filter(|p| p.owner.is_some()))
+            .collect();
+        let Some(at) = order.iter().position(|p| p.uri == uri) else {
+            return;
+        };
+        let playlist = order[at].clone();
+        let beside = order
+            .get(at + 1)
+            .or_else(|| at.checked_sub(1).and_then(|before| order.get(before)))
+            .map(|p| p.uri.clone());
+        playlists.retain(|p| p.uri != uri);
+        if browse.spotify_open.as_ref() == Some(&uri) {
+            browse.spotify_open = beside.clone();
+            if let Some(beside) = beside {
+                self.read_album(beside);
+            }
+            self.mark_unsaved();
+        }
+        let name = playlist.name;
+        let notice = match playlist.owner {
+            None => format!("Deleted “{name}” on Spotify."),
+            Some(_) => format!("Unfollowed “{name}”."),
+        };
+        self.send(Command::UnlistSpotifyPlaylist {
+            playlist: uri,
+            name,
+            notice,
+        });
+    }
+
+    fn spotify_unlisted(&mut self, result: Result<Unlisted, String>, undo: bool) {
+        match result {
+            Ok(unlisted) if undo => {
+                self.state.notice = Some(format!("Put “{}” back.", unlisted.name));
+            }
+            Ok(unlisted) => {
+                self.state.notice = Some(unlisted.notice.clone());
+                self.state.browse.undo = Some(Undo::Playlist(unlisted));
+            }
+            Err(error) => self.state.error = Some(error),
+        }
+        // Spotify's list from now on: a playlist put back, or not taken
+        // out, shows again.
         self.read_spotify_playlists();
     }
 
@@ -1922,6 +1989,94 @@ mod tests {
         rig.controller
             .apply(Action::RemoveFromSpotify(theirs, vec![0]));
         assert!(rig.sent().is_empty());
+    }
+
+    #[test]
+    fn spotify_playlists_are_deleted_or_unfollowed_and_come_back() {
+        let mut rig = Rig::new("unlist-spotify");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        let playlist = |uri: &str, name: &str, owner: Option<&str>| SpotifyPlaylist {
+            uri: uri.into(),
+            name: name.into(),
+            tracks: 1,
+            owner: owner.map(String::from),
+        };
+        // Listed as Spotify has them; shown the account's own first.
+        rig.tell(Event::SpotifyPlaylists(Ok(vec![
+            playlist(crate::spotify::catalog::LIKED_SONGS, "Liked Songs", None),
+            playlist("spotify:playlist:theirs", "Theirs", Some("Them")),
+            playlist("spotify:playlist:mine", "Mine", None),
+        ])));
+        rig.controller
+            .apply(Action::OpenSpotifyPlaylist("spotify:playlist:mine".into()));
+        rig.sent();
+        // Liked Songs stays.
+        rig.controller.apply(Action::UnlistSpotifyPlaylist(
+            crate::spotify::catalog::LIKED_SONGS.into(),
+        ));
+        assert!(rig.sent().is_empty());
+
+        rig.controller.apply(Action::UnlistSpotifyPlaylist(
+            "spotify:playlist:mine".into(),
+        ));
+        let browse = &rig.controller.state().browse;
+        let listed = |browse: &Browse| match &browse.spotify_playlists {
+            Some(Loadable::Ready(p)) => p.iter().map(|p| p.name.clone()).collect(),
+            _ => Vec::new(),
+        };
+        assert_eq!(listed(browse), ["Liked Songs", "Theirs"]);
+        // The one after it in the list is shown instead.
+        assert_eq!(
+            browse.spotify_open.as_deref(),
+            Some("spotify:playlist:theirs")
+        );
+        let sent = rig.sent();
+        let notice = sent
+            .iter()
+            .find_map(|c| match c {
+                Command::UnlistSpotifyPlaylist {
+                    playlist, notice, ..
+                } if playlist == "spotify:playlist:mine" => Some(notice.clone()),
+                _ => None,
+            })
+            .expect("sent to Spotify");
+        assert_eq!(notice, "Deleted “Mine” on Spotify.");
+        let unlisted = Unlisted {
+            playlist: "spotify:playlist:mine".into(),
+            name: "Mine".into(),
+            at: 1,
+            item: vec![1],
+            notice,
+        };
+        rig.tell(Event::SpotifyUnlisted {
+            result: Ok(unlisted.clone()),
+            undo: false,
+        });
+        assert_eq!(
+            rig.controller.state().notice.as_deref(),
+            Some("Deleted “Mine” on Spotify.")
+        );
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::SpotifyPlaylists))
+        );
+        rig.controller.apply(Action::UndoSpotifyRemoval);
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::RelistSpotifyPlaylist(u) if *u == unlisted))
+        );
+        assert!(rig.controller.state().browse.undo.is_none());
+
+        // Someone else's is unfollowed.
+        rig.controller.apply(Action::UnlistSpotifyPlaylist(
+            "spotify:playlist:theirs".into(),
+        ));
+        assert!(rig.sent().iter().any(|c| matches!(
+            c,
+            Command::UnlistSpotifyPlaylist { notice, .. } if notice == "Unfollowed “Theirs”."
+        )));
     }
 
     #[test]

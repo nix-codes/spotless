@@ -1,6 +1,7 @@
 //! Writes to the account's Spotify playlists over the librespot session,
 //! as Spotify's own clients do: a new playlist, songs added to the end of
-//! one, songs removed and put back; and songs liked and un-liked.
+//! one, songs removed and put back; playlists taken out of the account's
+//! list and put back; and songs liked and un-liked.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -19,6 +20,8 @@ use reqwest::Method;
 /// Songs added in one change. Spotify took 432 at once; this leaves a
 /// margin.
 const BATCH: usize = 400;
+/// Playlists asked for in one read of the account's list.
+const ROOTLIST_PAGE: usize = 200;
 
 /// Makes a playlist by this name, first in the account's list,
 /// with these songs (track URIs). Answers its URI.
@@ -51,22 +54,16 @@ pub async fn create(session: &Session, name: &str, songs: &[String]) -> Result<S
         }),
         ..Default::default()
     };
-    let changes = changes(
-        session,
-        root.revision.clone(),
-        vec![Op {
-            kind: Some(op::Kind::ADD.into()),
-            add: MessageField::some(Add {
-                items: vec![item],
-                add_first: Some(true),
-                ..Default::default()
-            }),
+    let ops = vec![Op {
+        kind: Some(op::Kind::ADD.into()),
+        add: MessageField::some(Add {
+            items: vec![item],
+            add_first: Some(true),
             ..Default::default()
-        }],
-    );
-    let endpoint = format!("/playlist/v2/user/{}/rootlist/changes", session.username());
-    spclient
-        .request_with_protobuf(&Method::POST, &endpoint, None, &changes)
+        }),
+        ..Default::default()
+    }];
+    post_rootlist(session, root.revision.clone(), ops)
         .await
         .context("Spotify made the playlist but didn't list it")?;
 
@@ -151,6 +148,72 @@ pub async fn put_back(session: &Session, playlist: &str, rows: &Rows) -> Result<
         .collect();
     let revision = revision(session, playlist).await?;
     post(session, playlist, revision, ops).await.map(|_| ())
+}
+
+/// Takes a playlist out of the account's list, as Spotify's own Delete
+/// (of its own playlists) and Unfollow (of others') do. Answers where it
+/// was in the list, folders counted, and how it was listed, to put it
+/// back with [`relist`].
+pub async fn unlist(session: &Session, playlist: &str) -> Result<(usize, Vec<u8>)> {
+    let mut from = 0;
+    let (root, at, item) = loop {
+        let bytes = session
+            .spclient()
+            .get_rootlist(from, Some(ROOTLIST_PAGE))
+            .await?;
+        let root = SelectedListContent::parse_from_bytes(&bytes)?;
+        let items = &root.contents.items;
+        if let Some(found) = items.iter().position(|i| i.uri() == playlist) {
+            let item = items[found].clone();
+            break (root, from + found, item);
+        }
+        from += items.len();
+        if items.is_empty() || from >= root.length().max(0) as usize {
+            anyhow::bail!("the playlist isn't in your list any more");
+        }
+    };
+    let ops = vec![Op {
+        kind: Some(op::Kind::REM.into()),
+        rem: MessageField::some(Rem {
+            from_index: Some(at as i32),
+            length: Some(1),
+            items: vec![item.clone()],
+            ..Default::default()
+        }),
+        ..Default::default()
+    }];
+    post_rootlist(session, root.revision.clone(), ops)
+        .await
+        .context("Spotify didn't take the playlist out of your list")?;
+    Ok((at, item.write_to_bytes()?))
+}
+
+/// Puts a playlist taken out with [`unlist`] back where it was.
+pub async fn relist(session: &Session, at: usize, item: &[u8]) -> Result<()> {
+    let item = Item::parse_from_bytes(item)?;
+    let bytes = session.spclient().get_rootlist(0, Some(0)).await?;
+    let root = SelectedListContent::parse_from_bytes(&bytes)?;
+    let ops = vec![Op {
+        kind: Some(op::Kind::ADD.into()),
+        add: MessageField::some(Add {
+            from_index: Some(at.min(root.length().max(0) as usize) as i32),
+            items: vec![item],
+            ..Default::default()
+        }),
+        ..Default::default()
+    }];
+    post_rootlist(session, root.revision.clone(), ops)
+        .await
+        .context("Spotify didn't put the playlist back in your list")
+}
+
+async fn post_rootlist(session: &Session, base: Option<Vec<u8>>, ops: Vec<Op>) -> Result<()> {
+    let endpoint = format!("/playlist/v2/user/{}/rootlist/changes", session.username());
+    session
+        .spclient()
+        .request_with_protobuf(&Method::POST, &endpoint, None, &changes(session, base, ops))
+        .await?;
+    Ok(())
 }
 
 /// Takes songs (track URIs) out of Liked Songs.
