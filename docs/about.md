@@ -93,9 +93,9 @@ Spotify only allows playback in other apps for Premium accounts.
   take them out on Spotify (from Liked Songs, that un-likes them); UNDO
   in the status bar, or Ctrl+Z, puts them back where they were. The
   playlists you follow can't be changed. **DELETE** beside a playlist's
-  name, or right-clicking it in the list, deletes your own playlist on
-  Spotify; on one you follow it's **UNFOLLOW**. UNDO puts it back where
-  it was in your list.
+  name, right-clicking it in the list, or Shift+Delete there, deletes
+  your own playlist on Spotify; on one you follow it's **UNFOLLOW**.
+  UNDO puts it back where it was in your list.
 - **Copy to Spotify** (desktop): right-click songs, *Copy to > Spotify
   playlist…*, and pick one of your own playlists (type to find it) or make
   a new one; right-click a tab, *Save to Spotify…*, to make a new playlist

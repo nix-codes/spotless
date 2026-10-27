@@ -6,12 +6,14 @@
 //! and added; on the account's own playlists and Liked Songs, Delete or
 //! REM takes them out on Spotify, and Ctrl+Z puts them back. A playlist
 //! itself is deleted, or unfollowed if it's someone else's, from its
-//! menu or the button beside its name; UNDO puts it back.
+//! menu, the button beside its name or Shift+Delete in the list; UNDO
+//! puts it back.
 
 use std::collections::BTreeSet;
 
 use egui::{
-    Align2, Id, Key, Rect, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui, UiBuilder, pos2, vec2,
+    Align2, Event, Id, Key, Modifiers, Rect, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui,
+    UiBuilder, pos2, vec2,
 };
 
 use super::{Act, Area, CatalogDrag, Nav, PAD, TRACK_HEIGHT, body, mono, note, row, spans};
@@ -91,6 +93,20 @@ fn playlist_list(
 ) {
     let palette = view.palette;
     let width = ui.available_width();
+    // Shift+Delete in the list or its field takes the playlist shown out,
+    // taken before the field would delete text with it. On Windows it
+    // arrives as Cut (Ctrl+X too, but with Ctrl held).
+    let in_field = ui.memory(|m| m.has_focus(Id::new(FILTER_ID)));
+    let unlist = nav.area == Area::Lists
+        && (in_field || !ui.ctx().text_edit_focused())
+        && ui.input_mut(|i| {
+            let key = i.consume_key(Modifiers::SHIFT, Key::Delete);
+            let cuts = i.events.len();
+            if i.modifiers.matches_exact(Modifiers::SHIFT) {
+                i.events.retain(|e| !matches!(e, Event::Cut));
+            }
+            key || i.events.len() < cuts
+        });
     let edit = field(
         ui,
         TextEdit::singleline(&mut nav.filter)
@@ -120,6 +136,12 @@ fn playlist_list(
         nav.keyboard = true;
         nav.row = Some(0);
         nav.reveal = true;
+    }
+    if unlist
+        && let Some(uri) = open.filter(|uri| order.iter().any(|p| p.uri == *uri))
+        && view.browse.unlistable(uri)
+    {
+        actions.push(Action::UnlistSpotifyPlaylist(uri.to_string()));
     }
     // The arrows and PgUp / PgDn in the field, or in the list after a
     // click took the keyboard from the field; Home / End too out of it.
