@@ -13,7 +13,7 @@ use crate::backend::{Backend, Command, Event, SearchState, SessionState, Spotify
 use crate::browse::{Browse, Loadable, Page};
 use crate::browser::{self, Browser};
 use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
-use crate::model::{ArtistRef, Library, Playback, Playlist, PlaylistId, TrackRef};
+use crate::model::{ArtistRef, EntryId, Library, Playback, Playlist, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
 use crate::playback::equaliser::{self, Preset};
@@ -415,7 +415,9 @@ impl Controller {
                 }
                 Event::Reconnected if self.state.offline => self.resume_offline(),
                 Event::Reconnected => {}
-                Event::Tracks { playlist, tracks } => self.insert_tracks(playlist, None, tracks),
+                Event::Tracks { playlist, tracks } => {
+                    self.insert_tracks(playlist, None, tracks);
+                }
                 Event::Search(search) => self.state.search = search,
                 Event::LastFm(lastfm) => {
                     if self.state.lastfm.status == LastFmStatus::SigningIn
@@ -647,6 +649,13 @@ impl Controller {
                 state.viewed = library.create(name);
                 return self.mark_unsaved();
             }
+            Action::NewPlaylistWith(tracks) => {
+                let name = library.fresh_name();
+                let list = library.create(name);
+                state.viewed = list;
+                self.insert_tracks(list, None, tracks);
+                return self.mark_unsaved();
+            }
             Action::ClosePlaylist(list) => {
                 let index = library.playlists().iter().position(|l| l.id == list);
                 let requests = state.transport.deleting(list);
@@ -865,6 +874,10 @@ impl Controller {
                 self.insert_tracks(list, None, tracks);
                 return None;
             }
+            Action::MoveTo(from, to, entries) => {
+                self.move_tracks(from, to, entries);
+                return None;
+            }
             Action::PlayNow(track) if state.browse.target == PlaylistId::SPOTIFY => {
                 self.insert_tracks(PlaylistId::SPOTIFY, None, vec![track]);
                 return None;
@@ -1051,9 +1064,11 @@ impl Controller {
                 self.state.settings.covers = browse.show_covers;
                 self.mark_unsaved();
             }
-            Action::AddTracks(tracks) => self.insert_tracks(self.state.browse.target, None, tracks),
+            Action::AddTracks(tracks) => {
+                self.insert_tracks(self.state.browse.target, None, tracks);
+            }
             Action::DropTracks(tracks, at) => {
-                self.insert_tracks(self.state.browse.target, Some(at), tracks)
+                self.insert_tracks(self.state.browse.target, Some(at), tracks);
             }
             Action::AddAlbum(album) => self.add_album(album, None),
             Action::DropAlbum(album, at) => self.add_album(album, Some(at)),
@@ -1115,7 +1130,12 @@ impl Controller {
 
     /// Adds songs to a playlist before the row at `at`, or at the end. The
     /// Spotify tab's go to the end of the queue.
-    fn insert_tracks(&mut self, playlist: PlaylistId, at: Option<usize>, tracks: Vec<TrackRef>) {
+    fn insert_tracks(
+        &mut self,
+        playlist: PlaylistId,
+        at: Option<usize>,
+        tracks: Vec<TrackRef>,
+    ) -> bool {
         if playlist == PlaylistId::SPOTIFY {
             return self.queue_tracks(tracks);
         }
@@ -1126,7 +1146,7 @@ impl Controller {
             .collect();
         let ids: Vec<_> = entries.iter().map(|entry| entry.id).collect();
         let Some(list) = state.library.get_mut(playlist) else {
-            return;
+            return false;
         };
         list.insert(at.unwrap_or(usize::MAX), entries);
         state.notice = Some(match ids.len() {
@@ -1136,19 +1156,54 @@ impl Controller {
         state.browse.flash(ids);
         let requests = state.transport.edited(&mut state.library, playlist);
         self.changed(requests);
+        true
+    }
+
+    /// Takes songs out of one playlist and adds them to the end of another,
+    /// once that one has them.
+    fn move_tracks(&mut self, from: PlaylistId, to: PlaylistId, entries: Vec<EntryId>) {
+        if from == to {
+            return;
+        }
+        let Some(list) = self.state.library.get(from) else {
+            return;
+        };
+        let tracks: Vec<TrackRef> = entries
+            .iter()
+            .filter_map(|&id| list.get(id))
+            .map(|entry| entry.track.clone())
+            .collect();
+        let count = tracks.len();
+        if count == 0 || !self.insert_tracks(to, None, tracks) {
+            return;
+        }
+        let state = &mut self.state;
+        if let Some(list) = state.library.get_mut(from) {
+            list.remove(&entries);
+        }
+        let name = match state.library.get(to) {
+            Some(list) => list.name.clone(),
+            None => "Spotify's queue".to_string(),
+        };
+        state.notice = Some(match count {
+            1 => format!("Moved 1 song to {name}"),
+            n => format!("Moved {n} songs to {name}"),
+        });
+        let requests = state.transport.edited(&mut state.library, from);
+        self.changed(requests);
     }
 
     /// Adds songs to the end of the account's queue, while it takes them.
-    fn queue_tracks(&mut self, tracks: Vec<TrackRef>) {
+    fn queue_tracks(&mut self, tracks: Vec<TrackRef>) -> bool {
         let Some(queue) = &self.state.spotify else {
-            return;
+            return false;
         };
         if !queue.takes_songs() {
             let device = queue.device.as_deref().unwrap_or_default();
             self.state.error = Some(format!(
                 "Spotify only takes songs for the queue from the device playing it ({device}). TAKE OVER the queue first, or play a song of it here."
             ));
-            return;
+            return false;
         }
         self.state.notice = Some(match tracks.len() {
             1 => "Added 1 song to Spotify's queue".to_string(),
@@ -1156,6 +1211,7 @@ impl Controller {
         });
         let uris = tracks.into_iter().map(|track| track.uri).collect();
         self.send(Command::Spotify(SpotifyRequest::Add(uris)));
+        true
     }
 
     /// Inserts `track` after the target playlist's current song and plays it.
@@ -2114,5 +2170,57 @@ mod tests {
         let saved = library.get(PlaylistId::DEFAULT).unwrap();
         assert_eq!(saved.len(), 1);
         assert_eq!(saved.entries()[0].track.title, "Song 1");
+    }
+
+    fn titles(rig: &Rig, list: PlaylistId) -> Vec<String> {
+        let library = &rig.controller.state().library;
+        let list = library.get(list).unwrap();
+        list.entries()
+            .iter()
+            .map(|entry| entry.track.title.clone())
+            .collect()
+    }
+
+    #[test]
+    fn songs_moved_to_another_playlist_leave_this_one() {
+        let mut rig = Rig::new("move-to");
+        rig.controller.apply(Action::AddTracks(tracks([1, 2, 3])));
+        rig.controller.apply(Action::NewPlaylist);
+        let other = rig.controller.state().viewed;
+        let library = &rig.controller.state().library;
+        let entries = library.get(PlaylistId::DEFAULT).unwrap().entries();
+        let moved = vec![entries[2].id, entries[0].id];
+        rig.controller
+            .apply(Action::MoveTo(PlaylistId::DEFAULT, other, moved));
+        assert_eq!(titles(&rig, PlaylistId::DEFAULT), ["Song 2"]);
+        assert_eq!(titles(&rig, other), ["Song 3", "Song 1"]);
+        assert_eq!(
+            rig.controller.state().notice.as_deref(),
+            Some("Moved 2 songs to Playlist 2")
+        );
+    }
+
+    #[test]
+    fn songs_moved_to_the_spotify_tab_stay_when_it_has_no_queue() {
+        let mut rig = Rig::new("move-to-spotify");
+        rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+        let library = &rig.controller.state().library;
+        let first = library.get(PlaylistId::DEFAULT).unwrap().entries()[0].id;
+        rig.controller.apply(Action::MoveTo(
+            PlaylistId::DEFAULT,
+            PlaylistId::SPOTIFY,
+            vec![first],
+        ));
+        assert_eq!(titles(&rig, PlaylistId::DEFAULT), ["Song 1", "Song 2"]);
+    }
+
+    #[test]
+    fn a_new_playlist_can_start_with_songs() {
+        let mut rig = Rig::new("new-with");
+        rig.controller
+            .apply(Action::NewPlaylistWith(vec![entry(4).track]));
+        let shown = rig.controller.state().viewed;
+        assert_ne!(shown, PlaylistId::DEFAULT);
+        assert_eq!(titles(&rig, shown), ["Song 4"]);
     }
 }

@@ -72,6 +72,8 @@ pub enum Action {
     // Playlists (tabs)
     SelectPlaylist(PlaylistId),
     NewPlaylist,
+    /// Makes a playlist of these songs and shows it.
+    NewPlaylistWith(Vec<TrackRef>),
     /// Deletes a playlist and its songs (never Default).
     ClosePlaylist(PlaylistId),
     RenamePlaylist(PlaylistId, String),
@@ -129,4 +131,8 @@ pub enum Action {
     /// Copies songs to the end of a playlist (the Spotify tab's: queues
     /// them).
     CopyTo(PlaylistId, Vec<TrackRef>),
+    /// Moves these songs of a playlist to the end of another (the Spotify
+    /// tab's: queues them, and leaves them where they were if Spotify won't
+    /// take them).
+    MoveTo(PlaylistId, PlaylistId, Vec<EntryId>),
 }

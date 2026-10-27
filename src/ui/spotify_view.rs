@@ -8,7 +8,8 @@
 //! here, paused. While Spotless has it, or no device has, + ADD adds songs
 //! to it (taking it over), and CLEAR stops and empties it; while Spotless
 //! has it, Delete or REM removes songs to come. Rows drag onto a
-//! playlist's tab to copy them there.
+//! playlist's tab to copy them there; right-click for a menu that copies
+//! them, to a new playlist too, or removes them.
 //!
 //! Keys as in a playlist: Up/Down, PageUp/PageDown and Home/End move the
 //! selection, with Shift they extend it; Ctrl+A selects all.
@@ -20,7 +21,7 @@ use egui::{
     pos2, vec2,
 };
 
-use super::playlist_view::RowDrag;
+use super::playlist_view::{self, Choice, RowDrag};
 use super::scrollbar;
 use super::widgets::{drag_ghost, small_action};
 use super::{Inputs, View};
@@ -53,9 +54,11 @@ pub fn draw(
     view: &View,
     queue: &SpotifyQueue,
     inputs: &mut Inputs,
+    onto_tab: bool,
     actions: &mut Actions,
 ) {
     let palette = view.palette;
+    let mut chosen = None;
     let full = ui.available_rect_before_wrap();
     let toolbar_rect =
         Rect::from_min_max(pos2(full.left(), full.bottom() - TOOLBAR_HEIGHT), full.max);
@@ -90,7 +93,7 @@ pub fn draw(
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let mut index = 0;
                 let mut row = |ui: &mut Ui, row: Row, index: &mut usize| {
-                    draw_row(
+                    chosen = chosen.or(draw_row(
                         ui,
                         view,
                         queue,
@@ -98,7 +101,7 @@ pub fn draw(
                         *index,
                         (selection, &mut keys),
                         actions,
-                    );
+                    ));
                     *index += 1;
                 };
                 for track in &queue.before {
@@ -119,15 +122,32 @@ pub fn draw(
     });
     keys.reveal = None;
     ui.data_mut(|d| d.insert_temp(keys_id(), keys));
+    if let Some(choice) = chosen {
+        // In the tab's order: the IDs count down.
+        let tracks = || {
+            selection
+                .iter()
+                .rev()
+                .filter_map(|&id| queue.row(id))
+                .map(|row| row.track().clone())
+                .collect()
+        };
+        match choice {
+            Choice::Copy(Some(to)) => actions.push(Action::CopyTo(to, tracks())),
+            Choice::Copy(None) => actions.push(Action::NewPlaylistWith(tracks())),
+            Choice::Remove => actions.push(Action::Remove(
+                PlaylistId::SPOTIFY,
+                removable(queue, selection),
+            )),
+            Choice::Move(_) | Choice::ToggleMarks => {}
+        }
+    }
     ui.scope_builder(UiBuilder::new().max_rect(toolbar_rect), |ui| {
         toolbar(ui, view, queue, selection, actions);
     });
     if let Some(dragging) = DragAndDrop::payload::<RowDrag>(ui.ctx()) {
-        let count = match dragging.0.len() {
-            1 => "1 song".to_string(),
-            n => format!("{n} songs"),
-        };
-        drag_ghost(ui, &palette, &count);
+        let label = playlist_view::drag_label(ui, dragging.0.len(), onto_tab, false);
+        drag_ghost(ui, &palette, &label);
     }
 }
 
@@ -151,7 +171,7 @@ fn draw_row(
     index: usize,
     (selection, keys): (&mut BTreeSet<EntryId>, &mut Keys),
     actions: &mut Actions,
-) {
+) -> Option<Choice> {
     let palette = view.palette;
     let id = SpotifyQueue::row_id(index);
     let (rect, response) = ui.allocate_exact_size(
@@ -211,7 +231,7 @@ fn draw_row(
                 .map(SpotifyQueue::row_id)
                 .collect();
             keys.cursor = Some(id);
-            return;
+            return None;
         }
         if modifiers.command {
             if !selection.remove(&id) {
@@ -222,7 +242,15 @@ fn draw_row(
         }
         keys.anchor = Some(id);
         keys.cursor = Some(id);
+    } else if response.secondary_clicked() && !selected {
+        *selection = BTreeSet::from([id]);
+        keys.anchor = Some(id);
+        keys.cursor = Some(id);
     }
+    let can_remove = response.context_menu_opened()
+        && queue.held_here()
+        && !removable(queue, selection).is_empty();
+    let chosen = playlist_view::row_menu(&response, view, None, can_remove);
     if response.drag_started() {
         if !selected {
             *selection = BTreeSet::from([id]);
@@ -231,6 +259,7 @@ fn draw_row(
         let rows = selection.iter().rev().copied().collect();
         response.dnd_set_drag_payload(RowDrag(rows));
     }
+    chosen
 }
 
 /// The selected songs to come, which can be removed.

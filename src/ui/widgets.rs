@@ -114,7 +114,9 @@ pub fn drag_ghost(ui: &Ui, palette: &Palette, text: &str) {
                 .stroke(egui::Stroke::new(1.0, palette.hi))
                 .inner_margin(egui::Margin::symmetric(6, 3))
                 .show(ui, |ui| {
-                    ui.label(egui::RichText::new(text).color(palette.current));
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(text).color(palette.current)).extend(),
+                    );
                 });
         });
 }

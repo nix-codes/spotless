@@ -6,7 +6,9 @@
 //! Rows: click selects (Ctrl toggles, Shift extends), double-click or Enter
 //! plays, Delete removes, Q marks to play next, Alt+Up/Down or dragging
 //! moves the selection, Ctrl+A selects all. Up/Down, PageUp/PageDown and
-//! Home/End move the selection; with Shift they extend it.
+//! Home/End move the selection; with Shift they extend it. Dragged onto
+//! another tab, the selection is copied there, or moved with Shift held;
+//! right-click for a menu that does the same.
 
 use std::collections::BTreeSet;
 
@@ -75,8 +77,18 @@ impl Selection {
 }
 
 /// Rows being dragged, in list order. Dropped on another tab, they are
-/// copied there.
+/// copied there, or moved with Shift held.
 pub(super) struct RowDrag(pub Vec<EntryId>);
+
+/// What a row's right-click menu asked for, done to the selection.
+#[derive(Clone, Copy)]
+pub(super) enum Choice {
+    /// Copies to this playlist, or to a new one with None.
+    Copy(Option<PlaylistId>),
+    Move(Option<PlaylistId>),
+    ToggleMarks,
+    Remove,
+}
 
 /// A tab being dragged, and how far along it the pointer took hold.
 struct TabDrag {
@@ -85,7 +97,7 @@ struct TabDrag {
 }
 
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
-    tab_bar(ui, view, inputs, actions);
+    let onto_tab = tab_bar(ui, view, inputs, actions);
     let selection = &mut inputs.selection;
     if selection.shown != Some(view.playlist.id) {
         selection.shown = Some(view.playlist.id);
@@ -98,7 +110,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     if view.playlist.id == PlaylistId::SPOTIFY
         && let Some(queue) = view.spotify
     {
-        return spotify_view::draw(ui, view, queue, inputs, actions);
+        return spotify_view::draw(ui, view, queue, inputs, onto_tab, actions);
     }
     let list = view.playlist;
     let full = ui.available_rect_before_wrap();
@@ -135,7 +147,14 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
             );
             bar.paint(ui, slot, 0.0, 0.0, false);
         } else {
-            draw_rows(ui, view, &mut inputs.selection, (&bar, slot), actions);
+            draw_rows(
+                ui,
+                view,
+                &mut inputs.selection,
+                (&bar, slot),
+                onto_tab,
+                actions,
+            );
         }
     });
     ui.scope_builder(UiBuilder::new().max_rect(toolbar_rect), |ui| {
@@ -144,7 +163,8 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     confirm_close(ui, view, inputs, actions);
 }
 
-fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
+/// The tabs. Says whether rows being dragged are over another tab.
+fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) -> bool {
     let palette = view.palette;
     let tabs: Vec<Tab> = view
         .tabs
@@ -181,6 +201,7 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
         Some((from, drag.grab))
     });
     let mut drawn: Vec<(PlaylistId, Rect)> = Vec::new();
+    let mut onto_tab = false;
     let bar = ui
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = TAB_GAP;
@@ -223,6 +244,8 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
                     ui.painter().rect_filled(rect, 0.0, palette.list_bg);
                 }
                 let response = tab(ui, view, list, rect, inputs, actions);
+                onto_tab |= list.id != view.playlist.id
+                    && response.dnd_hover_payload::<RowDrag>().is_some();
                 if slide == 0.0
                     && response.drag_stopped()
                     && let Some(to) = to
@@ -255,6 +278,7 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
         .response
         .rect;
     baseline(ui, view, &drawn, bar);
+    onto_tab
 }
 
 /// Where each tab's left edge goes, from the strip's start, and, while one
@@ -355,7 +379,8 @@ fn tab_width(ui: &Ui, view: &View, list: &Tab) -> f32 {
         + 10.0
 }
 
-/// One tab, in `rect`. Rows dropped on it are copied there.
+/// One tab, in `rect`. Rows dropped on it are copied there, or moved with
+/// Shift held.
 fn tab(
     ui: &mut Ui,
     view: &View,
@@ -443,7 +468,7 @@ fn tab(
         painter.line_segment([c.right_top(), c.left_bottom()], stroke);
     }
 
-    // Rows dragged from another tab: copied here when dropped.
+    // Rows dragged from another tab: copied here when dropped, or moved.
     if !shown && response.dnd_hover_payload::<RowDrag>().is_some() {
         painter.rect_stroke(
             rect.shrink(1.0),
@@ -459,7 +484,12 @@ fn tab(
             .filter_map(|&id| view.playlist.get(id))
             .map(|entry| entry.track.clone())
             .collect();
-        actions.push(Action::CopyTo(list.id, tracks));
+        let from = view.playlist.id;
+        if ui.input(|i| i.modifiers.shift) && from != PlaylistId::SPOTIFY {
+            actions.push(Action::MoveTo(from, list.id, rows.0.clone()));
+        } else {
+            actions.push(Action::CopyTo(list.id, tracks));
+        }
     }
 
     if response.clicked() && over_close {
@@ -650,10 +680,12 @@ fn draw_rows(
     view: &View,
     selection: &mut Selection,
     (bar, slot): (&Scrollbar, Rect),
+    onto_tab: bool,
     actions: &mut Actions,
 ) {
     let palette = view.palette;
     let list = view.playlist;
+    let mut chosen = None;
     let mut area = ScrollArea::vertical()
         .auto_shrink([false, false])
         .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden);
@@ -701,7 +733,8 @@ fn draw_rows(
             let index = match lines[line] {
                 Line::Song(index) => index,
                 Line::Header(run) => {
-                    let rect = header(ui, view, selection, run, actions);
+                    let (rect, choice) = header(ui, view, selection, run, actions);
+                    chosen = chosen.or(choice);
                     if dragging.is_some()
                         && let Some(p) = pointer
                         && viewport.contains(p)
@@ -741,7 +774,12 @@ fn draw_rows(
             } else if response.clicked() {
                 let modifiers = ui.input(|i| i.modifiers);
                 click(list, selection, entry.id, modifiers);
+            } else if response.secondary_clicked() && !selected {
+                selection.select(entry.id, index);
+                selection.reveal = None;
             }
+            let marked = response.context_menu_opened() && all_marked(list, selection);
+            chosen = chosen.or(row_menu(&response, view, Some(marked), true));
             if response.drag_started() {
                 if !selected {
                     selection.select(entry.id, index);
@@ -785,13 +823,13 @@ fn draw_rows(
     selection.offset = output.state.offset.y;
     bar.paint(ui, slot, selection.offset, furthest, thumb_to.is_some());
     selection.page = ((output.inner_rect.height() / ROW_HEIGHT) as usize).max(1);
+    if let Some(choice) = chosen {
+        send(list, selection, choice, actions);
+    }
 
     let Some(dragging) = dragging else { return };
-    let count = match dragging.0.len() {
-        1 => "1 song".to_string(),
-        n => format!("{n} songs"),
-    };
-    drag_ghost(ui, &palette, &count);
+    let label = drag_label(ui, dragging.0.len(), onto_tab, true);
+    drag_ghost(ui, &palette, &label);
     // Below the last row: the end of the list.
     if drop_at.is_none()
         && let Some(p) = pointer
@@ -822,14 +860,14 @@ fn header_bg(palette: &Palette) -> Color32 {
 
 /// The header over an album's run: its name and its first song's artist.
 /// A click selects the run (Ctrl adds or takes it away); a double-click
-/// plays it.
+/// plays it; a right-click selects it and opens the rows' menu.
 fn header(
     ui: &mut Ui,
     view: &View,
     selection: &mut Selection,
     run: Run,
     actions: &mut Actions,
-) -> Rect {
+) -> (Rect, Option<Choice>) {
     let palette = view.palette;
     let list = view.playlist;
     let songs = &list.entries()[run.start..run.start + run.len];
@@ -871,8 +909,15 @@ fn header(
         selection.select(first, run.start);
         selection.reveal = None;
         actions.push(Action::PlayEntry(list.id, first));
-        return rect;
+        return (rect, None);
     }
+    if response.secondary_clicked() && !chosen {
+        selection.rows = songs.iter().map(|entry| entry.id).collect();
+        selection.anchor = Some(first);
+        selection.cursor = Some(first);
+    }
+    let marked = response.context_menu_opened() && all_marked(list, selection);
+    let choice = row_menu(&response, view, Some(marked), true);
     if response.clicked() {
         let ids = songs.iter().map(|entry| entry.id);
         if ui.input(|i| i.modifiers.command) {
@@ -889,7 +934,120 @@ fn header(
         selection.anchor = Some(first);
         selection.cursor = Some(first);
     }
-    rect
+    (rect, choice)
+}
+
+/// Every selected row is marked to play next.
+fn all_marked(list: &Playlist, selection: &Selection) -> bool {
+    selection
+        .rows
+        .iter()
+        .all(|&id| list.mark_number(id).is_some())
+}
+
+/// What the ghost following dragged rows says: over another tab, whether
+/// they are copied or moved there (with Shift, if they `can_move`).
+pub(super) fn drag_label(ui: &Ui, count: usize, onto_tab: bool, can_move: bool) -> String {
+    let songs = match count {
+        1 => "1 song".to_string(),
+        n => format!("{n} songs"),
+    };
+    match (onto_tab, can_move, ui.input(|i| i.modifiers.shift)) {
+        (false, ..) => songs,
+        (true, true, true) => format!("Move {songs}"),
+        (true, true, false) => format!("Copy {songs} · Shift moves"),
+        (true, false, _) => format!("Copy {songs}"),
+    }
+}
+
+/// The right-click menu of the selected rows: Copy to and, for a playlist's
+/// own rows (`marked` says whether they're all marked), Move to and Play
+/// next; Remove when they `can_remove`.
+pub(super) fn row_menu(
+    response: &egui::Response,
+    view: &View,
+    marked: Option<bool>,
+    can_remove: bool,
+) -> Option<Choice> {
+    let mut chosen = None;
+    let item = |ui: &mut Ui, name: &str, enabled: bool| {
+        let label = RichText::new(name).monospace().size(11.0);
+        ui.add_enabled(enabled, egui::Button::new(label).frame(false))
+    };
+    let targets = |ui: &mut Ui,
+                   chosen: &mut Option<Choice>,
+                   choice: fn(Option<PlaylistId>) -> Choice| {
+        let others = view.tabs.iter().filter(|&&id| id != view.playlist.id);
+        for &id in others {
+            let (name, takes) = match (id, view.spotify) {
+                (PlaylistId::SPOTIFY, Some(queue)) => ("Spotify", queue.takes_songs()),
+                _ => match view.library.get(id) {
+                    Some(list) => (list.name.as_str(), true),
+                    None => continue,
+                },
+            };
+            let response = item(ui, name, takes).on_disabled_hover_text(
+                "Spotify takes songs for the queue only from the device playing it. TAKE OVER the queue first.",
+            );
+            if response.clicked() {
+                *chosen = Some(choice(Some(id)));
+            }
+        }
+        ui.separator();
+        if item(ui, "New playlist", true).clicked() {
+            *chosen = Some(choice(None));
+        }
+    };
+    response.context_menu(|ui| {
+        ui.menu_button(RichText::new("Copy to").monospace().size(11.0), |ui| {
+            targets(ui, &mut chosen, Choice::Copy);
+        });
+        if let Some(marked) = marked {
+            ui.menu_button(RichText::new("Move to").monospace().size(11.0), |ui| {
+                targets(ui, &mut chosen, Choice::Move);
+            });
+            ui.separator();
+            let label = if marked {
+                "Don't play next"
+            } else {
+                "Play next"
+            };
+            if item(ui, label, true).clicked() {
+                chosen = Some(Choice::ToggleMarks);
+            }
+        } else {
+            ui.separator();
+        }
+        if item(ui, "Remove", can_remove).clicked() {
+            chosen = Some(Choice::Remove);
+        }
+    });
+    chosen
+}
+
+/// Does what a playlist's row menu asked for to the selection.
+fn send(list: &Playlist, selection: &mut Selection, choice: Choice, actions: &mut Actions) {
+    let rows = selected(list, selection);
+    let tracks = || {
+        rows.iter()
+            .filter_map(|&id| list.get(id))
+            .map(|entry| entry.track.clone())
+            .collect()
+    };
+    match choice {
+        Choice::Copy(Some(to)) => actions.push(Action::CopyTo(to, tracks())),
+        Choice::Copy(None) => actions.push(Action::NewPlaylistWith(tracks())),
+        Choice::Move(Some(to)) => {
+            actions.push(Action::MoveTo(list.id, to, rows.clone()));
+            select_after(list, selection, &rows);
+        }
+        Choice::Move(None) => {
+            actions.push(Action::NewPlaylistWith(tracks()));
+            remove(list, selection, rows, actions);
+        }
+        Choice::ToggleMarks => actions.push(Action::ToggleMarks(rows)),
+        Choice::Remove => remove(list, selection, rows, actions),
+    }
 }
 
 fn paint_row(
@@ -998,8 +1156,16 @@ fn selected(list: &Playlist, selection: &Selection) -> Vec<EntryId> {
 
 /// Removes the selection; the row after the last removed one is selected.
 fn remove(list: &Playlist, selection: &mut Selection, rows: Vec<EntryId>, actions: &mut Actions) {
+    if select_after(list, selection, &rows) {
+        actions.push(Action::Remove(list.id, rows));
+    }
+}
+
+/// Selects the row after the last of `rows`, which are going; says whether
+/// there were any.
+fn select_after(list: &Playlist, selection: &mut Selection, rows: &[EntryId]) -> bool {
     let Some(last) = rows.iter().filter_map(|&id| list.index_of(id)).max() else {
-        return;
+        return false;
     };
     let next = list.entries()[last + 1..]
         .iter()
@@ -1009,7 +1175,7 @@ fn remove(list: &Playlist, selection: &mut Selection, rows: Vec<EntryId>, action
     selection.rows = next.into_iter().collect();
     selection.anchor = next;
     selection.cursor = next;
-    actions.push(Action::Remove(list.id, rows));
+    true
 }
 
 /// Moves the selection one row up or down.
