@@ -39,10 +39,22 @@ fn main() -> Result<()> {
             .with_min_inner_size(spotless::ui::MIN_WINDOW),
         ..Default::default()
     };
-    eframe::run_native(
+    // Raw mouse motion is of no use to Spotless, and eframe repaints for
+    // every bit of it while the window has focus and thinks the pointer is
+    // inside. On X11 it goes on thinking so once a window manager's resize
+    // has taken the pointer, so the window redrew at 60 fps under the
+    // resize and shook.
+    let event_loop =
+        winit::event_loop::EventLoop::<eframe::UserEvent>::with_user_event().build()?;
+    event_loop.listen_device_events(winit::event_loop::DeviceEvents::Never);
+    let mut app = eframe::create_native(
         "Spotless",
         options,
         Box::new(move |cc| Ok(Box::new(App::new(cc, paths)))),
-    )
-    .map_err(|e| anyhow::anyhow!("{e}"))
+        &event_loop,
+    );
+    event_loop.run_app(&mut app)?;
+    // The window has closed and saved. As eframe's own loop does, end here
+    // rather than wait on the threads still playing or fetching.
+    std::process::exit(0)
 }

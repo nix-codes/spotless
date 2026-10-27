@@ -53,6 +53,8 @@ image.workspace = true
 env_logger.workspace = true
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "glow", "default_fonts", "wayland", "x11"] }
 egui = "0.36"
+# The event loop eframe runs on, to turn off raw mouse motion (src/main.rs).
+winit = { version = "0.30", default-features = false }
 # Skins (src/skin/zip.rs) are inflated with the flate2 librespot already builds.
 flate2 = "1"
 # Spotless skins' manifests (src/skin/format/), keys kept in file order so
