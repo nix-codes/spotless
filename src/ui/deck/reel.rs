@@ -25,9 +25,11 @@ const REEL: f32 = 70.0;
 const HOLE_IN: f32 = 30.0;
 const HOLE_OUT: f32 = 60.0;
 const HOLE_HALF: f32 = 0.4;
-/// The masking tape with the song on it, and its writing.
+/// The masking tape with the song or its artists on it at its longest, its
+/// writing, and the tape either side of the writing.
 const TAG_WIDTH: f32 = 108.0;
 const TAG_SIZE: f32 = 10.0;
+const TAG_MARGIN: f32 = 4.0;
 /// Where the case's top edge is: the reels stand out over it.
 const CASE_TOP: f32 = 40.0;
 /// The case's wooden sides.
@@ -180,7 +182,15 @@ pub fn draw(c: &Canvas, keys: f32, tape: &Tape) {
         Align2::RIGHT_CENTER,
     );
     // The reels last, over the tape's start and the case's top edge.
-    reel(c, lx, cy, rl, tape.angles[0], Some(&tape.title));
+    // The song and its artists on the left reel.
+    reel(
+        c,
+        lx,
+        cy,
+        rl,
+        tape.angles[0],
+        Some((&tape.title, &tape.artist)),
+    );
     reel(c, rx, cy, rr, tape.angles[1], None);
 }
 
@@ -190,19 +200,6 @@ fn grain(c: &Canvas, length: f32, at: impl Fn(f32) -> (f32, f32)) {
         .map(|i| at(i as f32 * 4.0))
         .collect();
     c.line(&points, 0.8, rgba(0x000000, 0.14));
-}
-
-/// `text` in marker, cut short with dots to fit `room` units.
-fn cut(c: &Canvas, text: &str, room: f32) -> String {
-    let width = |text: &str| c.width(text, Face::Marker, TAG_SIZE);
-    if width(text) <= room {
-        return text.to_string();
-    }
-    let mut kept: String = text.to_string();
-    while !kept.is_empty() && width(&format!("{}...", kept.trim_end())) > room {
-        kept.pop();
-    }
-    format!("{}...", kept.trim_end())
 }
 
 /// Where a line from `from` touches the circle at `centre`, on its left
@@ -243,9 +240,9 @@ fn on_wood(r: f32, a: f32) -> bool {
 
 /// A wooden reel turned to `angle`: what shows through its three holes
 /// (the back flange, dark, and the tape wound to radius `pack`), then the
-/// front flange, its grain turning with it, the gold hub, and `tag`
-/// written on masking tape on it.
-fn reel(c: &Canvas, x: f32, y: f32, pack: f32, angle: f32, tag: Option<&str>) {
+/// front flange, its grain turning with it, the gold hub, and `tags`, the
+/// song and its artists, written on masking tape under and over the hub.
+fn reel(c: &Canvas, x: f32, y: f32, pack: f32, angle: f32, tags: Option<(&str, &str)>) {
     let turned = |r: f32, a: f32| (x + (a + angle).cos() * r, y + (a + angle).sin() * r);
     c.circle(x, y + 3.0, REEL + 1.5, rgba(0x000000, 0.35));
     c.circle(x, y, REEL, rgb(0x0e0907));
@@ -325,18 +322,21 @@ fn reel(c: &Canvas, x: f32, y: f32, pack: f32, angle: f32, tag: Option<&str>) {
         }
         c.polygon_outline(&edge, 2.0, rgb(0x1c0e06));
     }
-    // A small print between the upper holes, and the screws round the hub.
-    let (px, py) = turned(44.0, -FRAC_PI_2);
-    c.text_centred_at_angle(
-        "SPOTLESS",
-        px,
-        py,
-        Face::Display,
-        7.0,
-        rgba(0xf0e6d8, 0.82),
-        angle,
-        44.0,
-    );
+    // A small print between the upper holes, unless the masking tape is
+    // over it, and the screws round the hub.
+    if tags.is_none() {
+        let (px, py) = turned(44.0, -FRAC_PI_2);
+        c.text_centred_at_angle(
+            "SPOTLESS",
+            px,
+            py,
+            Face::Display,
+            7.0,
+            rgba(0xf0e6d8, 0.82),
+            angle,
+            44.0,
+        );
+    }
     for k in 0..3 {
         let a = FRAC_PI_2 + FRAC_PI_3 + k as f32 * TAU / 3.0;
         let (sx, sy) = turned(29.0, a);
@@ -348,46 +348,9 @@ fn reel(c: &Canvas, x: f32, y: f32, pack: f32, angle: f32, tag: Option<&str>) {
             rgb(0x6a6a6a),
         );
     }
-    // The song on a strip of masking tape under the hub, over part of the
-    // lower hole, cut short if it's too long for it.
-    if let Some(tag) = tag {
-        let down = angle + FRAC_PI_2;
-        let (tx, ty) = (x + down.cos() * 33.0, y + down.sin() * 33.0);
-        let along = angle;
-        let (ax, ay) = (along.cos(), along.sin());
-        let (nx, ny) = (down.cos(), down.sin());
-        let corner = |s: f32, t: f32| (tx + ax * s + nx * t, ty + ay * s + ny * t);
-        let (half_w, half_h) = (TAG_WIDTH / 2.0, 7.5);
-        c.polygon(
-            &[
-                corner(-half_w, -half_h),
-                corner(half_w, -half_h),
-                corner(half_w, half_h),
-                corner(-half_w, half_h),
-            ],
-            rgb(0xe8dfc4),
-        );
-        c.polygon_outline(
-            &[
-                corner(-half_w, -half_h),
-                corner(half_w, -half_h),
-                corner(half_w, half_h),
-                corner(-half_w, half_h),
-            ],
-            0.6,
-            rgba(0x8a7a58, 0.6),
-        );
-        let text = cut(c, tag, TAG_WIDTH - 8.0);
-        c.text_centred_at_angle(
-            &text,
-            tx,
-            ty,
-            Face::Marker,
-            TAG_SIZE,
-            rgb(0x1c2a6e),
-            along,
-            f32::MAX,
-        );
+    if let Some((song, artists)) = tags {
+        tag(c, x, y, angle, 1.0, song);
+        tag(c, x, y, angle, -1.0, artists);
     }
     // The gold hub, a dark ring, the cream cap and the spindle's keys.
     let gold = [
@@ -426,4 +389,53 @@ fn reel(c: &Canvas, x: f32, y: f32, pack: f32, angle: f32, tag: Option<&str>) {
             rgba(0xffffff, (0.11 * (1.0 - t)).max(0.0))
         });
     }
+}
+
+/// `text` on a strip of masking tape under the hub of the reel at `x, y`
+/// turned to `angle` (`side` 1), or over it (-1), across one of its holes,
+/// and written the same way round either side. The strip is torn to the
+/// text's length, up to `TAG_WIDTH`, and the text cut short if it's too
+/// long for that; no text, no strip.
+fn tag(c: &Canvas, x: f32, y: f32, angle: f32, side: f32, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let text = c.cut(text, Face::Marker, TAG_SIZE, TAG_WIDTH - 2.0 * TAG_MARGIN);
+    let down = angle + FRAC_PI_2;
+    let (tx, ty) = (x + down.cos() * 33.0 * side, y + down.sin() * 33.0 * side);
+    let along = angle;
+    let (ax, ay) = (along.cos(), along.sin());
+    let (nx, ny) = (down.cos(), down.sin());
+    let corner = |s: f32, t: f32| (tx + ax * s + nx * t, ty + ay * s + ny * t);
+    let half_w = c.width(&text, Face::Marker, TAG_SIZE) / 2.0 + TAG_MARGIN;
+    let half_h = 7.5;
+    c.polygon(
+        &[
+            corner(-half_w, -half_h),
+            corner(half_w, -half_h),
+            corner(half_w, half_h),
+            corner(-half_w, half_h),
+        ],
+        rgb(0xe8dfc4),
+    );
+    c.polygon_outline(
+        &[
+            corner(-half_w, -half_h),
+            corner(half_w, -half_h),
+            corner(half_w, half_h),
+            corner(-half_w, half_h),
+        ],
+        0.6,
+        rgba(0x8a7a58, 0.6),
+    );
+    c.text_centred_at_angle(
+        &text,
+        tx,
+        ty,
+        Face::Marker,
+        TAG_SIZE,
+        rgb(0x1c2a6e),
+        along,
+        f32::MAX,
+    );
 }

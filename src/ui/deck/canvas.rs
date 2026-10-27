@@ -376,6 +376,20 @@ impl Canvas {
             / self.k
     }
 
+    /// `text` cut short with dots to fit `room` units, as names too long
+    /// for a cassette's label, a reel's tape or a record's label are.
+    pub fn cut(&self, text: &str, face: Face, size: f32, room: f32) -> String {
+        let fits = |text: &str| self.width(text, face, size) <= room;
+        if fits(text) {
+            return text.to_string();
+        }
+        let mut kept = text.to_string();
+        while !kept.is_empty() && !fits(&format!("{}...", kept.trim_end())) {
+            kept.pop();
+        }
+        format!("{}...", kept.trim_end())
+    }
+
     /// Text with a `edge`-coloured outline round its letters.
     pub fn outlined(
         &self,

@@ -54,9 +54,10 @@ pub fn draw(c: &Canvas, tape: &Tape) {
         rgb(0x22222a),
         Align2::CENTER_CENTER,
     );
-    let label = c.clipped(lx, ly, lw - 60.0, 26.0);
-    label.text(
-        &tape.artist,
+    // The artists up to the tape type, the title across the label, cut
+    // short with dots if they're too long.
+    c.text(
+        &c.cut(&tape.artist, Face::Marker, 15.0, lw - 60.0 - 28.0),
         lx + 22.0,
         ly + 14.0,
         Face::Marker,
@@ -73,8 +74,8 @@ pub fn draw(c: &Canvas, tape: &Tape) {
         rgb(0x5a564c),
         Align2::RIGHT_CENTER,
     );
-    c.clipped(lx, ly + 30.0, lw, 18.0).text(
-        &tape.title,
+    c.text(
+        &c.cut(&tape.title, Face::Marker, 11.0, lw - 20.0),
         lx + 10.0,
         ly + 39.0,
         Face::Marker,

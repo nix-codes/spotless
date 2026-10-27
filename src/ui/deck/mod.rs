@@ -26,6 +26,7 @@ use egui::{Align2, Color32, FontId, Painter, Rect, Sense, Ui, pos2, vec2};
 
 use super::{Inputs, View, player_strip, theme};
 use crate::action::{Action, Actions};
+use crate::model::TrackRef;
 use crate::playback::analyser::{self, BANDS, Reading};
 use crate::playback::engine::Status;
 use crate::store::DeckMedia;
@@ -304,13 +305,7 @@ impl Motion {
         {
             Some((_, index, entry)) => (
                 if index % 2 == 0 { 'A' } else { 'B' },
-                entry
-                    .track
-                    .artists
-                    .iter()
-                    .map(|artist| artist.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", "),
+                artists(&entry.track),
                 short_title(&entry.track.title).to_string(),
             ),
             None => ('A', String::new(), String::new()),
@@ -338,15 +333,27 @@ fn ease(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// The single of the song playing: its title and its place in the
-/// playlist, which picks its label.
+/// The single of the song playing: its artists, its title and its place
+/// in the playlist, which picks its label.
 fn record(view: &View) -> Option<vinyl::Record> {
     let (list, entry) = player_strip::playing_entry(view)?;
     let list = view.list(list)?;
+    let track = &list.get(entry)?.track;
     Some(vinyl::Record {
-        title: short_title(&list.get(entry)?.track.title).to_string(),
+        artist: artists(track),
+        title: short_title(&track.title).to_string(),
         label: list.index_of(entry)?,
     })
+}
+
+/// A song's artists as a tape or a record has them.
+fn artists(track: &TrackRef) -> String {
+    track
+        .artists
+        .iter()
+        .map(|artist| artist.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// A song's title as written on a tape: without the version Spotify adds

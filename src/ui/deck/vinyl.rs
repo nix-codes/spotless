@@ -1,9 +1,10 @@
 //! An '80s DJ turntable seen from above, 336 units wide and black like the
 //! Walkman: the player's buttons stand up out of its top edge as its keys,
-//! a 7" single turns on the platter, one record per song with its title on
-//! the label, and the arm moves in across it as the song plays. When the
-//! song changes, the arm goes back to its rest, the record slides off, the
-//! next one slides on and drops onto the spindle, and the arm comes back.
+//! a 7" single turns on the platter, one record per song with its artists
+//! and title on the label, and the arm moves in across it as the song
+//! plays. When the song changes, the arm goes back to its rest, the record
+//! slides off, the next one slides on and drops onto the spindle, and the
+//! arm comes back.
 
 use std::f32::consts::{FRAC_PI_4, PI, TAU};
 
@@ -15,9 +16,16 @@ use super::canvas::{Canvas, Face, blend, rgb, rgba};
 /// big hole's.
 const PLATTER: (f32, f32) = (98.0, 102.0);
 const PLATTER_R: f32 = 80.0;
-const RECORD_R: f32 = 56.0;
-const LABEL_R: f32 = 27.0;
+const RECORD_R: f32 = 64.0;
+const LABEL_R: f32 = 40.0;
 const HOLE_R: f32 = 6.5;
+/// The artists' size on the label and how wide their line can be, over
+/// the hole; the title's, and how wide each of its lines can be where
+/// they cross the label, under the hole.
+const ARTIST_SIZE: f32 = 7.0;
+const ARTIST_WIDTH: f32 = 50.0;
+const TITLE_SIZE: f32 = 9.5;
+const TITLE_WIDTHS: [f32; 2] = [62.0, 50.0];
 /// The arm's pivot and length, pivot to needle.
 const PIVOT: (f32, f32) = (262.0, 44.0);
 const ARM: f32 = 158.0;
@@ -31,9 +39,10 @@ const LABELS: [u32; 7] = [
 ];
 const PRINT: Color32 = rgb(0x8a8e96);
 
-/// A record: the song's title and which label colour it has.
+/// A record: the song's artists and title, and which label colour it has.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Record {
+    pub artist: String,
     pub title: String,
     pub label: usize,
 }
@@ -266,8 +275,9 @@ fn record(c: &Canvas, x: f32, y: f32, scale: f32, record: &Record, spin: f32) {
     label(c, x, y, scale, record, spin);
 }
 
-/// The label, turned to `spin`: its colour, the printing, the title under
-/// the hole on up to two lines, and the yellow 45 adapter in the hole.
+/// The label, turned to `spin`: its colour, the artists over the hole, the
+/// printing, the title under the hole on up to two lines, and the yellow
+/// 45 adapter in the hole.
 fn label(c: &Canvas, x: f32, y: f32, scale: f32, record: &Record, spin: f32) {
     let colour = LABELS[record.label % LABELS.len()];
     c.circle(x, y, LABEL_R * scale, rgb(colour));
@@ -287,13 +297,14 @@ fn label(c: &Canvas, x: f32, y: f32, scale: f32, record: &Record, spin: f32) {
         let (px, py) = at(across, down);
         c.text_centred_at_angle(text, px, py, face, size * scale, ink, spin, f32::MAX);
     };
-    print("SPOTLESS RECORDS", 0.0, -19.0, Face::Sans, 4.5);
-    print("45 RPM", -17.0, -1.0, Face::Mono, 4.0);
-    print("A", 17.0, -1.0, Face::Sans, 7.0);
-    let lines = wrap(c, &record.title, 40.0, 7.0);
-    let first = 10.0 - (lines.len() as f32 - 1.0);
+    let artist = c.cut(&record.artist, Face::Sans, ARTIST_SIZE, ARTIST_WIDTH);
+    print(&artist, 0.0, -26.0, Face::Sans, ARTIST_SIZE);
+    print("45 RPM", -24.0, -1.0, Face::Mono, 5.0);
+    print("A", 24.0, -1.0, Face::Sans, 9.0);
+    let lines = wrap(c, &record.title, TITLE_WIDTHS, TITLE_SIZE);
+    let first = if lines.len() > 1 { 13.0 } else { 16.0 };
     for (i, line) in lines.iter().enumerate() {
-        print(line, 0.0, first + i as f32 * 8.0, Face::Sans, 7.0);
+        print(line, 0.0, first + i as f32 * 10.0, Face::Sans, TITLE_SIZE);
     }
     // The big hole, the adapter's three spokes and its ring, the spindle.
     let yellow = rgb(0xf0c020);
@@ -316,33 +327,27 @@ fn label(c: &Canvas, x: f32, y: f32, scale: f32, record: &Record, spin: f32) {
     c.circle(x, y, 1.6 * scale, rgb(0xc8ccd2));
 }
 
-/// `text` in lines at most `width` units wide, two at most, the last cut
-/// short with dots if the rest won't fit.
-fn wrap(c: &Canvas, text: &str, width: f32, size: f32) -> Vec<String> {
-    let fits = |line: &str| c.width(line, Face::Sans, size) <= width;
+/// `text` in two lines at most, each no wider than its `widths`: the
+/// second has the rest, cut short with dots if it won't fit.
+fn wrap(c: &Canvas, text: &str, widths: [f32; 2], size: f32) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
-    let mut cut = false;
     for word in text.split_whitespace() {
-        let joined = lines.last().map(|last| format!("{last} {word}"));
-        match joined {
-            Some(joined) if fits(&joined) => *lines.last_mut().expect("a line") = joined,
-            _ if lines.len() < 2 => lines.push(word.to_string()),
-            _ => {
-                cut = true;
-                break;
+        let second = lines.len() == 2;
+        match lines.last_mut() {
+            Some(last)
+                if second || c.width(&format!("{last} {word}"), Face::Sans, size) <= widths[0] =>
+            {
+                last.push(' ');
+                last.push_str(word);
             }
-        }
-    }
-    let count = lines.len();
-    for (i, line) in lines.iter_mut().enumerate() {
-        if (cut && i + 1 == count) || !fits(line) {
-            while !line.is_empty() && !fits(&format!("{}...", line.trim_end())) {
-                line.pop();
-            }
-            *line = format!("{}...", line.trim_end());
+            _ => lines.push(word.to_string()),
         }
     }
     lines
+        .iter()
+        .zip(widths)
+        .map(|(line, width)| c.cut(line, Face::Sans, size, width))
+        .collect()
 }
 
 /// The tonearm at `angle`, `lift` of the way up: its shadow, which falls
