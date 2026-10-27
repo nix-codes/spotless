@@ -3,7 +3,7 @@
 //! the tray, skins, covers).
 
 use crate::backend::Store;
-use crate::model::catalog::ReleaseTab;
+use crate::model::catalog::{ReleaseTab, SpotifyTarget};
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -128,6 +128,12 @@ pub enum Action {
     DropAlbum(String, usize),
     /// Puts a song after the target playlist's current one and plays it.
     PlayNow(TrackRef),
+    /// Reads the account's Spotify playlists again (Browse does on
+    /// opening), for choosing one to copy songs to.
+    ReadSpotifyPlaylists,
+    /// Copies songs to a Spotify playlist of the account's, or to a new
+    /// one, once: it isn't kept in step with the songs' tab after.
+    CopyToSpotify(SpotifyTarget, Vec<TrackRef>),
 
     // The Spotify tab
     /// Copies songs to the end of a playlist (the Spotify tab's: queues

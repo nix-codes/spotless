@@ -68,6 +68,23 @@ pub struct SpotifyPlaylist {
     pub owner: Option<String>,
 }
 
+/// Where songs copied to Spotify go.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SpotifyTarget {
+    /// A new private playlist by this name.
+    New(String),
+    /// One of the account's own playlists.
+    Playlist { uri: String, name: String },
+}
+
+impl SpotifyTarget {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::New(name) | Self::Playlist { name, .. } => name,
+        }
+    }
+}
+
 /// The artist page's tabs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ReleaseTab {

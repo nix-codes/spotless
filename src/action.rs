@@ -27,6 +27,12 @@ pub enum Desktop {
     Restart,
     /// Fetches a cover the catalog wants to show, unless it has it.
     LoadCover(String),
+    /// Asks which Spotify playlist to copy these songs to; a new one is
+    /// named after `name` (their tab's) unless another name is typed.
+    PickSpotifyPlaylist {
+        tracks: Vec<spotless_core::model::TrackRef>,
+        name: String,
+    },
 }
 
 /// An action of either kind.

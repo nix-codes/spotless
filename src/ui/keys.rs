@@ -101,7 +101,11 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
     let ctx = ui.ctx();
     // Typing in a field, or a question waiting for an answer: the keys
     // belong to them.
-    if ctx.text_edit_focused() || inputs.closing.is_some() || inputs.renaming.is_some() {
+    if ctx.text_edit_focused()
+        || inputs.closing.is_some()
+        || inputs.renaming.is_some()
+        || inputs.spotify_pick.is_some()
+    {
         return;
     }
     ui.input_mut(|i| {

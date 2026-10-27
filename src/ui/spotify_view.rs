@@ -25,7 +25,7 @@ use super::playlist_view::{self, Choice, Menu, RowDrag};
 use super::scrollbar;
 use super::widgets::{drag_ghost, small_action};
 use super::{Inputs, View};
-use crate::action::{Action, Actions};
+use crate::action::{Action, Actions, Desktop};
 use crate::model::{EntryId, PlaylistId};
 use crate::spotify::queue::{Row, SpotifyQueue};
 
@@ -69,7 +69,7 @@ pub fn draw(
     let page = ((rows.height() / ROW_HEIGHT) as usize)
         .saturating_sub(3)
         .max(1);
-    if inputs.renaming.is_none() && inputs.closing.is_none() {
+    if inputs.renaming.is_none() && inputs.closing.is_none() && inputs.spotify_pick.is_none() {
         keyboard(ui, queue, selection, &mut keys, page, actions);
     }
 
@@ -135,6 +135,10 @@ pub fn draw(
         match choice {
             Choice::Copy(Some(to)) => actions.push(Action::CopyTo(to, tracks())),
             Choice::Copy(None) => actions.push(Action::NewPlaylistWith(tracks())),
+            Choice::CopyToSpotify => actions.push(Desktop::PickSpotifyPlaylist {
+                tracks: tracks(),
+                name: view.playlist.name.clone(),
+            }),
             Choice::Remove => actions.push(Action::Remove(
                 PlaylistId::SPOTIFY,
                 removable(queue, selection),

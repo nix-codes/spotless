@@ -3,7 +3,7 @@
 //! [`crate::controller::Controller::demo`] starts from them.
 
 use crate::images::CoverImage;
-use crate::model::catalog::{Discography, Release, ReleaseGroup};
+use crate::model::catalog::{Discography, Release, ReleaseGroup, SpotifyPlaylist};
 use crate::model::{AlbumRef, ArtistRef, EntryId, Library, PlaylistId, TrackRef};
 
 /// Who is signed in.
@@ -94,6 +94,31 @@ pub fn discography() -> Discography {
             })
             .collect(),
     }
+}
+
+/// The account's playlists on Spotify, as Browse lists them.
+pub fn spotify_playlists() -> Vec<SpotifyPlaylist> {
+    [
+        ("Liked Songs", 214, None),
+        ("Late Trains", 38, None),
+        ("Basement Tapes", 112, None),
+        ("Fog Machine", 57, Some("Marta K.")),
+        ("Sunday Static", 23, None),
+        ("Tape Hiss Forever", 76, Some("lowfi_otto")),
+        ("Running Order", 41, None),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(n, (name, tracks, owner))| SpotifyPlaylist {
+        uri: match n {
+            0 => crate::spotify::catalog::LIKED_SONGS.into(),
+            n => format!("spotify:playlist:demo-{n}"),
+        },
+        name: name.into(),
+        tracks,
+        owner: owner.map(String::from),
+    })
+    .collect()
 }
 
 /// The URLs of every cover there is, the artist's picture's included.

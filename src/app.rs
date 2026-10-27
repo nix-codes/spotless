@@ -211,6 +211,10 @@ impl App {
                     self.quitting = true;
                 }
             }
+            Desktop::PickSpotifyPlaylist { tracks, name } => {
+                self.inputs.spotify_pick = Some(crate::ui::Picker::new(tracks, name));
+                self.controller.apply(Action::ReadSpotifyPlaylists);
+            }
             Desktop::LoadCover(url) => {
                 if !self.covers.contains_key(&url) {
                     self.covers.insert(url.clone(), Cover::Loading);

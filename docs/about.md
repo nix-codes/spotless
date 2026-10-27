@@ -87,7 +87,13 @@ Spotify only allows playback in other apps for Premium accounts.
   album to the playlist shown alongside. Pasting a Spotify link adds it too.
   Browse also lists your Spotify playlists, Liked Songs first, with who
   made the ones you follow: open one to see its songs, add it whole or
-  song by song (desktop). Spotless only reads them; it never changes them.
+  song by song (desktop).
+- **Copy to Spotify** (desktop): right-click songs, *Copy to > Spotify
+  playlist…*, and pick one of your own playlists (type to find it) or make
+  a new one; right-click a tab, *Save to Spotify*, to make a new playlist
+  of all its songs. New playlists are private. It's a copy, made once:
+  changing the tab later doesn't change the Spotify playlist. Spotless
+  only ever adds songs to your Spotify playlists, never removes any.
 - **Pics are optional**: album covers and artists' pictures. Off by default
   on the desktop, on by default on Android; either way, they show in the
   catalogue only. Playlists stay text.

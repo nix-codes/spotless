@@ -26,7 +26,8 @@ use super::widgets::{
     Glyph, drag_ghost, field, small_action, small_button, small_glyph, text_button,
 };
 use super::{Inputs, View, spotify_view};
-use crate::action::{Action, Actions};
+use crate::action::{Action, Actions, Desktop};
+use crate::model::catalog::SpotifyTarget;
 use crate::model::{EntryId, Playlist, PlaylistId, Run};
 use crate::playback::engine::Status;
 
@@ -86,6 +87,8 @@ pub(super) struct RowDrag(pub Vec<EntryId>);
 pub(super) enum Choice {
     /// Copies to this playlist, or to a new one with None.
     Copy(Option<PlaylistId>),
+    /// Copies to a Spotify playlist, asking which first.
+    CopyToSpotify,
     Move(Option<PlaylistId>),
     ToggleMarks,
     Remove,
@@ -137,7 +140,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         .selection
         .rows
         .retain(|&id| list.index_of(id).is_some());
-    if inputs.renaming.is_none() && inputs.closing.is_none() {
+    if inputs.renaming.is_none() && inputs.closing.is_none() && inputs.spotify_pick.is_none() {
         keyboard(ui, list, &mut inputs.selection, actions);
     }
     ui.scope_builder(UiBuilder::new().max_rect(rows), |ui| {
@@ -495,13 +498,37 @@ fn tab(
         }
     }
 
-    if response.clicked() && over_close {
+    let close = |inputs: &mut Inputs, actions: &mut Actions| {
         // Closing the Spotify tab loses nothing: the queue is the account's.
         if list.count == 0 || !list.own {
             actions.push(Action::ClosePlaylist(list.id));
         } else {
             inputs.closing = Some(list.id);
         }
+    };
+    if list.own {
+        response.context_menu(|ui| {
+            if item(ui, "Rename", true).clicked() {
+                inputs.renaming = Some((list.id, list.name.to_string()));
+            }
+            if item(ui, "Save to Spotify", list.count > 0)
+                .on_hover_text("Copies its songs to a new private playlist on Spotify")
+                .clicked()
+                && let Some(songs) = view.library.get(list.id)
+            {
+                let tracks = songs.entries().iter().map(|e| e.track.clone()).collect();
+                actions.push(Action::CopyToSpotify(
+                    SpotifyTarget::New(list.name.to_string()),
+                    tracks,
+                ));
+            }
+            if closable && item(ui, "Close", true).clicked() {
+                close(inputs, actions);
+            }
+        });
+    }
+    if response.clicked() && over_close {
+        close(inputs, actions);
     } else if response.double_clicked() && list.own {
         inputs.renaming = Some((list.id, list.name.to_string()));
     } else if response.clicked() {
@@ -983,14 +1010,16 @@ impl Menu {
     }
 }
 
+/// An item of a right-click menu.
+fn item(ui: &mut Ui, name: &str, enabled: bool) -> egui::Response {
+    let label = RichText::new(name).monospace().size(11.0);
+    ui.add_enabled(enabled, egui::Button::new(label).frame_when_inactive(false))
+}
+
 /// The right-click menu of the selected rows: Copy to, Move to, Play next
 /// for a playlist's own rows, and Remove.
 pub(super) fn row_menu(response: &egui::Response, view: &View, menu: Menu) -> Option<Choice> {
     let mut chosen = None;
-    let item = |ui: &mut Ui, name: &str, enabled: bool| {
-        let label = RichText::new(name).monospace().size(11.0);
-        ui.add_enabled(enabled, egui::Button::new(label).frame_when_inactive(false))
-    };
     let targets = |ui: &mut Ui,
                    chosen: &mut Option<Choice>,
                    choice: fn(Option<PlaylistId>) -> Choice| {
@@ -1018,6 +1047,9 @@ pub(super) fn row_menu(response: &egui::Response, view: &View, menu: Menu) -> Op
     response.context_menu(|ui| {
         ui.menu_button(RichText::new("Copy to").monospace().size(11.0), |ui| {
             targets(ui, &mut chosen, Choice::Copy);
+            if item(ui, "Spotify playlist…", true).clicked() {
+                chosen = Some(Choice::CopyToSpotify);
+            }
         });
         match menu.unmovable {
             None => {
@@ -1059,6 +1091,10 @@ fn send(list: &Playlist, selection: &mut Selection, choice: Choice, actions: &mu
     match choice {
         Choice::Copy(Some(to)) => actions.push(Action::CopyTo(to, tracks())),
         Choice::Copy(None) => actions.push(Action::NewPlaylistWith(tracks())),
+        Choice::CopyToSpotify => actions.push(Desktop::PickSpotifyPlaylist {
+            tracks: tracks(),
+            name: list.name.clone(),
+        }),
         Choice::Move(Some(to)) => {
             actions.push(Action::MoveTo(list.id, to, rows.clone()));
             select_after(list, selection, &rows);

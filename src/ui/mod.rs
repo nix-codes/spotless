@@ -12,6 +12,7 @@ mod scrollbar;
 mod settings_view;
 pub mod skin_paint;
 mod skinned_strip;
+mod spotify_picker;
 mod spotify_view;
 pub mod theme;
 mod update_view;
@@ -31,6 +32,7 @@ use crate::skin::format::State;
 use crate::spotify::queue::SpotifyQueue;
 use crate::store::Settings;
 pub use browse_view::Cover;
+pub use spotify_picker::Picker;
 use theme::Palette;
 use widgets::text_button;
 
@@ -108,6 +110,8 @@ pub struct Inputs {
     pub renaming: Option<(PlaylistId, String)>,
     /// The playlist waiting for Close to be confirmed.
     pub closing: Option<PlaylistId>,
+    /// Songs waiting for the Spotify playlist they are copied to.
+    pub spotify_pick: Option<spotify_picker::Picker>,
     /// The volume to go back to after muting with M.
     pub unmuted: Option<u8>,
     /// A row to select once its playlist is the one shown (J).
@@ -188,6 +192,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         close_settings(inputs);
     }
     keys::help(ui, view, inputs);
+    spotify_picker::draw(ui, view, inputs, actions);
     let full = ui.max_rect();
     if !skin_paint::chrome(ui.painter(), "window", State::Normal, full) {
         ui.painter().rect_filled(full, 0.0, palette.frame);

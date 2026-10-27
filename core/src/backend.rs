@@ -19,7 +19,7 @@ use tokio::time::MissedTickBehavior;
 use crate::browser::Browser;
 use crate::images::CoverImage;
 use crate::lastfm::{self, LastFmState, Scrobbler, api::Keys};
-use crate::model::catalog::{Discography, SearchResults, SpotifyPlaylist};
+use crate::model::catalog::{Discography, SearchResults, SpotifyPlaylist, SpotifyTarget};
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot, Status};
@@ -29,7 +29,7 @@ use crate::spotify::devices::{self, Playing, Watch};
 use crate::spotify::queue::SpotifyQueue;
 use crate::spotify::remote::Remote;
 use crate::spotify::webapi::WebApi;
-use crate::spotify::{catalog, session};
+use crate::spotify::{catalog, playlists, session};
 use crate::store::Settings;
 
 #[derive(Debug)]
@@ -58,6 +58,11 @@ pub enum Command {
     Album(String),
     /// The account's own Spotify playlists, Liked Songs first.
     SpotifyPlaylists,
+    /// Adds songs, by track URI, to a Spotify playlist, or to a new one.
+    CopyToSpotify {
+        target: SpotifyTarget,
+        songs: Vec<String>,
+    },
     /// An album cover, by image URL.
     Cover(String),
     /// The personal app search signs in with changed (None: no app).
@@ -191,6 +196,12 @@ pub enum Event {
         result: Result<Vec<TrackRef>, String>,
     },
     SpotifyPlaylists(Result<Vec<SpotifyPlaylist>, String>),
+    /// Songs copied to a Spotify playlist: its URI, once they are.
+    CopiedToSpotify {
+        target: SpotifyTarget,
+        songs: usize,
+        result: Result<String, String>,
+    },
     /// Similar artists' names, for an artist's URI.
     SimilarArtists {
         artist: String,
@@ -1347,6 +1358,27 @@ impl Worker {
                         .await
                         .map_err(|e| format!("{e:#}"));
                     emit(Event::SpotifyPlaylists(result));
+                });
+            }
+            Command::CopyToSpotify { target, songs } => {
+                let Some(session) = self.session.clone() else {
+                    return;
+                };
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = match &target {
+                        SpotifyTarget::New(name) => playlists::create(&session, name, &songs).await,
+                        SpotifyTarget::Playlist { uri, .. } => {
+                            playlists::add(&session, uri, &songs)
+                                .await
+                                .map(|()| uri.clone())
+                        }
+                    };
+                    emit(Event::CopiedToSpotify {
+                        target,
+                        songs: songs.len(),
+                        result: result.map_err(|e| format!("{e:#}")),
+                    });
                 });
             }
             Command::Seek(position) => self.with_engine(|e| e.seek(position)),

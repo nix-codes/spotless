@@ -13,7 +13,7 @@ use crate::backend::{Backend, Command, Event, SearchState, SessionState, Spotify
 use crate::browse::{Browse, Loadable, Page};
 use crate::browser::{self, Browser};
 use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
-use crate::model::catalog::SpotifyPlaylist;
+use crate::model::catalog::{SpotifyPlaylist, SpotifyTarget};
 use crate::model::{ArtistRef, EntryId, Library, Playback, Playlist, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
@@ -232,6 +232,7 @@ impl Controller {
             crate::demo::ARTIST_URI.into(),
             Loadable::Ready(crate::demo::discography()),
         );
+        state.browse.spotify_playlists = Some(Loadable::Ready(crate::demo::spotify_playlists()));
         // Started as a double-click would, with the engine's part told
         // by hand: there is no engine.
         let _ = state
@@ -490,6 +491,11 @@ impl Controller {
                     }
                 }
                 Event::SpotifyPlaylists(result) => self.spotify_playlists_read(result),
+                Event::CopiedToSpotify {
+                    target,
+                    songs,
+                    result,
+                } => self.copied_to_spotify(target, songs, result),
                 Event::Error(message) => self.state.error = Some(message),
                 Event::Cover { .. } => theirs.push(event),
             }
@@ -1079,7 +1085,47 @@ impl Controller {
             }
             Action::AddAlbum(album) => self.add_album(album, None),
             Action::DropAlbum(album, at) => self.add_album(album, Some(at)),
+            Action::ReadSpotifyPlaylists => self.read_spotify_playlists(),
+            Action::CopyToSpotify(target, tracks) => self.copy_to_spotify(target, tracks),
             _ => {}
+        }
+    }
+
+    fn copy_to_spotify(&mut self, target: SpotifyTarget, tracks: Vec<TrackRef>) {
+        if !matches!(self.state.session, SessionState::Ready { .. }) {
+            self.state.error = Some("Sign in to Spotify first.".into());
+            return;
+        }
+        let songs: Vec<String> = tracks
+            .into_iter()
+            .map(|track| track.uri)
+            .filter(|uri| uri.starts_with("spotify:track:"))
+            .collect();
+        if songs.is_empty() {
+            return;
+        }
+        self.state.notice = Some(format!("Copying to “{}” on Spotify…", target.name()));
+        self.send(Command::CopyToSpotify { target, songs });
+    }
+
+    fn copied_to_spotify(
+        &mut self,
+        target: SpotifyTarget,
+        songs: usize,
+        result: Result<String, String>,
+    ) {
+        match result {
+            Ok(_) => {
+                let songs = match songs {
+                    1 => "1 song".to_string(),
+                    n => format!("{n} songs"),
+                };
+                self.state.notice =
+                    Some(format!("Copied {songs} to “{}” on Spotify.", target.name()));
+                // The new count makes the songs read before stale.
+                self.read_spotify_playlists();
+            }
+            Err(error) => self.state.error = Some(error),
         }
     }
 
@@ -1648,6 +1694,38 @@ mod tests {
         rig.tell(Event::SpotifyPlaylists(Err("offline".into())));
         let browse = &rig.controller.state().browse;
         assert!(matches!(&browse.spotify_playlists, Some(Loadable::Ready(p)) if p.len() == 1));
+    }
+
+    #[test]
+    fn songs_copied_to_spotify_are_sent_once_signed_in() {
+        let mut rig = Rig::new("copy-to-spotify");
+        let target = SpotifyTarget::New("Garage".into());
+        let copy = Action::CopyToSpotify(target.clone(), tracks([1, 2]));
+        rig.controller.apply(copy.clone());
+        assert!(rig.controller.state().error.is_some());
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        rig.sent();
+        rig.controller.apply(copy);
+        let sent = rig.sent();
+        assert!(sent.iter().any(|c| matches!(
+            c,
+            Command::CopyToSpotify { target: SpotifyTarget::New(name), songs }
+                if name == "Garage" && songs.len() == 2
+        )));
+        rig.tell(Event::CopiedToSpotify {
+            target,
+            songs: 2,
+            result: Ok("spotify:playlist:new".into()),
+        });
+        assert_eq!(
+            rig.controller.state().notice.as_deref(),
+            Some("Copied 2 songs to “Garage” on Spotify.")
+        );
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::SpotifyPlaylists))
+        );
     }
 
     #[test]
