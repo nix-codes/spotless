@@ -85,6 +85,9 @@ Spotify only allows playback in other apps for Premium accounts.
   page is just the discography: All, Albums, Singles & EPs, Appears on;
   Albums first, oldest first, songs opening inline. **+ ADD** adds a whole
   album to the playlist shown alongside. Pasting a Spotify link adds it too.
+  Browse also lists your Spotify playlists, Liked Songs first, with who
+  made the ones you follow: open one to see its songs, add it whole or
+  song by song (desktop). Spotless only reads them; it never changes them.
 - **Pics are optional**: album covers and artists' pictures. Off by default
   on the desktop, on by default on Android; either way, they show in the
   catalogue only. Playlists stay text.

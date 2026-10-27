@@ -35,7 +35,8 @@ More in [Screenshots](docs/screenshots.md).
 - **Local playlists in tabs**, kept between sessions; playing a song
   doesn't use it up.
 - **Browse**: search, then an artist's albums oldest first, songs opening
-  inline; **+ ADD** puts a whole album in a playlist.
+  inline; **+ ADD** puts a whole album in a playlist. Your Spotify
+  playlists and Liked Songs are there too, to copy from (desktop).
 - **Gapless playback** at 320 kbps, with Shuffle, Repeat and Play next.
 - **Made for the keyboard**: everything works without the mouse.
 - **Two looks**, Spotless Classic and Winamp Classic, in green, amber and

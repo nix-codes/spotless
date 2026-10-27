@@ -3,8 +3,8 @@
 //!
 //! Tab and Shift+Tab move between three areas: the search field, the
 //! results and the slim column. In the results, the arrows move a
-//! highlighted row; Enter opens it (an artist, an album's songs) or plays it
-//! (a song), Insert or A adds it. In the slim column, Enter plays and Delete
+//! highlighted row; Enter opens it (an artist, an album's or a playlist's
+//! songs) or plays it (a song), Insert or A adds it. In the slim column, Enter plays and Delete
 //! removes. Alt+1…4 pick the release tab, Alt+5 shows similar artists,
 //! Ctrl+S the order, Ctrl+E shows or hides all songs, C the pics. Esc goes
 //! back to the playlists, Backspace or Alt+Left back a page. Ctrl+F (in `keys.rs`) jumps to the
@@ -26,7 +26,7 @@ use crate::action::{Action, Actions, Desktop};
 use crate::backend::SearchState;
 use crate::browse::{Loadable, Page};
 use crate::lastfm;
-use crate::model::catalog::{Release, ReleaseTab};
+use crate::model::catalog::{Release, ReleaseTab, SpotifyPlaylist};
 use crate::model::{ArtistRef, EntryId, TrackRef, playlist::Playlist};
 
 const SLIM_WIDTH: f32 = 250.0;
@@ -97,7 +97,11 @@ enum Act {
 /// Songs or an album dragged from the catalog to the slim column.
 enum CatalogDrag {
     Tracks(Vec<TrackRef>),
-    Album { uri: String, title: String },
+    /// An album or a Spotify playlist, by URI.
+    Album {
+        uri: String,
+        title: String,
+    },
 }
 
 impl CatalogDrag {
@@ -364,6 +368,93 @@ fn home(ui: &mut Ui, view: &View, nav: &mut Nav, set_up: &mut bool, actions: &mu
         section(ui, view, "RECENTLY VIEWED");
         for artist in &view.browse.recent {
             artist_row(ui, view, nav, artist, None, actions);
+        }
+    }
+    match &view.browse.spotify_playlists {
+        None => {}
+        Some(Loadable::Loading) => {
+            section(ui, view, "YOUR SPOTIFY PLAYLISTS");
+            note(ui, view, "Reading your playlists…");
+        }
+        Some(Loadable::Failed(error)) => {
+            section(ui, view, "YOUR SPOTIFY PLAYLISTS");
+            note(ui, view, error);
+        }
+        Some(Loadable::Ready(playlists)) => {
+            section(ui, view, "YOUR SPOTIFY PLAYLISTS");
+            for playlist in playlists {
+                spotify_playlist(ui, view, nav, playlist, actions);
+            }
+        }
+    }
+}
+
+/// One of the account's Spotify playlists: opened like an album, its
+/// songs below it, and added whole like one.
+fn spotify_playlist(
+    ui: &mut Ui,
+    view: &View,
+    nav: &mut Nav,
+    playlist: &SpotifyPlaylist,
+    actions: &mut Actions,
+) {
+    let palette = view.palette;
+    let expanded = view.browse.expanded.contains(&playlist.uri);
+    let count = match playlist.tracks {
+        1 => "1 song".to_string(),
+        n => format!("{n} songs"),
+    };
+    let owner = playlist.owner.as_ref().map(|owner| format!("by {owner}"));
+    let row = row(
+        ui,
+        &palette,
+        nav,
+        ROW_HEIGHT,
+        Some("+ ADD"),
+        |painter, rect| {
+            chevron(
+                painter,
+                pos2(rect.left() + 5.0, rect.center().y),
+                expanded,
+                palette.dim,
+            );
+            let text = Rect::from_min_max(pos2(rect.left() + 16.0, rect.top()), rect.max);
+            let mut parts = vec![(playlist.name.as_str(), body(), palette.list_fg)];
+            if let Some(owner) = &owner {
+                parts.push((owner.as_str(), body(), palette.dim));
+            }
+            parts.push((count.as_str(), mono(), palette.dim));
+            spans(painter, text, &parts);
+        },
+    );
+    if row.response.drag_started() {
+        row.response.dnd_set_drag_payload(CatalogDrag::Album {
+            uri: playlist.uri.clone(),
+            title: playlist.name.clone(),
+        });
+    }
+    if row.button || matches!(row.act, Some(Act::Add)) {
+        actions.push(Action::AddAlbum(playlist.uri.clone()));
+    } else if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
+        actions.push(Action::ToggleAlbum(playlist.uri.clone()));
+    }
+    if !expanded {
+        return;
+    }
+    match view.browse.albums.get(&playlist.uri) {
+        None | Some(Loadable::Loading) => indented_note(ui, view, "Reading the songs…"),
+        Some(Loadable::Failed(error)) => indented_note(ui, view, error),
+        Some(Loadable::Ready(tracks)) => {
+            ui.horizontal_top(|ui| {
+                ui.add_space(16.0);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    for (i, track) in tracks.iter().enumerate() {
+                        song(ui, view, nav, i + 1, track, true, actions);
+                    }
+                });
+            });
+            ui.add_space(4.0);
         }
     }
 }

@@ -19,7 +19,7 @@ use tokio::time::MissedTickBehavior;
 use crate::browser::Browser;
 use crate::images::CoverImage;
 use crate::lastfm::{self, LastFmState, Scrobbler, api::Keys};
-use crate::model::catalog::{Discography, SearchResults};
+use crate::model::catalog::{Discography, SearchResults, SpotifyPlaylist};
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot, Status};
@@ -54,8 +54,10 @@ pub enum Command {
     },
     /// The Spotify artist with this name, for a similar artist opened.
     FindArtist(String),
-    /// An album's songs, by album URI.
+    /// The songs of an album, a Spotify playlist or Liked Songs, by URI.
     Album(String),
+    /// The account's own Spotify playlists, Liked Songs first.
+    SpotifyPlaylists,
     /// An album cover, by image URL.
     Cover(String),
     /// The personal app search signs in with changed (None: no app).
@@ -188,6 +190,7 @@ pub enum Event {
         album: String,
         result: Result<Vec<TrackRef>, String>,
     },
+    SpotifyPlaylists(Result<Vec<SpotifyPlaylist>, String>),
     /// Similar artists' names, for an artist's URI.
     SimilarArtists {
         artist: String,
@@ -1328,10 +1331,22 @@ impl Worker {
                 };
                 let emit = Arc::clone(&self.emit);
                 tokio::spawn(async move {
-                    let result = catalog::album(&session, &album)
+                    let result = catalog::songs(&session, &album)
                         .await
                         .map_err(|e| format!("{e:#}"));
                     emit(Event::Album { album, result });
+                });
+            }
+            Command::SpotifyPlaylists => {
+                let Some(session) = self.session.clone() else {
+                    return;
+                };
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = catalog::playlists(&session)
+                        .await
+                        .map_err(|e| format!("{e:#}"));
+                    emit(Event::SpotifyPlaylists(result));
                 });
             }
             Command::Seek(position) => self.with_engine(|e| e.seek(position)),

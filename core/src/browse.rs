@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
-use crate::model::catalog::{Discography, ReleaseTab, SearchResults};
+use crate::model::catalog::{Discography, ReleaseTab, SearchResults, SpotifyPlaylist};
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 
 /// How long rows just added light up in the slim column.
@@ -35,8 +35,12 @@ pub struct Browse {
     pub artists: HashMap<String, Loadable<Discography>>,
     /// Artists like an artist, by its URI: names from Last.fm.
     pub similar_artists: HashMap<String, Loadable<Vec<String>>>,
+    /// The songs of albums and of Spotify playlists, by URI.
     pub albums: HashMap<String, Loadable<Vec<TrackRef>>>,
-    /// Albums shown with their songs.
+    /// The account's own Spotify playlists, Liked Songs first; None until
+    /// asked for.
+    pub spotify_playlists: Option<Loadable<Vec<SpotifyPlaylist>>>,
+    /// Albums and Spotify playlists shown with their songs.
     pub expanded: HashSet<String>,
     pub tab: ReleaseTab,
     /// The artist page shows similar artists instead of the releases.
@@ -66,6 +70,7 @@ impl Browse {
             artists: HashMap::new(),
             similar_artists: HashMap::new(),
             albums: HashMap::new(),
+            spotify_playlists: None,
             expanded: HashSet::new(),
             tab: ReleaseTab::default(),
             similar: false,

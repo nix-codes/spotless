@@ -1,21 +1,23 @@
 //! Catalogue reads over the librespot session (no Web API quota).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
+use futures_util::future::join_all;
 use librespot_core::error::ErrorKind;
 use librespot_core::session::Session;
 use librespot_core::{Error, SpotifyUri};
 use librespot_metadata::image::{ImageSize, Images};
-use librespot_metadata::{Album, Artist, Metadata, Track};
+use librespot_metadata::{Album, Artist, Metadata, Playlist, Track};
 use librespot_protocol::extended_metadata::{
     BatchedEntityRequest, BatchedExtensionResponse, EntityRequest, ExtensionQuery,
 };
 use librespot_protocol::extension_kind::ExtensionKind;
+use librespot_protocol::playlist4_external::SelectedListContent;
 use protobuf::{EnumOrUnknown, Message};
 
-use crate::model::catalog::{Discography, Release, ReleaseGroup, tidy};
+use crate::model::catalog::{Discography, Release, ReleaseGroup, SpotifyPlaylist, tidy};
 use crate::model::{AlbumRef, ArtistRef, TrackRef};
 
 /// Accepts `spotify:` URIs and `open.spotify.com` links.
@@ -38,8 +40,11 @@ pub fn parse_uri(text: &str) -> Result<SpotifyUri> {
     SpotifyUri::from_uri(&uri).map_err(|e| anyhow!("not a Spotify link: {e}"))
 }
 
-/// The songs a link stands for, in order: a track, an album's tracks, or
-/// the tracks of an artist's first album (until the artist page, M2).
+/// Liked Songs, read like a playlist (Spotify's own URI for it).
+pub const LIKED_SONGS: &str = "spotify:collection:tracks";
+
+/// The songs a link stands for, in order: a track, an album's or a
+/// playlist's tracks, or the tracks of an artist's first album.
 pub async fn link_tracks(session: &Session, text: &str) -> Result<Vec<TrackRef>> {
     let uris = match parse_uri(text)? {
         uri @ SpotifyUri::Track { .. } => vec![uri],
@@ -48,7 +53,8 @@ pub async fn link_tracks(session: &Session, text: &str) -> Result<Vec<TrackRef>>
             let album = first_release(session, &uri).await?;
             album_tracks(session, &album).await?
         }
-        _ => bail!("only tracks, albums and artists can be added"),
+        uri @ SpotifyUri::Playlist { .. } => playlist_tracks(session, &uri).await?,
+        _ => bail!("only tracks, albums, playlists and artists can be added"),
     };
     tracks(session, uris).await
 }
@@ -60,18 +66,137 @@ async fn album_tracks(session: &Session, album: &SpotifyUri) -> Result<Vec<Spoti
     Ok(album.tracks().cloned().collect())
 }
 
-/// Reads the tracks' metadata, keeping their order. Tracks Spotify doesn't
-/// know are left out.
+/// A playlist's tracks, leaving out its podcast episodes and local files.
+async fn playlist_tracks(session: &Session, playlist: &SpotifyUri) -> Result<Vec<SpotifyUri>> {
+    let playlist = Playlist::get(session, playlist)
+        .await
+        .context("playlist not found")?;
+    Ok(playlist
+        .tracks()
+        .filter(|uri| matches!(uri, SpotifyUri::Track { .. }))
+        .cloned()
+        .collect())
+}
+
+/// Liked Songs' tracks, the latest liked first, as Spotify lists them.
+async fn liked_tracks(session: &Session) -> Result<Vec<SpotifyUri>> {
+    let mut items = Vec::new();
+    let mut token = String::new();
+    loop {
+        let page = session
+            .spclient()
+            .get_collection_page("collection", &token, LIKED_PAGE)
+            .await
+            .context("Liked Songs can't be read")?;
+        items.extend(
+            page.items
+                .into_iter()
+                .filter(|item| !item.is_removed && item.uri.starts_with("spotify:track:")),
+        );
+        if page.next_page_token.is_empty() {
+            break;
+        }
+        token = page.next_page_token;
+    }
+    items.sort_by_key(|item| std::cmp::Reverse(item.added_at));
+    Ok(items
+        .iter()
+        .filter_map(|item| SpotifyUri::from_uri(&item.uri).ok())
+        .collect())
+}
+
+/// Liked songs asked for in one page.
+const LIKED_PAGE: i32 = 500;
+/// Playlists asked for in one read of the account's list.
+const ROOTLIST_PAGE: usize = 200;
+
+/// The account's playlists, in its own order, after Liked Songs. Folders
+/// are left out and their playlists listed in their place.
+pub async fn playlists(session: &Session) -> Result<Vec<SpotifyPlaylist>> {
+    let liked = liked_tracks(session).await?;
+    let mut found = vec![SpotifyPlaylist {
+        uri: LIKED_SONGS.into(),
+        name: "Liked Songs".into(),
+        tracks: liked.len(),
+        owner: None,
+    }];
+    let mut owners = Vec::new();
+    let mut from = 0;
+    loop {
+        let bytes = session
+            .spclient()
+            .get_rootlist(from, Some(ROOTLIST_PAGE))
+            .await
+            .context("your playlists can't be read")?;
+        let list = SelectedListContent::parse_from_bytes(&bytes)?;
+        let contents = &list.contents;
+        for (item, meta) in contents.items.iter().zip(contents.meta_items.iter()) {
+            if !item.uri().starts_with("spotify:playlist:") {
+                continue;
+            }
+            found.push(SpotifyPlaylist {
+                uri: item.uri().into(),
+                name: meta.attributes.name().into(),
+                tracks: meta.length().max(0) as usize,
+                owner: None,
+            });
+            owners.push(meta.owner_username().to_string());
+        }
+        from += contents.items.len();
+        if contents.items.is_empty() || from >= list.length().max(0) as usize {
+            break;
+        }
+    }
+    let me = session.username();
+    let others: HashSet<&String> = owners.iter().filter(|owner| **owner != me).collect();
+    let names: HashMap<&String, String> = join_all(
+        others
+            .into_iter()
+            .map(|owner| async move { (owner, display_name(session, owner).await) }),
+    )
+    .await
+    .into_iter()
+    .collect();
+    for (playlist, owner) in found[1..].iter_mut().zip(&owners) {
+        playlist.owner = names.get(owner).cloned();
+    }
+    Ok(found)
+}
+
+/// A Spotify user's name as Spotify shows it, else their username.
+async fn display_name(session: &Session, user: &str) -> String {
+    let profile = session
+        .spclient()
+        .get_user_profile(user, Some(0), Some(0))
+        .await
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    profile
+        .as_ref()
+        .and_then(|p| p.get("name")?.as_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(user)
+        .to_string()
+}
+
+/// Reads the tracks' metadata, keeping their order and repeats (a playlist
+/// may have a song twice). Tracks Spotify doesn't know are left out.
 pub async fn tracks(session: &Session, uris: Vec<SpotifyUri>) -> Result<Vec<TrackRef>> {
-    let mut read = read_many::<Track>(session, &uris, ExtensionKind::TRACK_V4).await?;
+    let mut seen = HashSet::new();
+    let unique: Vec<SpotifyUri> = uris
+        .iter()
+        .filter(|uri| seen.insert(uri.to_uri()))
+        .cloned()
+        .collect();
+    let read = read_many::<Track>(session, &unique, ExtensionKind::TRACK_V4).await?;
     let found: Vec<TrackRef> = uris
         .iter()
         .filter_map(|uri| {
-            let track = read.remove(&uri.to_uri());
+            let track = read.get(&uri.to_uri());
             if track.is_none() {
                 log::warn!("track {uri} unavailable");
             }
-            track.as_ref().map(track_ref)
+            track.map(track_ref)
         })
         .collect();
     if found.is_empty() {
@@ -267,10 +392,20 @@ fn image_url(covers: &Images) -> Option<String> {
         .map(|image| format!("https://i.scdn.co/image/{}", image.id.to_base16()))
 }
 
-/// An album's songs, in order.
-pub async fn album(session: &Session, album: &str) -> Result<Vec<TrackRef>> {
-    let uri = parse_uri(album)?;
-    tracks(session, album_tracks(session, &uri).await?).await
+/// The songs of an album, a playlist or Liked Songs, by URI, in order.
+pub async fn songs(session: &Session, uri: &str) -> Result<Vec<TrackRef>> {
+    let uris = if uri == LIKED_SONGS {
+        liked_tracks(session).await?
+    } else {
+        match parse_uri(uri)? {
+            uri @ SpotifyUri::Playlist { .. } => playlist_tracks(session, &uri).await?,
+            uri => album_tracks(session, &uri).await?,
+        }
+    };
+    if uris.is_empty() {
+        bail!("no songs in it");
+    }
+    tracks(session, uris).await
 }
 
 #[cfg(test)]

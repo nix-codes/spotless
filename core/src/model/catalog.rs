@@ -1,4 +1,5 @@
-//! What the catalog view shows: search results and discographies.
+//! What the catalog view shows: search results, discographies and the
+//! account's own Spotify playlists.
 
 use super::playlist::{ArtistRef, TrackRef};
 
@@ -55,6 +56,16 @@ pub struct Discography {
     pub artist: ArtistRef,
     /// Oldest first.
     pub releases: Vec<Release>,
+}
+
+/// One of the account's playlists on Spotify, or its Liked Songs.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpotifyPlaylist {
+    pub uri: String,
+    pub name: String,
+    pub tracks: usize,
+    /// Who made it, when someone else did: their name on Spotify.
+    pub owner: Option<String>,
 }
 
 /// The artist page's tabs.

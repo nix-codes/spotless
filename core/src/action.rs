@@ -103,7 +103,9 @@ pub enum Action {
     /// Drops a search from the recent ones, or all of them with None.
     ForgetSearch(Option<String>),
     OpenArtist(ArtistRef),
-    /// Shows or hides an album's songs, reading them if needed.
+    /// Shows or hides an album's songs, reading them if needed. Spotify
+    /// playlists and Liked Songs go by their URI as albums do, here and
+    /// in the album actions below.
     ToggleAlbum(String),
     /// Shows these albums' songs, or hides them all with an empty list.
     ExpandAlbums(Vec<String>),

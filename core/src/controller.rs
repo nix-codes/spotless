@@ -13,6 +13,7 @@ use crate::backend::{Backend, Command, Event, SearchState, SessionState, Spotify
 use crate::browse::{Browse, Loadable, Page};
 use crate::browser::{self, Browser};
 use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
+use crate::model::catalog::SpotifyPlaylist;
 use crate::model::{ArtistRef, EntryId, Library, Playback, Playlist, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
@@ -328,7 +329,11 @@ impl Controller {
                         self.state.transport.stop(&mut self.state.library);
                         self.state.player = PlayerSnapshot::default();
                     }
+                    let ready = matches!(session, SessionState::Ready { .. });
                     self.state.session = session;
+                    if ready && self.state.browse.open {
+                        self.read_spotify_playlists();
+                    }
                 }
                 // The engine holds nothing while a song waits offline.
                 Event::Player(_) if self.state.offline => {}
@@ -484,6 +489,7 @@ impl Controller {
                         }
                     }
                 }
+                Event::SpotifyPlaylists(result) => self.spotify_playlists_read(result),
                 Event::Error(message) => self.state.error = Some(message),
                 Event::Cover { .. } => theirs.push(event),
             }
@@ -919,6 +925,7 @@ impl Controller {
                 browse.open = !browse.open;
                 if browse.open {
                     browse.target = self.state.viewed;
+                    self.read_spotify_playlists();
                 }
             }
             Action::CloseBrowse => browse.open = false,
@@ -1107,10 +1114,60 @@ impl Controller {
             }
             _ => {
                 self.pending_adds.push((album.clone(), target, at));
-                self.state.notice = Some("Reading the album…".into());
+                self.state.notice = Some("Reading the songs…".into());
                 self.read_album(album);
             }
         }
+    }
+
+    /// Reads the account's Spotify playlists again, as they may have
+    /// changed on Spotify, still showing those read before meanwhile.
+    fn read_spotify_playlists(&mut self) {
+        let browse = &mut self.state.browse;
+        if !matches!(self.state.session, SessionState::Ready { .. })
+            || matches!(browse.spotify_playlists, Some(Loadable::Loading))
+        {
+            return;
+        }
+        if !matches!(browse.spotify_playlists, Some(Loadable::Ready(_))) {
+            browse.spotify_playlists = Some(Loadable::Loading);
+        }
+        self.send(Command::SpotifyPlaylists);
+    }
+
+    /// Keeps the playlists read, and forgets the songs read before of
+    /// those that may have changed: all but the ones shown, unless their
+    /// number changed.
+    fn spotify_playlists_read(&mut self, result: Result<Vec<SpotifyPlaylist>, String>) {
+        let playlists = match result {
+            Ok(playlists) => playlists,
+            Err(error) => {
+                // Those read before stay.
+                if !matches!(
+                    self.state.browse.spotify_playlists,
+                    Some(Loadable::Ready(_))
+                ) {
+                    self.state.browse.spotify_playlists = Some(Loadable::Failed(error));
+                }
+                return;
+            }
+        };
+        for playlist in &playlists {
+            let browse = &mut self.state.browse;
+            let shown = browse.expanded.contains(&playlist.uri);
+            let stale = match browse.albums.get(&playlist.uri) {
+                Some(Loadable::Ready(songs)) => !shown || songs.len() != playlist.tracks,
+                Some(Loadable::Failed(_)) => true,
+                Some(Loadable::Loading) | None => false,
+            };
+            if stale {
+                browse.albums.remove(&playlist.uri);
+                if shown {
+                    self.read_album(playlist.uri.clone());
+                }
+            }
+        }
+        self.state.browse.spotify_playlists = Some(Loadable::Ready(playlists));
     }
 
     /// Reads an album's songs unless they are read or being read.
@@ -1532,6 +1589,65 @@ mod tests {
             result: Ok(tracks([7, 8])),
         });
         assert_eq!(rig.songs(), ["Song 1", "Song 7", "Song 8", "Song 2"]);
+    }
+
+    #[test]
+    fn spotify_playlists_are_read_again_whenever_browse_opens() {
+        let mut rig = Rig::new("spotify-playlists");
+        let asked = |rig: &mut Rig| {
+            rig.sent()
+                .iter()
+                .filter(|c| matches!(c, Command::SpotifyPlaylists))
+                .count()
+        };
+        rig.controller.apply(Action::ToggleBrowse);
+        assert_eq!(asked(&mut rig), 0, "not before signing in");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        assert_eq!(asked(&mut rig), 1);
+        let playlist = |uri: &str, tracks| SpotifyPlaylist {
+            uri: uri.into(),
+            name: uri.into(),
+            tracks,
+            owner: None,
+        };
+        // Songs read before: one playlist shown, one not.
+        for uri in ["spotify:playlist:shown", "spotify:playlist:hidden"] {
+            rig.controller.apply(Action::ToggleAlbum(uri.into()));
+            rig.tell(Event::Album {
+                album: uri.into(),
+                result: Ok(tracks([1, 2])),
+            });
+        }
+        rig.controller
+            .apply(Action::ToggleAlbum("spotify:playlist:hidden".into()));
+        rig.tell(Event::SpotifyPlaylists(Ok(vec![
+            playlist("spotify:playlist:shown", 2),
+            playlist("spotify:playlist:hidden", 2),
+        ])));
+        let browse = &rig.controller.state().browse;
+        assert!(matches!(&browse.spotify_playlists, Some(Loadable::Ready(p)) if p.len() == 2));
+        assert!(browse.albums.contains_key("spotify:playlist:shown"));
+        assert!(!browse.albums.contains_key("spotify:playlist:hidden"));
+
+        rig.controller.apply(Action::ToggleBrowse);
+        rig.controller.apply(Action::ToggleBrowse);
+        assert_eq!(asked(&mut rig), 1);
+        // A song added on Spotify: the songs shown are read again.
+        rig.tell(Event::SpotifyPlaylists(Ok(vec![playlist(
+            "spotify:playlist:shown",
+            3,
+        )])));
+        assert!(
+            rig.sent()
+                .iter()
+                .any(|c| matches!(c, Command::Album(a) if a == "spotify:playlist:shown"))
+        );
+        // A failed read keeps those read before.
+        rig.controller.apply(Action::ToggleBrowse);
+        rig.controller.apply(Action::ToggleBrowse);
+        rig.tell(Event::SpotifyPlaylists(Err("offline".into())));
+        let browse = &rig.controller.state().browse;
+        assert!(matches!(&browse.spotify_playlists, Some(Loadable::Ready(p)) if p.len() == 1));
     }
 
     #[test]
