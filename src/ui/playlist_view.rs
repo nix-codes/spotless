@@ -512,7 +512,7 @@ fn tab(
                 inputs.renaming = Some((list.id, list.name.to_string()));
             }
             if item(ui, "Save to Spotify", list.count > 0)
-                .on_hover_text("Copies its songs to a new private playlist on Spotify")
+                .on_hover_text("Copies its songs to a new playlist on Spotify")
                 .clicked()
                 && let Some(songs) = view.library.get(list.id)
             {

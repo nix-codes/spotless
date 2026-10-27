@@ -71,7 +71,7 @@ pub struct SpotifyPlaylist {
 /// Where songs copied to Spotify go.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SpotifyTarget {
-    /// A new private playlist by this name.
+    /// A new playlist by this name.
     New(String),
     /// One of the account's own playlists.
     Playlist { uri: String, name: String },

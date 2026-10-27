@@ -19,7 +19,7 @@ use reqwest::Method;
 /// margin.
 const BATCH: usize = 400;
 
-/// Makes a private playlist by this name, first in the account's list,
+/// Makes a playlist by this name, first in the account's list,
 /// with these songs (track URIs). Answers its URI.
 pub async fn create(session: &Session, name: &str, songs: &[String]) -> Result<String> {
     let spclient = session.spclient();
@@ -43,6 +43,8 @@ pub async fn create(session: &Session, name: &str, songs: &[String]) -> Result<S
         uri: Some(uri.clone()),
         attributes: MessageField::some(ItemAttributes {
             timestamp: Some(now_ms()),
+            // Kept off the public profile, yet Spotify's apps still
+            // show the playlist as public.
             public: Some(false),
             ..Default::default()
         }),
