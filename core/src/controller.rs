@@ -1165,6 +1165,9 @@ impl Controller {
         if from == to {
             return;
         }
+        if from == PlaylistId::SPOTIFY {
+            return self.move_from_spotify(to, entries);
+        }
         let Some(list) = self.state.library.get(from) else {
             return;
         };
@@ -1191,6 +1194,34 @@ impl Controller {
         });
         let requests = state.transport.edited(&mut state.library, from);
         self.changed(requests);
+    }
+
+    /// Copies songs to come of the account's queue to a playlist and takes
+    /// them out of the queue, while Spotless has it.
+    fn move_from_spotify(&mut self, to: PlaylistId, rows: Vec<EntryId>) {
+        let Some(queue) = &self.state.spotify else {
+            return;
+        };
+        if !queue.movable(&rows) {
+            return;
+        }
+        let tracks: Vec<TrackRef> = rows
+            .iter()
+            .filter_map(|&id| queue.row(id))
+            .map(|row| row.track().clone())
+            .collect();
+        let count = tracks.len();
+        if !self.insert_tracks(to, None, tracks) {
+            return;
+        }
+        if let Some(list) = self.state.library.get(to) {
+            let name = &list.name;
+            self.state.notice = Some(match count {
+                1 => format!("Moved 1 song to {name}"),
+                n => format!("Moved {n} songs to {name}"),
+            });
+        }
+        self.apply_spotify(Action::Remove(PlaylistId::SPOTIFY, rows));
     }
 
     /// Adds songs to the end of the account's queue, while it takes them.
@@ -2222,5 +2253,63 @@ mod tests {
         let shown = rig.controller.state().viewed;
         assert_ne!(shown, PlaylistId::DEFAULT);
         assert_eq!(titles(&rig, shown), ["Song 4"]);
+    }
+
+    #[test]
+    fn songs_to_come_move_out_of_the_queue_only_while_spotless_has_it() {
+        let mut rig = Rig::new("move-from-spotify");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        let queue = SpotifyQueue {
+            device: Some("Phone".into()),
+            device_id: Some("phone".into()),
+            status: Status::Playing,
+            now: Some(entry(7).track),
+            parts: vec![crate::spotify::queue::Part {
+                title: "Next in queue".into(),
+                queued: true,
+                songs: vec![crate::spotify::queue::Queued {
+                    track: entry(8).track,
+                    index: 0,
+                }],
+            }],
+            ..SpotifyQueue::default()
+        };
+        rig.tell(Event::Spotify(Some(queue.clone())));
+        rig.sent();
+        let move_rows = |rig: &mut Rig, rows: Vec<usize>| {
+            let rows = rows.into_iter().map(SpotifyQueue::row_id).collect();
+            rig.controller.apply(Action::MoveTo(
+                PlaylistId::SPOTIFY,
+                PlaylistId::DEFAULT,
+                rows,
+            ));
+            rig.sent()
+                .into_iter()
+                .filter_map(|c| match c {
+                    Command::Spotify(SpotifyRequest::Remove(songs)) => Some(songs),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        // Held by the phone: nothing moves.
+        assert_eq!(move_rows(&mut rig, vec![1]), Vec::<Vec<_>>::new());
+        assert!(titles(&rig, PlaylistId::DEFAULT).is_empty());
+        rig.tell(Event::Spotify(Some(SpotifyQueue {
+            device: Some("Spotless".into()),
+            device_id: Some("spotless".into()),
+            here: true,
+            ..queue
+        })));
+        // The song playing can't be taken out.
+        assert_eq!(move_rows(&mut rig, vec![0, 1]), Vec::<Vec<_>>::new());
+        assert_eq!(
+            move_rows(&mut rig, vec![1]),
+            [vec![(0, entry(8).track.uri)]]
+        );
+        assert_eq!(titles(&rig, PlaylistId::DEFAULT), ["Song 8"]);
+        assert_eq!(
+            rig.controller.state().notice.as_deref(),
+            Some("Moved 1 song to Default")
+        );
     }
 }

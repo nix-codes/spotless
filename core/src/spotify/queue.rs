@@ -91,6 +91,16 @@ impl SpotifyQueue {
         !self.here && self.device.is_some()
     }
 
+    /// These rows can be taken out, to move them to a playlist: songs to
+    /// come, while Spotless has the queue.
+    pub fn movable(&self, rows: &[EntryId]) -> bool {
+        self.held_here()
+            && !rows.is_empty()
+            && rows
+                .iter()
+                .all(|&id| matches!(self.row(id), Some(Row::Next(_))))
+    }
+
     /// Songs can be added: Spotless has it, or no device does, and Spotless
     /// takes it over for them.
     pub fn takes_songs(&self) -> bool {

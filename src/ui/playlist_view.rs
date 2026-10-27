@@ -7,7 +7,8 @@
 //! plays, Delete removes, Q marks to play next, Alt+Up/Down or dragging
 //! moves the selection, Ctrl+A selects all. Up/Down, PageUp/PageDown and
 //! Home/End move the selection; with Shift they extend it. Dragged onto
-//! another tab, the selection is copied there, or moved with Shift held;
+//! another tab, the selection is copied there, or moved with Shift held
+//! (from the Spotify tab, songs to come while Spotless has the queue);
 //! right-click for a menu that does the same.
 
 use std::collections::BTreeSet;
@@ -485,7 +486,9 @@ fn tab(
             .map(|entry| entry.track.clone())
             .collect();
         let from = view.playlist.id;
-        if ui.input(|i| i.modifiers.shift) && from != PlaylistId::SPOTIFY {
+        let movable =
+            from != PlaylistId::SPOTIFY || view.spotify.is_some_and(|queue| queue.movable(&rows.0));
+        if ui.input(|i| i.modifiers.shift) && movable {
             actions.push(Action::MoveTo(from, list.id, rows.0.clone()));
         } else {
             actions.push(Action::CopyTo(list.id, tracks));
@@ -779,7 +782,7 @@ fn draw_rows(
                 selection.reveal = None;
             }
             let marked = response.context_menu_opened() && all_marked(list, selection);
-            chosen = chosen.or(row_menu(&response, view, Some(marked), true));
+            chosen = chosen.or(row_menu(&response, view, Menu::own(marked)));
             if response.drag_started() {
                 if !selected {
                     selection.select(entry.id, index);
@@ -917,7 +920,7 @@ fn header(
         selection.cursor = Some(first);
     }
     let marked = response.context_menu_opened() && all_marked(list, selection);
-    let choice = row_menu(&response, view, Some(marked), true);
+    let choice = row_menu(&response, view, Menu::own(marked));
     if response.clicked() {
         let ids = songs.iter().map(|entry| entry.id);
         if ui.input(|i| i.modifiers.command) {
@@ -960,15 +963,29 @@ pub(super) fn drag_label(ui: &Ui, count: usize, onto_tab: bool, can_move: bool) 
     }
 }
 
-/// The right-click menu of the selected rows: Copy to and, for a playlist's
-/// own rows (`marked` says whether they're all marked), Move to and Play
-/// next; Remove when they `can_remove`.
-pub(super) fn row_menu(
-    response: &egui::Response,
-    view: &View,
-    marked: Option<bool>,
-    can_remove: bool,
-) -> Option<Choice> {
+/// What the right-click menu can do to the selected rows.
+pub(super) struct Menu {
+    /// Why Move to can't, when it can't.
+    pub unmovable: Option<&'static str>,
+    /// For a playlist's own rows (Play next): whether they're all marked.
+    pub marked: Option<bool>,
+    pub can_remove: bool,
+}
+
+impl Menu {
+    /// For a playlist's own rows, which can always move or go.
+    fn own(marked: bool) -> Self {
+        Self {
+            unmovable: None,
+            marked: Some(marked),
+            can_remove: true,
+        }
+    }
+}
+
+/// The right-click menu of the selected rows: Copy to, Move to, Play next
+/// for a playlist's own rows, and Remove.
+pub(super) fn row_menu(response: &egui::Response, view: &View, menu: Menu) -> Option<Choice> {
     let mut chosen = None;
     let item = |ui: &mut Ui, name: &str, enabled: bool| {
         let label = RichText::new(name).monospace().size(11.0);
@@ -1002,11 +1019,18 @@ pub(super) fn row_menu(
         ui.menu_button(RichText::new("Copy to").monospace().size(11.0), |ui| {
             targets(ui, &mut chosen, Choice::Copy);
         });
-        if let Some(marked) = marked {
-            ui.menu_button(RichText::new("Move to").monospace().size(11.0), |ui| {
-                targets(ui, &mut chosen, Choice::Move);
-            });
-            ui.separator();
+        match menu.unmovable {
+            None => {
+                ui.menu_button(RichText::new("Move to").monospace().size(11.0), |ui| {
+                    targets(ui, &mut chosen, Choice::Move);
+                });
+            }
+            Some(why) => {
+                item(ui, "Move to", false).on_disabled_hover_text(why);
+            }
+        }
+        ui.separator();
+        if let Some(marked) = menu.marked {
             let label = if marked {
                 "Don't play next"
             } else {
@@ -1015,10 +1039,8 @@ pub(super) fn row_menu(
             if item(ui, label, true).clicked() {
                 chosen = Some(Choice::ToggleMarks);
             }
-        } else {
-            ui.separator();
         }
-        if item(ui, "Remove", can_remove).clicked() {
+        if item(ui, "Remove", menu.can_remove).clicked() {
             chosen = Some(Choice::Remove);
         }
     });

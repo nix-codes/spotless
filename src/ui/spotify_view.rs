@@ -8,8 +8,9 @@
 //! here, paused. While Spotless has it, or no device has, + ADD adds songs
 //! to it (taking it over), and CLEAR stops and empties it; while Spotless
 //! has it, Delete or REM removes songs to come. Rows drag onto a
-//! playlist's tab to copy them there; right-click for a menu that copies
-//! them, to a new playlist too, or removes them.
+//! playlist's tab to copy them there, or, while Spotless has the queue, to
+//! move songs to come with Shift held; right-click for a menu that does the
+//! same, to a new playlist too, or removes them.
 //!
 //! Keys as in a playlist: Up/Down, PageUp/PageDown and Home/End move the
 //! selection, with Shift they extend it; Ctrl+A selects all.
@@ -21,7 +22,7 @@ use egui::{
     pos2, vec2,
 };
 
-use super::playlist_view::{self, Choice, RowDrag};
+use super::playlist_view::{self, Choice, Menu, RowDrag};
 use super::scrollbar;
 use super::widgets::{drag_ghost, small_action};
 use super::{Inputs, View};
@@ -139,14 +140,26 @@ pub fn draw(
                 PlaylistId::SPOTIFY,
                 removable(queue, selection),
             )),
-            Choice::Move(_) | Choice::ToggleMarks => {}
+            Choice::Move(Some(to)) => {
+                let rows = selection.iter().rev().copied().collect();
+                actions.push(Action::MoveTo(PlaylistId::SPOTIFY, to, rows));
+            }
+            Choice::Move(None) => {
+                actions.push(Action::NewPlaylistWith(tracks()));
+                actions.push(Action::Remove(
+                    PlaylistId::SPOTIFY,
+                    removable(queue, selection),
+                ));
+            }
+            Choice::ToggleMarks => {}
         }
     }
     ui.scope_builder(UiBuilder::new().max_rect(toolbar_rect), |ui| {
         toolbar(ui, view, queue, selection, actions);
     });
     if let Some(dragging) = DragAndDrop::payload::<RowDrag>(ui.ctx()) {
-        let label = playlist_view::drag_label(ui, dragging.0.len(), onto_tab, false);
+        let movable = queue.movable(&dragging.0);
+        let label = playlist_view::drag_label(ui, dragging.0.len(), onto_tab, movable);
         drag_ghost(ui, &palette, &label);
     }
 }
@@ -247,10 +260,18 @@ fn draw_row(
         keys.anchor = Some(id);
         keys.cursor = Some(id);
     }
-    let can_remove = response.context_menu_opened()
-        && queue.held_here()
-        && !removable(queue, selection).is_empty();
-    let chosen = playlist_view::row_menu(&response, view, None, can_remove);
+    let open = response.context_menu_opened();
+    let rows: Vec<EntryId> = if open {
+        selection.iter().copied().collect()
+    } else {
+        Vec::new()
+    };
+    let menu = Menu {
+        unmovable: unmovable(queue, &rows),
+        marked: None,
+        can_remove: open && queue.held_here() && !removable(queue, selection).is_empty(),
+    };
+    let chosen = playlist_view::row_menu(&response, view, menu);
     if response.drag_started() {
         if !selected {
             *selection = BTreeSet::from([id]);
@@ -260,6 +281,17 @@ fn draw_row(
         response.dnd_set_drag_payload(RowDrag(rows));
     }
     chosen
+}
+
+/// Why these rows can't move to a playlist, when they can't.
+fn unmovable(queue: &SpotifyQueue, rows: &[EntryId]) -> Option<&'static str> {
+    if queue.movable(rows) {
+        None
+    } else if !queue.held_here() {
+        Some("Songs leave the queue only while Spotless has it. TAKE OVER the queue first.")
+    } else {
+        Some("Only songs to come can leave the queue.")
+    }
 }
 
 /// The selected songs to come, which can be removed.
