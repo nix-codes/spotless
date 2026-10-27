@@ -42,6 +42,9 @@ pub struct Transport {
     /// sent.
     followed: Option<Option<EntryId>>,
     skips: usize,
+    /// Playback stops once the playing song ends (Winamp's Stop after
+    /// current), with the cursor on the song that would have come next.
+    stop_after: bool,
 }
 
 impl Transport {
@@ -51,11 +54,26 @@ impl Transport {
             active: false,
             followed: Some(None),
             skips: 0,
+            stop_after: false,
         }
     }
 
     pub fn active(&self) -> bool {
         self.active
+    }
+
+    pub fn stop_after(&self) -> bool {
+        self.stop_after
+    }
+
+    /// Stop after current on or off, while a song is loaded. On, nothing
+    /// follows the playing song.
+    pub fn toggle_stop_after(&mut self, library: &mut Library) -> Vec<Request> {
+        if !self.active {
+            return Vec::new();
+        }
+        self.stop_after = !self.stop_after;
+        self.sync(library)
     }
 
     /// The playlist Next and Previous act on: the playing one while a song
@@ -177,13 +195,32 @@ impl Transport {
     /// The engine started the followed song by itself.
     pub fn followed(&mut self, library: &mut Library, entry: EntryId) -> Vec<Request> {
         self.followed = None;
+        if self.stop_after {
+            // It got there before it was told nothing follows.
+            return self.stop_on_next(library);
+        }
         self.advance(library, Some(entry))
     }
 
     /// The engine finished a song with nothing to follow it, and stopped.
     pub fn ended(&mut self, library: &mut Library) -> Vec<Request> {
         self.followed = None;
+        if self.stop_after {
+            self.stop_on_next(library);
+            // The engine has stopped already.
+            return Vec::new();
+        }
         self.advance(library, None)
+    }
+
+    /// Stop after current: the cursor moves on to what comes next, to
+    /// start from there with Play, and playback stops.
+    fn stop_on_next(&mut self, library: &mut Library) -> Vec<Request> {
+        if let Some(list) = self.playing_mut(library) {
+            self.playback.next(list);
+            list.resume_ms = 0;
+        }
+        self.halt()
     }
 
     /// The loaded song can't be played: skip it.
@@ -321,6 +358,7 @@ impl Transport {
     fn halt(&mut self) -> Vec<Request> {
         let was_active = std::mem::replace(&mut self.active, false);
         self.followed = Some(None);
+        self.stop_after = false;
         if was_active {
             vec![Request::Stop]
         } else {
@@ -331,7 +369,7 @@ impl Transport {
     /// Hands the engine the song that now comes next, if it changed.
     fn sync(&mut self, library: &mut Library) -> Vec<Request> {
         let next = match self.playing_mut(library) {
-            Some(list) if self.active => self.playback.peek_next(list),
+            Some(list) if self.active && !self.stop_after => self.playback.peek_next(list),
             _ => None,
         };
         if self.followed == Some(next) {
@@ -399,6 +437,55 @@ mod tests {
         assert!(transport.ended(&mut library).is_empty());
         assert!(!transport.active());
         assert_eq!(library.get(DEFAULT).unwrap().cursor(), Some(EntryId(1)));
+    }
+
+    #[test]
+    fn stop_after_current_stops_on_the_next_song() {
+        let (mut library, mut transport) = setup(3);
+        assert!(transport.toggle_stop_after(&mut library).is_empty());
+        assert!(!transport.stop_after(), "not while stopped");
+        transport.play(&mut library, DEFAULT, false, 0);
+        assert_eq!(
+            transport.toggle_stop_after(&mut library),
+            [Request::Follow(None)]
+        );
+        // Nothing followed, so the engine stopped by itself.
+        assert!(transport.ended(&mut library).is_empty());
+        assert!(!transport.active());
+        assert!(!transport.stop_after(), "it goes off");
+        assert_eq!(library.get(DEFAULT).unwrap().cursor(), Some(EntryId(2)));
+        assert_eq!(
+            transport.play(&mut library, DEFAULT, false, 0),
+            [load(2, 0), follow(3)]
+        );
+        // Off again before the end: song 3 follows once more.
+        assert_eq!(
+            transport.toggle_stop_after(&mut library),
+            [Request::Follow(None)]
+        );
+        assert_eq!(transport.toggle_stop_after(&mut library), [follow(3)]);
+    }
+
+    #[test]
+    fn stop_after_current_stops_a_song_the_engine_started_too_soon() {
+        let (mut library, mut transport) = setup(3);
+        transport.play(&mut library, DEFAULT, false, 0);
+        transport.toggle_stop_after(&mut library);
+        assert_eq!(
+            transport.followed(&mut library, EntryId(2)),
+            [Request::Stop]
+        );
+        assert_eq!(library.get(DEFAULT).unwrap().cursor(), Some(EntryId(2)));
+        assert!(!transport.stop_after());
+    }
+
+    #[test]
+    fn stop_cancels_stop_after_current() {
+        let (mut library, mut transport) = setup(3);
+        transport.play(&mut library, DEFAULT, false, 0);
+        transport.toggle_stop_after(&mut library);
+        transport.stop(&mut library);
+        assert!(!transport.stop_after());
     }
 
     #[test]

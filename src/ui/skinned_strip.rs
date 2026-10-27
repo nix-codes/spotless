@@ -13,7 +13,7 @@ use egui::{
 
 use super::player_strip::{
     HEIGHT, display_clicked, eject_clicked, eq_clicked, follow_press, held, length, now_lines,
-    pl_clicked, rates, time_shown, vis_clicked,
+    pl_clicked, rates, stop_clicked, time_shown, vis_clicked,
 };
 use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
@@ -582,11 +582,14 @@ pub fn buttons_row(
         let state = toggle_state(match name {
             "play" => playing,
             "pause" => paused,
+            "stop" => view.stop_after,
             _ => false,
         });
         let response = button(ui, &painter, paint, at, unit, name, state, label, ready);
         if matches!(action, Action::Play | Action::TogglePause) {
             follow_press(ui, &response, action, view, inputs, actions);
+        } else if action == Action::Stop {
+            stop_clicked(ui, response, actions);
         } else if response.clicked() {
             actions.push(action);
         }

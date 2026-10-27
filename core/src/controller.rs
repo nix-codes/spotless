@@ -683,6 +683,7 @@ impl Controller {
             Action::Play => state.transport.play(library, viewed, paused, position),
             Action::TogglePause => state.transport.toggle_pause(paused),
             Action::Stop => state.transport.stop(library),
+            Action::ToggleStopAfter => state.transport.toggle_stop_after(library),
             Action::Release => state.transport.release(library, position),
             Action::Next => state.transport.next(library, viewed),
             Action::Previous => state.transport.prev(library, viewed, position),

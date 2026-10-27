@@ -1178,6 +1178,7 @@ mod tests {
             playlist: library.get(PlaylistId::DEFAULT).unwrap(),
             shuffle: false,
             repeat: false,
+            stop_after: false,
             library,
             tabs: &tabs,
             playing_list: None,

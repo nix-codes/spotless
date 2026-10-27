@@ -35,6 +35,9 @@ pub enum Action {
     Play,
     TogglePause,
     Stop,
+    /// Stops once the playing song ends, or doesn't any more (Winamp's
+    /// Stop after current).
+    ToggleStopAfter,
     /// Stops, keeping where the song was, so Play goes on from there: for
     /// letting the player go when the app is put away (Android).
     Release,

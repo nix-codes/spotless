@@ -47,6 +47,8 @@ pub struct View<'a> {
     pub playlist: &'a Playlist,
     pub shuffle: bool,
     pub repeat: bool,
+    /// Playback stops once the playing song ends (Ctrl-click on Stop).
+    pub stop_after: bool,
     pub library: &'a Library,
     /// The tabs in order, the Spotify tab's included while it shows.
     pub tabs: &'a [PlaylistId],

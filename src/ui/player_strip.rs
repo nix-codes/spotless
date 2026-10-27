@@ -203,6 +203,21 @@ pub(super) fn held(ui: &Ui, view: &View, inputs: &mut Inputs) -> [bool; 2] {
     ]
 }
 
+/// Stop, clicked: stops, or with Ctrl stops once the playing song ends
+/// (Winamp's Stop after current).
+pub(super) fn stop_clicked(ui: &Ui, response: Response, actions: &mut Actions) {
+    let stop = response
+        .on_hover_text("Stop. Ctrl-click: stop after this song (Shift+V)")
+        .clicked();
+    if stop {
+        actions.push(if ui.input(|i| i.modifiers.command) {
+            Action::ToggleStopAfter
+        } else {
+            Action::Stop
+        });
+    }
+}
+
 /// A press of Play or Pause not yet answered: what it asks the player
 /// for, when, and whether it was let go on the button (a click).
 pub struct Pressed {
@@ -482,9 +497,8 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
     follow_press(ui, &play, Action::Play, view, inputs, actions);
     let pause = glyph_toggle(ui, &palette, Glyph::Pause, paused, ready);
     follow_press(ui, &pause, Action::TogglePause, view, inputs, actions);
-    if glyph_button(ui, &palette, Glyph::Stop, ready).clicked() {
-        actions.push(Action::Stop);
-    }
+    let stop = glyph_toggle(ui, &palette, Glyph::Stop, view.stop_after, ready);
+    stop_clicked(ui, stop, actions);
     if glyph_button(ui, &palette, Glyph::Next, ready).clicked() {
         actions.push(Action::Next);
     }

@@ -237,6 +237,7 @@ impl Demo {
             playlist: state.list(state.viewed).expect("the demo's"),
             shuffle: state.transport.playback.shuffle(),
             repeat: state.transport.playback.repeat,
+            stop_after: false,
             library: &state.library,
             tabs: &tabs,
             playing_list: state.playing_list(),

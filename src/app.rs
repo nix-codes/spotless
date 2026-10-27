@@ -432,6 +432,7 @@ impl eframe::App for App {
             playlist,
             shuffle: state.transport.playback.shuffle(),
             repeat: state.transport.playback.repeat,
+            stop_after: state.transport.stop_after(),
             library: &state.library,
             tabs: &tabs,
             playing_list: state

@@ -31,6 +31,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
         &[
             ("Space", "Play / pause"),
             ("V", "Stop"),
+            ("Shift+V", "Stop after this song (on / off)"),
             ("← / →", "Back / forward 5 seconds"),
             ("Shift+← / →", "Back / forward 30 seconds"),
             ("Ctrl+← / →", "Previous / next song"),
@@ -150,6 +151,9 @@ fn playback(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut 
     // Winamp's key for Stop.
     if take(i, Modifiers::NONE, Key::V) && player.status != Status::Stopped {
         actions.push(Action::Stop);
+    }
+    if take(i, Modifiers::SHIFT, Key::V) {
+        actions.push(Action::ToggleStopAfter);
     }
     if take(i, Modifiers::COMMAND, Key::ArrowLeft) {
         actions.push(Action::Previous);
