@@ -207,7 +207,7 @@ pub(super) fn held(ui: &Ui, view: &View, inputs: &mut Inputs) -> [bool; 2] {
 /// (Winamp's Stop after current).
 pub(super) fn stop_clicked(ui: &Ui, response: Response, actions: &mut Actions) {
     let stop = response
-        .on_hover_text("Stop. Ctrl-click: stop after this song (Shift+V)")
+        .on_hover_text("Stop (V). Ctrl-click: stop after this song (Shift+V)")
         .clicked();
     if stop {
         actions.push(if ui.input(|i| i.modifiers.command) {
@@ -483,31 +483,52 @@ fn seek_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
 }
 
 /// Transport, eject, shuffle and repeat.
+/// The tooltips of the transport, shuffle and repeat buttons, with their
+/// keys; Stop's is [`stop_clicked`]'s.
+pub(super) const PREVIOUS_TIP: &str = "Previous song (Ctrl+←)";
+pub(super) const PLAY_TIP: &str = "Play (Space)";
+pub(super) const PAUSE_TIP: &str = "Pause (Space)";
+pub(super) const NEXT_TIP: &str = "Next song (Ctrl+→)";
+pub(super) const SHUFFLE_TIP: &str = "Shuffle on / off (S)";
+pub(super) const REPEAT_TIP: &str = "Repeat on / off (R)";
+
 fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let ready = matches!(view.session, SessionState::Ready { .. });
     ui.spacing_mut().item_spacing.x = 4.0;
-    if glyph_button(ui, &palette, Glyph::Previous, ready).clicked() {
+    if glyph_button(ui, &palette, Glyph::Previous, ready)
+        .on_hover_text(PREVIOUS_TIP)
+        .clicked()
+    {
         actions.push(Action::Previous);
     }
     let [playing, paused] = held(ui, view, inputs);
-    let play = glyph_toggle(ui, &palette, Glyph::Play, playing, ready);
+    let play = glyph_toggle(ui, &palette, Glyph::Play, playing, ready).on_hover_text(PLAY_TIP);
     follow_press(ui, &play, Action::Play, view, inputs, actions);
-    let pause = glyph_toggle(ui, &palette, Glyph::Pause, paused, ready);
+    let pause = glyph_toggle(ui, &palette, Glyph::Pause, paused, ready).on_hover_text(PAUSE_TIP);
     follow_press(ui, &pause, Action::TogglePause, view, inputs, actions);
     let stop = glyph_toggle(ui, &palette, Glyph::Stop, view.stop_after, ready);
     stop_clicked(ui, stop, actions);
-    if glyph_button(ui, &palette, Glyph::Next, ready).clicked() {
+    if glyph_button(ui, &palette, Glyph::Next, ready)
+        .on_hover_text(NEXT_TIP)
+        .clicked()
+    {
         actions.push(Action::Next);
     }
     ui.add_space(6.0);
     let eject = glyph_toggle(ui, &palette, Glyph::Eject, view.browse.open, ready);
     eject_clicked(eject, view, inputs, actions);
     ui.add_space(6.0);
-    if glyph_toggle(ui, &palette, Glyph::Shuffle, view.shuffle, true).clicked() {
+    if glyph_toggle(ui, &palette, Glyph::Shuffle, view.shuffle, true)
+        .on_hover_text(SHUFFLE_TIP)
+        .clicked()
+    {
         actions.push(Action::SetShuffle(!view.shuffle));
     }
-    if glyph_toggle(ui, &palette, Glyph::Repeat, view.repeat, true).clicked() {
+    if glyph_toggle(ui, &palette, Glyph::Repeat, view.repeat, true)
+        .on_hover_text(REPEAT_TIP)
+        .clicked()
+    {
         actions.push(Action::SetRepeat(!view.repeat));
     }
 }

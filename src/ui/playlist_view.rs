@@ -23,7 +23,7 @@ use super::scrollbar::Scrollbar;
 use super::skin_paint;
 use super::theme::{self, Palette};
 use super::widgets::{
-    Glyph, drag_ghost, field, small_action, small_button, small_glyph, text_button,
+    Glyph, drag_ghost, field, small_action, small_button, small_glyph, text_button, tip,
 };
 use super::{Inputs, View, spotify_view};
 use crate::action::{Action, Actions, Desktop};
@@ -264,12 +264,15 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
             let spotify_closed = view.settings.spotify_tab_enabled && !view.settings.spotify_tab;
             let plus = small_button(ui, &palette, "+", false);
             if !spotify_closed {
-                if plus.on_hover_text("New playlist").clicked() {
+                if plus.on_hover_text("New playlist (Ctrl+T)").clicked() {
                     actions.push(Action::NewPlaylist);
                 }
             } else {
                 egui::Popup::menu(&plus).show(|ui| {
-                    if text_button(ui, &palette, "NEW PLAYLIST", false, true).clicked() {
+                    if text_button(ui, &palette, "NEW PLAYLIST", false, true)
+                        .on_hover_text("Ctrl+T")
+                        .clicked()
+                    {
                         actions.push(Action::NewPlaylist);
                     }
                     if text_button(ui, &palette, "SPOTIFY", false, true).clicked() {
@@ -630,7 +633,9 @@ fn confirm_close(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Action
                     actions.push(Action::ClosePlaylist(list.id));
                     return true;
                 }
-                small_button(ui, &palette, "KEEP", false).clicked()
+                small_button(ui, &palette, "KEEP", false)
+                    .on_hover_text("Esc")
+                    .clicked()
             })
             .inner
         });
@@ -647,20 +652,25 @@ fn toolbar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
     let any = !selected.is_empty();
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
-        if small_action(ui, &palette, "+ ADD", true).clicked() {
+        let add = small_action(ui, &palette, "+ ADD", true);
+        if tip(add, "Add songs from Browse (Ctrl+B)").clicked() {
             super::browse_view::opening(view, inputs);
             actions.push(Action::ToggleBrowse);
         }
-        if small_action(ui, &palette, "REM", any).clicked() {
+        let rem = small_action(ui, &palette, "REM", any);
+        if tip(rem, "Remove the selected songs (Delete)").clicked() {
             remove(list, &mut inputs.selection, selected.clone(), actions);
         }
-        if small_action(ui, &palette, "Q NEXT", any).clicked() {
+        let next = small_action(ui, &palette, "Q NEXT", any);
+        if tip(next, "Play the selected songs next, or not (Q)").clicked() {
             actions.push(Action::ToggleMarks(selected.clone()));
         }
-        if small_glyph(ui, &palette, Glyph::Up, any).clicked() {
+        let up = small_glyph(ui, &palette, Glyph::Up, any);
+        if tip(up, "Move the selected songs up (Alt+↑)").clicked() {
             move_by(list, &mut inputs.selection, selected.clone(), true, actions);
         }
-        if small_glyph(ui, &palette, Glyph::Down, any).clicked() {
+        let down = small_glyph(ui, &palette, Glyph::Down, any);
+        if tip(down, "Move the selected songs down (Alt+↓)").clicked() {
             move_by(
                 list,
                 &mut inputs.selection,

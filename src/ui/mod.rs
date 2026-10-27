@@ -177,6 +177,15 @@ const MIN_BODY: f32 = 148.0;
 /// The window's height for the playlists when none is known yet.
 const DEFAULT_HEIGHT: f32 = 600.0;
 
+/// Songs or a playlist just removed on Spotify can be put back: UNDO is
+/// in the status bar, and Ctrl+Z does it.
+pub(super) fn undo_shown(view: &View) -> bool {
+    view.browse
+        .undo
+        .as_ref()
+        .is_some_and(|undo| view.error.is_none() && view.notice == Some(undo.notice()))
+}
+
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let settings_open = inputs.settings.is_some();
@@ -534,7 +543,7 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
     // Buttons from the right: SETTINGS, then KEYS, then UNDO after a
     // removal.
     let mut right = inner.right();
-    let mut button = |ui: &mut Ui, label: &str| {
+    let mut button = |ui: &mut Ui, label: &str, tip: &str| {
         let width = widgets::small_button_width(ui, label);
         let at = Rect::from_center_size(
             egui::pos2(right - width / 2.0, inner.center().y),
@@ -542,25 +551,24 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
         );
         right -= width + 6.0;
         let mut child = ui.new_child(UiBuilder::new().max_rect(at));
-        widgets::small_button(&mut child, &palette, label, false).clicked()
+        let response = widgets::small_button(&mut child, &palette, label, false);
+        if tip.is_empty() {
+            response.clicked()
+        } else {
+            response.on_hover_text(tip).clicked()
+        }
     };
-    if button(ui, "F10 · SETTINGS") {
+    if button(ui, "F10 · SETTINGS", "") {
         toggle_settings(view, inputs, actions);
     }
-    if button(ui, "F1 · KEYS") {
+    if button(ui, "F1 · KEYS", "") {
         inputs.help = true;
     }
-    // Songs or a playlist just removed on Spotify can be put back.
-    let undo = view
-        .browse
-        .undo
-        .as_ref()
-        .is_some_and(|undo| view.error.is_none() && view.notice == Some(undo.notice()));
-    if undo && button(ui, "UNDO") {
+    if undo_shown(view) && button(ui, "UNDO", "Puts back what was removed (Ctrl+Z)") {
         actions.push(Action::UndoSpotifyRemoval);
     }
     if let Some(label) = update_view::status_label(view)
-        && button(ui, &label)
+        && button(ui, &label, "")
     {
         show_settings(view, inputs, actions, settings_view::Category::About);
     }

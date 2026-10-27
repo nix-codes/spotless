@@ -342,10 +342,14 @@ fn save_preset(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let can = !name.trim().is_empty();
-                if text_button(ui, &palette, "SAVE", false, can).clicked() || (entered && can) {
+                let save =
+                    super::widgets::tip(text_button(ui, &palette, "SAVE", false, can), "Enter");
+                if save.clicked() || (entered && can) {
                     done = Some(true);
                 }
-                if text_button(ui, &palette, "CANCEL", false, true).clicked()
+                if text_button(ui, &palette, "CANCEL", false, true)
+                    .on_hover_text("Esc")
+                    .clicked()
                     || ui.input(|i| i.key_pressed(Key::Escape))
                 {
                     done = Some(false);

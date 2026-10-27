@@ -4,7 +4,7 @@
 //! finds a playlist by name) show the next one at once, Enter goes to its
 //! songs. The songs are selected as in a tab (click, Ctrl, Shift, Ctrl+A)
 //! and added; on the account's own playlists and Liked Songs, Delete or
-//! REM takes them out on Spotify, and Ctrl+Z puts them back. A playlist
+//! REM takes them out on Spotify, and UNDO or Ctrl+Z puts them back. A playlist
 //! itself is deleted, or unfollowed if it's someone else's, from its
 //! menu, the button beside its name or Shift+Delete in the list; UNDO
 //! puts it back.
@@ -18,12 +18,12 @@ use egui::{
 
 use super::{Act, Area, CatalogDrag, Nav, PAD, TRACK_HEIGHT, body, mono, note, row, spans};
 use crate::action::{Action, Actions};
-use crate::browse::{Loadable, Undo};
+use crate::browse::Loadable;
 use crate::model::TrackRef;
 use crate::model::catalog::SpotifyPlaylist;
 use crate::ui::scrollbar;
 use crate::ui::theme;
-use crate::ui::widgets::{field, small_button};
+use crate::ui::widgets::{field, small_button, tip};
 use crate::ui::{Inputs, View};
 
 pub(super) const FILTER_ID: &str = "spotify-filter";
@@ -322,11 +322,10 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
         nav.anchor = Some(row);
     }
     let keys = nav.area == Area::Results && !ui.ctx().text_edit_focused();
-    let (delete, all, undo) = ui.input(|i| {
+    let (delete, all) = ui.input(|i| {
         (
             keys && i.key_pressed(Key::Delete),
             keys && i.modifiers.command && i.key_pressed(Key::A),
-            keys && i.modifiers.command && i.key_pressed(Key::Z),
         )
     });
     if all {
@@ -334,14 +333,6 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
     }
     if keys {
         extend(ui, nav, tracks.len());
-    }
-    let undoable = match &browse.undo {
-        Some(Undo::Songs(removal)) => removal.playlist == uri,
-        Some(Undo::Playlist(_)) => true,
-        None => false,
-    };
-    if undo && undoable {
-        actions.push(Action::UndoSpotifyRemoval);
     }
     // The selection, else the highlighted song.
     let chosen = |nav: &Nav| -> Vec<usize> {
@@ -362,7 +353,7 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
                 small_button(ui, &palette, "REM", false)
             });
             let hint = "Removes the selected songs from this playlist on Spotify (Delete)";
-            if rem.inner.on_hover_text(hint).clicked() {
+            if tip(rem.inner, hint).clicked() {
                 remove = true;
             }
         }

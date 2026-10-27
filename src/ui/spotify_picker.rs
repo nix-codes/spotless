@@ -201,10 +201,16 @@ pub fn draw(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
             }
             ui.add_space(12.0);
             ui.horizontal(|ui| {
-                if small_button(ui, &palette, "COPY", false).clicked() {
+                if small_button(ui, &palette, "COPY", false)
+                    .on_hover_text("Enter")
+                    .clicked()
+                {
                     chosen = Some(target(picker.row));
                 }
-                if small_button(ui, &palette, "CANCEL", false).clicked() {
+                if small_button(ui, &palette, "CANCEL", false)
+                    .on_hover_text("Esc")
+                    .clicked()
+                {
                     cancel = true;
                 }
             });
@@ -277,10 +283,16 @@ fn name(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
             }
             ui.add_space(12.0);
             ui.horizontal(|ui| {
-                if small_button(ui, &palette, "SAVE", false).clicked() {
+                if small_button(ui, &palette, "SAVE", false)
+                    .on_hover_text("Enter")
+                    .clicked()
+                {
                     save = true;
                 }
-                if small_button(ui, &palette, "CANCEL", false).clicked() {
+                if small_button(ui, &palette, "CANCEL", false)
+                    .on_hover_text("Esc")
+                    .clicked()
+                {
                     cancel = true;
                 }
             });

@@ -358,7 +358,8 @@ fn keyboard(ui: &Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
 fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     ui.horizontal(|ui| {
-        if text_button(ui, &palette, "BACK", false, view.browse.can_go_back()).clicked() {
+        let back = text_button(ui, &palette, "BACK", false, view.browse.can_go_back());
+        if super::widgets::tip(back, "Backspace or Alt+←").clicked() {
             actions.push(Action::Back);
         }
         let enabled = searchable(view);
@@ -404,8 +405,12 @@ fn tabs(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let shown = view.browse.shown;
     ui.horizontal(|ui| {
         for (tab, label, key) in [
-            (BrowseTab::Search, "SEARCH", "F3"),
-            (BrowseTab::Spotify, "YOUR SPOTIFY", "F4"),
+            (BrowseTab::Search, "SEARCH", "Search Spotify (F3 or Ctrl+F)"),
+            (
+                BrowseTab::Spotify,
+                "YOUR SPOTIFY",
+                "Your Spotify playlists (F4)",
+            ),
         ] {
             if text_button(ui, &palette, label, shown == tab, true)
                 .on_hover_text(key)
@@ -424,7 +429,7 @@ fn tabs(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
                 actions.push(Action::CloseBrowse);
             }
             if text_button(ui, &palette, "PICS", view.browse.show_covers, true)
-                .on_hover_text("Show album covers and artist pictures")
+                .on_hover_text("Show album covers and artist pictures (C)")
                 .clicked()
             {
                 actions.push(Action::ToggleCovers);
@@ -590,20 +595,23 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
     }
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-        for tab in ReleaseTab::ALL {
+        for (n, tab) in ReleaseTab::ALL.into_iter().enumerate() {
             let count = discography
                 .releases
                 .iter()
                 .filter(|r| tab.includes(r.group))
                 .count();
             let label = format!("{} {count}", tab.label());
-            if small_button(ui, &palette, &label, !similar && tab == browse.tab).clicked() {
+            if small_button(ui, &palette, &label, !similar && tab == browse.tab)
+                .on_hover_text(format!("Alt+{}", n + 1))
+                .clicked()
+            {
                 actions.push(Action::SetTab(tab));
             }
         }
         if similar_tab
             && small_button(ui, &palette, "SIMILAR", similar)
-                .on_hover_text("Artists Last.fm's listeners play alongside this one")
+                .on_hover_text("Artists Last.fm's listeners play alongside this one (Alt+5)")
                 .clicked()
         {
             actions.push(Action::ShowSimilar(discography.artist.clone()));
@@ -617,7 +625,10 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
         } else {
             "OLDEST FIRST"
         };
-        if small_button(ui, &palette, sort, false).clicked() {
+        if small_button(ui, &palette, sort, false)
+            .on_hover_text("Oldest / newest first (Ctrl+S)")
+            .clicked()
+        {
             actions.push(Action::ToggleSort);
         }
         let all_open =
@@ -627,7 +638,11 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
         } else {
             "SHOW ALL SONGS"
         };
-        if small_button(ui, &palette, label, false).clicked() || nav.expand_all {
+        if small_button(ui, &palette, label, false)
+            .on_hover_text("Show / hide every album's songs (Ctrl+E)")
+            .clicked()
+            || nav.expand_all
+        {
             actions.push(Action::ExpandAlbums(if all_open {
                 Vec::new()
             } else {
@@ -1277,7 +1292,13 @@ fn row(
             vec2(button_width - 6.0, SMALL_HEIGHT),
         );
         let mut child = ui.new_child(UiBuilder::new().max_rect(at));
-        small_button(&mut child, palette, label, false).clicked()
+        let response = small_button(&mut child, palette, label, false);
+        // + and + ADD have a key; FORGET hasn't.
+        if label.starts_with('+') {
+            response.on_hover_text("Add (Insert or A)").clicked()
+        } else {
+            response.clicked()
+        }
     });
     Row {
         response,

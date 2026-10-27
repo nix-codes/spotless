@@ -66,6 +66,12 @@ pub fn small_action(ui: &mut Ui, palette: &Palette, label: &str, enabled: bool) 
     sized_button(ui, palette, label, false, enabled, SMALL_HEIGHT)
 }
 
+/// A button's tooltip, shown whether it's enabled or not (egui shows a
+/// disabled one's only through `on_disabled_hover_text`).
+pub fn tip(response: Response, text: &str) -> Response {
+    response.on_hover_text(text).on_disabled_hover_text(text)
+}
+
 /// A small square glyph button, for toolbars.
 pub fn small_glyph(ui: &mut Ui, palette: &Palette, glyph: Glyph, enabled: bool) -> Response {
     let (rect, response, skinned) =

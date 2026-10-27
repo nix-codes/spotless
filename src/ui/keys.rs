@@ -88,10 +88,10 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Enter", "Search; open; play a song"),
             ("Insert or A", "Add the album or song"),
             ("Delete", "Remove from the playlist"),
-            ("Shift+Delete", "Delete / unfollow a Spotify playlist"),
+            ("Shift+Delete", "Delete / unfollow a playlist"),
             ("Ctrl+A", "Select all of a Spotify playlist"),
-            ("Ctrl+Z", "Put back what was removed from Spotify"),
-            ("Alt+1 … 4", "All, Albums, Singles, Appears on"),
+            ("Ctrl+Z", "Undo a removal on Spotify"),
+            ("Alt+1 … 5", "Release tabs, then Similar"),
             ("Ctrl+S", "Oldest / newest first"),
             ("Ctrl+E", "Show / hide all songs"),
             ("C", "Pics on / off"),
@@ -295,6 +295,9 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     }
     if take(i, Modifiers::ALT, Key::V) {
         actions.push(Action::ToggleDeck);
+    }
+    if super::undo_shown(view) && take(i, Modifiers::COMMAND, Key::Z) {
+        actions.push(Action::UndoSpotifyRemoval);
     }
     if take(i, Modifiers::COMMAND, Key::B) {
         browse_view::opening(view, inputs);

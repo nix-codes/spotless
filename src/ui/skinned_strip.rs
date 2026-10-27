@@ -12,8 +12,9 @@ use egui::{
 };
 
 use super::player_strip::{
-    HEIGHT, display_clicked, eject_clicked, eq_clicked, follow_press, held, length, now_lines,
-    pl_clicked, rates, stop_clicked, time_shown, vis_clicked,
+    HEIGHT, NEXT_TIP, PAUSE_TIP, PLAY_TIP, PREVIOUS_TIP, REPEAT_TIP, SHUFFLE_TIP, display_clicked,
+    eject_clicked, eq_clicked, follow_press, held, length, now_lines, pl_clicked, rates,
+    stop_clicked, time_shown, vis_clicked,
 };
 use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
@@ -38,12 +39,14 @@ const MIN_WIDTH: f32 = 300.0;
 const MARQUEE_GAP: &str = "  ***  ";
 /// How long the marquee waits between one-character steps, in ms.
 const MARQUEE_STEP: u64 = 220;
-const TRANSPORT: [(&str, &str, Action); 5] = [
-    ("previous", "Previous", Action::Previous),
-    ("play", "Play", Action::Play),
-    ("pause", "Pause", Action::TogglePause),
-    ("stop", "Stop", Action::Stop),
-    ("next", "Next", Action::Next),
+/// Each button's piece, name, action and tooltip (Stop's is
+/// `stop_clicked`'s).
+const TRANSPORT: [(&str, &str, Action, &str); 5] = [
+    ("previous", "Previous", Action::Previous, PREVIOUS_TIP),
+    ("play", "Play", Action::Play, PLAY_TIP),
+    ("pause", "Pause", Action::TogglePause, PAUSE_TIP),
+    ("stop", "Stop", Action::Stop, ""),
+    ("next", "Next", Action::Next, NEXT_TIP),
 ];
 
 /// The strip's rows in image pixels, from the skin's pieces.
@@ -577,7 +580,7 @@ pub fn buttons_row(
         at
     };
     let [playing, paused] = held(ui, view, inputs);
-    for (name, label, action) in TRANSPORT {
+    for (name, label, action, tip) in TRANSPORT {
         let at = place(name, 0.0);
         let state = toggle_state(match name {
             "play" => playing,
@@ -585,7 +588,10 @@ pub fn buttons_row(
             "stop" => view.stop_after,
             _ => false,
         });
-        let response = button(ui, &painter, paint, at, unit, name, state, label, ready);
+        let mut response = button(ui, &painter, paint, at, unit, name, state, label, ready);
+        if !tip.is_empty() {
+            response = response.on_hover_text(tip);
+        }
         if matches!(action, Action::Play | Action::TogglePause) {
             follow_press(ui, &response, action, view, inputs, actions);
         } else if action == Action::Stop {
@@ -605,6 +611,7 @@ pub fn buttons_row(
     if button(
         ui, &painter, paint, at, unit, "shuffle", state, "Shuffle", true,
     )
+    .on_hover_text(SHUFFLE_TIP)
     .clicked()
     {
         actions.push(Action::SetShuffle(!view.shuffle));
@@ -614,6 +621,7 @@ pub fn buttons_row(
     if button(
         ui, &painter, paint, at, unit, "repeat", state, "Repeat", true,
     )
+    .on_hover_text(REPEAT_TIP)
     .clicked()
     {
         actions.push(Action::SetRepeat(!view.repeat));

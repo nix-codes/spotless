@@ -23,7 +23,7 @@ use egui::{
 
 use super::playlist_view::{self, Choice, Menu, RowDrag};
 use super::scrollbar;
-use super::widgets::{drag_ghost, small_action};
+use super::widgets::{drag_ghost, small_action, tip};
 use super::{Inputs, View};
 use crate::action::{Action, Actions, Desktop};
 use crate::model::{EntryId, PlaylistId};
@@ -333,12 +333,14 @@ fn toolbar(
         {
             actions.push(Action::TakeOverSpotify);
         }
-        let adding = small_action(ui, &palette, "+ ADD", queue.takes_songs()).clicked();
+        let add = small_action(ui, &palette, "+ ADD", queue.takes_songs());
+        let adding = tip(add, "Add songs from Browse (Ctrl+B)").clicked();
         if adding {
             actions.push(Action::ToggleBrowse);
         }
         let can_remove = queue.takes_songs() && !removable.is_empty();
-        if small_action(ui, &palette, "REM", can_remove).clicked() {
+        let rem = small_action(ui, &palette, "REM", can_remove);
+        if tip(rem, "Remove the selected songs (Delete)").clicked() {
             actions.push(Action::Remove(PlaylistId::SPOTIFY, removable));
         }
         let something = queue.now.is_some() || !queue.parts.is_empty();
