@@ -90,10 +90,11 @@ Spotify only allows playback in other apps for Premium accounts.
   song by song (desktop).
 - **Copy to Spotify** (desktop): right-click songs, *Copy to > Spotify
   playlist…*, and pick one of your own playlists (type to find it) or make
-  a new one; right-click a tab, *Save to Spotify*, to make a new playlist
-  of all its songs. It's a copy, made once: changing the tab later
-  doesn't change the Spotify playlist. Spotless only ever adds songs to
-  your Spotify playlists, never removes any.
+  a new one; right-click a tab, *Save to Spotify…*, to make a new playlist
+  of all its songs. A new playlist's name is asked first, the tab's to
+  start with. It's a copy, made once: changing the tab later doesn't
+  change the Spotify playlist. Spotless only ever adds songs to your
+  Spotify playlists, never removes any.
 - **Pics are optional**: album covers and artists' pictures. Off by default
   on the desktop, on by default on Android; either way, they show in the
   catalogue only. Playlists stay text.

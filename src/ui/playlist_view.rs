@@ -27,7 +27,6 @@ use super::widgets::{
 };
 use super::{Inputs, View, spotify_view};
 use crate::action::{Action, Actions, Desktop};
-use crate::model::catalog::SpotifyTarget;
 use crate::model::{EntryId, Playlist, PlaylistId, Run};
 use crate::playback::engine::Status;
 
@@ -511,16 +510,16 @@ fn tab(
             if item(ui, "Rename", true).clicked() {
                 inputs.renaming = Some((list.id, list.name.to_string()));
             }
-            if item(ui, "Save to Spotify", list.count > 0)
+            if item(ui, "Save to Spotify…", list.count > 0)
                 .on_hover_text("Copies its songs to a new playlist on Spotify")
                 .clicked()
                 && let Some(songs) = view.library.get(list.id)
             {
-                let tracks = songs.entries().iter().map(|e| e.track.clone()).collect();
-                actions.push(Action::CopyToSpotify(
-                    SpotifyTarget::New(list.name.to_string()),
-                    tracks,
-                ));
+                actions.push(Desktop::PickSpotifyPlaylist {
+                    tracks: songs.entries().iter().map(|e| e.track.clone()).collect(),
+                    name: list.name.to_string(),
+                    new: true,
+                });
             }
             if closable && item(ui, "Close", true).clicked() {
                 close(inputs, actions);
@@ -1094,6 +1093,7 @@ fn send(list: &Playlist, selection: &mut Selection, choice: Choice, actions: &mu
         Choice::CopyToSpotify => actions.push(Desktop::PickSpotifyPlaylist {
             tracks: tracks(),
             name: list.name.clone(),
+            new: false,
         }),
         Choice::Move(Some(to)) => {
             actions.push(Action::MoveTo(list.id, to, rows.clone()));

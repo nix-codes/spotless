@@ -138,6 +138,7 @@ pub fn draw(
             Choice::CopyToSpotify => actions.push(Desktop::PickSpotifyPlaylist {
                 tracks: tracks(),
                 name: view.playlist.name.clone(),
+                new: false,
             }),
             Choice::Remove => actions.push(Action::Remove(
                 PlaylistId::SPOTIFY,

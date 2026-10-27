@@ -211,9 +211,13 @@ impl App {
                     self.quitting = true;
                 }
             }
-            Desktop::PickSpotifyPlaylist { tracks, name } => {
-                self.inputs.spotify_pick = Some(crate::ui::Picker::new(tracks, name));
-                self.controller.apply(Action::ReadSpotifyPlaylists);
+            Desktop::PickSpotifyPlaylist { tracks, name, new } => {
+                self.inputs.spotify_pick = Some(if new {
+                    crate::ui::Picker::naming(tracks, name)
+                } else {
+                    self.controller.apply(Action::ReadSpotifyPlaylists);
+                    crate::ui::Picker::new(tracks, name)
+                });
             }
             Desktop::LoadCover(url) => {
                 if !self.covers.contains_key(&url) {

@@ -1,8 +1,9 @@
 //! Choosing the Spotify playlist songs are copied to: one of the account's
-//! own, found by typing part of its name, or a new one, named by what is
-//! typed (or after the songs' tab). The arrows move the highlight, Enter
-//! copies, Esc cancels.
+//! own, found by typing part of its name, or a new one, whose name is
+//! asked next (the songs' tab's to start with). The arrows move the
+//! highlight, Enter copies, Esc cancels.
 
+use egui::text::{CCursor, CCursorRange};
 use egui::{Align2, Id, Key, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui, pos2, vec2};
 
 use super::widgets::{field, small_button};
@@ -29,6 +30,8 @@ pub struct Picker {
     reveal: bool,
     /// The field has had the keyboard once.
     focused: bool,
+    /// The new playlist's name, while it is asked for.
+    naming: Option<String>,
 }
 
 impl Picker {
@@ -40,6 +43,15 @@ impl Picker {
             row: 0,
             reveal: false,
             focused: false,
+            naming: None,
+        }
+    }
+
+    /// Asks for a new playlist's name at once, `name` to start with.
+    pub fn naming(tracks: Vec<TrackRef>, name: String) -> Self {
+        Self {
+            naming: Some(name.clone()),
+            ..Self::new(tracks, name)
         }
     }
 }
@@ -48,6 +60,9 @@ pub fn draw(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let Some(picker) = inputs.spotify_pick.as_mut() else {
         return;
     };
+    if picker.naming.is_some() {
+        return name(ui, view, inputs, actions);
+    }
     let palette = view.palette;
     let query = picker.query.trim().to_lowercase();
     let own: Vec<&SpotifyPlaylist> = match &view.browse.spotify_playlists {
@@ -57,10 +72,6 @@ pub fn draw(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
             .filter(|p| p.name.to_lowercase().contains(&query))
             .collect(),
         _ => Vec::new(),
-    };
-    let new_name = match picker.query.trim() {
-        "" => picker.name.clone(),
-        typed => typed.to_string(),
     };
     let choices = 1 + own.len();
     let (up, down, enter, escape) = ui.input(|i| {
@@ -80,15 +91,16 @@ pub fn draw(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
         picker.reveal = true;
     }
     picker.row = picker.row.min(choices - 1);
+    // None: the new playlist, named next.
     let target = |row: usize| match row {
-        0 => SpotifyTarget::New(new_name.clone()),
-        n => SpotifyTarget::Playlist {
+        0 => None,
+        n => Some(SpotifyTarget::Playlist {
             uri: own[n - 1].uri.clone(),
             name: own[n - 1].name.clone(),
-        },
+        }),
     };
 
-    let mut chosen: Option<SpotifyTarget> = None;
+    let mut chosen: Option<Option<SpotifyTarget>> = None;
     let mut cancel = escape;
     let modal = egui::Modal::new(Id::new("spotify-picker"))
         .frame(
@@ -103,17 +115,13 @@ pub fn draw(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
                 1 => "1 song".to_string(),
                 n => format!("{n} songs"),
             };
-            ui.label(
-                RichText::new(format!("Copy {songs} to Spotify"))
-                    .size(15.0)
-                    .color(palette.current),
-            );
+            title(ui, view, &format!("Copy {songs} to Spotify"));
             ui.add_space(6.0);
             let edit = field(
                 ui,
                 TextEdit::singleline(&mut picker.query)
                     .id(Id::new("spotify-picker-field"))
-                    .hint_text("Find a playlist, or name a new one")
+                    .hint_text("Find a playlist")
                     .desired_width(WIDTH),
             );
             if !picker.focused {
@@ -148,7 +156,7 @@ pub fn draw(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
                             painter.text(
                                 left,
                                 Align2::LEFT_CENTER,
-                                format!("+ New playlist “{new_name}”"),
+                                "+ New playlist…",
                                 body,
                                 palette.accent,
                             );
@@ -207,11 +215,90 @@ pub fn draw(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     if modal.backdrop_response.clicked() {
         cancel = true;
     }
-    if let Some(target) = chosen {
+    match chosen {
+        Some(Some(target)) => {
+            actions.push(Action::CopyToSpotify(target, picker.tracks.clone()));
+            cancel = true;
+        }
+        Some(None) => {
+            picker.naming = Some(picker.name.clone());
+            picker.focused = false;
+        }
+        None => {}
+    }
+    if cancel {
+        inputs.spotify_pick = None;
+    }
+}
+
+/// Asks for the new playlist's name, the tab's selected to type over.
+fn name(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
+    let Some(picker) = inputs.spotify_pick.as_mut() else {
+        return;
+    };
+    let palette = view.palette;
+    let (enter, escape) = ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
+    let mut save = enter;
+    let mut cancel = escape;
+    let modal = egui::Modal::new(Id::new("spotify-picker"))
+        .frame(
+            egui::Frame::new()
+                .fill(palette.frame)
+                .stroke(Stroke::new(1.0, palette.hi))
+                .inner_margin(16),
+        )
+        .show(ui.ctx(), |ui| {
+            ui.set_width(WIDTH);
+            let songs = match picker.tracks.len() {
+                1 => "1 song".to_string(),
+                n => format!("{n} songs"),
+            };
+            title(ui, view, &format!("Copy {songs} to a new Spotify playlist"));
+            ui.add_space(6.0);
+            let id = Id::new("spotify-picker-name");
+            let name = picker.naming.get_or_insert_default();
+            let edit = field(
+                ui,
+                TextEdit::singleline(name)
+                    .id(id)
+                    .hint_text("Its name")
+                    .desired_width(WIDTH),
+            );
+            if !picker.focused {
+                edit.request_focus();
+                if let Some(mut state) = TextEdit::load_state(ui.ctx(), id) {
+                    let end = CCursor::new(name.chars().count());
+                    state
+                        .cursor
+                        .set_char_range(Some(CCursorRange::two(CCursor::new(0), end)));
+                    state.store(ui.ctx(), id);
+                }
+                picker.focused = true;
+            }
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                if small_button(ui, &palette, "SAVE", false).clicked() {
+                    save = true;
+                }
+                if small_button(ui, &palette, "CANCEL", false).clicked() {
+                    cancel = true;
+                }
+            });
+        });
+    if modal.backdrop_response.clicked() {
+        cancel = true;
+    }
+    let name = picker.naming.as_deref().unwrap_or_default().trim();
+    if save && !name.is_empty() {
+        let target = SpotifyTarget::New(name.to_string());
         actions.push(Action::CopyToSpotify(target, picker.tracks.clone()));
         cancel = true;
     }
     if cancel {
         inputs.spotify_pick = None;
     }
+}
+
+fn title(ui: &mut Ui, view: &View, text: &str) {
+    ui.label(RichText::new(text).size(15.0).color(view.palette.current));
 }
