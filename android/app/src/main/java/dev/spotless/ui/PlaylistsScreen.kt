@@ -674,11 +674,11 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
             return if (at > 0) at + starts.count { it <= at } - 1 else 0
         }
         val state = remember(list.id) { LazyListState(opening()) }
-        // A tap on the player's song places it so again.
+        // A tap on the player's song glides it there again.
         LaunchedEffect(core.jump, list.id) {
             if (core.jump == list.id) {
                 core.jump = null
-                state.scrollToItem(opening())
+                state.glideTo(opening())
             }
         }
         ScrollingList(state, Modifier.fillMaxSize()) {
@@ -906,11 +906,11 @@ private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, se
     LaunchedEffect(now >= 0) {
         if (now > 0) state.scrollToItem(now - 1)
     }
-    // A tap on the player's song places it so again.
+    // A tap on the player's song glides it there again.
     LaunchedEffect(core.jump, id) {
         if (core.jump == id) {
             core.jump = null
-            state.scrollToItem((now - 1).coerceAtLeast(0))
+            state.glideTo((now - 1).coerceAtLeast(0))
         }
     }
     Column(modifier.fillMaxWidth().padding(horizontal = 8.dp).lcd().padding(2.dp)) {
