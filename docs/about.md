@@ -68,6 +68,8 @@ Spotify only allows playback in other apps for Premium accounts.
   moving them. Marks clear once they've played.
 - **Shuffle and Repeat**, where Previous goes back through what actually
   played.
+- **Stop after this song**, as Winamp's Stop after current: Ctrl-click
+  Stop or Shift+V on the desktop, hold Stop on Android.
 - **Gapless playback** at 320 kbps, with optional volume levelling.
 - **One stream at a time**, as Spotify allows. Start playing on your phone
   and Spotless pauses; press play in Spotless and it pauses your phone.

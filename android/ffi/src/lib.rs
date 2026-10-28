@@ -287,6 +287,9 @@ pub enum Action {
     Play,
     TogglePause,
     Stop,
+    /// Stops once the playing song ends, or doesn't any more (Winamp's
+    /// Stop after current). Only while a song is loaded.
+    ToggleStopAfter,
     /// Stops, keeping where the song was: the app was put away.
     Release,
     Next,
@@ -468,6 +471,7 @@ impl From<Action> for spotless_core::action::Action {
             Action::Play => Core::Play,
             Action::TogglePause => Core::TogglePause,
             Action::Stop => Core::Stop,
+            Action::ToggleStopAfter => Core::ToggleStopAfter,
             Action::Release => Core::Release,
             Action::Next => Core::Next,
             Action::Previous => Core::Previous,
@@ -733,6 +737,24 @@ mod tests {
         let made = spotless.tabs().viewed;
         assert!(made != 0 && made != other);
         assert_eq!(titles(made), ["Song 3"]);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn stop_after_shows_while_a_song_plays_and_turns_off_again() {
+        let root = std::env::temp_dir().join(format!("spotless-ffi-stop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let spotless = Spotless::demo(
+            root.join("config").display().to_string(),
+            root.join("cache").display().to_string(),
+            Arc::new(Recorder::default()),
+        )
+        .unwrap();
+        assert!(!spotless.player().stop_after);
+        spotless.apply(Action::ToggleStopAfter);
+        assert!(spotless.player().stop_after);
+        spotless.apply(Action::ToggleStopAfter);
+        assert!(!spotless.player().stop_after);
         let _ = std::fs::remove_dir_all(root);
     }
 

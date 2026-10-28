@@ -570,8 +570,10 @@ private fun Summary(core: Core, queue: SpotifyView?, selected: Int) {
         // Errors show in full below.
         val message = core.message?.takeIf { !it.error }
         val hint = if (list?.songs?.isNotEmpty() == true || queue?.rows?.isNotEmpty() == true) "HOLD A SONG TO SELECT" else ""
+        // Stop after this song outranks the latest news: Stop, pressed in, says so too.
+        val stopping = if (core.player.stopAfter) "STOPS AFTER THIS SONG" else null
         Line(
-            if (clearing) "" else message?.text ?: hint,
+            if (clearing) "" else stopping ?: message?.text ?: hint,
             label(12.sp, Classic.label, 0.02.em).copy(textAlign = TextAlign.End),
             Modifier.weight(1f),
         )

@@ -139,6 +139,8 @@ pub struct Player {
     pub position_ms: u32,
     pub shuffle: bool,
     pub repeat: bool,
+    /// Playback stops once the playing song ends.
+    pub stop_after: bool,
     /// 0–100.
     pub volume: u8,
     /// The playlist the song shown is from, loaded or not.
@@ -172,6 +174,7 @@ pub(crate) fn player(state: &State) -> Player {
         position_ms: snapshot.position_now(),
         shuffle: state.settings.shuffle,
         repeat: state.settings.repeat,
+        stop_after: state.transport.stop_after(),
         volume: state.settings.volume,
         playlist: state
             .playing_list()

@@ -128,7 +128,14 @@ fun PlayerPanel(core: Core) {
                 Glyph.Pause, "Pause", { core.apply(Action.TogglePause) }, wide, ready,
                 on = player.status == Status.PAUSED,
             )
-            GlyphButton(Glyph.Stop, "Stop", { core.apply(Action.Stop) }, wide, ready)
+            // Held: stops once the song ends (Winamp's Stop after current), pressed in
+            // with Play till then, as on the desktop.
+            GlyphButton(
+                Glyph.Stop, if (player.stopAfter) "Stop, stopping after this song" else "Stop; hold to stop after this song",
+                { core.apply(Action.Stop) }, wide, ready,
+                on = player.stopAfter,
+                onLongClick = { core.apply(Action.ToggleStopAfter) },
+            )
             GlyphButton(Glyph.Next, "Next", { core.apply(Action.Next) }, wide, ready)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

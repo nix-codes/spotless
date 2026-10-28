@@ -183,13 +183,14 @@ fun GlyphButton(
     enabled: Boolean = true,
     on: Boolean = false,
     lit: Boolean = on,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val color = when {
         !enabled -> Classic.label
         lit -> Classic.lcd
         else -> Classic.chrome
     }
-    ChromeButton(onClick, modifier, on, enabled, description) {
+    ChromeButton(onClick, modifier, on, enabled, description, onLongClick) {
         Box(Modifier.defaultMinSize(22.dp, 22.dp).drawBehind { glyph(glyph, color) })
     }
 }
