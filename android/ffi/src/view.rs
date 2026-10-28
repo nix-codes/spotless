@@ -607,6 +607,24 @@ pub struct SpotifyPlaylist {
     pub liked: bool,
 }
 
+/// Where songs copied to Spotify go.
+#[derive(Clone, Debug, PartialEq, uniffi::Enum)]
+pub enum SpotifyTarget {
+    /// A new playlist by this name.
+    New { name: String },
+    /// One of the account's own playlists.
+    Playlist { uri: String, name: String },
+}
+
+impl From<SpotifyTarget> for catalog::SpotifyTarget {
+    fn from(target: SpotifyTarget) -> Self {
+        match target {
+            SpotifyTarget::New { name } => Self::New(name),
+            SpotifyTarget::Playlist { uri, name } => Self::Playlist { uri, name },
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, uniffi::Enum)]
 pub enum SpotifyPlaylists {
     Loading,

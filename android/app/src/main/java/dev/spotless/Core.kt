@@ -26,6 +26,7 @@ import dev.spotless.core.Session
 import dev.spotless.core.Spotless
 import dev.spotless.core.SpotifyView
 import dev.spotless.core.Status
+import dev.spotless.core.Track
 import dev.spotless.ui.Classic
 
 /**
@@ -152,6 +153,9 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
         val entries = spotless.playlist(id)?.songs?.map { it.entry }.orEmpty()
         if (entries.isNotEmpty()) apply(Action.Remove(id, entries))
     }
+
+    /** The songs of this playlist, viewed or not. */
+    fun tracks(id: ULong): List<Track> = spotless.playlist(id)?.songs?.map { it.track }.orEmpty()
 
     /** The cover at [url], once read: asking reads it. */
     fun cover(url: String?): ImageBitmap? {

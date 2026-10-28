@@ -101,12 +101,13 @@ Spotify only allows playback in other apps for Premium accounts.
   it's Browse's YOUR SPOTIFY: tap a playlist for its songs, hold songs
   to select them, and the bin takes them out; DELETE or UNFOLLOW is
   beside the playlist's name, and UNDO shows above.
-- **Copy to Spotify** (desktop): right-click songs, *Copy to > Spotify
+- **Copy to Spotify**: right-click songs, *Copy to > Spotify
   playlist…*, and pick one of your own playlists (type to find it) or make
   a new one; right-click a tab, *Save to Spotify…*, to make a new playlist
   of all its songs. A new playlist's name is asked first, the tab's to
-  start with. It's a copy, made once: changing the tab later doesn't
-  change the Spotify playlist.
+  start with. On Android, select songs, then COPY and SPOTIFY…; or hold
+  a tab and SAVE TO SPOTIFY…. It's a copy, made once: changing the tab
+  later doesn't change the Spotify playlist.
 - **Pics are optional**: album covers and artists' pictures. Off by default
   on the desktop, on by default on Android; either way, they show in the
   catalogue only. Playlists stay text.

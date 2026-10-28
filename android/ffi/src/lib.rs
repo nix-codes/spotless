@@ -405,6 +405,12 @@ pub enum Action {
     },
     /// Puts back the songs or playlist taken out last.
     UndoSpotifyRemoval,
+    /// Copies songs to a Spotify playlist of the account's own, or to a
+    /// new one, once: it isn't kept in step with the songs' tab after.
+    CopyToSpotify {
+        target: SpotifyTarget,
+        tracks: Vec<Track>,
+    },
     /// The playlist ADD adds to.
     SetTarget {
         playlist: u64,
@@ -523,6 +529,9 @@ impl From<Action> for spotless_core::action::Action {
             }
             Action::UnlistSpotifyPlaylist { uri } => Core::UnlistSpotifyPlaylist(uri),
             Action::UndoSpotifyRemoval => Core::UndoSpotifyRemoval,
+            Action::CopyToSpotify { target, tracks } => {
+                Core::CopyToSpotify(target.into(), tracks.into_iter().map(Into::into).collect())
+            }
             Action::SetTarget { playlist } => Core::SetTarget(PlaylistId(playlist)),
             Action::ToggleCovers => Core::ToggleCovers,
             Action::AddTracks { tracks } => {

@@ -104,11 +104,14 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
     val selected = entries.filter { it in picked }
     val selecting = selected.isNotEmpty()
     var sending by remember(core.tabs.viewed) { mutableStateOf<Send?>(null) }
+    // COPY's SPOTIFY…: the picker in place of the tabs to copy to.
+    var toSpotify by remember(core.tabs.viewed) { mutableStateOf(false) }
     var editing by remember { mutableStateOf<ULong?>(null) }
     var adding by remember { mutableStateOf(false) }
     val done = {
         picked = emptySet()
         sending = null
+        toSpotify = false
     }
     BackHandler(enabled = selecting) { done() }
     BackHandler(enabled = editing != null) { editing = null }
@@ -117,7 +120,15 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
         if (selecting) {
             val movable = queue == null || movable(queue, selected)
             SelectBar(core, queue, selected, { picked = entries.toSet() }, sending, movable, { sending = it.takeIf { it != sending } }, done)
-            sending?.takeIf { it == Send.COPY || movable }?.let { SendBar(core, it, selected, selectedTracks(core, queue, selected), done) }
+            val tracks = selectedTracks(core, queue, selected)
+            if (toSpotify) {
+                val name = core.tabs.tabs.firstOrNull { it.id == core.tabs.viewed }?.name.orEmpty()
+                SpotifyPicker(core, tracks, name, saving = false, close = { toSpotify = false }, done = done)
+            } else {
+                sending?.takeIf { it == Send.COPY || movable }?.let {
+                    SendBar(core, it, selected, tracks, { toSpotify = true }, done)
+                }
+            }
         } else {
             TopBar(core, openSettings)
         }
@@ -223,7 +234,7 @@ private fun SelectBar(
  * one tapped, or make a new playlist, which shows.
  */
 @Composable
-private fun SendBar(core: Core, send: Send, selected: List<ULong>, tracks: List<Track>, done: () -> Unit) {
+private fun SendBar(core: Core, send: Send, selected: List<ULong>, tracks: List<Track>, toSpotify: () -> Unit, done: () -> Unit) {
     val queue = core.spotify
     val from = core.tabs.viewed
     Column(
@@ -239,6 +250,10 @@ private fun SendBar(core: Core, send: Send, selected: List<ULong>, tracks: List<
                     if (send == Send.MOVE) core.apply(Action.Remove(from, selected))
                     done()
                 }, Modifier.height(44.dp))
+            }
+            // A copy only: songs on Spotify stay in the tab too.
+            if (send == Send.COPY) {
+                item(key = "spotify") { TextButton("SPOTIFY…", toSpotify, Modifier.height(44.dp)) }
             }
             items(core.tabs.tabs.filter { it.id != from }, key = { it.id.toLong() }) { tab ->
                 // Spotify takes songs for the queue only from the device playing it.
@@ -445,6 +460,10 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
     // Clearing and deleting each ask once more, on the same button.
     var clearing by remember(id) { mutableStateOf(false) }
     var deleting by remember(id) { mutableStateOf(false) }
+    var saving by remember(id) { mutableStateOf(false) }
+    if (saving) {
+        return SpotifyPicker(core, core.tracks(id), tab.name, saving = true, close = { saving = false }, done = done)
+    }
     val focus = LocalFocusManager.current
     val save = {
         if (name.isNotBlank() && name.trim() != tab.name) core.apply(Action.RenamePlaylist(id, name))
@@ -473,6 +492,11 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
             )
             TextButton("RENAME", save, enabled = name.isNotBlank() && name.trim() != tab.name)
         }
+        // Its songs, copied once to a new playlist on Spotify.
+        TextButton("SAVE TO SPOTIFY…", {
+            focus.clearFocus()
+            saving = true
+        }, Modifier.fillMaxWidth(), enabled = tab.songs > 0u)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton("◀", { core.apply(Action.MovePlaylist(id, (at - 1).toUInt())) }, enabled = at > 0)
             TextButton("▶", { core.apply(Action.MovePlaylist(id, (at + 1).toUInt())) }, enabled = at < tabs.lastIndex)
