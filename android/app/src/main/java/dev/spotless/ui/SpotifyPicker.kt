@@ -43,13 +43,14 @@ import dev.spotless.core.Track
 /**
  * Where songs copied to Spotify go: one of the account's own playlists,
  * found by typing part of its name, or a new one, named by what's typed
- * ([name], the songs' tab's, when nothing is). With [saving], only a new
- * one: a whole tab saved to Spotify. A copy is made once; the tab isn't
+ * ([name], the songs' tab's, when nothing is), private or public. With
+ * [saving], only a new one: a whole tab saved to Spotify. A copy is made once; the tab isn't
  * kept in step with it after.
  */
 @Composable
 fun SpotifyPicker(core: Core, tracks: List<Track>, name: String, saving: Boolean, close: () -> Unit, done: () -> Unit) {
     var text by remember { mutableStateOf(if (saving) name else "") }
+    var private by remember { mutableStateOf(true) }
     val focus = LocalFocusManager.current
     val copy = { target: SpotifyTarget ->
         focus.clearFocus()
@@ -92,7 +93,7 @@ fun SpotifyPicker(core: Core, tracks: List<Track>, name: String, saving: Boolean
                     imeAction = if (saving) ImeAction.Done else ImeAction.Search,
                 ),
                 keyboardActions = KeyboardActions(
-                    onDone = { if (new.isNotBlank()) copy(SpotifyTarget.New(new)) },
+                    onDone = { if (new.isNotBlank()) copy(SpotifyTarget.New(new, private)) },
                     onSearch = { focus.clearFocus() },
                 ),
                 decorationBox = { field ->
@@ -100,22 +101,29 @@ fun SpotifyPicker(core: Core, tracks: List<Track>, name: String, saving: Boolean
                     field()
                 },
             )
-            if (saving) TextButton("SAVE", { copy(SpotifyTarget.New(new)) }, Modifier.height(44.dp), enabled = new.isNotBlank())
+            if (saving) TextButton("SAVE", { copy(SpotifyTarget.New(new, private)) }, Modifier.height(44.dp), enabled = new.isNotBlank())
         }
-        if (!saving) Choices(core, text.trim(), new, copy)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            BasicText(if (saving) "IT'S" else "A NEW ONE IS", Modifier.weight(1f), label(12.sp, Classic.label, 0.06.em))
+            TextButton("PRIVATE", { private = true }, Modifier.height(40.dp), on = private)
+            TextButton("PUBLIC", { private = false }, Modifier.height(40.dp), on = !private)
+        }
+        if (!saving) Choices(core, text.trim(), new, private, copy)
     }
 }
 
 /** A new playlist named [new], then the account's own whose names have [find] in them. */
 @Composable
-private fun Choices(core: Core, find: String, new: String, copy: (SpotifyTarget) -> Unit) {
+private fun Choices(core: Core, find: String, new: String, private: Boolean, copy: (SpotifyTarget) -> Unit) {
     val playlists = core.browse.yourSpotify.playlists
     // Liked Songs is liked song by song, and others' playlists can't change.
     val own = (playlists as? SpotifyPlaylists.Ready)?.playlists.orEmpty()
         .filter { it.owner == null && !it.liked && it.name.contains(find, ignoreCase = true) }
     LazyColumn(Modifier.fillMaxWidth().heightIn(max = 240.dp).lcd().padding(2.dp)) {
         item(key = "new") {
-            Choice("+ NEW  “$new”", "new playlist", enabled = new.isNotBlank()) { copy(SpotifyTarget.New(new)) }
+            Choice("+ NEW  “$new”", if (private) "new private playlist" else "new public playlist", enabled = new.isNotBlank()) {
+                copy(SpotifyTarget.New(new, private))
+            }
         }
         when (playlists) {
             SpotifyPlaylists.Loading -> item { Note("Reading your playlists…") }

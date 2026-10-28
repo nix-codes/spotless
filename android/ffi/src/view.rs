@@ -608,13 +608,15 @@ pub struct SpotifyPlaylist {
     pub owner: Option<String>,
     /// Liked Songs, which can't be deleted.
     pub liked: bool,
+    /// Only the account, and those it's shared with, see it.
+    pub private: bool,
 }
 
 /// Where songs copied to Spotify go.
 #[derive(Clone, Debug, PartialEq, uniffi::Enum)]
 pub enum SpotifyTarget {
-    /// A new playlist by this name.
-    New { name: String },
+    /// A new playlist by this name, private or public.
+    New { name: String, private: bool },
     /// One of the account's own playlists.
     Playlist { uri: String, name: String },
 }
@@ -622,10 +624,7 @@ pub enum SpotifyTarget {
 impl From<SpotifyTarget> for catalog::SpotifyTarget {
     fn from(target: SpotifyTarget) -> Self {
         match target {
-            SpotifyTarget::New { name } => Self::New {
-                name,
-                private: false,
-            },
+            SpotifyTarget::New { name, private } => Self::New { name, private },
             SpotifyTarget::Playlist { uri, name } => Self::Playlist { uri, name },
         }
     }
@@ -666,6 +665,7 @@ fn your_spotify(state: &State) -> YourSpotify {
                 songs: count(p.tracks),
                 owner: p.owner.clone(),
                 liked: p.uri == spotless_core::spotify::catalog::LIKED_SONGS,
+                private: p.private,
             };
             // As the desktop lists them: the account's own, then followed.
             let (mine, followed): (Vec<_>, Vec<_>) =

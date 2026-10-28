@@ -172,7 +172,7 @@ fun TextButton(
 }
 
 /** The transport's and the bars' glyphs, drawn in [color] on a 24-unit square. */
-enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check, Trash, Repeat, Shuffle }
+enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check, Trash, Repeat, Shuffle, Lock }
 
 @Composable
 fun GlyphButton(
@@ -249,6 +249,11 @@ fun DrawScope.glyph(glyph: Glyph, color: Color) {
             for (x in listOf(10.5f, 13.5f)) {
                 drawLine(color, Offset(x * u, 12.5f * u), Offset(x * u, 17.5f * u), 1.8f * u)
             }
+        }
+        Glyph.Lock -> {
+            // A padlock: its body, and the shackle's arch over it.
+            bar(5.5f, 11f, 13f, 10f)
+            drawPath(arm(8.5f to 11f, 8.5f to 8f, 9.5f to 5.5f, 12f to 4.5f, 14.5f to 5.5f, 15.5f to 8f, 15.5f to 11f), color, style = line)
         }
         Glyph.Repeat -> {
             // Two arrows chasing each other round a loop.

@@ -199,6 +199,9 @@ private fun PlaylistRow(playlist: SpotifyPlaylist, open: () -> Unit) {
             Line(playlist.name, body())
             Line(about(playlist), body(13.sp, Classic.dim, FontWeight.Normal))
         }
+        if (playlist.private) {
+            Box(Modifier.size(16.dp).semantics { contentDescription = "Private" }.drawBehind { glyph(Glyph.Lock, Classic.dim) })
+        }
         Box(Modifier.size(18.dp).drawBehind { glyph(Glyph.Closed, Classic.dim) })
     }
 }
