@@ -31,6 +31,11 @@ use crate::model::{EntryId, Playlist, PlaylistId, Run};
 use crate::playback::engine::Status;
 
 const ROW_HEIGHT: f32 = 18.0;
+/// The longest a jump to the playing song glides, in screens: further, it
+/// cuts to that far off first.
+const GLIDE_SCREENS: f32 = 3.0;
+/// How long a glide takes, in seconds, from the shortest to the longest.
+const GLIDE_TIME: (f32, f32) = (0.25, 0.5);
 pub(super) const TAB_HEIGHT: f32 = 22.0;
 const TAB_GAP: f32 = 3.0;
 /// The time a tab takes to slide to its new place.
@@ -65,6 +70,43 @@ pub struct Selection {
     /// with the line above it at the top.
     shown: Option<PlaylistId>,
     open_at: Option<usize>,
+    /// The song to glide to, placed as on opening (J), and the glide under way.
+    glide_to: Option<usize>,
+    glide: Option<Glide>,
+}
+
+/// A scroll that speeds up and slows down again.
+struct Glide {
+    from: f32,
+    to: f32,
+    start: f64,
+    time: f32,
+}
+
+impl Glide {
+    fn new(from: f32, to: f32, start: f64, height: f32) -> Self {
+        let far = GLIDE_SCREENS * height;
+        let from = from.clamp(to - far, to + far);
+        let share = ((to - from).abs() / far.max(1.0)).min(1.0);
+        let time = GLIDE_TIME.0 + (GLIDE_TIME.1 - GLIDE_TIME.0) * share;
+        Self {
+            from,
+            to,
+            start,
+            time,
+        }
+    }
+
+    /// Where it has got to at `now`, and whether it is done.
+    fn at(&self, now: f64) -> (f32, bool) {
+        let t = (((now - self.start) as f32) / self.time).clamp(0.0, 1.0);
+        let eased = if t < 0.5 {
+            4.0 * t * t * t
+        } else {
+            1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+        };
+        (self.from + (self.to - self.from) * eased, t >= 1.0)
+    }
 }
 
 impl Selection {
@@ -102,8 +144,10 @@ struct TabDrag {
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let onto_tab = tab_bar(ui, view, inputs, actions);
     let selection = &mut inputs.selection;
-    if selection.shown != Some(view.playlist.id) {
+    let switched = selection.shown != Some(view.playlist.id);
+    if switched {
         selection.shown = Some(view.playlist.id);
+        selection.glide = None;
         let list = view.playlist;
         let at = list.cursor().and_then(|id| list.index_of(id));
         selection.open_at = Some(at.unwrap_or(0));
@@ -130,9 +174,14 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         if let Some(index) = list.index_of(entry) {
             let selection = &mut inputs.selection;
             selection.select(entry, index);
-            // Placed as on opening the playlist, not just brought into view.
+            // Placed as on opening the playlist, not just brought into view:
+            // at once in a playlist just shown, gliding in the one already.
             selection.reveal = None;
-            selection.open_at = Some(index);
+            if switched {
+                selection.open_at = Some(index);
+            } else {
+                selection.glide_to = Some(index);
+            }
         }
     }
     inputs
@@ -164,6 +213,35 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         toolbar(ui, view, inputs, actions);
     });
     confirm_close(ui, view, inputs, actions);
+}
+
+/// Moves a glide on, started by J or stopped by any other scroll, click
+/// or key: where to scroll to this frame.
+fn glide(ui: &Ui, selection: &mut Selection, line_of: &[usize], furthest: f32) -> Option<f32> {
+    let (now, stopped) = ui.input(|i| {
+        let moved = i.events.iter().any(|e| {
+            matches!(
+                e,
+                egui::Event::Key { pressed: true, .. } | egui::Event::MouseWheel { .. }
+            )
+        });
+        (i.time, moved || i.pointer.any_pressed())
+    });
+    if stopped {
+        selection.glide = None;
+    }
+    if let Some(index) = selection.glide_to.take() {
+        let line = line_of[index.min(line_of.len() - 1)].saturating_sub(1);
+        let to = (line as f32 * ROW_HEIGHT).min(furthest);
+        selection.glide = Some(Glide::new(selection.offset, to, now, ui.available_height()));
+    }
+    let (offset, done) = selection.glide.as_ref()?.at(now);
+    if done {
+        selection.glide = None;
+    } else {
+        ui.ctx().request_repaint();
+    }
+    Some(offset.min(furthest))
 }
 
 /// The tabs. Says whether rows being dragged are over another tab.
@@ -778,6 +856,12 @@ fn draw_rows(
         area = area.vertical_scroll_offset((line as f32 * ROW_HEIGHT).min(furthest));
     }
     if let Some(offset) = thumb_to {
+        area = area.vertical_scroll_offset(offset);
+    }
+    if thumb_to.is_some() {
+        selection.glide = None;
+    }
+    if let Some(offset) = glide(ui, selection, &line_of, furthest) {
         area = area.vertical_scroll_offset(offset);
     }
     let number_width = list.len().to_string().len();
@@ -1491,6 +1575,25 @@ mod tests {
         frame(vec![], &mut actions);
         let _ = std::fs::remove_dir_all(&root);
         actions.into_iter().collect()
+    }
+
+    #[test]
+    fn a_glide_eases_from_where_it_was_to_the_song() {
+        let glide = Glide::new(0.0, 100.0, 10.0, 400.0);
+        assert_eq!(glide.at(10.0), (0.0, false));
+        let (early, _) = glide.at(10.0 + f64::from(glide.time) / 4.0);
+        let (middle, _) = glide.at(10.0 + f64::from(glide.time) / 2.0);
+        assert!(early < 25.0, "slow to start: {early}");
+        assert!((middle - 50.0).abs() < 0.01);
+        assert_eq!(glide.at(20.0), (100.0, true));
+    }
+
+    #[test]
+    fn a_long_glide_starts_a_few_screens_off_and_takes_no_longer() {
+        let glide = Glide::new(0.0, 50_000.0, 0.0, 400.0);
+        assert_eq!(glide.from, 50_000.0 - GLIDE_SCREENS * 400.0);
+        assert_eq!(glide.time, GLIDE_TIME.1);
+        assert!(Glide::new(0.0, 10.0, 0.0, 400.0).time < GLIDE_TIME.1);
     }
 
     #[test]
