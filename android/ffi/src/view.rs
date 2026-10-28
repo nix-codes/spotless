@@ -146,8 +146,9 @@ pub struct Player {
     /// Paused for want of a connection to Spotify; it goes on when there
     /// is one again.
     pub offline: bool,
-    /// The sound comes from this phone: not the Spotify tab's queue
-    /// playing on another device.
+    /// The sound comes from this phone: a song is loaded, and it's not
+    /// the Spotify tab's queue playing on another device. A song shown
+    /// paused with nothing loaded (as after a restart) isn't.
     pub here: bool,
 }
 
@@ -178,9 +179,10 @@ pub(crate) fn player(state: &State) -> Player {
             .or(state.transport.playback.playing().filter(|_| state.offline))
             .map(|id| id.0),
         offline: state.offline,
-        here: !state.spotify_playing()
-            || state.spotify_starting.is_some()
-            || state.spotify.as_ref().is_some_and(|queue| queue.here),
+        here: state.waiting().is_none()
+            && (!state.spotify_playing()
+                || state.spotify_starting.is_some()
+                || state.spotify.as_ref().is_some_and(|queue| queue.here)),
     }
 }
 

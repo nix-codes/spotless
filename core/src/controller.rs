@@ -101,7 +101,9 @@ impl State {
     }
 
     /// While nothing plays: the playlist Play starts, and its song there
-    /// as the player shows it. None when Play would start nothing.
+    /// as the player shows it: paused where Play goes on from (as after
+    /// closing the app mid-song), else stopped. None when Play would start
+    /// nothing.
     pub fn waiting(&self) -> Option<(PlaylistId, PlayerSnapshot)> {
         if !self.idle() {
             return None;
@@ -122,14 +124,19 @@ impl State {
             Some(track) if track.uri == entry.track.uri => track.clone(),
             _ => TrackInfo::from(&entry.track),
         };
+        let position_ms = if list.cursor() == Some(id) {
+            list.resume_ms
+        } else {
+            0
+        };
         let waiting = PlayerSnapshot {
-            status: Status::Stopped,
-            track: Some(track),
-            position_ms: if list.cursor() == Some(id) {
-                list.resume_ms
+            status: if position_ms > 0 {
+                Status::Paused
             } else {
-                0
+                Status::Stopped
             },
+            track: Some(track),
+            position_ms,
             ..PlayerSnapshot::default()
         };
         Some((list.id, waiting))
@@ -343,8 +350,12 @@ impl Controller {
             match event {
                 Event::Session(session) => {
                     self.state.error = None;
-                    if !matches!(session, SessionState::Ready { .. }) {
-                        // The engine is gone with the session.
+                    // The engine is gone with the session. Before a song
+                    // is loaded (as at the start) there is nothing to stop,
+                    // and where Play goes on from is kept.
+                    if !matches!(session, SessionState::Ready { .. })
+                        && self.state.transport.active()
+                    {
                         self.state.transport.stop(&mut self.state.library);
                         self.state.player = PlayerSnapshot::default();
                     }
@@ -602,6 +613,12 @@ impl Controller {
         };
         let paused = self.state.player.status == Status::Paused;
         let position = self.state.player.position_now();
+        // Nothing loaded, but a song shows paused: Pause plays it, and
+        // seeking moves where it goes on from.
+        let waiting_paused = self
+            .state
+            .waiting()
+            .is_some_and(|(_, waiting)| waiting.status == Status::Paused);
         let state = &mut self.state;
         let library = &mut state.library;
         // With the Spotify tab shown, local playback goes on in the
@@ -724,6 +741,13 @@ impl Controller {
                 library.move_playlist(list, index);
                 return self.mark_unsaved();
             }
+            Action::Seek(ms) if waiting_paused => {
+                if let Some(list) = library.get_mut(viewed) {
+                    // At 0 it would show stopped.
+                    list.resume_ms = ms.max(1);
+                }
+                return self.mark_unsaved();
+            }
             Action::Seek(ms) => return self.send(Command::Seek(ms)),
             Action::Volume(volume) => {
                 state.settings.volume = volume;
@@ -731,6 +755,9 @@ impl Controller {
                 return self.send(Command::Volume(volume_level(volume)));
             }
             Action::Play => state.transport.play(library, viewed, paused, position),
+            Action::TogglePause if waiting_paused => {
+                state.transport.play(library, viewed, false, position)
+            }
             Action::TogglePause => state.transport.toggle_pause(paused),
             Action::Stop => state.transport.stop(library),
             Action::ToggleStopAfter => state.transport.toggle_stop_after(library),
@@ -2647,6 +2674,46 @@ mod tests {
         assert_eq!(rig.controller.state().player, known);
         rig.tell(Event::Player(PlayerSnapshot::default()));
         assert_eq!(rig.controller.state().player, PlayerSnapshot::default());
+    }
+
+    #[test]
+    fn a_song_left_playing_shows_paused_there_after_a_restart() {
+        let mut rig = Rig::new("restart-paused");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+        rig.controller.apply(Action::Play);
+        rig.tell(Event::Player(PlayerSnapshot {
+            status: Status::Playing,
+            track: Some(TrackInfo::from(&entry(1).track)),
+            position_ms: 95_000,
+            ..PlayerSnapshot::default()
+        }));
+        rig.controller.save();
+
+        let paths = rig.controller.paths.clone();
+        let (backend, mut commands, events) = Backend::detached();
+        let settings = Settings::load(&paths);
+        let mut controller = Controller::with_backend(paths, settings, Ok(backend));
+        events
+            .send(Event::Session(SessionState::Connecting))
+            .unwrap();
+        controller.receive();
+        events
+            .send(Event::Session(SessionState::Ready { user: "u".into() }))
+            .unwrap();
+        controller.receive();
+        let shown = controller.state().now_playing();
+        assert_eq!(shown.status, Status::Paused);
+        assert_eq!(shown.position_ms, 95_000);
+        assert_eq!(shown.track.unwrap().title, "Song 1");
+        controller.apply(Action::Seek(60_000));
+        assert_eq!(controller.state().now_playing().position_ms, 60_000);
+        controller.apply(Action::TogglePause);
+        let sent: Vec<_> = std::iter::from_fn(|| commands.try_recv().ok()).collect();
+        assert!(sent.iter().any(|c| matches!(
+            c,
+            Command::Player(Request::Load { uri, position_ms: 60_000, .. }) if uri.ends_with(":1")
+        )));
     }
 
     #[test]
