@@ -30,7 +30,7 @@ use crate::backend::SearchState;
 use crate::browse::{BrowseTab, Loadable, Page};
 use crate::lastfm;
 use crate::model::catalog::{Release, ReleaseTab};
-use crate::model::{ArtistRef, EntryId, TrackRef, playlist::Playlist};
+use crate::model::{ArtistRef, EntryId, Source, TrackRef, playlist::Playlist};
 
 mod spotify;
 
@@ -1011,12 +1011,20 @@ fn song(
             spans(painter, text, &parts);
         },
     );
+    // A song of an album's comes from that album; a search's, alone.
+    let added = || {
+        let mut track = track.clone();
+        if !full {
+            track.source = Some(Source::album(&track.album));
+        }
+        vec![track]
+    };
     if row.response.drag_started() {
         row.response
-            .dnd_set_drag_payload(CatalogDrag::Tracks(vec![track.clone()]));
+            .dnd_set_drag_payload(CatalogDrag::Tracks(added()));
     }
     if row.button || matches!(row.act, Some(Act::Add)) {
-        actions.push(Action::AddTracks(vec![track.clone()]));
+        actions.push(Action::AddTracks(added()));
     } else if row.response.double_clicked() || matches!(row.act, Some(Act::Open)) {
         actions.push(Action::PlayNow(track.clone()));
     }

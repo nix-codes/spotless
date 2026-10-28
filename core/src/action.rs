@@ -15,6 +15,8 @@ pub enum Action {
     SetLevelling(bool),
     /// Draws the lists and the display in this colour.
     SetPhosphor(crate::phosphor::Phosphor),
+    /// Puts the playlists' songs under headers by this.
+    SetGrouping(crate::model::playlist::Grouping),
     /// Saves this Last.fm API account (key, shared secret) and approves it
     /// in the browser.
     ConnectLastFm(String, String),

@@ -4,7 +4,7 @@
 
 use crate::images::CoverImage;
 use crate::model::catalog::{Discography, Release, ReleaseGroup, SpotifyPlaylist};
-use crate::model::{AlbumRef, ArtistRef, EntryId, Library, PlaylistId, TrackRef};
+use crate::model::{AlbumRef, ArtistRef, EntryId, Library, PlaylistId, Source, TrackRef};
 
 /// Who is signed in.
 pub const USER: &str = "listener";
@@ -223,6 +223,10 @@ fn fill(library: &mut Library, id: PlaylistId, songs: &[Song]) {
         .iter()
         .enumerate()
         .map(|(n, (artist, title, album, secs))| {
+            let album = AlbumRef {
+                uri: format!("spotify:album:{}", slug(album)),
+                name: (*album).into(),
+            };
             library.entry(TrackRef {
                 uri: format!("spotify:track:demo-{}-{n}", id.0),
                 title: (*title).into(),
@@ -231,10 +235,9 @@ fn fill(library: &mut Library, id: PlaylistId, songs: &[Song]) {
                     name: (*artist).into(),
                     image: None,
                 }],
-                album: AlbumRef {
-                    uri: format!("spotify:album:{}", slug(album)),
-                    name: (*album).into(),
-                },
+                // Each album added whole.
+                source: Some(Source::album(&album)),
+                album,
                 duration_ms: secs * 1000,
             })
         })

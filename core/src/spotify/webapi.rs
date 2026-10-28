@@ -310,6 +310,7 @@ fn track_ref(item: &Value) -> Option<TrackRef> {
             name: item["album"]["name"].as_str().unwrap_or_default().into(),
         },
         duration_ms: item["duration_ms"].as_u64().unwrap_or(0) as u32,
+        source: None,
     })
 }
 

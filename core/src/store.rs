@@ -11,7 +11,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::model::{ArtistRef, Library, PlaylistId};
+use crate::model::{ArtistRef, Grouping, Library, PlaylistId};
 use crate::paths::Paths;
 use crate::phosphor::Phosphor;
 use crate::playback::equaliser::{Equaliser, Preset};
@@ -217,6 +217,8 @@ pub struct Settings {
     pub skin: Option<String>,
     /// The colour of the lists and the display.
     pub phosphor: Phosphor,
+    /// What the playlists' songs are put under headers by.
+    pub grouping: Grouping,
     pub equaliser: Equaliser,
     /// The equaliser shows below the player (EQ).
     pub equaliser_shown: bool,
@@ -326,6 +328,7 @@ impl Settings {
                 .map(String::from),
             skin: raw.get("skin").and_then(Value::as_str).map(String::from),
             phosphor: Phosphor::from_key(raw.get("phosphor").and_then(Value::as_str)),
+            grouping: Grouping::from_key(raw.get("song_headers").and_then(Value::as_str)),
             equaliser: raw
                 .get("equaliser")
                 .and_then(|value| Equaliser::deserialize(value).ok())
@@ -390,6 +393,7 @@ impl Settings {
             None => raw.remove("skin"),
         };
         raw.insert("phosphor".into(), self.phosphor.key().into());
+        raw.insert("song_headers".into(), self.grouping.key().into());
         if let Ok(equaliser) = serde_json::to_value(self.equaliser) {
             raw.insert("equaliser".into(), equaliser);
         }
@@ -575,6 +579,7 @@ mod tests {
         let read = Settings::load(&paths);
         assert!(read.deck_shown);
         assert_eq!(read.deck_media, DeckMedia::Reel);
+        assert_eq!(read.grouping, Grouping::Source, "by source to start with");
         for media in [
             DeckMedia::Cassette,
             DeckMedia::Reel,
@@ -582,6 +587,9 @@ mod tests {
             DeckMedia::Vinyl,
         ] {
             assert_eq!(DeckMedia::from_key(Some(media.key())), media);
+        }
+        for grouping in Grouping::ALL {
+            assert_eq!(Grouping::from_key(Some(grouping.key())), grouping);
         }
     }
 

@@ -19,8 +19,9 @@ use egui::{
 use super::{Act, Area, CatalogDrag, Nav, PAD, TRACK_HEIGHT, body, mono, note, row, spans};
 use crate::action::{Action, Actions};
 use crate::browse::Loadable;
-use crate::model::TrackRef;
 use crate::model::catalog::SpotifyPlaylist;
+use crate::model::playlist::from_source;
+use crate::model::{Source, TrackRef};
 use crate::ui::scrollbar;
 use crate::ui::theme;
 use crate::ui::widgets::{field, small_button, tip};
@@ -545,10 +546,18 @@ fn playlist_song(
             nav.anchor = Some(index);
         }
     }
+    // Songs added come from this playlist.
+    let source = Source {
+        uri: uri.to_string(),
+        name: view
+            .browse
+            .spotify_playlist(uri)
+            .map_or_else(String::new, |p| p.name.clone()),
+    };
     // What a drag, a key or the menu takes: the selection, if this song
     // is in it.
     let these = |nav: &Nav| -> Vec<TrackRef> {
-        if nav.marked.contains(&index) {
+        let chosen = if nav.marked.contains(&index) {
             nav.marked
                 .iter()
                 .filter_map(|&i| tracks.get(i))
@@ -556,13 +565,14 @@ fn playlist_song(
                 .collect()
         } else {
             vec![track.clone()]
-        }
+        };
+        from_source(chosen, &source)
     };
     if response.drag_started() {
         response.dnd_set_drag_payload(CatalogDrag::Tracks(these(nav)));
     }
     if row.button {
-        actions.push(Action::AddTracks(vec![track.clone()]));
+        actions.push(Action::AddTracks(from_source(vec![track.clone()], &source)));
     } else if matches!(row.act, Some(Act::Add)) {
         actions.push(Action::AddTracks(these(nav)));
     } else if response.double_clicked() || matches!(row.act, Some(Act::Open)) {

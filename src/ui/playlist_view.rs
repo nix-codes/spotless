@@ -713,7 +713,7 @@ fn toolbar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
     });
 }
 
-/// A line of the list: the header over an album's run, or a song, by its
+/// A line of the list: the header over a run, or a song, by its
 /// index.
 #[derive(Clone, Copy)]
 enum Line {
@@ -722,11 +722,11 @@ enum Line {
 }
 
 /// The list's lines, and the line each song is on.
-fn lines(list: &Playlist) -> (Vec<Line>, Vec<usize>) {
+fn lines(list: &Playlist, runs: &[Run]) -> (Vec<Line>, Vec<usize>) {
     let mut lines = Vec::with_capacity(list.len());
     let mut line_of = Vec::with_capacity(list.len());
-    for run in list.runs() {
-        if run.album {
+    for &run in runs {
+        if run.header {
             lines.push(Line::Header(run));
         }
         for index in run.start..run.start + run.len {
@@ -751,12 +751,12 @@ fn draw_rows(
     let mut area = ScrollArea::vertical()
         .auto_shrink([false, false])
         .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden);
-    let (lines, line_of) = lines(list);
-    // The songs after an album's run that aren't one: a line sets them off.
-    let set_off: BTreeSet<usize> = list
-        .runs()
-        .into_iter()
-        .filter(|run| !run.album && run.start > 0)
+    let runs = list.runs(view.settings.grouping);
+    let (lines, line_of) = lines(list, &runs);
+    // The songs after a header's run that aren't one: a line sets them off.
+    let set_off: BTreeSet<usize> = runs
+        .iter()
+        .filter(|run| !run.header && run.start > 0)
         .map(|run| run.start)
         .collect();
     let furthest = (lines.len() as f32 * ROW_HEIGHT - ui.available_height()).max(0.0);
@@ -915,13 +915,13 @@ fn draw_rows(
     }
 }
 
-/// The background of an album's header.
+/// The background of a run's header.
 fn header_bg(palette: &Palette) -> Color32 {
     palette.lcd.gamma_multiply(0.12)
 }
 
-/// The header over an album's run: its name and its first song's artist.
-/// A click selects the run (Ctrl adds or takes it away); a double-click
+/// The header over a run: the name of its album, or of where its songs
+/// came from, and its artist or what it is. A click selects the run (Ctrl adds or takes it away); a double-click
 /// plays it; a right-click selects it and opens the rows' menu.
 fn header(
     ui: &mut Ui,
@@ -948,20 +948,20 @@ fn header(
     );
     let mark = Rect::from_center_size(pos2(rect.left() + 6.0, rect.center().y), vec2(2.0, 10.0));
     painter.rect_filled(mark, 0.0, palette.accent);
-    let track = &songs[0].track;
+    let (name, detail) = list.heading(run, view.settings.grouping);
     let font = FontId::monospace(10.0);
     let name = painter.text(
         pos2(rect.left() + 14.0, rect.center().y),
         Align2::LEFT_CENTER,
-        track.album.name.to_uppercase(),
+        name.to_uppercase(),
         font.clone(),
         palette.lcd,
     );
-    if let Some(artist) = track.artists.first() {
+    if let Some(detail) = detail {
         painter.text(
             pos2(name.right(), rect.center().y),
             Align2::LEFT_CENTER,
-            format!("  ·  {}", artist.name.to_uppercase()),
+            format!("  ·  {}", detail.to_uppercase()),
             font,
             palette.dim,
         );

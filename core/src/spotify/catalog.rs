@@ -23,7 +23,8 @@ use reqwest::Method;
 use crate::model::catalog::{
     Discography, Place, Release, ReleaseGroup, Songs, SpotifyPlaylist, tidy,
 };
-use crate::model::{AlbumRef, ArtistRef, TrackRef};
+use crate::model::playlist::from_source;
+use crate::model::{AlbumRef, ArtistRef, Source, TrackRef};
 
 /// Accepts `spotify:` URIs and `open.spotify.com` links.
 pub fn parse_uri(text: &str) -> Result<SpotifyUri> {
@@ -51,20 +52,37 @@ pub const LIKED_SONGS: &str = "spotify:collection:tracks";
 /// The songs a link stands for, in order: a track, an album's or a
 /// playlist's tracks, or the tracks of an artist's first album.
 pub async fn link_tracks(session: &Session, text: &str) -> Result<Vec<TrackRef>> {
-    let uris = match parse_uri(text)? {
-        uri @ SpotifyUri::Track { .. } => vec![uri],
-        uri @ SpotifyUri::Album { .. } => album_tracks(session, &uri).await?,
+    // A playlist's name; an album's is its songs'.
+    let (uris, from, name) = match parse_uri(text)? {
+        uri @ SpotifyUri::Track { .. } => (vec![uri], None, None),
+        uri @ SpotifyUri::Album { .. } => (album_tracks(session, &uri).await?, Some(uri), None),
         uri @ SpotifyUri::Artist { .. } => {
             let album = first_release(session, &uri).await?;
-            album_tracks(session, &album).await?
+            (album_tracks(session, &album).await?, Some(album), None)
         }
         uri @ SpotifyUri::Playlist { .. } => {
-            let (tracks, _) = playlist_tracks(session, &uri).await?;
-            tracks.into_iter().map(|(uri, _)| uri).collect()
+            let playlist = Playlist::get(session, &uri)
+                .await
+                .context("playlist not found")?;
+            let tracks = playlist
+                .tracks()
+                .filter(|uri| matches!(uri, SpotifyUri::Track { .. }))
+                .cloned()
+                .collect();
+            (tracks, Some(uri), Some(playlist.name().to_string()))
         }
         _ => bail!("only tracks, albums, playlists and artists can be added"),
     };
-    tracks(session, uris).await
+    let found = tracks(session, uris).await?;
+    let Some(from) = from else {
+        return Ok(found);
+    };
+    let name = name.or_else(|| found.first().map(|track| track.album.name.clone()));
+    let source = Source {
+        uri: from.to_uri(),
+        name: name.unwrap_or_default(),
+    };
+    Ok(from_source(found, &source))
 }
 
 async fn album_tracks(session: &Session, album: &SpotifyUri) -> Result<Vec<SpotifyUri>> {
@@ -368,6 +386,7 @@ fn track_ref(track: &Track) -> TrackRef {
             name: track.album.name.clone(),
         },
         duration_ms: track.duration.max(0) as u32,
+        source: None,
     }
 }
 

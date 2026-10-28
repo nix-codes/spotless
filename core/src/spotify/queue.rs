@@ -253,6 +253,7 @@ mod tests {
                 name: String::new(),
             },
             duration_ms: 1000,
+            source: None,
         }
     }
 

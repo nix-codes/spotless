@@ -42,6 +42,23 @@ pub struct AlbumRef {
     pub name: String,
 }
 
+/// Where songs were added from: an album, a Spotify playlist, Liked
+/// Songs or an artist, by URI, with its name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Source {
+    pub uri: String,
+    pub name: String,
+}
+
+impl Source {
+    pub fn album(album: &AlbumRef) -> Self {
+        Self {
+            uri: album.uri.clone(),
+            name: album.name.clone(),
+        }
+    }
+}
+
 /// Enough to draw a row without asking Spotify.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrackRef {
@@ -50,6 +67,72 @@ pub struct TrackRef {
     pub artists: Vec<ArtistRef>,
     pub album: AlbumRef,
     pub duration_ms: u32,
+    /// Where it was added from, which it keeps when copied or moved to
+    /// another playlist. None for a song added on its own, as from a
+    /// search, or added before Spotless kept it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
+}
+
+/// These songs, as added from `source`.
+pub fn from_source(tracks: Vec<TrackRef>, source: &Source) -> Vec<TrackRef> {
+    tracks
+        .into_iter()
+        .map(|track| TrackRef {
+            source: Some(source.clone()),
+            ..track
+        })
+        .collect()
+}
+
+/// What the list puts its songs under headers by. A setting.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Grouping {
+    /// Where they were added from; those added on their own, by none.
+    #[default]
+    Source,
+    /// Their album.
+    Album,
+    /// Nothing: no headers.
+    None,
+}
+
+impl Grouping {
+    pub const ALL: [Self; 3] = [Self::Source, Self::Album, Self::None];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Source => "Where they came from",
+            Self::Album => "Album",
+            Self::None => "None",
+        }
+    }
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Source => "source",
+            Self::Album => "album",
+            Self::None => "none",
+        }
+    }
+
+    pub fn from_key(key: Option<&str>) -> Self {
+        match key {
+            Some("album") => Self::Album,
+            Some("none") => Self::None,
+            _ => Self::Source,
+        }
+    }
+
+    /// What songs share to sit under one header: None, nothing.
+    fn key_of(self, track: &TrackRef) -> Option<&str> {
+        let key = match self {
+            Self::Source => track.source.as_ref().map(|source| source.uri.as_str()),
+            Self::Album => Some(track.album.uri.as_str()),
+            Self::None => None,
+        };
+        key.filter(|key| !key.is_empty())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,14 +142,14 @@ pub struct Entry {
 }
 
 /// A run of songs the list shows together. Two or more in a row from one
-/// album are an `album` run, under a header with its name. The songs
-/// between those, each alone from its album there, make one plain run,
-/// set off from the album before it by a line.
+/// album, or one source (see [`Grouping`]), are a `header` run, under a
+/// header with its name. The songs between those, each alone there, make
+/// one plain run, set off from the header run before it by a line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Run {
     pub start: usize,
     pub len: usize,
-    pub album: bool,
+    pub header: bool,
 }
 
 /// Invariant: unless `detached`, the cursor is set exactly when the
@@ -133,31 +216,55 @@ impl Playlist {
         self.entries.iter().position(|entry| entry.id == id)
     }
 
-    /// The list cut into runs, in order; see [`Run`].
-    pub fn runs(&self) -> Vec<Run> {
+    /// The list cut into runs, in order, by `by`; see [`Run`].
+    pub fn runs(&self, by: Grouping) -> Vec<Run> {
         let mut runs: Vec<Run> = Vec::new();
         let mut start = 0;
         while start < self.entries.len() {
-            let album = &self.entries[start].track.album.uri;
-            let len = if album.is_empty() {
-                1
-            } else {
-                self.entries[start..]
+            let len = match by.key_of(&self.entries[start].track) {
+                None => 1,
+                Some(key) => self.entries[start..]
                     .iter()
-                    .take_while(|entry| entry.track.album.uri == *album)
-                    .count()
+                    .take_while(|entry| by.key_of(&entry.track) == Some(key))
+                    .count(),
             };
             match runs.last_mut() {
-                Some(last) if len == 1 && !last.album => last.len += 1,
+                Some(last) if len == 1 && !last.header => last.len += 1,
                 _ => runs.push(Run {
                     start,
                     len,
-                    album: len > 1,
+                    header: len > 1,
                 }),
             }
             start += len;
         }
         runs
+    }
+
+    /// A header run's name, and what it is, or whose, when that says
+    /// more: an album's artist, "Spotify playlist", "Artist".
+    pub fn heading(&self, run: Run, by: Grouping) -> (String, Option<String>) {
+        let Some(track) = self.entries.get(run.start).map(|entry| &entry.track) else {
+            return (String::new(), None);
+        };
+        let artist = || track.artists.first().map(|artist| artist.name.clone());
+        let source = match (by, &track.source) {
+            (Grouping::Source, Some(source)) => source,
+            _ => return (track.album.name.clone(), artist()),
+        };
+        let uri = source.uri.as_str();
+        let detail = if uri.starts_with("spotify:album:") {
+            artist()
+        } else if uri.starts_with("spotify:playlist:") {
+            Some("Spotify playlist".into())
+        } else if uri.starts_with("spotify:artist:") {
+            Some("Artist".into())
+        } else if uri.contains(":collection") {
+            Some("Spotify".into())
+        } else {
+            None
+        };
+        (source.name.clone(), detail)
     }
 
     pub fn get(&self, id: EntryId) -> Option<&Entry> {
@@ -304,6 +411,7 @@ pub(crate) mod tests {
                     name: String::new(),
                 },
                 duration_ms: 180_000,
+                source: None,
             },
         }
     }
@@ -340,9 +448,9 @@ pub(crate) mod tests {
             on(10, "e"),
             on(11, "f"),
         ]);
-        let run = |start, len, album| Run { start, len, album };
+        let run = |start, len, header| Run { start, len, header };
         assert_eq!(
-            list.runs(),
+            list.runs(Grouping::Album),
             [
                 run(0, 1, false),
                 run(1, 3, true),
@@ -351,7 +459,52 @@ pub(crate) mod tests {
                 run(10, 1, false),
             ]
         );
-        assert_eq!(Playlist::new(PlaylistId(1), "Test").runs(), []);
+        assert_eq!(list.runs(Grouping::None), [run(0, 11, false)]);
+        let empty = Playlist::new(PlaylistId(1), "Test");
+        assert_eq!(empty.runs(Grouping::Album), []);
+        assert_eq!(empty.runs(Grouping::None), []);
+    }
+
+    #[test]
+    fn songs_from_one_source_get_a_run_whatever_their_albums() {
+        let mut list = Playlist::new(PlaylistId(1), "Test");
+        let late = Source {
+            uri: "spotify:playlist:late".into(),
+            name: "Late Trains".into(),
+        };
+        let on = |id, album: &str, source: Option<&Source>| {
+            let mut entry = entry(id);
+            entry.track.album.uri = album.to_string();
+            entry.track.album.name = album.to_uppercase();
+            entry.track.source = source.cloned();
+            entry
+        };
+        let a = Source {
+            uri: "a".into(),
+            name: "A".into(),
+        };
+        list.append(vec![
+            on(1, "x", Some(&late)),
+            on(2, "y", Some(&late)),
+            on(3, "z", Some(&late)),
+            on(4, "a", Some(&a)),
+            on(5, "a", Some(&a)),
+            on(6, "a", None),
+            on(7, "a", None),
+        ]);
+        let run = |start, len, header| Run { start, len, header };
+        let runs = list.runs(Grouping::Source);
+        assert_eq!(runs, [run(0, 3, true), run(3, 2, true), run(5, 2, false)]);
+        assert_eq!(
+            list.heading(runs[0], Grouping::Source),
+            ("Late Trains".into(), Some("Spotify playlist".into()))
+        );
+        // By album, the songs added on their own join their album's.
+        assert_eq!(
+            list.runs(Grouping::Album),
+            [run(0, 3, false), run(3, 4, true)]
+        );
+        assert_eq!(list.heading(run(3, 4, true), Grouping::Album).0, "A");
     }
 
     #[test]

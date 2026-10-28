@@ -14,7 +14,8 @@ use crate::browse::{Browse, Loadable, Page, Removal, Undo, Unlisted};
 use crate::browser::{self, Browser};
 use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
 use crate::model::catalog::{Place, SpotifyPlaylist, SpotifyTarget};
-use crate::model::{ArtistRef, EntryId, Library, Playback, Playlist, PlaylistId, TrackRef};
+use crate::model::playlist::from_source;
+use crate::model::{ArtistRef, EntryId, Library, Playback, Playlist, PlaylistId, Source, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
 use crate::playback::equaliser::{self, Preset};
@@ -501,7 +502,8 @@ impl Controller {
                     match result {
                         Ok(songs) => {
                             for (list, at) in pending {
-                                self.insert_tracks(list, at, songs.tracks.clone());
+                                let tracks = self.added_from(&album, songs.tracks.clone());
+                                self.insert_tracks(list, at, tracks);
                             }
                             let browse = &mut self.state.browse;
                             if songs.places.is_empty() {
@@ -635,6 +637,10 @@ impl Controller {
             Action::SignOut => return self.send(Command::SignOut),
             Action::SetPhosphor(phosphor) => {
                 state.settings.phosphor = phosphor;
+                return self.mark_unsaved();
+            }
+            Action::SetGrouping(grouping) => {
+                state.settings.grouping = grouping;
                 return self.mark_unsaved();
             }
             Action::SetLevelling(on) => {
@@ -1372,7 +1378,7 @@ impl Controller {
         let target = self.state.browse.target;
         match self.state.browse.albums.get(&album) {
             Some(Loadable::Ready(tracks)) => {
-                let tracks = tracks.clone();
+                let tracks = self.added_from(&album, tracks.clone());
                 self.insert_tracks(target, at, tracks);
             }
             _ => {
@@ -1381,6 +1387,22 @@ impl Controller {
                 self.read_album(album);
             }
         }
+    }
+
+    /// An album's or a Spotify playlist's songs, as added from it.
+    fn added_from(&self, uri: &str, tracks: Vec<TrackRef>) -> Vec<TrackRef> {
+        let name = match self.state.browse.spotify_playlist(uri) {
+            Some(playlist) => playlist.name.clone(),
+            None => match tracks.first() {
+                Some(track) if track.album.uri == uri => track.album.name.clone(),
+                _ => return tracks,
+            },
+        };
+        let source = Source {
+            uri: uri.to_string(),
+            name,
+        };
+        from_source(tracks, &source)
     }
 
     /// Reads the account's Spotify playlists again, as they may have
@@ -1730,6 +1752,7 @@ mod tests {
     use super::*;
     use crate::model::catalog::Songs;
     use crate::model::playlist::tests::entry;
+    use crate::model::{AlbumRef, Grouping};
     use crate::playback::equaliser::Equaliser;
 
     /// A controller on empty folders, with a backend the test plays.
@@ -1872,6 +1895,71 @@ mod tests {
             result: Ok(songs(tracks([7, 8]))),
         });
         assert_eq!(rig.songs(), ["Song 1", "Song 7", "Song 8", "Song 2"]);
+    }
+
+    #[test]
+    fn songs_added_from_an_album_or_a_spotify_playlist_keep_where_from() {
+        let mut rig = Rig::new("sources");
+        rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
+        rig.tell(Event::SpotifyPlaylists(Ok(vec![SpotifyPlaylist {
+            uri: "spotify:playlist:late".into(),
+            name: "Late Trains".into(),
+            tracks: 2,
+            owner: None,
+            private: false,
+        }])));
+        let on_album = |ids: [u64; 2]| {
+            let mut tracks = tracks(ids);
+            for track in &mut tracks {
+                track.album = AlbumRef {
+                    uri: "spotify:album:a".into(),
+                    name: "Afterhours".into(),
+                };
+            }
+            tracks
+        };
+        for (uri, read) in [
+            ("spotify:album:a", on_album([1, 2])),
+            ("spotify:playlist:late", tracks([3, 4])),
+        ] {
+            rig.controller.apply(Action::AddAlbum(uri.into()));
+            rig.tell(Event::Album {
+                album: uri.into(),
+                result: Ok(songs(read)),
+            });
+        }
+        let state = rig.controller.state();
+        let sources: Vec<_> = state
+            .library
+            .get(state.viewed)
+            .unwrap()
+            .entries()
+            .iter()
+            .map(|e| {
+                e.track
+                    .source
+                    .as_ref()
+                    .map(|s| (s.uri.as_str(), s.name.as_str()))
+            })
+            .collect();
+        let album = Some(("spotify:album:a", "Afterhours"));
+        let late = Some(("spotify:playlist:late", "Late Trains"));
+        assert_eq!(sources, [album, album, late, late]);
+        // Kept when copied to another playlist.
+        let copied: Vec<_> = state.library.get(state.viewed).unwrap().entries()[2..]
+            .iter()
+            .map(|e| e.track.clone())
+            .collect();
+        rig.controller.apply(Action::NewPlaylistWith(copied));
+        let state = rig.controller.state();
+        let list = state.library.get(state.viewed).unwrap();
+        assert!(
+            list.entries()
+                .iter()
+                .all(|e| e.track.source.as_ref().map(|s| s.name.as_str()) == Some("Late Trains"))
+        );
+        rig.controller.apply(Action::SetGrouping(Grouping::None));
+        assert_eq!(rig.controller.state().settings.grouping, Grouping::None);
     }
 
     #[test]

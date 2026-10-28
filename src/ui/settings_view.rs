@@ -21,6 +21,7 @@ use crate::backend::{SearchState, SessionState, Store};
 use crate::browse::Loadable;
 use crate::lastfm::LastFmStatus;
 use crate::lastfm::api::is_key;
+use crate::model::Grouping;
 use crate::skin;
 use crate::spotify::webapi::REDIRECT_URI;
 use crate::store::AUDIO_CACHE_SIZES;
@@ -112,6 +113,8 @@ enum Item {
     Smaller,
     Larger,
     Covers,
+    /// One of the ways to put songs under headers, in their order.
+    Grouping(usize),
     /// One of the skins listed, 0 being Spotless Classic.
     Skin(usize),
     /// One of the phosphors, in their order.
@@ -361,6 +364,7 @@ fn items(category: Category, view: &View, outputs: usize) -> Vec<Item> {
             .collect(),
         Category::Display => [Item::Smaller, Item::Larger, Item::Covers]
             .into_iter()
+            .chain((0..Grouping::ALL.len()).map(Item::Grouping))
             .chain((0..skin_rows().len()).map(Item::Skin))
             .chain((0..Phosphor::ALL.len()).map(Item::Phosphor))
             .collect(),
@@ -775,6 +779,22 @@ impl Controls<'_, '_> {
                 self.actions.push(Action::ToggleCovers);
             }
             note(ui, palette, "Album covers and artist pictures in Browse.");
+        });
+        row(ui, palette, "Song headers", |ui| {
+            let chosen = self.view.settings.grouping;
+            for (i, grouping) in Grouping::ALL.into_iter().enumerate() {
+                let on = grouping == chosen;
+                let choice = radio(ui, palette, on, grouping.name());
+                self.ring(ui, Item::Grouping(i), &choice);
+                if !on && (choice.clicked() || (self.pressed)(Item::Grouping(i))) {
+                    self.actions.push(Action::SetGrouping(grouping));
+                }
+            }
+            note(
+                ui,
+                palette,
+                "Two or more songs in a row added from one place, or from one album, sit under a header with its name.",
+            );
         });
         row(ui, palette, "Skin", |ui| {
             let chosen = self.view.settings.skin.as_deref();

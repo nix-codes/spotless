@@ -25,7 +25,7 @@ use tokio::task::JoinHandle;
 
 use super::catalog;
 use super::queue::{Part, Queued, SpotifyQueue};
-use crate::model::TrackRef;
+use crate::model::{Source, TrackRef};
 use crate::paths::Paths;
 #[cfg(target_os = "android")]
 use crate::playback::aaudio::AAudioSink;
@@ -363,7 +363,19 @@ fn read(
         (true, true, true) => Status::Paused,
         _ => Status::Stopped,
     };
-    let named = |track: &ProvidedTrack| names.get(&track.uri).cloned();
+    // Songs from the album or playlist it plays from have that as their
+    // source; those queued or from autoplay, none.
+    let named = |track: &ProvidedTrack| {
+        let mut named = names.get(&track.uri).cloned()?;
+        let from_context = !matches!(track.provider.as_str(), "queue" | "autoplay");
+        if from_context && !state.context_uri.is_empty() {
+            named.source = Some(Source {
+                uri: state.context_uri.clone(),
+                name: context_name(state, &named),
+            });
+        }
+        Some(named)
+    };
     // What a clear leaves is shown as nothing, unless it plays.
     let filler = |track: &ProvidedTrack| track.uri == EMPTY_TRACK;
     let before = state.prev_tracks.len().saturating_sub(BEFORE);

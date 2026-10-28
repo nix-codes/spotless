@@ -5,7 +5,7 @@ use spotless_core::browse::{self as core_browse, Loadable, Page};
 use spotless_core::controller::State;
 use spotless_core::lastfm::{self, LastFmStatus};
 use spotless_core::model::catalog::{self, ReleaseGroup as CoreGroup, ReleaseTab as CoreTab};
-use spotless_core::model::{AlbumRef, ArtistRef, Playlist, PlaylistId, TrackRef};
+use spotless_core::model::{AlbumRef, ArtistRef, Grouping, Playlist, PlaylistId, TrackRef};
 use spotless_core::phosphor::Phosphor;
 use spotless_core::playback::engine;
 use spotless_core::spotify::queue::SpotifyQueue;
@@ -80,6 +80,8 @@ impl From<Track> for TrackRef {
                 name: track.album.name,
             },
             duration_ms: track.duration_ms,
+            // The app doesn't group by it yet.
+            source: None,
         }
     }
 }
@@ -368,7 +370,8 @@ pub struct PlaylistView {
 
 pub(crate) fn playlist(state: &State, id: PlaylistId) -> Option<PlaylistView> {
     let list = state.library.get(id)?;
-    let runs = list.runs();
+    // By album until the app offers the choice.
+    let runs = list.runs(Grouping::Album);
     let run_at = |index: usize| runs.iter().find(|run| run.start == index);
     Some(PlaylistView {
         id: list.id.0,
@@ -382,9 +385,9 @@ pub(crate) fn playlist(state: &State, id: PlaylistId) -> Option<PlaylistView> {
                 track: (&entry.track).into(),
                 mark: list.mark_number(entry.id).map(count),
                 album_run: run_at(index)
-                    .filter(|run| run.album)
+                    .filter(|run| run.header)
                     .map_or(0, |run| count(run.len)),
-                set_off: run_at(index).is_some_and(|run| !run.album && index > 0),
+                set_off: run_at(index).is_some_and(|run| !run.header && index > 0),
             })
             .collect(),
         cursor: list.cursor().map(|id| id.0),
