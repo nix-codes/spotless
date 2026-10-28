@@ -1892,6 +1892,7 @@ mod tests {
             name: uri.into(),
             tracks,
             owner: None,
+            private: false,
         };
         // Songs read before: one playlist shown, one not.
         for uri in ["spotify:playlist:shown", "spotify:playlist:hidden"] {
@@ -1942,6 +1943,7 @@ mod tests {
             name: "Mine".into(),
             tracks: 4,
             owner: owner.map(String::from),
+            private: false,
         };
         rig.tell(Event::SpotifyPlaylists(Ok(vec![
             playlist("spotify:playlist:mine", None),
@@ -2027,6 +2029,7 @@ mod tests {
             name: name.into(),
             tracks: 1,
             owner: owner.map(String::from),
+            private: false,
         };
         // Listed as Spotify has them; shown the account's own first.
         rig.tell(Event::SpotifyPlaylists(Ok(vec![

@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use futures_util::future::join_all;
+use futures_util::stream::{self, StreamExt};
 use librespot_core::error::ErrorKind;
 use librespot_core::session::Session;
 use librespot_core::{Error, SpotifyUri};
@@ -14,8 +15,10 @@ use librespot_protocol::extended_metadata::{
     BatchedEntityRequest, BatchedExtensionResponse, EntityRequest, ExtensionQuery,
 };
 use librespot_protocol::extension_kind::ExtensionKind;
+use librespot_protocol::playlist_permission::{Permission, PermissionLevel};
 use librespot_protocol::playlist4_external::SelectedListContent;
 use protobuf::{EnumOrUnknown, Message};
+use reqwest::Method;
 
 use crate::model::catalog::{
     Discography, Place, Release, ReleaseGroup, Songs, SpotifyPlaylist, tidy,
@@ -133,6 +136,7 @@ pub async fn playlists(session: &Session) -> Result<Vec<SpotifyPlaylist>> {
         name: "Liked Songs".into(),
         tracks: liked.len(),
         owner: None,
+        private: true,
     }];
     let mut owners = Vec::new();
     let mut from = 0;
@@ -153,6 +157,7 @@ pub async fn playlists(session: &Session) -> Result<Vec<SpotifyPlaylist>> {
                 name: meta.attributes.name().into(),
                 tracks: meta.length().max(0) as usize,
                 owner: None,
+                private: false,
             });
             owners.push(meta.owner_username().to_string());
         }
@@ -163,18 +168,50 @@ pub async fn playlists(session: &Session) -> Result<Vec<SpotifyPlaylist>> {
     }
     let me = session.username();
     let others: HashSet<&String> = owners.iter().filter(|owner| **owner != me).collect();
-    let names: HashMap<&String, String> = join_all(
+    let names = join_all(
         others
             .into_iter()
             .map(|owner| async move { (owner, display_name(session, owner).await) }),
-    )
-    .await
-    .into_iter()
-    .collect();
-    for (playlist, owner) in found[1..].iter_mut().zip(&owners) {
+    );
+    // The account's own, a few at a time: the list doesn't say.
+    let mine: Vec<usize> = (0..owners.len()).filter(|&n| owners[n] == me).collect();
+    let private = stream::iter(mine)
+        .map(|n| {
+            let uri = &found[n + 1].uri;
+            async move { (n, is_private(session, uri).await) }
+        })
+        .buffer_unordered(PERMISSION_READS)
+        .collect::<Vec<_>>();
+    let (names, private) = futures_util::join!(names, private);
+    let names: HashMap<&String, String> = names.into_iter().collect();
+    let private: HashSet<usize> = private
+        .into_iter()
+        .filter_map(|(n, private)| private.then_some(n))
+        .collect();
+    for (n, (playlist, owner)) in found[1..].iter_mut().zip(&owners).enumerate() {
         playlist.owner = names.get(owner).cloned();
+        playlist.private = private.contains(&n);
     }
     Ok(found)
+}
+
+/// Playlists whose privacy is read at once.
+const PERMISSION_READS: usize = 8;
+
+/// Whether only those a playlist is shared with can see it. Spotify keeps
+/// it apart from the playlist, as who may see it by default; the `public`
+/// flag in the account's list only says whether it's on the profile. A
+/// playlist whose privacy can't be read counts as public.
+async fn is_private(session: &Session, uri: &str) -> bool {
+    let id = uri.trim_start_matches("spotify:playlist:");
+    let endpoint = format!("/playlist-permission/v1/playlist/{id}/permission/base");
+    let read = session
+        .spclient()
+        .request(&Method::GET, &endpoint, None, None)
+        .await;
+    read.ok()
+        .and_then(|bytes| Permission::parse_from_bytes(&bytes).ok())
+        .is_some_and(|base| base.permission_level() == PermissionLevel::BLOCKED)
 }
 
 /// A Spotify user's name as Spotify shows it, else their username.

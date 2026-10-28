@@ -12,8 +12,8 @@
 use std::collections::BTreeSet;
 
 use egui::{
-    Align2, Event, Id, Key, Modifiers, Rect, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui,
-    UiBuilder, pos2, vec2,
+    Align2, Color32, Event, Id, Key, Modifiers, Pos2, Rect, RichText, ScrollArea, Sense, Stroke,
+    TextEdit, Ui, UiBuilder, pos2, vec2,
 };
 
 use super::{Act, Area, CatalogDrag, Nav, PAD, TRACK_HEIGHT, body, mono, note, row, spans};
@@ -241,8 +241,12 @@ fn playlist_list(
                         mono(),
                         palette.dim,
                     );
-                    let clip =
-                        Rect::from_min_max(rect.min, pos2(count.left() - 6.0, rect.bottom()));
+                    let mut end = count.left() - 6.0;
+                    if playlist.private {
+                        lock(painter, pos2(end - 4.0, rect.center().y), palette.dim);
+                        end -= 13.0;
+                    }
+                    let clip = Rect::from_min_max(rect.min, pos2(end, rect.bottom()));
                     let color = if chosen {
                         palette.current
                     } else {
@@ -276,6 +280,24 @@ fn playlist_list(
             }
         })
     });
+}
+
+/// A padlock about 9 px high, centred on `c`: a private playlist.
+fn lock(painter: &egui::Painter, c: Pos2, color: Color32) {
+    let body = Rect::from_center_size(c + vec2(0.0, 1.5), vec2(8.0, 6.0));
+    painter.rect_filled(body, 1.0, color);
+    // The shackle: a half ring on two short legs.
+    let top = body.top();
+    let shackle: Vec<Pos2> = (0..=8)
+        .map(|i| {
+            let angle = std::f32::consts::PI * i as f32 / 8.0;
+            pos2(c.x - 2.5 * angle.cos(), top - 1.5 - 2.5 * angle.sin())
+        })
+        .collect();
+    let mut points = vec![pos2(c.x - 2.5, top)];
+    points.extend(shackle);
+    points.push(pos2(c.x + 2.5, top));
+    painter.add(egui::Shape::line(points, Stroke::new(1.3, color)));
 }
 
 /// What taking a playlist out of the account's list does to it.

@@ -99,17 +99,17 @@ pub fn discography() -> Discography {
 /// The account's playlists on Spotify, as Browse lists them.
 pub fn spotify_playlists() -> Vec<SpotifyPlaylist> {
     [
-        ("Liked Songs", 214, None),
-        ("Late Trains", 38, None),
-        ("Basement Tapes", 112, None),
-        ("Fog Machine", 57, Some("Marta K.")),
-        ("Sunday Static", 23, None),
-        ("Tape Hiss Forever", 76, Some("lowfi_otto")),
-        ("Running Order", 41, None),
+        ("Liked Songs", 214, None, true),
+        ("Late Trains", 38, None, false),
+        ("Basement Tapes", 112, None, true),
+        ("Fog Machine", 57, Some("Marta K."), false),
+        ("Sunday Static", 23, None, false),
+        ("Tape Hiss Forever", 76, Some("lowfi_otto"), false),
+        ("Running Order", 41, None, false),
     ]
     .into_iter()
     .enumerate()
-    .map(|(n, (name, tracks, owner))| SpotifyPlaylist {
+    .map(|(n, (name, tracks, owner, private))| SpotifyPlaylist {
         uri: match n {
             0 => crate::spotify::catalog::LIKED_SONGS.into(),
             n => format!("spotify:playlist:demo-{n}"),
@@ -117,6 +117,7 @@ pub fn spotify_playlists() -> Vec<SpotifyPlaylist> {
         name: name.into(),
         tracks,
         owner: owner.map(String::from),
+        private,
     })
     .collect()
 }

@@ -66,6 +66,8 @@ pub struct SpotifyPlaylist {
     pub tracks: usize,
     /// Who made it, when someone else did: their name on Spotify.
     pub owner: Option<String>,
+    /// Only those it's shared with can see it.
+    pub private: bool,
 }
 
 /// Where a song read from a Spotify playlist or Liked Songs is there:
