@@ -14,7 +14,8 @@ use std::collections::BTreeSet;
 
 use egui::{
     Align2, Color32, FocusDirection, FontId, Id, Key, Painter, Rect, Response, RichText,
-    ScrollArea, Sense, Stroke, StrokeKind, TextEdit, Ui, UiBuilder, pos2, vec2,
+    ScrollArea, Sense, Stroke, StrokeKind, TextEdit, Ui, UiBuilder, WidgetInfo, WidgetType, pos2,
+    vec2,
 };
 
 use super::scrollbar::{self, Scrollbar};
@@ -430,7 +431,9 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actio
 fn tabs(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let shown = view.browse.shown;
-    ui.horizontal(|ui| {
+    let mut shown_rect = None;
+    let row = ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 3.0;
         for (tab, label, key) in [
             (BrowseTab::Search, "SEARCH", "Search Spotify (F3 or Ctrl+F)"),
             (
@@ -439,11 +442,25 @@ fn tabs(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
                 "Your Spotify playlists (F4)",
             ),
         ] {
-            if text_button(ui, &palette, label, shown == tab, true)
-                .on_hover_text(key)
-                .clicked()
-                && shown != tab
-            {
+            let font = FontId::monospace(11.0);
+            let width = ui
+                .painter()
+                .layout_no_wrap(label.into(), font.clone(), palette.dim)
+                .size()
+                .x;
+            let (rect, response) =
+                ui.allocate_exact_size(vec2(width + 24.0, BUTTON_HEIGHT), Sense::click());
+            response.widget_info(|| {
+                WidgetInfo::selected(WidgetType::SelectableLabel, true, shown == tab, label)
+            });
+            let color =
+                super::playlist_view::paint_tab(ui, &palette, rect, &response, shown == tab);
+            ui.painter()
+                .text(rect.center(), Align2::CENTER_CENTER, label, font, color);
+            if shown == tab {
+                shown_rect = Some(rect);
+            }
+            if response.on_hover_text(key).clicked() && shown != tab {
                 actions.push(Action::ShowBrowseTab(tab));
                 inputs.nav.area = match tab {
                     BrowseTab::Search => Area::Results,
@@ -463,6 +480,7 @@ fn tabs(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
             }
         });
     });
+    super::playlist_view::tab_baseline(ui, &palette, shown_rect, row.response.rect.bottom());
 }
 
 fn home(ui: &mut Ui, view: &View, nav: &mut Nav, set_up: &mut bool, actions: &mut Actions) {

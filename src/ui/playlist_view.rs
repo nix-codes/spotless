@@ -31,7 +31,7 @@ use crate::model::{EntryId, Playlist, PlaylistId, Run};
 use crate::playback::engine::Status;
 
 const ROW_HEIGHT: f32 = 18.0;
-const TAB_HEIGHT: f32 = 22.0;
+pub(super) const TAB_HEIGHT: f32 = 22.0;
 const TAB_GAP: f32 = 3.0;
 /// The time a tab takes to slide to its new place.
 const TAB_SLIDE: f32 = 0.12;
@@ -324,16 +324,27 @@ fn tab_layout(widths: &[f32], dragged: Option<(usize, f32)>) -> (Vec<f32>, Optio
 /// The line the tabs stand on, across the panel, broken under the
 /// shown tab so it opens into the list.
 fn baseline(ui: &Ui, view: &View, tabs: &[(PlaylistId, Rect)], bar: Rect) {
+    let shown = tabs.iter().find(|(id, _)| *id == view.playlist.id);
+    tab_baseline(
+        ui,
+        &view.palette,
+        shown.map(|(_, rect)| *rect),
+        bar.bottom(),
+    );
+}
+
+/// The line tabs stand on at `bottom`, across the panel, broken under
+/// the `shown` tab's rect. A skin's tabs draw their own.
+pub(super) fn tab_baseline(ui: &Ui, palette: &Palette, shown: Option<Rect>, bottom: f32) {
     if skin_paint::has_chrome(ui.ctx(), "tab") {
         return;
     }
-    let palette = view.palette;
-    let stroke = Stroke::new(1.0, tab_edge(&palette));
-    let y = bar.bottom() - 0.5;
+    let stroke = Stroke::new(1.0, tab_edge(palette));
+    let y = bottom - 0.5;
     let (left, right) = (ui.max_rect().left(), ui.max_rect().right());
     let painter = ui.painter();
-    match tabs.iter().find(|(id, _)| *id == view.playlist.id) {
-        Some((_, shown)) => {
+    match shown {
+        Some(shown) => {
             painter.hline(left..=shown.left(), y, stroke);
             painter.hline(shown.right()..=right, y, stroke);
         }
@@ -385,6 +396,40 @@ fn tab_width(ui: &Ui, view: &View, list: &Tab) -> f32 {
         + 10.0
 }
 
+/// A tab's frame in `rect`, and the colour for its name. Every tab is
+/// drawn alike; the shown one opens into what's below the baseline
+/// (`tab_baseline`), with a lit top edge and the bright text.
+pub(super) fn paint_tab(
+    ui: &Ui,
+    palette: &Palette,
+    rect: Rect,
+    response: &egui::Response,
+    shown: bool,
+) -> Color32 {
+    let painter = ui.painter();
+    let state = skin_paint::state(response, shown, true);
+    if skin_paint::chrome(painter, "tab", state, rect) {
+        return palette.button_text;
+    }
+    let edge = Stroke::new(1.0, tab_edge(palette));
+    let r = rect.shrink(0.5);
+    if !shown {
+        painter.rect_filled(rect, 0.0, palette.button.gamma_multiply(0.25));
+    }
+    painter.line_segment([r.left_bottom(), r.left_top()], edge);
+    painter.line_segment([r.left_top(), r.right_top()], edge);
+    painter.line_segment([r.right_top(), r.right_bottom()], edge);
+    if shown {
+        let top = Rect::from_min_max(rect.min, pos2(rect.right(), rect.top() + 2.0));
+        painter.rect_filled(top, 0.0, palette.accent);
+        palette.current
+    } else if response.hovered() {
+        palette.list_fg
+    } else {
+        palette.dim
+    }
+}
+
 /// One tab, in `rect`. Rows dropped on it are copied there, or moved with
 /// Shift held.
 fn tab(
@@ -403,30 +448,8 @@ fn tab(
     let play_width = if playing { PLAY_WIDTH } else { 0.0 };
     let response = ui.interact(rect, Id::new(("tab", list.id)), Sense::click_and_drag());
     let painter = ui.painter();
-    let state = skin_paint::state(&response, shown, true);
-    let skinned = skin_paint::chrome(painter, "tab", state, rect);
-    // Every tab is drawn alike; the shown one opens into the list below
-    // the bar's baseline (drawn in `tab_bar`) and has the bright text.
-    if !skinned {
-        let edge = Stroke::new(1.0, tab_edge(&palette));
-        let r = rect.shrink(0.5);
-        if !shown {
-            painter.rect_filled(rect, 0.0, palette.button.gamma_multiply(0.25));
-        }
-        painter.line_segment([r.left_bottom(), r.left_top()], edge);
-        painter.line_segment([r.left_top(), r.right_top()], edge);
-        painter.line_segment([r.right_top(), r.right_bottom()], edge);
-        if shown {
-            let top = Rect::from_min_max(rect.min, pos2(rect.right(), rect.top() + 2.0));
-            painter.rect_filled(top, 0.0, palette.accent);
-        }
-    }
-    let (text_color, count_color) = match (skinned, shown) {
-        (true, _) => (palette.button_text, palette.dim),
-        (false, true) => (palette.current, palette.dim),
-        (false, false) if response.hovered() => (palette.list_fg, palette.dim),
-        (false, false) => (palette.dim, palette.dim),
-    };
+    let text_color = paint_tab(ui, &palette, rect, &response, shown);
+    let count_color = palette.dim;
     let mut x = rect.left() + 10.0;
     if playing && view.player.status == Status::Playing {
         dancing_bars(ui, painter, pos2(x + 3.0, rect.center().y), &palette);
