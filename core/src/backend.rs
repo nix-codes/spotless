@@ -1493,7 +1493,9 @@ impl Worker {
                 let emit = Arc::clone(&self.emit);
                 tokio::spawn(async move {
                     let result = match &target {
-                        SpotifyTarget::New(name) => playlists::create(&session, name, &songs).await,
+                        SpotifyTarget::New { name, private } => {
+                            playlists::create(&session, name, *private, &songs).await
+                        }
                         SpotifyTarget::Playlist { uri, .. } => {
                             playlists::add(&session, uri, &songs)
                                 .await

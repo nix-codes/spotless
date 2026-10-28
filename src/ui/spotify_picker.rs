@@ -1,7 +1,7 @@
 //! Choosing the Spotify playlist songs are copied to: one of the account's
 //! own, found by typing part of its name, or a new one, whose name is
-//! asked next (the songs' tab's to start with). The arrows move the
-//! highlight, Enter copies, Esc cancels.
+//! asked next (the songs' tab's to start with), with whether it's private
+//! or public. The arrows move the highlight, Enter copies, Esc cancels.
 
 use egui::text::{CCursor, CCursorRange};
 use egui::{Align2, Id, Key, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui, pos2, vec2};
@@ -32,6 +32,8 @@ pub struct Picker {
     focused: bool,
     /// The new playlist's name, while it is asked for.
     naming: Option<String>,
+    /// Only those it's shared with see the new playlist.
+    private: bool,
 }
 
 impl Picker {
@@ -44,6 +46,7 @@ impl Picker {
             reveal: false,
             focused: false,
             naming: None,
+            private: true,
         }
     }
 
@@ -281,6 +284,25 @@ fn name(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
                 }
                 picker.focused = true;
             }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let choices = [
+                    (
+                        true,
+                        "PRIVATE",
+                        "Only you, and those you share it with, see it",
+                    ),
+                    (false, "PUBLIC", "Anyone can find it and see it"),
+                ];
+                for (private, label, hint) in choices {
+                    if small_button(ui, &palette, label, picker.private == private)
+                        .on_hover_text(hint)
+                        .clicked()
+                    {
+                        picker.private = private;
+                    }
+                }
+            });
             ui.add_space(12.0);
             ui.horizontal(|ui| {
                 if small_button(ui, &palette, "SAVE", false)
@@ -302,7 +324,10 @@ fn name(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     }
     let name = picker.naming.as_deref().unwrap_or_default().trim();
     if save && !name.is_empty() {
-        let target = SpotifyTarget::New(name.to_string());
+        let target = SpotifyTarget::New {
+            name: name.to_string(),
+            private: picker.private,
+        };
         actions.push(Action::CopyToSpotify(target, picker.tracks.clone()));
         cancel = true;
     }

@@ -95,7 +95,7 @@ async fn create(session: &Session) -> Result<()> {
         .await?;
     let songs: Vec<String> = liked.items.iter().map(|i| i.uri.clone()).collect();
     let began = std::time::Instant::now();
-    let uri = playlists::create(session, "Spotless test", &songs[..2]).await?;
+    let uri = playlists::create(session, "Spotless test", true, &songs[..2]).await?;
     println!("created {uri} in {:?}", began.elapsed());
     playlists::add(session, &uri, &songs[2..]).await?;
     let playlist = Playlist::get(session, &SpotifyUri::from_uri(&uri)?).await?;
@@ -133,7 +133,7 @@ async fn edit(session: &Session) -> Result<()> {
     let s: Vec<String> = liked.items.iter().map(|i| i.uri.clone()).collect();
     // a b a c: the second "a" is removed, with c.
     let songs = vec![s[0].clone(), s[1].clone(), s[0].clone(), s[2].clone()];
-    let uri = playlists::create(session, "Spotless test", &songs).await?;
+    let uri = playlists::create(session, "Spotless test", false, &songs).await?;
     let target = SpotifyUri::from_uri(&uri)?;
     let show = |p: &Playlist| -> Vec<String> {
         p.tracks()
@@ -169,7 +169,7 @@ async fn edit(session: &Session) -> Result<()> {
 /// Takes a throwaway playlist out of the list and puts it back, second,
 /// where it was moved to before.
 async fn unlist(session: &Session) -> Result<()> {
-    let uri = playlists::create(session, "Spotless test", &[]).await?;
+    let uri = playlists::create(session, "Spotless test", false, &[]).await?;
     let place =
         |root: &SelectedListContent| root.contents.items.iter().position(|i| i.uri() == uri);
     // Second in the list, behind the one that was first.

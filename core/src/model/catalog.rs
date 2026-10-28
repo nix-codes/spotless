@@ -95,8 +95,9 @@ pub struct Songs {
 /// Where songs copied to Spotify go.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SpotifyTarget {
-    /// A new playlist by this name.
-    New(String),
+    /// A new playlist by this name; private, only those it's shared with
+    /// see it.
+    New { name: String, private: bool },
     /// One of the account's own playlists.
     Playlist { uri: String, name: String },
 }
@@ -104,7 +105,7 @@ pub enum SpotifyTarget {
 impl SpotifyTarget {
     pub fn name(&self) -> &str {
         match self {
-            Self::New(name) | Self::Playlist { name, .. } => name,
+            Self::New { name, .. } | Self::Playlist { name, .. } => name,
         }
     }
 }

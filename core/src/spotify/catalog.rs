@@ -195,6 +195,12 @@ pub async fn playlists(session: &Session) -> Result<Vec<SpotifyPlaylist>> {
     Ok(found)
 }
 
+/// Where who may see a playlist by default is read and set.
+pub(super) fn base_permission(uri: &str) -> String {
+    let id = uri.trim_start_matches("spotify:playlist:");
+    format!("/playlist-permission/v1/playlist/{id}/permission/base")
+}
+
 /// Playlists whose privacy is read at once.
 const PERMISSION_READS: usize = 8;
 
@@ -203,11 +209,9 @@ const PERMISSION_READS: usize = 8;
 /// flag in the account's list only says whether it's on the profile. A
 /// playlist whose privacy can't be read counts as public.
 async fn is_private(session: &Session, uri: &str) -> bool {
-    let id = uri.trim_start_matches("spotify:playlist:");
-    let endpoint = format!("/playlist-permission/v1/playlist/{id}/permission/base");
     let read = session
         .spclient()
-        .request(&Method::GET, &endpoint, None, None)
+        .request(&Method::GET, &base_permission(uri), None, None)
         .await;
     read.ok()
         .and_then(|bytes| Permission::parse_from_bytes(&bytes).ok())

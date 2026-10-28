@@ -2112,7 +2112,10 @@ mod tests {
     #[test]
     fn songs_copied_to_spotify_are_sent_once_signed_in() {
         let mut rig = Rig::new("copy-to-spotify");
-        let target = SpotifyTarget::New("Garage".into());
+        let target = SpotifyTarget::New {
+            name: "Garage".into(),
+            private: true,
+        };
         let copy = Action::CopyToSpotify(target.clone(), tracks([1, 2]));
         rig.controller.apply(copy.clone());
         assert!(rig.controller.state().error.is_some());
@@ -2122,7 +2125,7 @@ mod tests {
         let sent = rig.sent();
         assert!(sent.iter().any(|c| matches!(
             c,
-            Command::CopyToSpotify { target: SpotifyTarget::New(name), songs }
+            Command::CopyToSpotify { target: SpotifyTarget::New { name, private: true }, songs }
                 if name == "Garage" && songs.len() == 2
         )));
         rig.tell(Event::CopiedToSpotify {

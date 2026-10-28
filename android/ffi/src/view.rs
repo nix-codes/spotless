@@ -619,7 +619,10 @@ pub enum SpotifyTarget {
 impl From<SpotifyTarget> for catalog::SpotifyTarget {
     fn from(target: SpotifyTarget) -> Self {
         match target {
-            SpotifyTarget::New { name } => Self::New(name),
+            SpotifyTarget::New { name } => Self::New {
+                name,
+                private: false,
+            },
             SpotifyTarget::Playlist { uri, name } => Self::Playlist { uri, name },
         }
     }

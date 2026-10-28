@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use librespot_core::session::Session;
 use librespot_core::{SpotifyId, SpotifyUri};
 use librespot_protocol::collection2v2::CollectionItem;
+use librespot_protocol::playlist_permission::{Permission, PermissionLevel};
 use librespot_protocol::playlist4_external::{
     Add, ChangeInfo, CreateListReply, Delta, Item, ItemAttributes, ListAttributes,
     ListAttributesPartialState, ListChanges, ListUpdateRequest, Op, Rem, SelectedListContent,
@@ -24,8 +25,13 @@ const BATCH: usize = 400;
 const ROOTLIST_PAGE: usize = 200;
 
 /// Makes a playlist by this name, first in the account's list,
-/// with these songs (track URIs). Answers its URI.
-pub async fn create(session: &Session, name: &str, songs: &[String]) -> Result<String> {
+/// with these songs (track URIs), private or public. Answers its URI.
+pub async fn create(
+    session: &Session,
+    name: &str,
+    private: bool,
+    songs: &[String],
+) -> Result<String> {
     let spclient = session.spclient();
     // Spotify makes it empty whatever the request says: the name and the
     // songs follow as changes.
@@ -39,6 +45,12 @@ pub async fn create(session: &Session, name: &str, songs: &[String]) -> Result<S
         .context("Spotify didn't make the playlist")?;
     let created = CreateListReply::parse_from_bytes(&reply)?;
     let uri = created.uri().to_string();
+    // Before it's listed or has songs, so it's never public with them.
+    if private {
+        make_private(session, &uri)
+            .await
+            .context("Spotify didn't make the playlist private")?;
+    }
 
     // In the account's list first, so that it shows whatever comes after.
     let bytes = spclient.get_rootlist(0, Some(0)).await?;
@@ -47,8 +59,8 @@ pub async fn create(session: &Session, name: &str, songs: &[String]) -> Result<S
         uri: Some(uri.clone()),
         attributes: MessageField::some(ItemAttributes {
             timestamp: Some(now_ms()),
-            // Kept off the public profile, yet Spotify's apps still
-            // show the playlist as public.
+            // Kept off the public profile, which doesn't make it
+            // private.
             public: Some(false),
             ..Default::default()
         }),
@@ -83,6 +95,22 @@ pub async fn create(session: &Session, name: &str, songs: &[String]) -> Result<S
     };
     write(session, &uri, created.revision, Some(rename), songs).await?;
     Ok(uri)
+}
+
+/// Lets only those a playlist is shared with see it: who may by default
+/// is set to none, from the revision of that setting now.
+async fn make_private(session: &Session, uri: &str) -> Result<()> {
+    let spclient = session.spclient();
+    let endpoint = super::catalog::base_permission(uri);
+    let now = spclient
+        .request(&Method::GET, &endpoint, None, None)
+        .await?;
+    let mut base = Permission::parse_from_bytes(&now)?;
+    base.set_permission_level(PermissionLevel::BLOCKED);
+    spclient
+        .request_with_protobuf(&Method::POST, &endpoint, None, &base)
+        .await?;
+    Ok(())
 }
 
 /// Adds songs (track URIs) to the end of a playlist.
