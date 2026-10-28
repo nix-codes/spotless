@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import dev.spotless.Core
 import dev.spotless.core.Action
+import dev.spotless.core.Header
 import dev.spotless.core.Played
 import dev.spotless.core.Song
 import dev.spotless.core.SpotifyRow
@@ -653,8 +654,8 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
             return@Box
         }
         val songs = list.songs
-        // Where each album's run starts, and how far down each song sits.
-        val starts = songs.indices.filter { songs[it].albumRun > 0u }
+        // Where each header's run starts, and how far down each song sits.
+        val starts = songs.indices.filter { songs[it].header != null }
         val tops = FloatArray(songs.size)
         var y = 0f
         for (i in songs.indices) {
@@ -683,11 +684,12 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
         ScrollingList(state, Modifier.fillMaxSize()) {
             songs.forEachIndexed { index, song ->
                 if (index in starts) {
-                    val run = songs.subList(index, index + song.albumRun.toInt()).map { it.entry }
+                    val header = song.header!!
+                    val run = songs.subList(index, index + header.songs.toInt()).map { it.entry }
                     val all = selected.containsAll(run)
-                    item(key = "album ${song.entry}") {
-                        AlbumHeader(
-                            song, all,
+                    item(key = "header ${song.entry}") {
+                        RunHeader(
+                            header, all,
                             tap = {
                                 when {
                                     selected.isEmpty() -> core.apply(Action.PlayEntry(list.id, song.entry))
@@ -777,28 +779,31 @@ private fun Modifier.setOff() = drawWithContent {
     drawLine(Classic.lcd.copy(alpha = 0.3f), Offset(0f, 0.5f), Offset(size.width, 0.5f), 1.dp.toPx())
 }
 
-/** Above an album's run of songs: its name and the first song's artist. */
+/**
+ * Above a run of songs from one album or one source: its name, and what
+ * it is or whose (an album's artist, "Spotify playlist").
+ */
 @Composable
-private fun AlbumHeader(song: Song, chosen: Boolean, tap: () -> Unit, hold: () -> Unit) {
-    val album = song.track.album.name
-    val artist = song.track.artists.firstOrNull()?.name
+private fun RunHeader(header: Header, chosen: Boolean, tap: () -> Unit, hold: () -> Unit) {
+    val name = header.name
+    val detail = header.detail
     Row(
         Modifier
             .fillMaxWidth()
             .height(HEADER)
             .background(if (chosen) Classic.selected else Classic.playingRow)
             .combinedClickable(onLongClick = hold, onClick = tap)
-            .semantics { contentDescription = listOfNotNull(album, artist).joinToString(", by ") }
+            .semantics { contentDescription = listOfNotNull(name, detail).joinToString(", ") }
             .padding(start = 10.dp, end = 18.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(3.dp).height(14.dp).background(if (chosen) Classic.current else Classic.lcd))
         val text = buildAnnotatedString {
-            withStyle(SpanStyle(color = if (chosen) Classic.current else Classic.lcd)) { append(album.uppercase()) }
-            if (artist != null) {
+            withStyle(SpanStyle(color = if (chosen) Classic.current else Classic.lcd)) { append(name.uppercase()) }
+            if (detail != null) {
                 withStyle(SpanStyle(color = if (chosen) Color(0xFFD6DCFF) else Classic.dim)) {
-                    append("  ·  ${artist.uppercase()}")
+                    append("  ·  ${detail.uppercase()}")
                 }
             }
         }
@@ -942,7 +947,7 @@ private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, se
                         val chosen = row.entry in selected
                         val index = songs.indexOf(row)
                         SongRow(
-                            null, Song(row.entry, row.track, null, 0u, false),
+                            null, Song(row.entry, row.track, null, null, false),
                             current = row.played == Played.NOW,
                             chosen = chosen,
                             selecting = selected.isNotEmpty(),

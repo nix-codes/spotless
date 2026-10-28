@@ -260,6 +260,10 @@ pub enum Action {
     SetPhosphor {
         key: String,
     },
+    /// The playlists' songs under headers by this way, by its key.
+    SetGrouping {
+        key: String,
+    },
     /// Saves this Last.fm API account and opens its approval page.
     ConnectLastFm {
         api_key: String,
@@ -466,6 +470,9 @@ impl From<Action> for spotless_core::action::Action {
             Action::SetPhosphor { key } => {
                 Core::SetPhosphor(spotless_core::phosphor::Phosphor::from_key(Some(&key)))
             }
+            Action::SetGrouping { key } => {
+                Core::SetGrouping(spotless_core::model::Grouping::from_key(Some(&key)))
+            }
             Action::ConnectLastFm { api_key, secret } => Core::ConnectLastFm(api_key, secret),
             Action::DisconnectLastFm => Core::DisconnectLastFm,
             Action::SetAudioCache { on } => Core::SetAudioCache(on),
@@ -649,6 +656,7 @@ mod tests {
                 name: "Music Has the Right to Children".into(),
             },
             duration_ms: 151_000,
+            source: None,
         };
         spotless.apply(Action::OpenBrowse);
         spotless.apply(Action::AddTracks {
@@ -701,6 +709,60 @@ mod tests {
     }
 
     #[test]
+    fn songs_added_from_a_spotify_playlist_sit_under_its_name() {
+        let root =
+            std::env::temp_dir().join(format!("spotless-ffi-headers-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let spotless = Spotless::demo(
+            root.join("config").display().to_string(),
+            root.join("cache").display().to_string(),
+            Arc::new(Recorder::default()),
+        )
+        .unwrap();
+        spotless.apply(Action::ShowBrowseTab {
+            tab: BrowseTab::Spotify,
+        });
+        let SpotifyPlaylists::Ready { playlists } = spotless.browse().your_spotify.playlists else {
+            panic!("the demo's playlists are read");
+        };
+        let late_trains = playlists[1].clone();
+        spotless.apply(Action::OpenSpotifyPlaylist {
+            uri: late_trains.uri.clone(),
+        });
+        let AlbumSongs::Ready { tracks } = spotless.browse().your_spotify.songs else {
+            panic!("the demo's songs are read");
+        };
+        let from = Source {
+            uri: late_trains.uri.clone(),
+            name: late_trains.name.clone(),
+        };
+        assert!(tracks.iter().all(|t| t.source.as_ref() == Some(&from)));
+        assert_eq!(
+            spotless.settings().song_headers,
+            "source",
+            "by source to start with"
+        );
+
+        let id = spotless.tabs().viewed;
+        let before = spotless.playlist(id).unwrap().songs.len();
+        spotless.apply(Action::AddTracks {
+            tracks: tracks[..3].to_vec(),
+        });
+        let songs = spotless.playlist(id).unwrap().songs;
+        let header = songs[before].header.clone().expect("a header over them");
+        assert_eq!(header.songs, 3);
+        assert_eq!(header.name, late_trains.name);
+        assert_eq!(header.detail.as_deref(), Some("Spotify playlist"));
+        assert_eq!(songs[before].track.source, Some(from));
+
+        spotless.apply(Action::SetGrouping { key: "none".into() });
+        assert_eq!(spotless.settings().song_headers, "none");
+        let songs = spotless.playlist(id).unwrap().songs;
+        assert!(songs.iter().all(|song| song.header.is_none()));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn songs_move_to_another_playlist_or_a_new_one() {
         let (spotless, root) = spotless("move");
         let track = |n: u32| Track {
@@ -712,6 +774,7 @@ mod tests {
                 name: "Album".into(),
             },
             duration_ms: 1000,
+            source: None,
         };
         spotless.apply(Action::OpenBrowse);
         spotless.apply(Action::AddTracks {

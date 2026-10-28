@@ -87,6 +87,7 @@ fun SettingsScreen(core: Core, close: () -> Unit) {
                 LastFmSection(core)
                 Playback(core)
                 Display(core)
+                SongHeaders(core)
                 Storage(core)
                 About()
             }
@@ -229,6 +230,30 @@ private fun Display(core: Core) {
             }
         }
         Note("The songs, the time and the song's name.")
+    }
+}
+
+/** What the playlists' songs sit under headers by. */
+@Composable
+private fun SongHeaders(core: Core) {
+    Section("SONG HEADERS") {
+        for (grouping in core.groupings) {
+            val chosen = grouping.key == core.settings.songHeaders
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .clickable(enabled = !chosen) { core.apply(Action.SetGrouping(grouping.key)) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .semantics { contentDescription = "Song headers: ${grouping.name}" },
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BasicText(if (chosen) "●" else "○", style = mono(16.sp, if (chosen) Classic.lcd else Classic.dim))
+                BasicText(grouping.name, style = body(15.sp, Classic.chrome, if (chosen) FontWeight.SemiBold else FontWeight.Normal))
+            }
+        }
+        Note("Two or more songs in a row added from one place, or from one album, sit under a header with its name.")
     }
 }
 

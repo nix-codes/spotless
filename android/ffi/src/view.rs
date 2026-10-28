@@ -5,7 +5,10 @@ use spotless_core::browse::{self as core_browse, Loadable, Page};
 use spotless_core::controller::State;
 use spotless_core::lastfm::{self, LastFmStatus};
 use spotless_core::model::catalog::{self, ReleaseGroup as CoreGroup, ReleaseTab as CoreTab};
-use spotless_core::model::{AlbumRef, ArtistRef, Grouping, Playlist, PlaylistId, TrackRef};
+use spotless_core::model::playlist::from_source;
+use spotless_core::model::{
+    AlbumRef, ArtistRef, Grouping, Playlist, PlaylistId, Source as CoreSource, TrackRef,
+};
 use spotless_core::phosphor::Phosphor;
 use spotless_core::playback::engine;
 use spotless_core::spotify::queue::SpotifyQueue;
@@ -25,6 +28,14 @@ pub struct Album {
     pub name: String,
 }
 
+/// Where songs were added from: an album, a Spotify playlist, Liked
+/// Songs or an artist, by URI, with its name.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct Source {
+    pub uri: String,
+    pub name: String,
+}
+
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct Track {
     pub uri: String,
@@ -32,6 +43,9 @@ pub struct Track {
     pub artists: Vec<Artist>,
     pub album: Album,
     pub duration_ms: u32,
+    /// Where it was added from, kept when it's copied or moved; None for
+    /// a song added on its own, as from a search.
+    pub source: Option<Source>,
 }
 
 impl From<&ArtistRef> for Artist {
@@ -65,6 +79,10 @@ impl From<&TrackRef> for Track {
                 name: track.album.name.clone(),
             },
             duration_ms: track.duration_ms,
+            source: track.source.as_ref().map(|source| Source {
+                uri: source.uri.clone(),
+                name: source.name.clone(),
+            }),
         }
     }
 }
@@ -80,8 +98,10 @@ impl From<Track> for TrackRef {
                 name: track.album.name,
             },
             duration_ms: track.duration_ms,
-            // The app doesn't group by it yet.
-            source: None,
+            source: track.source.map(|source| CoreSource {
+                uri: source.uri,
+                name: source.name,
+            }),
         }
     }
 }
@@ -351,11 +371,22 @@ pub struct Song {
     pub track: Track,
     /// The number of its Q mark: it plays next, in that order.
     pub mark: Option<u32>,
-    /// It starts a run of this many songs from one album, under a header
-    /// with its name; 0 if not.
-    pub album_run: u32,
-    /// It follows an album's run without starting one: a line sets it off.
+    /// It starts a run of songs from one album or source (as Settings
+    /// chooses), under this header.
+    pub header: Option<Header>,
+    /// It follows a header's run without starting one: a line sets it off.
     pub set_off: bool,
+}
+
+/// A header over a run of songs.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct Header {
+    /// How many songs it's over.
+    pub songs: u32,
+    /// The album's or the source's name.
+    pub name: String,
+    /// What it is, or whose: an album's artist, "Spotify playlist".
+    pub detail: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
@@ -370,8 +401,8 @@ pub struct PlaylistView {
 
 pub(crate) fn playlist(state: &State, id: PlaylistId) -> Option<PlaylistView> {
     let list = state.library.get(id)?;
-    // By album until the app offers the choice.
-    let runs = list.runs(Grouping::Album);
+    let by = state.settings.grouping;
+    let runs = list.runs(by);
     let run_at = |index: usize| runs.iter().find(|run| run.start == index);
     Some(PlaylistView {
         id: list.id.0,
@@ -384,9 +415,14 @@ pub(crate) fn playlist(state: &State, id: PlaylistId) -> Option<PlaylistView> {
                 entry: entry.id.0,
                 track: (&entry.track).into(),
                 mark: list.mark_number(entry.id).map(count),
-                album_run: run_at(index)
-                    .filter(|run| run.header)
-                    .map_or(0, |run| count(run.len)),
+                header: run_at(index).filter(|run| run.header).map(|&run| {
+                    let (name, detail) = list.heading(run, by);
+                    Header {
+                        songs: count(run.len),
+                        name,
+                        detail,
+                    }
+                }),
                 set_off: run_at(index).is_some_and(|run| !run.header && index > 0),
             })
             .collect(),
@@ -480,12 +516,29 @@ fn album_songs(state: &State, uri: &str) -> AlbumSongs {
         None => AlbumSongs::NotRead,
         Some(Loadable::Loading) => AlbumSongs::Loading,
         Some(Loadable::Ready(list)) => AlbumSongs::Ready {
-            tracks: tracks(list),
+            tracks: tracks(&added_from(state, uri, list)),
         },
         Some(Loadable::Failed(message)) => AlbumSongs::Failed {
             message: message.clone(),
         },
     }
+}
+
+/// An album's or a Spotify playlist's songs, as added from it, as the
+/// core does for a whole one added.
+fn added_from(state: &State, uri: &str, tracks: &[TrackRef]) -> Vec<TrackRef> {
+    let name = match state.browse.spotify_playlist(uri) {
+        Some(playlist) => playlist.name.clone(),
+        None => match tracks.first() {
+            Some(track) if track.album.uri == uri => track.album.name.clone(),
+            _ => return tracks.to_vec(),
+        },
+    };
+    let source = CoreSource {
+        uri: uri.to_string(),
+        name,
+    };
+    from_source(tracks.to_vec(), &source)
 }
 
 fn release_row(state: &State, release: &catalog::Release) -> ReleaseRow {
@@ -861,6 +914,8 @@ pub struct SettingsView {
     pub lastfm_secret: String,
     /// The colour of the lists and the display, by its key.
     pub phosphor: String,
+    /// What the playlists' songs sit under headers by, by its key.
+    pub song_headers: String,
     /// The Spotify tab can be used (Settings).
     pub spotify_tab_enabled: bool,
     /// It can, but was closed: + offers it again.
@@ -904,6 +959,25 @@ pub fn phosphors() -> Vec<PhosphorView> {
         .collect()
 }
 
+/// A way to put the playlists' songs under headers.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct GroupingView {
+    pub key: String,
+    pub name: String,
+}
+
+/// Every way, in the order Settings lists them.
+#[uniffi::export]
+pub fn groupings() -> Vec<GroupingView> {
+    Grouping::ALL
+        .into_iter()
+        .map(|grouping| GroupingView {
+            key: grouping.key().into(),
+            name: grouping.name().into(),
+        })
+        .collect()
+}
+
 pub(crate) fn settings(state: &State) -> SettingsView {
     let settings = &state.settings;
     SettingsView {
@@ -923,6 +997,7 @@ pub(crate) fn settings(state: &State) -> SettingsView {
         lastfm_key: state.lastfm.api_key.clone(),
         lastfm_secret: state.lastfm.secret.clone(),
         phosphor: settings.phosphor.key().into(),
+        song_headers: settings.grouping.key().into(),
         spotify_tab_enabled: settings.spotify_tab_enabled,
         spotify_tab_closed: settings.spotify_tab_enabled && !settings.spotify_tab,
     }
