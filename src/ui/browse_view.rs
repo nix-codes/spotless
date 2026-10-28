@@ -13,8 +13,8 @@
 use std::collections::BTreeSet;
 
 use egui::{
-    Align2, Color32, FontId, Id, Key, Painter, Rect, Response, RichText, ScrollArea, Sense, Stroke,
-    StrokeKind, TextEdit, Ui, UiBuilder, pos2, vec2,
+    Align2, Color32, FocusDirection, FontId, Id, Key, Painter, Rect, Response, RichText,
+    ScrollArea, Sense, Stroke, StrokeKind, TextEdit, Ui, UiBuilder, pos2, vec2,
 };
 
 use super::scrollbar::{self, Scrollbar};
@@ -172,7 +172,7 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
         area => area,
     };
     switch_area(ui, view, inputs);
-    keyboard(ui, view, &mut inputs.nav, actions);
+    keyboard(ui, view, inputs, actions);
     match inputs.nav.area {
         Area::Results if inputs.nav.keyboard && searching => {
             theme::focus_ring(ui.painter(), catalog, &palette)
@@ -283,12 +283,16 @@ fn page_id(page: &Page) -> String {
     }
 }
 
-fn keyboard(ui: &Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
+fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     if ui.ctx().text_edit_focused() {
         return;
     }
     let searching = view.browse.shown == BrowseTab::Search;
     let artist_page = searching && matches!(view.browse.page(), Page::Artist(_));
+    let to_field = searching && searchable(view);
+    let nav = &mut inputs.nav;
+    let focus_search = &mut inputs.focus_search;
+    let mut up_to_field = false;
     ui.input(|i| {
         let plain = i.modifiers.is_none();
         if i.key_pressed(Key::Escape) {
@@ -325,6 +329,15 @@ fn keyboard(ui: &Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
         if nav.area != Area::Results || !plain {
             return;
         }
+        // ↑ from the first row goes back up to the search field.
+        if to_field && i.key_pressed(Key::ArrowUp) && nav.row.unwrap_or(0) == 0 {
+            nav.area = Area::Search;
+            nav.row = None;
+            nav.keyboard = true;
+            *focus_search = true;
+            up_to_field = true;
+            return;
+        }
         let last = nav.rows.saturating_sub(1);
         let from = nav.row.unwrap_or(0);
         let to = if i.key_pressed(Key::ArrowDown) {
@@ -353,6 +366,10 @@ fn keyboard(ui: &Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
             nav.act = Some(Act::Add);
         }
     });
+    // egui would also walk its focus up from the field, to the tabs.
+    if up_to_field {
+        ui.ctx().memory_mut(|m| m.move_focus(FocusDirection::None));
+    }
 }
 
 fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
@@ -386,6 +403,16 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actio
         }
         if field.has_focus() {
             inputs.nav.area = Area::Search;
+            // ↓ goes down to the results, the first highlighted.
+            let nav = &mut inputs.nav;
+            if nav.rows > 0 && ui.input(|i| i.modifiers.is_none() && i.key_pressed(Key::ArrowDown))
+            {
+                field.surrender_focus();
+                nav.area = Area::Results;
+                nav.row = Some(0);
+                nav.keyboard = true;
+                nav.reveal = true;
+            }
         }
         // Enter searches, Esc just leaves: either way the results are next.
         if field.lost_focus() {

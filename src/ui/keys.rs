@@ -83,7 +83,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
         "IN BROWSE",
         &[
             ("Tab / Shift+Tab", "Next / previous area"),
-            ("↑ / ↓", "Highlight a row"),
+            ("↑ / ↓", "Highlight a row; to and from the search"),
             ("PgUp / PgDn", "A page up / down"),
             ("Enter", "Search; open; play a song"),
             ("Insert or A", "Add the album or song"),
@@ -97,7 +97,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("C", "Pics on / off"),
             ("Ctrl+Tab, Ctrl+1 … 9", "The playlist + ADD adds to"),
             ("Backspace / Alt+←", "Back"),
-            ("Esc", "Leave the search, then Browse"),
+            ("Esc", "Back to the playlists, from a field too"),
         ],
     ),
 ];
