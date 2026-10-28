@@ -85,7 +85,7 @@ Spotify only allows playback in other apps for Premium accounts.
   page is just the discography: All, Albums, Singles & EPs, Appears on;
   Albums first, oldest first, songs opening inline. **+ ADD** adds a whole
   album to the playlist shown alongside. Pasting a Spotify link adds it too.
-- **Your Spotify** (desktop): Browse's second tab (F4; SEARCH is F3) lists
+- **Your Spotify**: Browse's second tab (F4; SEARCH is F3) lists
   your Spotify playlists, yours (Liked Songs first) apart from the ones
   you follow, with a field to find one by name; the one chosen shows its
   songs alongside, to add whole or song by song. On your own playlists
@@ -95,7 +95,10 @@ Spotify only allows playback in other apps for Premium accounts.
   playlists you follow can't be changed. **DELETE** beside a playlist's
   name, right-clicking it in the list, or Shift+Delete there, deletes
   your own playlist on Spotify; on one you follow it's **UNFOLLOW**.
-  UNDO, or Ctrl+Z, puts it back where it was in your list.
+  UNDO, or Ctrl+Z, puts it back where it was in your list. On Android
+  it's Browse's YOUR SPOTIFY: tap a playlist for its songs, hold songs
+  to select them, and the bin takes them out; DELETE or UNFOLLOW is
+  beside the playlist's name, and UNDO shows above.
 - **Copy to Spotify** (desktop): right-click songs, *Copy to > Spotify
   playlist…*, and pick one of your own playlists (type to find it) or make
   a new one; right-click a tab, *Save to Spotify…*, to make a new playlist

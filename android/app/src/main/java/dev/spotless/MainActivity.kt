@@ -12,7 +12,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
-import dev.spotless.core.Action
 import dev.spotless.core.Session
 import dev.spotless.ui.BrowseScreen
 import dev.spotless.ui.PlaylistsScreen
@@ -47,9 +46,7 @@ private fun Screens(core: Core) {
     when (core.session) {
         Session.SignedOut, Session.SigningIn, is Session.Failed -> SignInScreen(core)
         else -> if (core.browse.open) {
-            BackHandler {
-                core.apply(if (core.browse.canGoBack) Action.Back else Action.CloseBrowse)
-            }
+            BackHandler { core.browseBack() }
             BrowseScreen(core)
         } else if (settings) {
             BackHandler { settings = false }

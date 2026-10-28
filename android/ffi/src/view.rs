@@ -1,7 +1,7 @@
 //! What the screens show, read off the controller's state as plain records.
 
 use spotless_core::backend::{self, SessionState};
-use spotless_core::browse::{Loadable, Page};
+use spotless_core::browse::{self as core_browse, Loadable, Page};
 use spotless_core::controller::State;
 use spotless_core::lastfm::{self, LastFmStatus};
 use spotless_core::model::catalog::{self, ReleaseGroup as CoreGroup, ReleaseTab as CoreTab};
@@ -469,6 +469,19 @@ pub struct ReleaseRow {
     pub songs: AlbumSongs,
 }
 
+fn album_songs(state: &State, uri: &str) -> AlbumSongs {
+    match state.browse.albums.get(uri) {
+        None => AlbumSongs::NotRead,
+        Some(Loadable::Loading) => AlbumSongs::Loading,
+        Some(Loadable::Ready(list)) => AlbumSongs::Ready {
+            tracks: tracks(list),
+        },
+        Some(Loadable::Failed(message)) => AlbumSongs::Failed {
+            message: message.clone(),
+        },
+    }
+}
+
 fn release_row(state: &State, release: &catalog::Release) -> ReleaseRow {
     let browse = &state.browse;
     ReleaseRow {
@@ -488,16 +501,7 @@ fn release_row(state: &State, release: &catalog::Release) -> ReleaseRow {
             cover_url: release.cover.clone(),
         },
         expanded: browse.expanded.contains(&release.uri),
-        songs: match browse.albums.get(&release.uri) {
-            None => AlbumSongs::NotRead,
-            Some(Loadable::Loading) => AlbumSongs::Loading,
-            Some(Loadable::Ready(list)) => AlbumSongs::Ready {
-                tracks: tracks(list),
-            },
-            Some(Loadable::Failed(message)) => AlbumSongs::Failed {
-                message: message.clone(),
-            },
-        },
+        songs: album_songs(state, &release.uri),
     }
 }
 
@@ -571,9 +575,98 @@ pub enum BrowsePage {
     },
 }
 
+/// Browse's two tabs: the catalogue, searched, and the account's own
+/// Spotify playlists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum BrowseTab {
+    Search,
+    Spotify,
+}
+
+impl From<BrowseTab> for core_browse::BrowseTab {
+    fn from(tab: BrowseTab) -> Self {
+        match tab {
+            BrowseTab::Search => Self::Search,
+            BrowseTab::Spotify => Self::Spotify,
+        }
+    }
+}
+
+/// One of the account's Spotify playlists, or Liked Songs.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct SpotifyPlaylist {
+    pub uri: String,
+    pub name: String,
+    pub songs: u32,
+    /// Who made it, when someone else did: the account follows it.
+    pub owner: Option<String>,
+    /// Liked Songs, which can't be deleted.
+    pub liked: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, uniffi::Enum)]
+pub enum SpotifyPlaylists {
+    Loading,
+    /// Liked Songs and the account's own first, then those it follows.
+    Ready {
+        playlists: Vec<SpotifyPlaylist>,
+    },
+    Failed {
+        message: String,
+    },
+}
+
+/// YOUR SPOTIFY: the account's playlists, and the one open.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct YourSpotify {
+    pub playlists: SpotifyPlaylists,
+    /// The playlist whose songs show, by URI.
+    pub open: Option<String>,
+    /// Its songs; RemoveFromSpotify knows them by their index here.
+    pub songs: AlbumSongs,
+    /// What UNDO puts back: what was said once it was taken out.
+    pub undo: Option<String>,
+}
+
+fn your_spotify(state: &State) -> YourSpotify {
+    let browse = &state.browse;
+    let playlists = match &browse.spotify_playlists {
+        None | Some(Loadable::Loading) => SpotifyPlaylists::Loading,
+        Some(Loadable::Ready(playlists)) => {
+            let view = |p: &catalog::SpotifyPlaylist| SpotifyPlaylist {
+                uri: p.uri.clone(),
+                name: p.name.clone(),
+                songs: count(p.tracks),
+                owner: p.owner.clone(),
+                liked: p.uri == spotless_core::spotify::catalog::LIKED_SONGS,
+            };
+            // As the desktop lists them: the account's own, then followed.
+            let (mine, followed): (Vec<_>, Vec<_>) =
+                playlists.iter().partition(|p| p.owner.is_none());
+            SpotifyPlaylists::Ready {
+                playlists: mine.into_iter().chain(followed).map(view).collect(),
+            }
+        }
+        Some(Loadable::Failed(message)) => SpotifyPlaylists::Failed {
+            message: message.clone(),
+        },
+    };
+    YourSpotify {
+        playlists,
+        open: browse.spotify_open.clone(),
+        songs: browse
+            .spotify_open
+            .as_deref()
+            .map_or(AlbumSongs::NotRead, |uri| album_songs(state, uri)),
+        undo: browse.undo.as_ref().map(|undo| undo.notice().to_string()),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct BrowseView {
     pub open: bool,
+    /// The tab shown.
+    pub shown: BrowseTab,
     pub page: BrowsePage,
     pub can_go_back: bool,
     /// The playlist ADD adds to.
@@ -586,6 +679,7 @@ pub struct BrowseView {
     pub newest_first: bool,
     pub covers: bool,
     pub search: SearchState,
+    pub your_spotify: YourSpotify,
 }
 
 pub(crate) fn browse(state: &State) -> BrowseView {
@@ -661,6 +755,10 @@ pub(crate) fn browse(state: &State) -> BrowseView {
     };
     BrowseView {
         open: browse.open,
+        shown: match browse.shown {
+            core_browse::BrowseTab::Search => BrowseTab::Search,
+            core_browse::BrowseTab::Spotify => BrowseTab::Spotify,
+        },
         page,
         can_go_back: browse.can_go_back(),
         target: browse.target.0,
@@ -670,6 +768,7 @@ pub(crate) fn browse(state: &State) -> BrowseView {
         newest_first: browse.newest_first,
         covers: browse.show_covers,
         search: search_state(&state.search),
+        your_spotify: your_spotify(state),
     }
 }
 

@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.setValue
 import dev.spotless.core.Action
+import dev.spotless.core.BrowseTab
 import dev.spotless.core.Host
 import dev.spotless.core.Message
 import dev.spotless.core.PlaylistView
@@ -113,6 +114,19 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
     /** The colours Settings offers. */
     val phosphors = dev.spotless.core.phosphors()
     private var coloured = false
+
+    /**
+     * YOUR SPOTIFY shows the open playlist's songs rather than the list of
+     * playlists: one at a time, as a phone has room for.
+     */
+    var spotifySongs by mutableStateOf(false)
+
+    /** Browse's Back: to the playlists list, the page before, or out of Browse. */
+    fun browseBack() = when {
+        browse.shown == BrowseTab.SPOTIFY && spotifySongs -> spotifySongs = false
+        browse.shown == BrowseTab.SEARCH && browse.canGoBack -> apply(Action.Back)
+        else -> apply(Action.CloseBrowse)
+    }
 
     /** Where each Browse page was scrolled to, by [browseKey], kept while Browse is closed. */
     val browseScroll = HashMap<String, LazyListState>()

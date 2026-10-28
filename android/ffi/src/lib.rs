@@ -373,6 +373,31 @@ pub enum Action {
         name: String,
     },
     ToggleSort,
+    /// Shows Browse's SEARCH or YOUR SPOTIFY, opening Browse if it's closed.
+    ShowBrowseTab {
+        tab: BrowseTab,
+    },
+    /// Reads the account's Spotify playlists again.
+    ReadSpotifyPlaylists,
+    /// Shows a Spotify playlist's songs in YOUR SPOTIFY, or Liked Songs',
+    /// by URI.
+    OpenSpotifyPlaylist {
+        uri: String,
+    },
+    /// Removes the songs at these indices of the open playlist's from it
+    /// on Spotify (from Liked Songs: un-likes them). Only the account's
+    /// own and Liked Songs.
+    RemoveFromSpotify {
+        uri: String,
+        rows: Vec<u32>,
+    },
+    /// Deletes one of the account's own Spotify playlists, or unfollows
+    /// someone else's. Never Liked Songs.
+    UnlistSpotifyPlaylist {
+        uri: String,
+    },
+    /// Puts back the songs or playlist taken out last.
+    UndoSpotifyRemoval,
     /// The playlist ADD adds to.
     SetTarget {
         playlist: u64,
@@ -470,6 +495,14 @@ impl From<Action> for spotless_core::action::Action {
             Action::ShowSimilar { artist } => Core::ShowSimilar(artist.into()),
             Action::OpenSimilar { name } => Core::OpenSimilar(name),
             Action::ToggleSort => Core::ToggleSort,
+            Action::ShowBrowseTab { tab } => Core::ShowBrowseTab(tab.into()),
+            Action::ReadSpotifyPlaylists => Core::ReadSpotifyPlaylists,
+            Action::OpenSpotifyPlaylist { uri } => Core::OpenSpotifyPlaylist(uri),
+            Action::RemoveFromSpotify { uri, rows } => {
+                Core::RemoveFromSpotify(uri, rows.into_iter().map(|row| row as usize).collect())
+            }
+            Action::UnlistSpotifyPlaylist { uri } => Core::UnlistSpotifyPlaylist(uri),
+            Action::UndoSpotifyRemoval => Core::UndoSpotifyRemoval,
             Action::SetTarget { playlist } => Core::SetTarget(PlaylistId(playlist)),
             Action::ToggleCovers => Core::ToggleCovers,
             Action::AddTracks { tracks } => {
@@ -596,6 +629,40 @@ mod tests {
         let message = spotless.message().unwrap();
         assert!(!message.error);
         assert_eq!(message.text, "Added 2 songs to Default");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn your_spotify_lists_the_accounts_own_first_and_opens_one() {
+        let root = std::env::temp_dir().join(format!("spotless-ffi-yours-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let spotless = Spotless::demo(
+            root.join("config").display().to_string(),
+            root.join("cache").display().to_string(),
+            Arc::new(Recorder::default()),
+        )
+        .unwrap();
+        spotless.apply(Action::ShowBrowseTab {
+            tab: BrowseTab::Spotify,
+        });
+        let browse = spotless.browse();
+        assert!(browse.open);
+        assert_eq!(browse.shown, BrowseTab::Spotify);
+        let SpotifyPlaylists::Ready { playlists } = browse.your_spotify.playlists else {
+            panic!("the demo's playlists are read");
+        };
+        let owned: Vec<bool> = playlists.iter().map(|p| p.owner.is_none()).collect();
+        assert_eq!(owned, [true, true, true, true, true, false, false]);
+        assert!(playlists[0].liked && !playlists[1].liked);
+
+        let late_trains = playlists[1].uri.clone();
+        spotless.apply(Action::OpenSpotifyPlaylist {
+            uri: late_trains.clone(),
+        });
+        let yours = spotless.browse().your_spotify;
+        assert_eq!(yours.open, Some(late_trains));
+        assert!(matches!(yours.songs, AlbumSongs::Ready { tracks } if tracks.len() == 12));
+        assert_eq!(yours.undo, None);
         let _ = std::fs::remove_dir_all(root);
     }
 

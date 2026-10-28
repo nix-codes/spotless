@@ -52,6 +52,7 @@ import dev.spotless.core.AlbumSongs
 import dev.spotless.core.Artist
 import dev.spotless.core.ArtistPage
 import dev.spotless.core.BrowsePage
+import dev.spotless.core.BrowseTab
 import dev.spotless.core.ReleaseRow
 import dev.spotless.core.ReleaseTab
 import dev.spotless.core.SearchPage
@@ -60,8 +61,9 @@ import dev.spotless.core.SimilarArtists
 import dev.spotless.core.Track
 
 /**
- * The catalog: search, results and artist pages, the playlist ADD adds
- * to (the desktop's slim column), and a small player.
+ * Browse: the catalog (search, results and artist pages) and YOUR
+ * SPOTIFY, the account's own playlists; then the playlist ADD adds to
+ * (the desktop's slim column), and a small player.
  */
 @Composable
 fun BrowseScreen(core: Core) {
@@ -72,10 +74,9 @@ fun BrowseScreen(core: Core) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            GlyphButton(Glyph.Back, "Back", {
-                core.apply(if (browse.canGoBack) Action.Back else Action.CloseBrowse)
-            }, Modifier.width(48.dp))
+            GlyphButton(Glyph.Back, "Back", { core.browseBack() }, Modifier.width(48.dp))
             val artist = (browse.page as? BrowsePage.Artist)
+                ?.takeIf { browse.shown == BrowseTab.SEARCH }
                 ?.let { (it.page as? ArtistPage.Ready)?.artist }
             if (artist != null) {
                 if (browse.covers) Cover(core, artist.image)
@@ -86,13 +87,34 @@ fun BrowseScreen(core: Core) {
             // Straight to the playlists; Browse opens on this page again.
             GlyphButton(Glyph.Close, "Back to the playlists", { core.apply(Action.CloseBrowse) }, Modifier.width(48.dp))
         }
-        val page = browse.page
-        val key = when (page) {
-            is BrowsePage.Home -> "home"
-            is BrowsePage.Search -> "search:${page.query}"
-            is BrowsePage.Artist -> "artist:${page.uri}"
+        BrowseTabs(core)
+        if (browse.shown == BrowseTab.SPOTIFY) {
+            YourSpotify(core, Modifier.weight(1f))
+        } else {
+            Catalog(core, Modifier.weight(1f))
         }
-        val scroll = remember(key) { core.browseScroll.getOrPut(key) { LazyListState() } }
+        ErrorNote(core, Modifier.padding(top = 4.dp))
+        Column(
+            Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Target(core)
+            MiniPlayer(core)
+        }
+    }
+}
+
+/** SEARCH: the search field, then its results or an artist's page. */
+@Composable
+private fun Catalog(core: Core, modifier: Modifier) {
+    val page = core.browse.page
+    val key = when (page) {
+        is BrowsePage.Home -> "home"
+        is BrowsePage.Search -> "search:${page.query}"
+        is BrowsePage.Artist -> "artist:${page.uri}"
+    }
+    val scroll = remember(key) { core.browseScroll.getOrPut(key) { LazyListState() } }
+    Column(modifier) {
         if (page !is BrowsePage.Artist) SearchField(core, (page as? BrowsePage.Search)?.query ?: "")
         if (page is BrowsePage.Artist) ArtistBar(core, page)
         ScrollingList(
@@ -105,14 +127,23 @@ fun BrowseScreen(core: Core) {
                 is BrowsePage.Artist -> artist(core, page.page)
             }
         }
-        ErrorNote(core, Modifier.padding(top = 4.dp))
-        Column(
-            Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Target(core)
-            MiniPlayer(core)
-        }
+    }
+}
+
+/** SEARCH and YOUR SPOTIFY. */
+@Composable
+private fun BrowseTabs(core: Core) {
+    val shown = core.browse.shown
+    Row(
+        Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        TextButton("SEARCH", { core.apply(Action.ShowBrowseTab(BrowseTab.SEARCH)) }, Modifier.weight(1f), on = shown == BrowseTab.SEARCH)
+        TextButton("YOUR SPOTIFY", {
+            core.apply(Action.ShowBrowseTab(BrowseTab.SPOTIFY))
+            // What changed on Spotify meanwhile shows.
+            core.apply(Action.ReadSpotifyPlaylists)
+        }, Modifier.weight(1f), on = shown == BrowseTab.SPOTIFY)
     }
 }
 
@@ -346,7 +377,7 @@ private fun LazyListScope.releases(core: Core, rows: List<ReleaseRow>, withArtis
 
 /** A release's cover or an artist's picture, a dark square until it's read. */
 @Composable
-private fun Cover(core: Core, url: String?) {
+internal fun Cover(core: Core, url: String?) {
     val image = core.cover(url)
     if (image != null) {
         Image(image, null, Modifier.size(40.dp))
@@ -429,7 +460,7 @@ private fun TrackRow(core: Core, track: Track, number: Int?, sub: String?) {
  * press shows even though it can be pressed again.
  */
 @Composable
-private fun AddButton(
+internal fun AddButton(
     text: String,
     style: TextStyle,
     description: String,
