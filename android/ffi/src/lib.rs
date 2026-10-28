@@ -326,6 +326,10 @@ pub enum Action {
         playlist: u64,
     },
     NewPlaylist,
+    /// Makes a playlist of these songs and shows it.
+    NewPlaylistWith {
+        tracks: Vec<Track>,
+    },
     /// Deletes a playlist and its songs (never Default).
     ClosePlaylist {
         playlist: u64,
@@ -423,6 +427,15 @@ pub enum Action {
     /// the album or playlist it plays from. Not while another device holds
     /// the queue.
     ClearSpotify,
+    /// Moves these songs of a playlist to the end of another. To the
+    /// Spotify tab: queues them, leaving them where they were if Spotify
+    /// won't take them. From it: only songs to come, by their entries in
+    /// [`SpotifyView`].
+    MoveTo {
+        from: u64,
+        to: u64,
+        entries: Vec<u64>,
+    },
     /// Takes the queue from the device holding it, paused.
     TakeOverSpotify,
     /// Opens the Spotify tab again, closed with ClosePlaylist like any tab.
@@ -476,6 +489,9 @@ impl From<Action> for spotless_core::action::Action {
             Action::ToggleMarks { entries: ids } => Core::ToggleMarks(entries(ids)),
             Action::SelectPlaylist { playlist } => Core::SelectPlaylist(PlaylistId(playlist)),
             Action::NewPlaylist => Core::NewPlaylist,
+            Action::NewPlaylistWith { tracks } => {
+                Core::NewPlaylistWith(tracks.into_iter().map(Into::into).collect())
+            }
             Action::ClosePlaylist { playlist } => Core::ClosePlaylist(PlaylistId(playlist)),
             Action::RenamePlaylist { playlist, name } => {
                 Core::RenamePlaylist(PlaylistId(playlist), name)
@@ -515,6 +531,11 @@ impl From<Action> for spotless_core::action::Action {
                 tracks.into_iter().map(Into::into).collect(),
             ),
             Action::ClearSpotify => Core::ClearSpotify,
+            Action::MoveTo {
+                from,
+                to,
+                entries: ids,
+            } => Core::MoveTo(PlaylistId(from), PlaylistId(to), entries(ids)),
             Action::TakeOverSpotify => Core::TakeOverSpotify,
             Action::OpenSpotifyTab => Core::OpenSpotifyTab,
             Action::SetSpotifyTabEnabled { on } => Core::SetSpotifyTabEnabled(on),
@@ -663,6 +684,55 @@ mod tests {
         assert_eq!(yours.open, Some(late_trains));
         assert!(matches!(yours.songs, AlbumSongs::Ready { tracks } if tracks.len() == 12));
         assert_eq!(yours.undo, None);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn songs_move_to_another_playlist_or_a_new_one() {
+        let (spotless, root) = spotless("move");
+        let track = |n: u32| Track {
+            uri: format!("spotify:track:{n}"),
+            title: format!("Song {n}"),
+            artists: Vec::new(),
+            album: Album {
+                uri: "spotify:album:1".into(),
+                name: "Album".into(),
+            },
+            duration_ms: 1000,
+        };
+        spotless.apply(Action::OpenBrowse);
+        spotless.apply(Action::AddTracks {
+            tracks: (1..=4).map(track).collect(),
+        });
+        spotless.apply(Action::NewPlaylist);
+        let other = spotless.tabs().viewed;
+        let entries: Vec<u64> = spotless.playlist(0).unwrap().songs[..2]
+            .iter()
+            .map(|song| song.entry)
+            .collect();
+        spotless.apply(Action::MoveTo {
+            from: 0,
+            to: other,
+            entries,
+        });
+        let titles = |id| -> Vec<String> {
+            spotless
+                .playlist(id)
+                .unwrap()
+                .songs
+                .into_iter()
+                .map(|s| s.track.title)
+                .collect()
+        };
+        assert_eq!(titles(0), ["Song 3", "Song 4"]);
+        assert_eq!(titles(other), ["Song 1", "Song 2"]);
+
+        spotless.apply(Action::NewPlaylistWith {
+            tracks: vec![track(3)],
+        });
+        let made = spotless.tabs().viewed;
+        assert!(made != 0 && made != other);
+        assert_eq!(titles(made), ["Song 3"]);
         let _ = std::fs::remove_dir_all(root);
     }
 

@@ -103,27 +103,28 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
     val entries = if (queue != null) queueSongs(queue).map { it.entry } else core.playlist?.songs?.map { it.entry }.orEmpty()
     val selected = entries.filter { it in picked }
     val selecting = selected.isNotEmpty()
-    var copying by remember(core.tabs.viewed) { mutableStateOf(false) }
+    var sending by remember(core.tabs.viewed) { mutableStateOf<Send?>(null) }
     var editing by remember { mutableStateOf<ULong?>(null) }
     var adding by remember { mutableStateOf(false) }
     val done = {
         picked = emptySet()
-        copying = false
+        sending = null
     }
     BackHandler(enabled = selecting) { done() }
     BackHandler(enabled = editing != null) { editing = null }
     BackHandler(enabled = adding) { adding = false }
     Column(Modifier.fillMaxSize().background(Classic.frame).safeDrawingPadding()) {
         if (selecting) {
-            SelectBar(core, queue, selected, { picked = entries.toSet() }, { copying = !copying }, copying, done)
-            if (copying) CopyBar(core, selectedTracks(core, queue, selected), done)
+            val movable = queue == null || movable(queue, selected)
+            SelectBar(core, queue, selected, { picked = entries.toSet() }, sending, movable, { sending = it.takeIf { it != sending } }, done)
+            sending?.takeIf { it == Send.COPY || movable }?.let { SendBar(core, it, selected, selectedTracks(core, queue, selected), done) }
         } else {
             TopBar(core, openSettings)
         }
         Tabs(core, { editing = it }, { adding = !adding })
         editing?.let { TabEditor(core, it) { editing = null } }
         if (adding && core.settings.spotifyTabClosed) AddBar(core) { adding = false }
-        Summary(core, queue, selecting)
+        Summary(core, queue, selected.size)
         ErrorNote(core)
         if (queue != null) {
             QueueSongs(core, queue, selected, { picked = it }, Modifier.weight(1f))
@@ -166,6 +167,16 @@ private fun selectedTracks(core: Core, queue: SpotifyView?, selected: List<ULong
         core.playlist?.songs?.filter { it.entry in selected }?.map { it.track }.orEmpty()
     }
 
+/**
+ * Of the queue, only songs to come can move to a playlist, and only while
+ * it takes changes: Spotless has it, or no device does.
+ */
+private fun movable(queue: SpotifyView, selected: List<ULong>) =
+    queue.takesSongs && queueSongs(queue).filter { it.entry in selected }.all { it.played == Played.NEXT }
+
+/** What COPY and MOVE do with the selected songs. */
+private enum class Send { COPY, MOVE }
+
 /** In place of the top bar while songs are selected. */
 @Composable
 private fun SelectBar(
@@ -173,8 +184,9 @@ private fun SelectBar(
     queue: SpotifyView?,
     selected: List<ULong>,
     all: () -> Unit,
-    copy: () -> Unit,
-    copying: Boolean,
+    sending: Send?,
+    movable: Boolean,
+    send: (Send) -> Unit,
     done: () -> Unit,
 ) {
     val id = core.tabs.viewed
@@ -193,14 +205,12 @@ private fun SelectBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         GlyphButton(Glyph.Close, "Stop selecting", done, Modifier.width(48.dp))
-        Line(
-            "${selected.size} selected",
-            body(15.sp, Classic.current, FontWeight.SemiBold),
-            Modifier.weight(1f).padding(start = 4.dp),
-        )
+        // How many are selected shows below the tabs: the buttons need the room.
+        Box(Modifier.weight(1f))
         TextButton("ALL", all, enabled = selected.size < count)
         if (queue == null) TextButton("Q NEXT", { core.apply(Action.ToggleMarks(selected)) })
-        TextButton("COPY", copy, on = copying)
+        TextButton("COPY", { send(Send.COPY) }, on = sending == Send.COPY)
+        TextButton("MOVE", { send(Send.MOVE) }, on = sending == Send.MOVE && movable, enabled = movable)
         GlyphButton(Glyph.Trash, if (queue != null) "Remove from the queue" else "Remove from the playlist", {
             core.apply(Action.Remove(id, removable))
             done()
@@ -208,20 +218,32 @@ private fun SelectBar(
     }
 }
 
-/** COPY's choice of tab: the selected songs go to the end of the one tapped. */
+/**
+ * COPY's and MOVE's choice of tab: the selected songs go to the end of the
+ * one tapped, or make a new playlist, which shows.
+ */
 @Composable
-private fun CopyBar(core: Core, tracks: List<Track>, done: () -> Unit) {
+private fun SendBar(core: Core, send: Send, selected: List<ULong>, tracks: List<Track>, done: () -> Unit) {
     val queue = core.spotify
+    val from = core.tabs.viewed
     Column(
         Modifier.fillMaxWidth().padding(8.dp).background(Classic.frame).bevel().padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        BasicText("COPY TO", style = label(12.sp, Classic.label, 0.06.em))
+        BasicText(if (send == Send.COPY) "COPY TO" else "MOVE TO", style = label(12.sp, Classic.label, 0.06.em))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(core.tabs.tabs.filter { it.id != core.tabs.viewed }, key = { it.id.toLong() }) { tab ->
+            // First, where it can always be seen.
+            item(key = "new") {
+                TextButton("+ NEW", {
+                    core.apply(Action.NewPlaylistWith(tracks))
+                    if (send == Send.MOVE) core.apply(Action.Remove(from, selected))
+                    done()
+                }, Modifier.height(44.dp))
+            }
+            items(core.tabs.tabs.filter { it.id != from }, key = { it.id.toLong() }) { tab ->
                 // Spotify takes songs for the queue only from the device playing it.
                 TextButton(tab.name, {
-                    core.apply(Action.CopyTo(tab.id, tracks))
+                    core.apply(if (send == Send.COPY) Action.CopyTo(tab.id, tracks) else Action.MoveTo(from, tab.id, selected))
                     done()
                 }, Modifier.height(44.dp), enabled = !tab.spotify || queue?.takesSongs == true)
             }
@@ -513,12 +535,12 @@ private fun SpotifyTabEditor(core: Core, id: ULong, at: Int, done: () -> Unit) {
 }
 
 @Composable
-private fun Summary(core: Core, queue: SpotifyView?, selecting: Boolean) {
+private fun Summary(core: Core, queue: SpotifyView?, selected: Int) {
     val list = core.playlist
     val tab = core.tabs.tabs.firstOrNull { it.id == core.tabs.viewed }
+    val selecting = selected > 0
     val text = when {
-        selecting && queue != null -> "TAP ADD/DROP · HOLD RANGE"
-        selecting -> "TAP ADD/DROP · HOLD RANGE · DRAG ≡ MOVE"
+        selecting -> "$selected SELECTED"
         queue != null && tab != null -> "${songs(queue.toCome.toInt())} TO COME · ${clock(tab.durationMs.toLong())}"
         list != null -> "${songs(list.songs.size)} · ${clock(list.durationMs.toLong())}"
         else -> ""
@@ -536,8 +558,15 @@ private fun Summary(core: Core, queue: SpotifyView?, selecting: Boolean) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BasicText(text, style = label(12.sp, Classic.label, 0.06.em))
-        if (selecting) return@Row
+        BasicText(text, style = label(12.sp, if (selecting) Classic.current else Classic.label, 0.06.em))
+        if (selecting) {
+            Line(
+                if (queue != null) "TAP ADD/DROP · HOLD RANGE" else "TAP ADD/DROP · HOLD RANGE · DRAG ≡ REORDERS",
+                label(12.sp, Classic.label, 0.02.em).copy(textAlign = TextAlign.End),
+                Modifier.weight(1f),
+            )
+            return@Row
+        }
         // Errors show in full below.
         val message = core.message?.takeIf { !it.error }
         val hint = if (list?.songs?.isNotEmpty() == true || queue?.rows?.isNotEmpty() == true) "HOLD A SONG TO SELECT" else ""
