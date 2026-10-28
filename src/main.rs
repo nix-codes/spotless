@@ -7,6 +7,35 @@ use spotless::app::App;
 use spotless::paths::Paths;
 
 fn main() -> Result<()> {
+    // On X11 the keys go through the input method server XMODIFIERS
+    // names (ibus, fcitx). ibus-x11 crashes now and then, and the window
+    // then gets no keys, or freezes waiting on it. Xlib's own input method
+    // still does compose and dead keys; only typing through an input
+    // method (Chinese, Japanese…) is lost, which Spotless can do without.
+    // winit reads XMODIFIERS once, building the event loop; it's put back
+    // straight after, for the browser and anything else started from here.
+    // Both before any thread starts, so none reads the environment then.
+    #[cfg(target_os = "linux")]
+    let xmodifiers = std::env::var_os("XMODIFIERS");
+    #[cfg(target_os = "linux")]
+    unsafe {
+        std::env::set_var("XMODIFIERS", "@im=local");
+    }
+    // Raw mouse motion is of no use to Spotless, and eframe repaints for
+    // every bit of it while the window has focus and thinks the pointer is
+    // inside. On X11 it goes on thinking so once a window manager's resize
+    // has taken the pointer, so the window redrew at 60 fps under the
+    // resize and shook.
+    let event_loop =
+        winit::event_loop::EventLoop::<eframe::UserEvent>::with_user_event().build()?;
+    event_loop.listen_device_events(winit::event_loop::DeviceEvents::Never);
+    #[cfg(target_os = "linux")]
+    unsafe {
+        match xmodifiers {
+            Some(value) => std::env::set_var("XMODIFIERS", value),
+            None => std::env::remove_var("XMODIFIERS"),
+        }
+    }
     env_logger::Builder::from_env(
         env_logger::Env::default()
             .default_filter_or("warn,spotless=info,spotless_core=info,librespot=info"),
@@ -47,14 +76,6 @@ fn main() -> Result<()> {
         viewport,
         ..Default::default()
     };
-    // Raw mouse motion is of no use to Spotless, and eframe repaints for
-    // every bit of it while the window has focus and thinks the pointer is
-    // inside. On X11 it goes on thinking so once a window manager's resize
-    // has taken the pointer, so the window redrew at 60 fps under the
-    // resize and shook.
-    let event_loop =
-        winit::event_loop::EventLoop::<eframe::UserEvent>::with_user_event().build()?;
-    event_loop.listen_device_events(winit::event_loop::DeviceEvents::Never);
     let mut app = eframe::create_native(
         "Spotless",
         options,
