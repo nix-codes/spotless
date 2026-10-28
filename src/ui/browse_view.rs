@@ -87,6 +87,8 @@ pub struct Nav {
     /// its field should take the keyboard.
     filter: String,
     focus_filter: bool,
+    /// Its caret was at the end last frame: → leaves it for the songs.
+    filter_at_end: bool,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -256,8 +258,37 @@ fn switch_area(ui: &Ui, view: &View, inputs: &mut Inputs) {
         .filter(|&a| a != Area::Search || searchable(view))
         .collect();
     let at = areas.iter().position(|&a| a == nav.area).unwrap_or(0) as isize;
-    nav.area = areas[(at + inputs.tab).rem_euclid(areas.len() as isize) as usize];
+    let to = areas[(at + inputs.tab).rem_euclid(areas.len() as isize) as usize];
     inputs.tab = 0;
+    enter_area(ui, inputs, to);
+}
+
+/// ← and →: the panel to the left or right, stopping at the ends. The
+/// search field sits over the results, so it counts as them.
+fn move_panel(ui: &Ui, view: &View, inputs: &mut Inputs, step: isize) {
+    let panels: Vec<Area> = areas(view.browse.shown)
+        .into_iter()
+        .filter(|&a| a != Area::Search)
+        .collect();
+    let area = match inputs.nav.area {
+        Area::Search => Area::Results,
+        area => area,
+    };
+    let at = panels.iter().position(|&a| a == area).unwrap_or(0) as isize;
+    let to = (at + step).clamp(0, panels.len() as isize - 1) as usize;
+    if panels[to] != inputs.nav.area {
+        inputs.nav.keyboard = true;
+        enter_area(ui, inputs, panels[to]);
+    }
+    // egui would also walk its focus sideways from a field given it.
+    ui.ctx().memory_mut(|m| m.move_focus(FocusDirection::None));
+}
+
+/// Puts the keyboard in `area`: in its field, if it has one, out of the
+/// others'.
+fn enter_area(ui: &Ui, inputs: &mut Inputs, area: Area) {
+    let nav = &mut inputs.nav;
+    nav.area = area;
     if nav.area == Area::Search {
         inputs.focus_search = true;
     } else {
@@ -294,6 +325,7 @@ fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let nav = &mut inputs.nav;
     let focus_search = &mut inputs.focus_search;
     let mut up_to_field = false;
+    let mut panel = 0;
     ui.input(|i| {
         let plain = i.modifiers.is_none();
         if i.key_pressed(Key::Escape) {
@@ -326,6 +358,11 @@ fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
             if i.modifiers.command && i.key_pressed(Key::E) {
                 nav.expand_all = true;
             }
+        }
+        if plain && i.key_pressed(Key::ArrowLeft) {
+            panel = -1;
+        } else if plain && i.key_pressed(Key::ArrowRight) {
+            panel = 1;
         }
         if nav.area != Area::Results || !plain {
             return;
@@ -370,6 +407,9 @@ fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     // egui would also walk its focus up from the field, to the tabs.
     if up_to_field {
         ui.ctx().memory_mut(|m| m.move_focus(FocusDirection::None));
+    }
+    if panel != 0 {
+        move_panel(ui, view, inputs, panel);
     }
 }
 

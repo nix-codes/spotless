@@ -130,13 +130,25 @@ fn playlist_list(
         .copied()
         .collect();
     // Enter leaves the field (it lets go of the keyboard itself) for the
-    // songs, the first highlighted.
-    if edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+    // songs, the first highlighted; so does → with the caret at the end
+    // of what's typed.
+    let right = edit.has_focus()
+        && nav.filter_at_end
+        && ui.input(|i| i.modifiers.is_none() && i.key_pressed(Key::ArrowRight));
+    if right {
+        edit.surrender_focus();
+    }
+    if right || (edit.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter))) {
         nav.area = Area::Results;
         nav.keyboard = true;
         nav.row = Some(0);
         nav.reveal = true;
     }
+    nav.filter_at_end = TextEdit::load_state(ui.ctx(), edit.id)
+        .and_then(|state| state.cursor.char_range())
+        .is_none_or(|range| {
+            range.is_empty() && range.primary.index.0 == nav.filter.chars().count()
+        });
     if unlist
         && let Some(uri) = open.filter(|uri| order.iter().any(|p| p.uri == *uri))
         && view.browse.unlistable(uri)

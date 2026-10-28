@@ -485,10 +485,10 @@ fn seek_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
 /// Transport, eject, shuffle and repeat.
 /// The tooltips of the transport, shuffle and repeat buttons, with their
 /// keys; Stop's is [`stop_clicked`]'s.
-pub(super) const PREVIOUS_TIP: &str = "Previous song (Ctrl+←)";
+pub(super) const PREVIOUS_TIP: &str = "Previous song (Z)";
 pub(super) const PLAY_TIP: &str = "Play (Space)";
 pub(super) const PAUSE_TIP: &str = "Pause (Space)";
-pub(super) const NEXT_TIP: &str = "Next song (Ctrl+→)";
+pub(super) const NEXT_TIP: &str = "Next song (B)";
 pub(super) const SHUFFLE_TIP: &str = "Shuffle on / off (S)";
 pub(super) const REPEAT_TIP: &str = "Repeat on / off (R)";
 

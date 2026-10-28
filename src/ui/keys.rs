@@ -19,7 +19,7 @@ use crate::browse::BrowseTab;
 use crate::model::PlaylistId;
 use crate::playback::engine::Status;
 
-/// ← and →; with Shift, the far step.
+/// Ctrl+← and →; with Shift too, the far step.
 const SEEK_MS: i64 = 5_000;
 const FAR_SEEK_MS: i64 = 30_000;
 const VOLUME_STEP: u8 = 5;
@@ -33,9 +33,9 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Space", "Play / pause"),
             ("V", "Stop"),
             ("Shift+V", "Stop after this song (on / off)"),
-            ("← / →", "Back / forward 5 seconds"),
-            ("Shift+← / →", "Back / forward 30 seconds"),
-            ("Ctrl+← / →", "Previous / next song"),
+            ("Ctrl+← / →", "Back / forward 5 seconds"),
+            ("Ctrl+Shift+← / →", "Back / forward 30 seconds"),
+            ("Z / B", "Previous / next song"),
             ("+ / −", "Volume up / down"),
             ("Ctrl+↑ / ↓", "Volume up / down"),
             ("M", "Mute / unmute"),
@@ -84,6 +84,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
         &[
             ("Tab / Shift+Tab", "Next / previous area"),
             ("↑ / ↓", "Highlight a row; to and from the search"),
+            ("← / →", "The panel to the left / right"),
             ("PgUp / PgDn", "A page up / down"),
             ("Enter", "Search; open; play a song"),
             ("Insert or A", "Add the album or song"),
@@ -178,15 +179,17 @@ fn playback(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut 
     if take(i, Modifiers::SHIFT, Key::V) {
         actions.push(Action::ToggleStopAfter);
     }
-    if take(i, Modifiers::COMMAND, Key::ArrowLeft) {
+    // Winamp's keys, with V.
+    if take(i, Modifiers::NONE, Key::Z) {
         actions.push(Action::Previous);
     }
-    if take(i, Modifiers::COMMAND, Key::ArrowRight) {
+    if take(i, Modifiers::NONE, Key::B) {
         actions.push(Action::Next);
     }
 
     let mut seek = 0;
-    for (modifiers, step) in [(Modifiers::NONE, SEEK_MS), (Modifiers::SHIFT, FAR_SEEK_MS)] {
+    let far = Modifiers::COMMAND | Modifiers::SHIFT;
+    for (modifiers, step) in [(Modifiers::COMMAND, SEEK_MS), (far, FAR_SEEK_MS)] {
         seek -= step * held(i, modifiers, Key::ArrowLeft) as i64;
         seek += step * held(i, modifiers, Key::ArrowRight) as i64;
     }
