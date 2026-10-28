@@ -196,6 +196,10 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
     fun shown(inFront: Boolean) {
         if (inFront) {
             approving = false
+            // Asleep, Android cuts the app's network without the phone losing
+            // its own, so no network comes back: a session dropped meanwhile
+            // is replaced now, not after the rest of the wait between tries.
+            spotless.apply(Action.NetworkBack)
             refresh()
         } else {
             spotless.save()
