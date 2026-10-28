@@ -10,6 +10,7 @@ use std::time::Duration;
 use crate::action::{Action, Actions, AnyAction, Desktop};
 use crate::backend::{Command, Event};
 use crate::controller::Controller;
+use crate::focus::Focus;
 use crate::media::{EventHook, MediaControls, MediaEvent, NowPlaying};
 use crate::model::PlaylistId;
 use crate::paths::Paths;
@@ -45,6 +46,8 @@ pub struct App {
     tray: Option<Tray>,
     /// The window is hidden in the tray.
     window_hidden: bool,
+    /// Brings the window to the front, past the window manager.
+    focus: Focus,
     /// Quitting for real: closing the window doesn't hide it.
     quitting: bool,
     updater: Updater,
@@ -99,6 +102,7 @@ impl App {
             media_hook,
             tray,
             window_hidden: false,
+            focus: Focus::new(cc),
             quitting: false,
             updater: Updater::new({
                 let ctx = cc.egui_ctx.clone();
@@ -119,6 +123,8 @@ impl App {
         if let Err(error) = app.use_skin(skin.as_deref()) {
             app.skin_error = Some(error);
         }
+        // Opened from a terminal or a launcher, the window comes to the front.
+        app.focus.want(&cc.egui_ctx);
         app
     }
 
@@ -275,7 +281,7 @@ impl App {
         self.window_hidden = false;
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        self.focus.want(ctx);
         // Where the desktop refuses focus (Wayland), the window at least
         // asks for attention.
         ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(
@@ -430,6 +436,7 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         self.keep_in_tray(ctx);
+        self.focus.tick(ctx);
         let state = self.controller.state();
         let player = &state.now_playing();
         self.media

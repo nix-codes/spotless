@@ -10,6 +10,7 @@ pub use spotless_core::{
 
 pub mod action;
 pub mod app;
+pub mod focus;
 pub mod media;
 pub mod skin;
 pub mod tray;

@@ -72,6 +72,10 @@ sha2 = "0.10"
 zbus = "5"
 # The tray icon (src/tray.rs): a StatusNotifierItem on the session bus.
 ksni = { version = "0.3.6", default-features = false, features = ["async-io", "blocking"] }
+# Bringing the window to the front on X11 (src/focus.rs): the x11rb winit
+# already builds on.
+x11rb = "0.13"
+raw-window-handle = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 # Media keys and the single-instance check (src/media/smtc.rs), the tray

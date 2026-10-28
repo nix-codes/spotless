@@ -5038,6 +5038,7 @@ dependencies = [
  "windows 0.62.2",
  "winit",
  "winresource",
+ "x11rb",
  "zbus",
 ]
 
