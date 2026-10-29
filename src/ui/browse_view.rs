@@ -22,7 +22,7 @@ use super::scrollbar::{self, Scrollbar};
 use super::settings_view::Category;
 use super::theme::{self, Palette};
 use super::widgets::{
-    BUTTON_HEIGHT, SMALL_HEIGHT, field, small_button, small_button_width, text_button,
+    BUTTON_HEIGHT, SMALL_HEIGHT, field, share_menu, small_button, small_button_width, text_button,
 };
 use super::{Inputs, View};
 use crate::action::{Action, Actions, Desktop};
@@ -787,6 +787,7 @@ fn artist_row(
     if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
         actions.push(Action::OpenArtist(artist.clone()));
     }
+    share(&row.response, "Copy artist link", &artist.uri, actions);
 }
 
 /// The artist page's similar artists, each opened on Spotify by name.
@@ -898,6 +899,7 @@ fn album(
     } else if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
         actions.push(Action::ToggleAlbum(release.uri.clone()));
     }
+    share(&row.response, "Copy album link", &release.uri, actions);
     if !expanded {
         return;
     }
@@ -1028,6 +1030,19 @@ fn song(
     } else if row.response.double_clicked() || matches!(row.act, Some(Act::Open)) {
         actions.push(Action::PlayNow(track.clone()));
     }
+    share(&row.response, "Copy song link", &track.uri, actions);
+}
+
+/// A right-click menu of only Share, for what has a Spotify link.
+fn share(response: &Response, copy: &str, uri: &str, actions: &mut Actions) {
+    if crate::spotify::link(uri).is_none() {
+        return;
+    }
+    response.context_menu(|ui| {
+        if share_menu(ui, copy) {
+            actions.push(Desktop::CopyLinks(vec![uri.to_string()]));
+        }
+    });
 }
 
 fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {

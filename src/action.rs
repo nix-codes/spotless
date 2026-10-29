@@ -25,6 +25,9 @@ pub enum Desktop {
     Update,
     /// Quits and starts the update installed.
     Restart,
+    /// Copies the Spotify links of these songs, albums, artists or
+    /// playlists, one a line, as the Spotify app's Share does.
+    CopyLinks(Vec<String>),
     /// Fetches a cover the catalog wants to show, unless it has it.
     LoadCover(String),
     /// Asks which Spotify playlist to copy these songs to, or with `new`

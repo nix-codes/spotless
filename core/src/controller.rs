@@ -336,6 +336,12 @@ impl Controller {
         &self.state
     }
 
+    /// Shows this in the notice line, for what only the interface does
+    /// (copying a link).
+    pub fn tell(&mut self, notice: impl Into<String>) {
+        self.state.notice = Some(notice.into());
+    }
+
     /// The settings, for the ones only the interface knows about (the tray,
     /// the skin, the zoom). They are saved soon after.
     pub fn settings_mut(&mut self) -> &mut Settings {

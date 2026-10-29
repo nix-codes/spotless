@@ -3,6 +3,7 @@ package dev.spotless.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -347,7 +348,9 @@ private fun LazyListScope.releases(core: Core, rows: List<ReleaseRow>, withArtis
                     .fillMaxWidth()
                     .height(56.dp)
                     .background(if (row.expanded) Classic.selected else Color.Transparent)
-                    .clickable { core.apply(Action.ToggleAlbum(release.uri)) }
+                    .combinedClickable(onLongClick = { core.share(listOf(release.uri)) }) {
+                        core.apply(Action.ToggleAlbum(release.uri))
+                    }
                     .padding(start = 12.dp, end = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -392,7 +395,7 @@ private fun ArtistRow(core: Core, artist: Artist) {
         Modifier
             .fillMaxWidth()
             .height(52.dp)
-            .clickable { core.apply(Action.OpenArtist(artist)) }
+            .combinedClickable(onLongClick = { core.share(listOf(artist.uri)) }) { core.apply(Action.OpenArtist(artist)) }
             .padding(horizontal = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -431,14 +434,14 @@ private fun SearchRow(core: Core, query: String) {
 
 private fun artists(track: Track) = track.artists.joinToString(", ") { it.name }
 
-/** A song: tap plays it now, after the target's current song; + adds it. */
+/** A song: tap plays it now, after the target's current song; hold shares it; + adds it. */
 @Composable
 private fun TrackRow(core: Core, track: Track, number: Int?, sub: String?) {
     Row(
         Modifier
             .fillMaxWidth()
             .height(if (sub != null) 52.dp else 46.dp)
-            .clickable { core.apply(Action.PlayNow(track)) }
+            .combinedClickable(onLongClick = { core.share(listOf(track.uri)) }) { core.apply(Action.PlayNow(track)) }
             .padding(start = if (number != null) 16.dp else 12.dp, end = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,

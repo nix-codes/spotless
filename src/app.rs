@@ -225,6 +225,18 @@ impl App {
                     crate::ui::Picker::new(tracks, name)
                 });
             }
+            Desktop::CopyLinks(uris) => {
+                let links = crate::spotify::links(uris.iter().map(String::as_str));
+                let notice = match links.lines().count() {
+                    0 => "Local files have no link to share.".to_string(),
+                    1 => "Copied the link.".to_string(),
+                    n => format!("Copied {n} links, one a line."),
+                };
+                if !links.is_empty() {
+                    self.ctx.copy_text(links);
+                }
+                self.controller.tell(notice);
+            }
             Desktop::LoadCover(url) => {
                 if !self.covers.contains_key(&url) {
                     self.covers.insert(url.clone(), Cover::Loading);

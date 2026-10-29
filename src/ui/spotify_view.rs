@@ -155,6 +155,14 @@ pub fn draw(
                     removable(queue, selection),
                 ));
             }
+            Choice::Share => actions.push(Desktop::CopyLinks(
+                selection
+                    .iter()
+                    .rev()
+                    .filter_map(|&id| queue.row(id))
+                    .map(|row| row.track().uri.clone())
+                    .collect(),
+            )),
             Choice::ToggleMarks => {}
         }
     }
@@ -279,6 +287,7 @@ fn draw_row(
         unmovable: unmovable(queue, &rows),
         marked: None,
         can_remove: open && queue.takes_songs() && !removable(queue, selection).is_empty(),
+        several: rows.len() > 1,
     };
     let chosen = playlist_view::row_menu(&response, view, menu);
     if response.drag_started() {

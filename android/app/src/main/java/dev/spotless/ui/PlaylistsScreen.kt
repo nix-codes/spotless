@@ -255,6 +255,13 @@ private fun SendBar(core: Core, send: Send, selected: List<ULong>, tracks: List<
             // A copy only: songs on Spotify stay in the tab too.
             if (send == Send.COPY) {
                 item(key = "spotify") { TextButton("SPOTIFY…", toSpotify, Modifier.height(44.dp)) }
+                // Their links, to another app.
+                item(key = "share") {
+                    TextButton("SHARE…", {
+                        core.share(tracks.map { it.uri })
+                        done()
+                    }, Modifier.height(44.dp))
+                }
             }
             items(core.tabs.tabs.filter { it.id != from }, key = { it.id.toLong() }) { tab ->
                 // Spotify takes songs for the queue only from the device playing it.

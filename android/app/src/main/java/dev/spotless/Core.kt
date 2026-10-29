@@ -211,6 +211,20 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
         if (woken.compareAndSet(false, true)) main.post(update)
     }
 
+    /**
+     * Offers the Spotify links of these songs, albums, artists or
+     * playlists to another app, as the Spotify app's Share does.
+     */
+    fun share(uris: List<String>) {
+        val links = dev.spotless.core.spotifyLinks(uris)
+        if (links.isEmpty()) return
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT, links)
+        val chooser = Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(chooser)
+    }
+
     override fun open(url: String) {
         main.post {
             approving = true

@@ -23,7 +23,7 @@ use super::scrollbar::Scrollbar;
 use super::skin_paint;
 use super::theme::{self, Palette};
 use super::widgets::{
-    Glyph, drag_ghost, field, small_action, small_button, small_glyph, text_button, tip,
+    Glyph, drag_ghost, field, share_menu, small_action, small_button, small_glyph, text_button, tip,
 };
 use super::{Inputs, View, spotify_view};
 use crate::action::{Action, Actions, Desktop};
@@ -132,6 +132,8 @@ pub(super) enum Choice {
     CopyToSpotify,
     Move(Option<PlaylistId>),
     ToggleMarks,
+    /// Copies the songs' Spotify links.
+    Share,
     Remove,
 }
 
@@ -925,7 +927,11 @@ fn draw_rows(
                 selection.reveal = None;
             }
             let marked = response.context_menu_opened() && all_marked(list, selection);
-            chosen = chosen.or(row_menu(&response, view, Menu::own(marked)));
+            chosen = chosen.or(row_menu(
+                &response,
+                view,
+                Menu::own(marked, selection.rows.len() > 1),
+            ));
             if response.drag_started() {
                 if !selected {
                     selection.select(entry.id, index);
@@ -1063,7 +1069,7 @@ fn header(
         selection.cursor = Some(first);
     }
     let marked = response.context_menu_opened() && all_marked(list, selection);
-    let choice = row_menu(&response, view, Menu::own(marked));
+    let choice = row_menu(&response, view, Menu::own(marked, selection.rows.len() > 1));
     if response.clicked() {
         let ids = songs.iter().map(|entry| entry.id);
         if ui.input(|i| i.modifiers.command) {
@@ -1113,15 +1119,18 @@ pub(super) struct Menu {
     /// For a playlist's own rows (Play next): whether they're all marked.
     pub marked: Option<bool>,
     pub can_remove: bool,
+    /// More than one row is selected.
+    pub several: bool,
 }
 
 impl Menu {
     /// For a playlist's own rows, which can always move or go.
-    fn own(marked: bool) -> Self {
+    fn own(marked: bool, several: bool) -> Self {
         Self {
             unmovable: None,
             marked: Some(marked),
             can_remove: true,
+            several,
         }
     }
 }
@@ -1133,7 +1142,7 @@ fn item(ui: &mut Ui, name: &str, enabled: bool) -> egui::Response {
 }
 
 /// The right-click menu of the selected rows: Copy to, Move to, Play next
-/// for a playlist's own rows, and Remove.
+/// for a playlist's own rows, Share and Remove.
 pub(super) fn row_menu(response: &egui::Response, view: &View, menu: Menu) -> Option<Choice> {
     let mut chosen = None;
     let targets = |ui: &mut Ui,
@@ -1188,6 +1197,14 @@ pub(super) fn row_menu(response: &egui::Response, view: &View, menu: Menu) -> Op
                 chosen = Some(Choice::ToggleMarks);
             }
         }
+        let copy = if menu.several {
+            "Copy song links"
+        } else {
+            "Copy song link"
+        };
+        if share_menu(ui, copy) {
+            chosen = Some(Choice::Share);
+        }
         if item(ui, "Remove", menu.can_remove).clicked() {
             chosen = Some(Choice::Remove);
         }
@@ -1221,6 +1238,12 @@ fn send(list: &Playlist, selection: &mut Selection, choice: Choice, actions: &mu
             remove(list, selection, rows, actions);
         }
         Choice::ToggleMarks => actions.push(Action::ToggleMarks(rows)),
+        Choice::Share => actions.push(Desktop::CopyLinks(
+            rows.iter()
+                .filter_map(|&id| list.get(id))
+                .map(|entry| entry.track.uri.clone())
+                .collect(),
+        )),
         Choice::Remove => remove(list, selection, rows, actions),
     }
 }

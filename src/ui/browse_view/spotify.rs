@@ -17,15 +17,16 @@ use egui::{
 };
 
 use super::{Act, Area, CatalogDrag, Nav, PAD, TRACK_HEIGHT, body, mono, note, row, spans};
-use crate::action::{Action, Actions};
+use crate::action::{Action, Actions, Desktop};
 use crate::browse::Loadable;
 use crate::model::catalog::SpotifyPlaylist;
 use crate::model::playlist::from_source;
 use crate::model::{Source, TrackRef};
 use crate::spotify::catalog::LIKED_SONGS;
+use crate::spotify::link;
 use crate::ui::scrollbar;
 use crate::ui::theme;
-use crate::ui::widgets::{field, small_button, tip};
+use crate::ui::widgets::{field, share_menu, small_button, tip};
 use crate::ui::{Inputs, View};
 
 pub(super) const FILTER_ID: &str = "spotify-filter";
@@ -279,13 +280,21 @@ fn playlist_list(
                         actions.push(Action::OpenSpotifyPlaylist(playlist.uri.clone()));
                         nav.area = Area::Lists;
                     }
-                    if view.browse.unlistable(&playlist.uri) {
+                    let unlistable = view.browse.unlistable(&playlist.uri);
+                    let shareable = link(&playlist.uri).is_some();
+                    if unlistable || shareable {
                         response.context_menu(|ui| {
-                            let label =
-                                RichText::new(unlist_label(playlist)).monospace().size(11.0);
-                            let button = egui::Button::new(label).frame_when_inactive(false);
-                            if ui.add(button).clicked() {
-                                actions.push(Action::UnlistSpotifyPlaylist(playlist.uri.clone()));
+                            if shareable && share_menu(ui, "Copy playlist link") {
+                                actions.push(Desktop::CopyLinks(vec![playlist.uri.clone()]));
+                            }
+                            if unlistable {
+                                let label =
+                                    RichText::new(unlist_label(playlist)).monospace().size(11.0);
+                                let button = egui::Button::new(label).frame_when_inactive(false);
+                                if ui.add(button).clicked() {
+                                    actions
+                                        .push(Action::UnlistSpotifyPlaylist(playlist.uri.clone()));
+                                }
                             }
                         });
                     }
@@ -614,6 +623,16 @@ fn playlist_song(
         };
         if item(ui, &format!("Add to {target}"), true).clicked() {
             actions.push(Action::AddTracks(these(nav)));
+        }
+        let several = nav.marked.contains(&index) && nav.marked.len() > 1;
+        let copy = if several {
+            "Copy song links"
+        } else {
+            "Copy song link"
+        };
+        if share_menu(ui, copy) {
+            let uris = these(nav).into_iter().map(|track| track.uri).collect();
+            actions.push(Desktop::CopyLinks(uris));
         }
         let remove = item(ui, "Remove from this playlist", editable)
             .on_disabled_hover_text("Only your own playlists can be changed");

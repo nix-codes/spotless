@@ -108,6 +108,13 @@ Spotify only allows playback in other apps for Premium accounts.
   start with. On Android, select songs, then COPY and SPOTIFY…; or hold
   a tab and SAVE TO SPOTIFY…. It's a copy, made once: changing the tab
   later doesn't change the Spotify playlist.
+- **Share**, as in the Spotify app: right-click songs, an album, an
+  artist or a Spotify playlist, *Share > Copy song link*, for its
+  open.spotify.com link (several songs, a link a line). On Android,
+  select songs, then the share button (in YOUR SPOTIFY) or COPY and
+  SHARE… (in a playlist); hold a song, an album or an artist in Browse;
+  or the share button beside a Spotify playlist's name. Local files and
+  Liked Songs have no link.
 - **Pics are optional**: album covers and artists' pictures. Off by default
   on the desktop, on by default on Android; either way, they show in the
   catalogue only. Playlists stay text.

@@ -1,8 +1,8 @@
 //! Small Winamp-style controls drawn with the painter.
 
 use egui::{
-    Align2, FontId, Pos2, Rect, Response, Sense, Shape, TextEdit, Ui, Vec2, WidgetInfo, WidgetType,
-    pos2, vec2,
+    Align2, FontId, Pos2, Rect, Response, RichText, Sense, Shape, TextEdit, Ui, Vec2, WidgetInfo,
+    WidgetType, pos2, vec2,
 };
 
 use super::skin_paint;
@@ -70,6 +70,19 @@ pub fn small_action(ui: &mut Ui, palette: &Palette, label: &str, enabled: bool) 
 /// disabled one's only through `on_disabled_hover_text`).
 pub fn tip(response: Response, text: &str) -> Response {
     response.on_hover_text(text).on_disabled_hover_text(text)
+}
+
+/// A right-click menu's Share, as the Spotify app's: true when its one
+/// item, `copy` ("Copy song link"), was clicked.
+pub fn share_menu(ui: &mut Ui, copy: &str) -> bool {
+    let mut clicked = false;
+    ui.menu_button(RichText::new("Share").monospace().size(11.0), |ui| {
+        let label = RichText::new(copy).monospace().size(11.0);
+        clicked = ui
+            .add(egui::Button::new(label).frame_when_inactive(false))
+            .clicked();
+    });
+    clicked
 }
 
 /// A small square glyph button, for toolbars.

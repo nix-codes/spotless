@@ -55,6 +55,13 @@ pub struct CoverImage {
     pub rgba: Vec<u8>,
 }
 
+/// The Spotify links of these songs, albums, artists or playlists, one a
+/// line, to share; empty if none has one (Liked Songs, local files).
+#[uniffi::export]
+pub fn spotify_links(uris: Vec<String>) -> String {
+    spotless_core::spotify::links(uris.iter().map(String::as_str))
+}
+
 /// The made-up artist a demo's Browse has ready (`spotless_core::demo`).
 #[uniffi::export]
 pub fn demo_artist() -> view::Artist {

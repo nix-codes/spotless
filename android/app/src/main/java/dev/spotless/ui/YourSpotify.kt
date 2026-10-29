@@ -280,6 +280,7 @@ private fun PlaylistBar(core: Core, playlist: SpotifyPlaylist) {
             Line(about(playlist, yours = true), body(13.sp, Classic.label, FontWeight.Normal))
         }
         if (!playlist.liked) {
+            GlyphButton(Glyph.Share, "Share the playlist", { core.share(listOf(playlist.uri)) }, Modifier.width(48.dp).height(44.dp))
             TextButton(if (mine(playlist)) "DELETE" else "UNFOLLOW", {
                 core.apply(Action.UnlistSpotifyPlaylist(playlist.uri))
                 core.spotifySongs = false
@@ -317,6 +318,10 @@ private fun SelectBar(
             core.apply(Action.AddTracks(selected.map { tracks[it] }))
             done()
         })
+        GlyphButton(Glyph.Share, "Share the songs", {
+            core.share(selected.map { tracks[it].uri })
+            done()
+        }, Modifier.width(48.dp))
         // Only the account's own playlists and Liked Songs can change.
         GlyphButton(Glyph.Trash, "Remove from this playlist on Spotify", {
             core.apply(Action.RemoveFromSpotify(playlist.uri, selected.map { it.toUInt() }))
