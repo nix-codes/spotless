@@ -70,6 +70,9 @@ Spotify only allows playback in other apps for Premium accounts.
   played.
 - **Stop after this song**, as Winamp's Stop after current: Ctrl-click
   Stop or Shift+V on the desktop, hold Stop on Android.
+- **Time left**, as in Winamp: click the time (or `Alt+T`) on the
+  desktop, tap it on Android, and it counts down what's left of the song
+  after a minus. Spotless remembers which you chose.
 - **Gapless playback** at 320 kbps, with optional volume levelling.
 - **One stream at a time**, as Spotify allows. Start playing on your phone
   and Spotless pauses; press play in Spotless and it pauses your phone.

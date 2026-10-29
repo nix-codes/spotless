@@ -301,6 +301,8 @@ pub enum Action {
     /// Stops once the playing song ends, or doesn't any more (Winamp's
     /// Stop after current). Only while a song is loaded.
     ToggleStopAfter,
+    /// The time shows what's left of the song, or what has played.
+    ToggleTimeLeft,
     /// Stops, keeping where the song was: the app was put away.
     Release,
     Next,
@@ -492,6 +494,7 @@ impl From<Action> for spotless_core::action::Action {
             Action::TogglePause => Core::TogglePause,
             Action::Stop => Core::Stop,
             Action::ToggleStopAfter => Core::ToggleStopAfter,
+            Action::ToggleTimeLeft => Core::ToggleTimeLeft,
             Action::Release => Core::Release,
             Action::Next => Core::Next,
             Action::Previous => Core::Previous,
@@ -840,6 +843,9 @@ mod tests {
         assert!(spotless.player().stop_after);
         spotless.apply(Action::ToggleStopAfter);
         assert!(!spotless.player().stop_after);
+        assert!(!spotless.settings().time_left);
+        spotless.apply(Action::ToggleTimeLeft);
+        assert!(spotless.settings().time_left);
         let _ = std::fs::remove_dir_all(root);
     }
 

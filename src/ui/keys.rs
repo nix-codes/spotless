@@ -42,6 +42,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("S", "Shuffle on / off"),
             ("R", "Repeat on / off"),
             ("J", "Jump to the playing song"),
+            ("Alt+T", "Time played / time left"),
         ],
     ),
     (
@@ -298,6 +299,10 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     }
     if take(i, Modifiers::ALT, Key::V) {
         actions.push(Action::ToggleDeck);
+    }
+    // Winamp's is Ctrl+T, a new playlist here.
+    if take(i, Modifiers::ALT, Key::T) {
+        actions.push(Action::ToggleTimeLeft);
     }
     if super::undo_shown(view) && take(i, Modifiers::COMMAND, Key::Z) {
         actions.push(Action::UndoSpotifyRemoval);

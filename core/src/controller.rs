@@ -1119,6 +1119,10 @@ impl Controller {
                 self.state.settings.deck_media = media;
                 self.mark_unsaved();
             }
+            Action::ToggleTimeLeft => {
+                self.state.settings.time_left = !self.state.settings.time_left;
+                self.mark_unsaved();
+            }
             Action::SetEqualiser(equaliser) => {
                 let equaliser = equaliser.clamped();
                 self.state.settings.equaliser = equaliser;
@@ -1886,6 +1890,17 @@ mod tests {
         assert_eq!(settings(&rig).deck_media, crate::store::DeckMedia::Reel);
         rig.controller.apply(Action::ToggleDeck);
         assert!(!settings(&rig).deck_shown);
+    }
+
+    #[test]
+    fn the_time_shows_what_is_left_and_back() {
+        let mut rig = Rig::new("time-left");
+        let time_left = |rig: &Rig| rig.controller.state().settings.time_left;
+        assert!(!time_left(&rig), "what has played to start with");
+        rig.controller.apply(Action::ToggleTimeLeft);
+        assert!(time_left(&rig));
+        rig.controller.apply(Action::ToggleTimeLeft);
+        assert!(!time_left(&rig));
     }
 
     #[test]

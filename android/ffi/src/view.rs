@@ -920,6 +920,8 @@ pub struct SettingsView {
     pub spotify_tab_enabled: bool,
     /// It can, but was closed: + offers it again.
     pub spotify_tab_closed: bool,
+    /// The time shows what's left of the song instead of what has played.
+    pub time_left: bool,
 }
 
 /// A colour the lists and the display can take, with its shades as
@@ -1000,5 +1002,6 @@ pub(crate) fn settings(state: &State) -> SettingsView {
         song_headers: settings.grouping.key().into(),
         spotify_tab_enabled: settings.spotify_tab_enabled,
         spotify_tab_closed: settings.spotify_tab_enabled && !settings.spotify_tab,
+        time_left: settings.time_left,
     }
 }

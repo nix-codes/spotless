@@ -14,7 +14,7 @@ use egui::{
 use super::player_strip::{
     HEIGHT, NEXT_TIP, PAUSE_TIP, PLAY_TIP, PREVIOUS_TIP, REPEAT_TIP, SHUFFLE_TIP, display_clicked,
     eject_clicked, eq_clicked, follow_press, held, length, now_lines, pl_clicked, rates,
-    stop_clicked, time_shown, vis_clicked,
+    stop_clicked, time_clicked, time_seconds, time_shown, vis_clicked,
 };
 use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
@@ -203,6 +203,7 @@ pub fn draw(
     let lcd_width = time_width(paint) * unit + 2.0 * LCD_MARGIN;
     let lcd = Rect::from_min_size(origin, vec2(lcd_width, rows.top * unit));
     draw_lcd(ui, lcd, view, paint, unit);
+    time_clicked(ui, lcd, view, actions);
     let title = Rect::from_min_max(
         pos2(lcd.right() + GAP * unit, origin.y),
         pos2(rect.right(), y(rows.display)),
@@ -280,7 +281,7 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View, paint: &SkinPaint, unit: f32) {
     if player.status == Status::Stopped {
         return;
     }
-    let seconds = player.position_now() / 1000;
+    let (left_of_song, seconds) = time_seconds(view);
     let minutes = (seconds / 60).min(99);
     let values = [minutes / 10, minutes % 10, seconds % 60 / 10, seconds % 10];
     let (digits, colon, _) = time_layout(paint);
@@ -303,6 +304,13 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View, paint: &SkinPaint, unit: f32) {
     for y in [0.3, 0.6] {
         let dot = Rect::from_min_size(at(colon, (height * y).round()), vec2(3.0, 1.0) * unit);
         painter.rect_filled(dot, 0.0, palette.lcd);
+    }
+    // The minus too, in the gap before the first digit, and it stays
+    // while the digits blink.
+    if left_of_song {
+        let x = digits[0] - 8.0;
+        let minus = Rect::from_min_size(at(x, (height / 2.0).floor()), vec2(5.0, 1.0) * unit);
+        painter.rect_filled(minus, 0.0, palette.lcd);
     }
 }
 

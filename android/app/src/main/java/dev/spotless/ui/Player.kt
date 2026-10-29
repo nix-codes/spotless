@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.spotless.Core
@@ -49,16 +50,25 @@ private fun title(core: Core): String {
     }
 }
 
-/** The display's time: where the song is, or dashes with none loaded. */
-private fun time(player: Player) = if (player.track == null) "-:--" else clock(player.positionMs.toLong())
+/**
+ * The display's time: where the song is, or with [left] what's left of it
+ * after a minus, counted up so the song starts at its length and ends at 0;
+ * dashes with none loaded.
+ */
+private fun time(player: Player, left: Boolean): String {
+    val track = player.track ?: return "-:--"
+    if (!left) return clock(player.positionMs.toLong())
+    val rest = (track.durationMs.toLong() - player.positionMs.toLong()).coerceAtLeast(0)
+    return "-" + clock((rest + 999) / 1000 * 1000)
+}
 
 /**
  * The time, whose digits blink while paused, as in Winamp (and the
- * desktop); the colon stays.
+ * desktop); the colon and the minus stay.
  */
 @Composable
-private fun shownTime(player: Player): String {
-    val text = time(player)
+private fun shownTime(player: Player, left: Boolean): String {
+    val text = time(player, left)
     val paused = player.status == Status.PAUSED && player.track != null
     var lit by remember { mutableStateOf(true) }
     LaunchedEffect(paused) {
@@ -68,10 +78,24 @@ private fun shownTime(player: Player): String {
             lit = !lit
         }
     }
-    return if (!paused || lit) text else text.map { if (it == ':') it else ' ' }.joinToString("")
+    return if (!paused || lit) text else text.map { if (it == ':' || it == '-') it else ' ' }.joinToString("")
 }
 
 private const val BLINK_MS = 1000L
+
+/** The time; tapped, it shows what's left of the song, or again what has played. */
+@Composable
+private fun Time(core: Core, size: TextUnit) {
+    val left = core.settings.timeLeft
+    BasicText(
+        shownTime(core.player, left),
+        Modifier.clickable(
+            onClickLabel = if (left) "Show the time played" else "Show the time left",
+            onClick = { core.apply(Action.ToggleTimeLeft) },
+        ),
+        mono(size, Classic.lcd),
+    )
+}
 
 /** A line of the display that, too long to fit, scrolls slowly round and round. */
 @Composable
@@ -107,7 +131,7 @@ fun PlayerPanel(core: Core) {
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BasicText(shownTime(player), style = mono(40.sp, Classic.lcd))
+            Time(core, 40.sp)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Scrolling(title(core), body(color = Classic.lcd))
                 if (player.offline) {
@@ -209,7 +233,7 @@ fun MiniPlayer(core: Core) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BasicText(shownTime(player), style = mono(24.sp, Classic.lcd))
+        Time(core, 24.sp)
         Scrolling(title(core), body(14.sp, Classic.lcd), Modifier.weight(1f).showsSong(core))
         if (playing(player)) {
             GlyphButton(Glyph.Pause, "Pause", { core.apply(Action.TogglePause) })

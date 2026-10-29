@@ -90,6 +90,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     let rect = ui.max_rect();
     let lcd = Rect::from_min_size(rect.min, vec2(LCD_WIDTH, TOP));
     draw_lcd(ui, lcd, view);
+    time_clicked(ui, lcd, view, actions);
     let title = Rect::from_min_max(
         pos2(lcd.right() + 10.0, rect.top()),
         pos2(rect.right(), rect.top() + TITLE_HEIGHT),
@@ -141,12 +142,16 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View) {
     if player.status == Status::Stopped {
         return;
     }
-    let seconds = player.position_now() / 1000;
+    let (left_of_song, seconds) = time_seconds(view);
     let time = if time_shown(ui, view) {
         format!("{:02}:{:02}", seconds / 60, seconds % 60)
     } else {
         "  :  ".to_string()
     };
+    if left_of_song {
+        let minus = Rect::from_center_size(pos2(left + 16.5, rect.center().y), vec2(7.0, 3.0));
+        painter.rect_filled(minus, 0.0, palette.lcd);
+    }
     painter.text(
         pos2(left + 22.0, rect.center().y),
         Align2::LEFT_CENTER,
@@ -154,6 +159,39 @@ fn draw_lcd(ui: &Ui, rect: Rect, view: &View) {
         FontId::monospace(32.0),
         palette.lcd,
     );
+}
+
+/// Whether the time is what's left of the song, and the seconds to
+/// show: those played, or those left, counted up so that the song
+/// starts at its length and ends at 0.
+pub(super) fn time_seconds(view: &View) -> (bool, u32) {
+    let player = view.player;
+    let played = player.position_now();
+    match &player.track {
+        Some(track) if view.settings.time_left => (
+            true,
+            track.duration_ms.saturating_sub(played).div_ceil(1000),
+        ),
+        _ => (false, played / 1000),
+    }
+}
+
+/// Clicking the time shows what's left of the song, or again what has
+/// played (Alt+T), as in Winamp.
+pub(super) fn time_clicked(ui: &Ui, rect: Rect, view: &View, actions: &mut Actions) {
+    let tip = if view.settings.time_left {
+        "Show the time played (Alt+T)"
+    } else {
+        "Show the time left (Alt+T)"
+    };
+    let response = ui.interact(rect, Id::new("time-display"), Sense::click());
+    if response
+        .on_hover_cursor(CursorIcon::PointingHand)
+        .on_hover_text(tip)
+        .clicked()
+    {
+        actions.push(Action::ToggleTimeLeft);
+    }
 }
 
 /// The song's display: the artist above, the song below.

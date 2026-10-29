@@ -228,6 +228,9 @@ pub struct Settings {
     /// reels, its spectrum and its levels.
     pub deck_shown: bool,
     pub deck_media: DeckMedia,
+    /// The time shows what's left of the song, after a minus, instead of
+    /// what has played (Winamp's time display mode).
+    pub time_left: bool,
     /// The desktop's window, as it was left.
     pub window: Option<WindowPlace>,
     raw: Map<String, Value>,
@@ -352,6 +355,7 @@ impl Settings {
                 .collect(),
             deck_shown: flag("deck_shown"),
             deck_media: DeckMedia::from_key(raw.get("deck_media").and_then(Value::as_str)),
+            time_left: flag("time_left"),
             window: raw
                 .get("window")
                 .and_then(|value| WindowPlace::deserialize(value).ok())
@@ -403,6 +407,7 @@ impl Settings {
         }
         raw.insert("deck_shown".into(), self.deck_shown.into());
         raw.insert("deck_media".into(), self.deck_media.key().into());
+        raw.insert("time_left".into(), self.time_left.into());
         match self.window.map(serde_json::to_value) {
             Some(Ok(window)) => raw.insert("window".into(), window),
             _ => raw.remove("window"),
@@ -573,11 +578,14 @@ mod tests {
         let mut settings = Settings::load(&paths);
         assert!(!settings.deck_shown);
         assert_eq!(settings.deck_media, DeckMedia::Cassette);
+        assert!(!settings.time_left);
         settings.deck_shown = true;
         settings.deck_media = DeckMedia::Reel;
+        settings.time_left = true;
         settings.save(&paths).unwrap();
         let read = Settings::load(&paths);
         assert!(read.deck_shown);
+        assert!(read.time_left);
         assert_eq!(read.deck_media, DeckMedia::Reel);
         assert_eq!(read.grouping, Grouping::Source, "by source to start with");
         for media in [
