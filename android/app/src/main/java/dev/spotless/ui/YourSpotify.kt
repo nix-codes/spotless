@@ -143,17 +143,19 @@ private fun PlaylistList(core: Core, playlists: List<SpotifyPlaylist>) {
         Modifier.fillMaxSize().padding(horizontal = 8.dp).lcd().padding(2.dp),
     ) {
         if (found.isEmpty()) note(if (playlists.isEmpty()) "No playlists on your Spotify." else "No playlist by that name.")
-        val groups = listOf("YOURS" to found.filter(::mine), "FOLLOWED" to found.filterNot(::mine))
+        val open = { playlist: SpotifyPlaylist ->
+            core.apply(Action.OpenSpotifyPlaylist(playlist.uri))
+            core.spotifySongs = true
+        }
+        // Liked Songs on its own above the bands: it isn't a playlist of the account's.
+        val (liked, rest) = found.partition { it.liked }
+        items(liked, key = { it.uri }) { playlist -> PlaylistRow(playlist) { open(playlist) } }
+        val groups = listOf("YOURS" to rest.filter(::mine), "FOLLOWED" to rest.filterNot(::mine))
             .filter { (_, these) -> these.isNotEmpty() }
         for ((i, group) in groups.withIndex()) {
             val (title, these) = group
-            group(title, these.size, first = i == 0)
-            items(these, key = { it.uri }) { playlist ->
-                PlaylistRow(playlist) {
-                    core.apply(Action.OpenSpotifyPlaylist(playlist.uri))
-                    core.spotifySongs = true
-                }
-            }
+            group(title, these.size, first = i == 0 && liked.isEmpty())
+            items(these, key = { it.uri }) { playlist -> PlaylistRow(playlist) { open(playlist) } }
         }
     }
 }

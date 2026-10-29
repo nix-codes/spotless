@@ -697,7 +697,10 @@ mod tests {
         assert_eq!(owned, [true, true, true, true, true, false, false]);
         assert!(playlists[0].liked && !playlists[1].liked);
 
-        let late_trains = playlists[1].uri.clone();
+        let names: Vec<&str> = playlists.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names[..3], ["Liked Songs", "Basement Tapes", "Late Trains"]);
+
+        let late_trains = playlists[2].uri.clone();
         spotless.apply(Action::OpenSpotifyPlaylist {
             uri: late_trains.clone(),
         });
@@ -725,7 +728,10 @@ mod tests {
         let SpotifyPlaylists::Ready { playlists } = spotless.browse().your_spotify.playlists else {
             panic!("the demo's playlists are read");
         };
-        let late_trains = playlists[1].clone();
+        let late_trains = playlists
+            .into_iter()
+            .find(|p| p.name == "Late Trains")
+            .unwrap();
         spotless.apply(Action::OpenSpotifyPlaylist {
             uri: late_trains.uri.clone(),
         });

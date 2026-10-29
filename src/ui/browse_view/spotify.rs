@@ -22,6 +22,7 @@ use crate::browse::Loadable;
 use crate::model::catalog::SpotifyPlaylist;
 use crate::model::playlist::from_source;
 use crate::model::{Source, TrackRef};
+use crate::spotify::catalog::LIKED_SONGS;
 use crate::ui::scrollbar;
 use crate::ui::theme;
 use crate::ui::widgets::{field, small_button, tip};
@@ -201,25 +202,36 @@ fn playlist_list(
     scrollbar::show(ui, view, id, area, |area, ui| {
         area.show(ui, |ui| {
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-            let mine = order.iter().take_while(|p| p.owner.is_none());
-            let followed = order.iter().skip_while(|p| p.owner.is_none());
+            // Liked Songs on its own above the rest, under a line: it
+            // isn't a playlist of the account's and is ordered by Spotify.
+            let (liked, rest): (Vec<&&SpotifyPlaylist>, Vec<_>) =
+                order.iter().partition(|p| p.uri == LIKED_SONGS);
+            let mine = rest.iter().take_while(|p| p.owner.is_none());
+            let followed = rest.iter().skip_while(|p| p.owner.is_none());
             for (title, group) in [
-                ("YOURS", mine.collect::<Vec<_>>()),
-                ("FOLLOWED", followed.collect::<Vec<_>>()),
+                (None, liked),
+                (Some("YOURS"), mine.copied().collect::<Vec<_>>()),
+                (Some("FOLLOWED"), followed.copied().collect::<Vec<_>>()),
             ] {
                 if group.is_empty() {
                     continue;
                 }
-                ui.add_space(4.0);
-                let heading = ui
-                    .label(
-                        RichText::new(title)
-                            .monospace()
-                            .size(10.0)
-                            .color(palette.chrome),
-                    )
-                    .rect;
-                ui.add_space(2.0);
+                let heading = match title {
+                    Some(title) => {
+                        ui.add_space(4.0);
+                        let heading = ui
+                            .label(
+                                RichText::new(title)
+                                    .monospace()
+                                    .size(10.0)
+                                    .color(palette.chrome),
+                            )
+                            .rect;
+                        ui.add_space(2.0);
+                        Some(heading)
+                    }
+                    None => None,
+                };
                 for (at, playlist) in group.into_iter().enumerate() {
                     let chosen = open == Some(playlist.uri.as_str());
                     let (rect, response) = ui
@@ -227,7 +239,10 @@ fn playlist_list(
                     let painter = ui.painter();
                     // The first of a group with its heading.
                     if reveal == Some(playlist.uri.as_str()) {
-                        let shown = if at == 0 { rect.union(heading) } else { rect };
+                        let shown = match heading {
+                            Some(heading) if at == 0 => rect.union(heading),
+                            _ => rect,
+                        };
                         ui.scroll_to_rect(shown, None);
                     }
                     if chosen {
@@ -274,6 +289,16 @@ fn playlist_list(
                             }
                         });
                     }
+                }
+                if title.is_none() {
+                    ui.add_space(4.0);
+                    let (line, _) =
+                        ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+                    ui.painter().hline(
+                        line.x_range(),
+                        line.center().y,
+                        Stroke::new(1.0, palette.lo),
+                    );
                 }
             }
             if order.is_empty() {

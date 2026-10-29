@@ -98,7 +98,7 @@ pub fn discography() -> Discography {
 
 /// The account's playlists on Spotify, as Browse lists them.
 pub fn spotify_playlists() -> Vec<SpotifyPlaylist> {
-    [
+    let mut playlists: Vec<_> = [
         ("Liked Songs", 214, None, true),
         ("Late Trains", 38, None, false),
         ("Basement Tapes", 112, None, true),
@@ -119,7 +119,9 @@ pub fn spotify_playlists() -> Vec<SpotifyPlaylist> {
         owner: owner.map(String::from),
         private,
     })
-    .collect()
+    .collect();
+    crate::model::catalog::sort_playlists(&mut playlists);
+    playlists
 }
 
 /// The URLs of every cover there is, the artist's picture's included.

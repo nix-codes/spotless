@@ -241,8 +241,12 @@ impl Controller {
             Loadable::Ready(crate::demo::discography()),
         );
         state.browse.spotify_playlists = Some(Loadable::Ready(crate::demo::spotify_playlists()));
-        // Late Trains, the first of them, holds some of the playing songs.
-        if let Some(list) = state.library.get(demo.playing) {
+        // Late Trains, of the account's on Spotify, holds some of the
+        // playing songs.
+        let late_trains = crate::demo::spotify_playlists()
+            .into_iter()
+            .find(|p| p.name == "Late Trains");
+        if let (Some(list), Some(late_trains)) = (state.library.get(demo.playing), late_trains) {
             let songs: Vec<TrackRef> = list
                 .entries()
                 .iter()
@@ -250,7 +254,7 @@ impl Controller {
                 .map(|e| e.track.clone())
                 .collect();
             let places = (0..songs.len()).map(Place::At).collect();
-            let uri = crate::demo::spotify_playlists()[1].uri.clone();
+            let uri = late_trains.uri;
             state
                 .browse
                 .places

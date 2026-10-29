@@ -21,7 +21,7 @@ use protobuf::{EnumOrUnknown, Message};
 use reqwest::Method;
 
 use crate::model::catalog::{
-    Discography, Place, Release, ReleaseGroup, Songs, SpotifyPlaylist, tidy,
+    Discography, Place, Release, ReleaseGroup, Songs, SpotifyPlaylist, sort_playlists, tidy,
 };
 use crate::model::playlist::from_source;
 use crate::model::{AlbumRef, ArtistRef, Source, TrackRef};
@@ -145,8 +145,8 @@ const LIKED_PAGE: i32 = 500;
 /// Playlists asked for in one read of the account's list.
 const ROOTLIST_PAGE: usize = 200;
 
-/// The account's playlists, in its own order, after Liked Songs. Folders
-/// are left out and their playlists listed in their place.
+/// The account's playlists, by name, after Liked Songs. Folders are left
+/// out and their playlists listed with the rest.
 pub async fn playlists(session: &Session) -> Result<Vec<SpotifyPlaylist>> {
     let liked = liked_tracks(session).await?;
     let mut found = vec![SpotifyPlaylist {
@@ -210,6 +210,7 @@ pub async fn playlists(session: &Session) -> Result<Vec<SpotifyPlaylist>> {
         playlist.owner = names.get(owner).cloned();
         playlist.private = private.contains(&n);
     }
+    sort_playlists(&mut found);
     Ok(found)
 }
 

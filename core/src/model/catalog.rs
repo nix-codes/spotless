@@ -2,6 +2,7 @@
 //! account's own Spotify playlists.
 
 use super::playlist::{ArtistRef, TrackRef};
+use crate::spotify::catalog::LIKED_SONGS;
 
 /// Which tab of an artist's discography a release belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -158,6 +159,12 @@ pub fn tidy(mut releases: Vec<Release>) -> Vec<Release> {
     releases
 }
 
+/// Puts Liked Songs first and the playlists after it by name, whatever
+/// the case; those named alike keep the order they came in.
+pub fn sort_playlists(playlists: &mut [SpotifyPlaylist]) {
+    playlists.sort_by_cached_key(|p| (p.uri != LIKED_SONGS, p.name.to_lowercase()));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,6 +197,36 @@ mod tests {
                 (1999, ReleaseGroup::Single),
                 (1999, ReleaseGroup::AppearsOn),
                 (2002, ReleaseGroup::Album)
+            ]
+        );
+    }
+
+    #[test]
+    fn playlists_go_by_name_after_liked_songs() {
+        let playlist = |uri: &str, name: &str| SpotifyPlaylist {
+            uri: uri.into(),
+            name: name.into(),
+            tracks: 1,
+            owner: None,
+            private: false,
+        };
+        let mut playlists = vec![
+            playlist("spotify:playlist:b", "basement"),
+            playlist("spotify:playlist:c", "Zeros"),
+            playlist(LIKED_SONGS, "Liked Songs"),
+            playlist("spotify:playlist:a", "Attic"),
+            playlist("spotify:playlist:d", "attic"),
+        ];
+        sort_playlists(&mut playlists);
+        let uris: Vec<_> = playlists.iter().map(|p| p.uri.as_str()).collect();
+        assert_eq!(
+            uris,
+            [
+                LIKED_SONGS,
+                "spotify:playlist:a",
+                "spotify:playlist:d",
+                "spotify:playlist:b",
+                "spotify:playlist:c"
             ]
         );
     }
