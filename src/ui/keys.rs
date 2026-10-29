@@ -56,6 +56,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+W", "Close the tab"),
             ("F2", "Rename the playlist"),
             ("Ctrl+B", "Browse / playlists"),
+            ("Insert", "Browse, to add to the playlist"),
             ("Alt+G", "Show / hide the equaliser"),
             ("Alt+V", "Show / hide the deck"),
             ("F3 or Ctrl+F", "Browse: search"),
@@ -322,7 +323,10 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     if super::undo_shown(view) && take(i, Modifiers::COMMAND, Key::Z) {
         actions.push(Action::UndoSpotifyRemoval);
     }
-    if take(i, Modifiers::COMMAND, Key::B) {
+    // Insert opens Browse, to add to the playlist; in Browse it adds.
+    if take(i, Modifiers::COMMAND, Key::B)
+        || (!view.browse.open && take(i, Modifiers::NONE, Key::Insert))
+    {
         browse_view::opening(view, inputs);
         actions.push(Action::ToggleBrowse);
     }
