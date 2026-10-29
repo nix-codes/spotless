@@ -47,6 +47,8 @@ pub struct View<'a> {
     pub notice: Option<&'a str>,
     /// The playlist in the editor.
     pub playlist: &'a Playlist,
+    /// What's left to play of it from its place, once some has played.
+    pub left_ms: Option<u64>,
     pub shuffle: bool,
     pub repeat: bool,
     /// Playback stops once the playing song ends (Ctrl-click on Stop).

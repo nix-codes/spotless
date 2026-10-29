@@ -495,6 +495,7 @@ impl eframe::App for App {
             error: state.error.as_deref(),
             notice: state.notice.as_deref(),
             playlist,
+            left_ms: state.left_ms(playlist.id),
             shuffle: state.transport.playback.shuffle(),
             repeat: state.transport.playback.repeat,
             stop_after: state.transport.stop_after(),

@@ -62,8 +62,11 @@ Spotify only allows playback in other apps for Premium accounts.
   unless another device has the queue.
 - **Playlists aren't used up.** Playing a song doesn't remove it: each
   playlist has its own place, which you can move back and forth, and
-  viewing another tab never changes what plays. At the end, playback stops
-  and goes back to the top (or loops, with Repeat).
+  viewing another tab never changes what plays. Under its songs, beside
+  how many there are and how long they last, it says how long is left from
+  its place, counting down as it plays (Shuffle, Q marks and Stop after
+  this song included). At the end, playback stops and goes back to the top
+  (or loops, with Repeat).
 - **Play next.** Mark songs with `Q` to play them next, in order, without
   moving them. Marks clear once they've played.
 - **Shuffle and Repeat**, where Previous goes back through what actually

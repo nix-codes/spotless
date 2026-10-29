@@ -235,6 +235,7 @@ impl Demo {
             error: None,
             notice: None,
             playlist: state.list(state.viewed).expect("the demo's"),
+            left_ms: state.left_ms(state.viewed),
             shuffle: state.transport.playback.shuffle(),
             repeat: state.transport.playback.repeat,
             stop_after: false,

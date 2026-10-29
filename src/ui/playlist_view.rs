@@ -784,7 +784,7 @@ fn toolbar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.label(
-                RichText::new(summary(list))
+                RichText::new(summary(list, view.left_ms))
                     .monospace()
                     .size(10.0)
                     .color(palette.dim),
@@ -1477,24 +1477,36 @@ fn keyboard(ui: &Ui, list: &Playlist, selection: &mut Selection, actions: &mut A
     }
 }
 
-/// "12 songs · 54:10".
-pub fn summary(list: &Playlist) -> String {
+/// "12 songs · 54:10", and "· 23:05 left" once some has played.
+pub fn summary(list: &Playlist, left_ms: Option<u64>) -> String {
     let total: u64 = list
         .entries()
         .iter()
         .map(|entry| u64::from(entry.track.duration_ms))
-        .sum::<u64>()
-        / 1000;
+        .sum();
     let songs = match list.len() {
         1 => "1 song".to_string(),
         n => format!("{n} songs"),
     };
-    let time = if total >= 3600 {
-        format!("{}:{:02}:{:02}", total / 3600, total / 60 % 60, total % 60)
+    match left_ms {
+        // Counted up, as the time left of the song is.
+        Some(left) => {
+            let left = clock(left.div_ceil(1000) * 1000);
+            format!("{songs} · {} · {left} left", clock(total))
+        }
+        None => format!("{songs} · {}", clock(total)),
+    }
+}
+
+/// "54:10", or "1:02:15" from an hour.
+fn clock(ms: u64) -> String {
+    let seconds = ms / 1000;
+    let (hours, minutes) = (seconds / 3600, seconds / 60 % 60);
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{:02}", seconds % 60)
     } else {
-        format!("{}:{:02}", total / 60, total % 60)
-    };
-    format!("{songs} · {time}")
+        format!("{minutes}:{:02}", seconds % 60)
+    }
 }
 
 #[cfg(test)]
@@ -1540,6 +1552,7 @@ mod tests {
             error: None,
             notice: None,
             playlist: library.get(PlaylistId::DEFAULT).unwrap(),
+            left_ms: None,
             shuffle: false,
             repeat: false,
             stop_after: false,

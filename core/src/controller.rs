@@ -79,6 +79,27 @@ impl State {
                 && self.spotify.as_ref().is_some_and(SpotifyQueue::active)
     }
 
+    /// What's left to play of playlist `id` from its place, in ms: from
+    /// where its song is, playing or not. None while that is all of it,
+    /// with nothing played yet.
+    pub fn left_ms(&self, id: PlaylistId) -> Option<u64> {
+        let list = self.library.get(id)?;
+        let playing = self.transport.playing_list() == Some(id);
+        let at = if playing {
+            self.player.position_now()
+        } else {
+            list.resume_ms
+        };
+        let stop_after = playing && self.transport.stop_after();
+        let total: u64 = list
+            .entries()
+            .iter()
+            .map(|entry| u64::from(entry.track.duration_ms))
+            .sum();
+        let left = self.transport.playback.left_ms(list, at, stop_after);
+        (left < total).then_some(left)
+    }
+
     /// What the player shows: the queue's song while it is the player's.
     pub fn now_playing(&self) -> PlayerSnapshot {
         match &self.spotify {

@@ -397,6 +397,9 @@ pub struct PlaylistView {
     /// The song the pointer is on: the one playing, or the one Play starts.
     pub cursor: Option<u64>,
     pub duration_ms: u64,
+    /// What's left to play from the song the pointer is on, once some has
+    /// played.
+    pub left_ms: Option<u64>,
 }
 
 pub(crate) fn playlist(state: &State, id: PlaylistId) -> Option<PlaylistView> {
@@ -428,6 +431,7 @@ pub(crate) fn playlist(state: &State, id: PlaylistId) -> Option<PlaylistView> {
             .collect(),
         cursor: list.cursor().map(|id| id.0),
         duration_ms: duration(list),
+        left_ms: state.left_ms(id),
     })
 }
 

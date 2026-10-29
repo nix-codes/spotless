@@ -187,6 +187,56 @@ impl Playback {
         }
     }
 
+    /// What's left to play of `list` from its cursor, in ms, as Play and
+    /// Next would go on: its song from `at_ms` (unless the song was
+    /// removed), the marked songs, then the rest of the list or of the
+    /// shuffle round. With `stop_after`, only the song. A playlist not
+    /// playing starts a new round when shuffled, so all its songs are to
+    /// come.
+    pub fn left_ms(&self, list: &Playlist, at_ms: u32, stop_after: bool) -> u64 {
+        let length = |id: EntryId| list.get(id).map_or(0, |e| u64::from(e.track.duration_ms));
+        let current = list.cursor().filter(|_| !list.detached());
+        let left = current.map_or(0, |id| length(id).saturating_sub(u64::from(at_ms)));
+        if stop_after {
+            return left;
+        }
+        let marks = list.play_next();
+        let marked: u64 = marks.iter().map(|&id| length(id)).sum();
+        let rest: u64 = match &self.shuffle {
+            // A marked song moves up in the round to play, so it plays once.
+            Some(shuffle) => {
+                let round: Vec<EntryId> =
+                    if self.playing == Some(list.id) && !shuffle.order.is_empty() {
+                        let from = shuffle.next_slot(list.detached()).min(shuffle.order.len());
+                        shuffle.order[from..].to_vec()
+                    } else {
+                        list.entries().iter().map(|entry| entry.id).collect()
+                    };
+                round
+                    .into_iter()
+                    .filter(|&id| Some(id) != current && !marks.contains(&id))
+                    .map(length)
+                    .sum()
+            }
+            // The list goes on after the last marked song, as after the
+            // cursor; a detached cursor is the next song itself.
+            None => {
+                let from = match (marks.last(), list.cursor()) {
+                    (Some(&mark), _) => list.index_of(mark).map_or(0, |i| i + 1),
+                    (None, Some(cursor)) => list
+                        .index_of(cursor)
+                        .map_or(0, |i| if list.detached() { i } else { i + 1 }),
+                    (None, None) => 0,
+                };
+                list.entries()[from.min(list.len())..]
+                    .iter()
+                    .map(|entry| length(entry.id))
+                    .sum()
+            }
+        };
+        left + marked + rest
+    }
+
     /// Brings the shuffle round up to date after `list` was edited.
     pub fn edited(&mut self, list: &mut Playlist) {
         if self.playing == Some(list.id) {
@@ -521,6 +571,77 @@ mod tests {
         }
         assert_eq!(played[2], 2, "the mark plays first");
         assert_eq!(sorted(played), [1, 2, 3, 4, 5, 6]);
+    }
+
+    const SONG: u64 = 180_000;
+
+    /// Plays on from the current song, counting the songs that follow it.
+    fn songs_after(playback: &mut Playback, list: &mut Playlist) -> u64 {
+        let mut count = 0;
+        while let Step::Play(_) = playback.next(list) {
+            count += 1;
+        }
+        count
+    }
+
+    #[test]
+    fn what_is_left_counts_from_the_place_on() {
+        let mut list = list(4);
+        let playback = Playback::new(1);
+        assert_eq!(playback.left_ms(&list, 0, false), 4 * SONG, "no place yet");
+        list.set_cursor(id(2));
+        assert_eq!(playback.left_ms(&list, 60_000, false), 3 * SONG - 60_000);
+        assert_eq!(playback.left_ms(&list, 60_000, true), SONG - 60_000);
+    }
+
+    #[test]
+    fn what_is_left_is_what_then_plays() {
+        for (shuffle, marks, nexts) in [
+            (false, vec![], 1),
+            (false, vec![5, 3], 0),
+            (false, vec![2], 2),
+            (true, vec![], 2),
+            (true, vec![4, 1], 1),
+        ] {
+            let mut list = list(6);
+            let mut playback = Playback::new(7);
+            playback.set_shuffle(shuffle);
+            playback.start(&mut list, None);
+            for _ in 0..nexts {
+                playback.next(&mut list);
+            }
+            for mark in &marks {
+                list.toggle_mark(id(*mark));
+            }
+            let left = playback.left_ms(&list, 0, false);
+            let after = songs_after(&mut playback, &mut list);
+            assert_eq!(left, (1 + after) * SONG, "{shuffle} {marks:?} {nexts}");
+        }
+    }
+
+    #[test]
+    fn what_is_left_skips_a_removed_song() {
+        let mut list = list(4);
+        let mut playback = Playback::new(1);
+        playback.start(&mut list, Some(id(2)));
+        list.remove(&[id(2)]);
+        playback.edited(&mut list);
+        let left = playback.left_ms(&list, 30_000, false);
+        // The removed song plays on, not counted; Next plays its successor.
+        assert_eq!(left, songs_after(&mut playback, &mut list) * SONG);
+    }
+
+    #[test]
+    fn a_shuffled_playlist_not_playing_has_all_its_songs_to_come() {
+        let mut playing = list(3);
+        let mut other = list(5);
+        other.id = PlaylistId(2);
+        other.set_cursor(id(4));
+        let mut playback = Playback::new(1);
+        playback.set_shuffle(true);
+        playback.start(&mut playing, None);
+        assert_eq!(playback.left_ms(&other, 0, false), 5 * SONG);
+        assert_eq!(playback.left_ms(&other, 1_000, false), 5 * SONG - 1_000);
     }
 
     #[test]

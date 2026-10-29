@@ -574,7 +574,9 @@ private fun Summary(core: Core, queue: SpotifyView?, selected: Int) {
     val text = when {
         selecting -> "$selected SELECTED"
         queue != null && tab != null -> "${songs(queue.toCome.toInt())} TO COME · ${clock(tab.durationMs.toLong())}"
-        list != null -> "${songs(list.songs.size)} · ${clock(list.durationMs.toLong())}"
+        list != null -> "${songs(list.songs.size)} · ${clock(list.durationMs.toLong())}" +
+            // Counted up, as the time left of the song is.
+            (list.leftMs?.let { " · ${clock((it.toLong() + 999) / 1000 * 1000)} LEFT" } ?: "")
         else -> ""
     }
     // CLEAR asks once more, and stops asking after a while.
