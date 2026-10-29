@@ -2588,6 +2588,9 @@ mod tests {
     #[test]
     fn the_spotify_tab_closes_and_opens_again_and_is_remembered() {
         let mut rig = Rig::new("spotify-tab");
+        // Off at first.
+        assert!(!rig.controller.state().settings.spotify_tab_shown());
+        rig.controller.apply(Action::SetSpotifyTabEnabled(true));
         rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
         rig.tell(Event::Spotify(Some(SpotifyQueue::default())));
         rig.controller

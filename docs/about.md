@@ -81,14 +81,15 @@ Spotify only allows playback in other apps for Premium accounts.
   and Spotless pauses; press play in Spotless and it pauses your phone.
   Spotless watches your devices through Spotify Connect without showing up
   in their lists, and its own playback stays out of your account's queue.
-- **The Spotify tab**, optional: your account's queue, as Spotify's own
+- **The Spotify tab**, off at first (*Settings > Playback* turns it on):
+  your account's queue, as Spotify's own
   apps show it, with Spotless as a Spotify Connect device to play it on.
   What played, the song playing, then the songs queued and the rest of the
   album or playlist. Play a song of it to take the queue over; while another
   device holds it, the tab only shows it until you **TAKE OVER**, and the
   player's buttons control that device. Add songs from Browse, remove them,
   clear the queue, or copy its songs to a playlist. Close the tab and
-  Spotless leaves Connect; *Settings > Playback* turns it off.
+  Spotless leaves Connect; + opens it again.
 - **Browse**: search shows Artists, Albums and Songs separately. An artist's
   page is just the discography: All, Albums, Singles & EPs, Appears on;
   Albums first, oldest first, songs opening inline. **+ ADD** adds a whole

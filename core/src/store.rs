@@ -207,8 +207,8 @@ pub struct Settings {
     pub updates: bool,
     /// A newer release found is announced in a bar under the player.
     pub update_notices: bool,
-    /// The Spotify tab can be used: off in Settings, it is never shown and
-    /// Spotless never joins Spotify Connect.
+    /// The Spotify tab can be used: off (as at first) in Settings, it is
+    /// never shown and Spotless never joins Spotify Connect.
     pub spotify_tab_enabled: bool,
     /// The Spotify tab is open, unless closed like any tab.
     pub spotify_tab: bool,
@@ -320,7 +320,7 @@ impl Settings {
             spotify_tab_enabled: raw
                 .get("spotify_tab_enabled")
                 .and_then(Value::as_bool)
-                .unwrap_or(true),
+                .unwrap_or(false),
             spotify_tab: raw
                 .get("spotify_tab")
                 .and_then(Value::as_bool)
