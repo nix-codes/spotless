@@ -17,11 +17,12 @@
 //! read again in full now and then and their newest more often.
 
 pub mod api;
+pub mod found;
 pub mod listen;
 pub mod loved;
 mod scrobbler;
 
-pub use loved::Loved;
+pub use loved::{Loved, LovedSong};
 pub use scrobbler::{Report, Scrobbler, start};
 
 /// Where Last.fm stands, as Settings shows it.

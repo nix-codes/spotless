@@ -3,6 +3,7 @@
 //! the tray, skins, covers).
 
 use crate::backend::Store;
+use crate::lastfm::LovedSong;
 use crate::model::catalog::{ReleaseTab, SpotifyTarget};
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 
@@ -139,6 +140,13 @@ pub enum Action {
     DropAlbum(String, usize),
     /// Puts a song after the target playlist's current one and plays it.
     PlayNow(TrackRef),
+    /// Finds songs loved on Last.fm on Spotify and appends them to the
+    /// target playlist.
+    AddLoved(Vec<LovedSong>),
+    /// The same, dropped on the slim column, before the row at this index.
+    DropLoved(Vec<LovedSong>, usize),
+    /// Finds a song loved on Last.fm on Spotify and plays it as PlayNow.
+    PlayLoved(LovedSong),
     /// Shows this tab of Browse, opening Browse if needed.
     ShowBrowseTab(crate::browse::BrowseTab),
     /// Shows a Spotify playlist's songs in YOUR SPOTIFY, or Liked Songs',

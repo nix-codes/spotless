@@ -12,7 +12,7 @@ use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState, SpotifyRequest, Storage};
 use crate::browse::{Browse, Loadable, Page, Removal, Undo, Unlisted};
 use crate::browser::{self, Browser};
-use crate::lastfm::{LastFmState, LastFmStatus, Loved, api::Keys};
+use crate::lastfm::{LastFmState, LastFmStatus, Loved, LovedSong, api::Keys};
 use crate::model::catalog::{Place, SpotifyPlaylist, SpotifyTarget};
 use crate::model::playlist::from_source;
 use crate::model::{ArtistRef, EntryId, Library, Playback, Playlist, PlaylistId, Source, TrackRef};
@@ -208,12 +208,32 @@ pub struct Controller {
     /// Albums whose songs go to a playlist (at an index, or at the end)
     /// once they are read.
     pending_adds: Vec<(String, PlaylistId, Option<usize>)>,
+    /// Songs loved on Last.fm being found on Spotify, by the ID they were
+    /// asked for with, and where they go once found.
+    finding: Vec<(u64, Vec<LovedSong>, FoundFor)>,
+    /// The ID the last were asked for with.
+    last_find: u64,
     /// The song that waited offline is loading again: it stays shown until
     /// the engine has it (the new player starts out knowing no song).
     resuming: bool,
     /// When the queue was last seeked: its position is shown at once, and
     /// reports from before the seek reached Spotify are kept from undoing it.
     spotify_seeked: Option<Instant>,
+}
+
+/// What songs loved on Last.fm are found on Spotify for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FoundFor {
+    /// A playlist, at an index or at the end.
+    Insert(PlaylistId, Option<usize>),
+    /// Playing the song, as PlayNow.
+    Play,
+}
+
+impl FoundFor {
+    fn goes_to(self, list: PlaylistId) -> bool {
+        matches!(self, Self::Insert(to, _) if to == list)
+    }
 }
 
 impl Controller {
@@ -351,6 +371,8 @@ impl Controller {
             },
             unsaved: None,
             pending_adds: Vec::new(),
+            finding: Vec::new(),
+            last_find: 0,
             resuming: false,
             spotify_seeked: None,
         }
@@ -526,6 +548,7 @@ impl Controller {
                     self.state.browse.similar_artists.insert(artist, loaded);
                 }
                 Event::ArtistFound { name, result } => self.artist_found(name, result),
+                Event::SongsFound { id, result } => self.songs_found(id, result),
                 Event::Album { album, result } => {
                     let pending: Vec<(PlaylistId, Option<usize>)> = self
                         .pending_adds
@@ -785,6 +808,7 @@ impl Controller {
                     state.browse.target = state.viewed;
                 }
                 self.pending_adds.retain(|(_, target, _)| *target != list);
+                self.finding.retain(|(_, _, then)| !then.goes_to(list));
                 requests
             }
             Action::RenamePlaylist(list, name) => {
@@ -1197,6 +1221,15 @@ impl Controller {
             Action::DropTracks(tracks, at) => {
                 self.insert_tracks(self.state.browse.target, Some(at), tracks);
             }
+            Action::AddLoved(songs) => {
+                let target = self.state.browse.target;
+                self.find_loved(songs, FoundFor::Insert(target, None));
+            }
+            Action::DropLoved(songs, at) => {
+                let target = self.state.browse.target;
+                self.find_loved(songs, FoundFor::Insert(target, Some(at)));
+            }
+            Action::PlayLoved(song) => self.find_loved(vec![song], FoundFor::Play),
             Action::AddAlbum(album) => self.add_album(album, None),
             Action::DropAlbum(album, at) => self.add_album(album, Some(at)),
             Action::ReadSpotifyPlaylists => self.read_spotify_playlists(),
@@ -1424,6 +1457,63 @@ impl Controller {
             Ok(None) => self.apply(Action::Search(name)),
             Err(error) => self.state.error = Some(error),
         }
+    }
+
+    /// Asks for loved songs on Spotify, for `then` once found.
+    fn find_loved(&mut self, songs: Vec<LovedSong>, then: FoundFor) {
+        if songs.is_empty() {
+            return;
+        }
+        if songs.len() > 1 {
+            self.state.notice = Some(format!("Finding {} songs on Spotify…", songs.len()));
+        }
+        self.last_find += 1;
+        let id = self.last_find;
+        self.finding.push((id, songs.clone(), then));
+        self.send(Command::FindSongs { id, songs });
+    }
+
+    /// Adds or plays loved songs found on Spotify, saying which weren't.
+    fn songs_found(&mut self, id: u64, result: Result<Vec<Option<TrackRef>>, String>) {
+        let Some(at) = self.finding.iter().position(|(asked, ..)| *asked == id) else {
+            return;
+        };
+        let (_, songs, then) = self.finding.remove(at);
+        let found = match result {
+            Ok(found) => found,
+            Err(error) => {
+                self.state.error = Some(format!("Songs couldn't be found on Spotify: {error}"));
+                return;
+            }
+        };
+        let tracks: Vec<TrackRef> = found.into_iter().flatten().collect();
+        let missing = songs.len() - tracks.len();
+        match then {
+            FoundFor::Play => {
+                if let Some(track) = tracks.into_iter().next() {
+                    self.apply(Action::PlayNow(track));
+                }
+            }
+            FoundFor::Insert(list, at) => {
+                if !tracks.is_empty() {
+                    self.insert_tracks(list, at, tracks);
+                }
+            }
+        }
+        if missing == 0 {
+            return;
+        }
+        let state = &mut self.state;
+        let not_found = match (&songs[..], missing) {
+            ([song], _) => format!("{} - {} isn't on Spotify", song.artist, song.title),
+            (all, n) if n == all.len() => format!("None of the {n} songs are on Spotify"),
+            (all, 1) => format!("1 of the {} songs isn't on Spotify", all.len()),
+            (all, n) => format!("{n} of the {} songs aren't on Spotify", all.len()),
+        };
+        state.notice = Some(match state.notice.take() {
+            Some(added) if missing < songs.len() => format!("{added} · {not_found}"),
+            _ => not_found,
+        });
     }
 
     fn add_album(&mut self, album: String, at: Option<usize>) {
@@ -2333,6 +2423,52 @@ mod tests {
             result: Ok(None),
         });
         assert_eq!(page(&rig), Page::Search("Ulrich Schnauss".into()));
+    }
+
+    #[test]
+    fn loved_songs_land_where_they_were_dropped_once_found() {
+        let mut rig = Rig::new("loved");
+        rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+        let loved = |title: &str| LovedSong {
+            artist: "A".into(),
+            title: title.into(),
+            date: 0,
+        };
+        rig.controller.apply(Action::DropLoved(
+            vec![loved("Song 7"), loved("Gone"), loved("Song 8")],
+            1,
+        ));
+        let id = rig
+            .sent()
+            .into_iter()
+            .find_map(|c| match c {
+                Command::FindSongs { id, songs } if songs.len() == 3 => Some(id),
+                _ => None,
+            })
+            .expect("asked for");
+        // An answer to something else changes nothing.
+        rig.tell(Event::SongsFound {
+            id: id + 1,
+            result: Ok(vec![Some(entry(9).track)]),
+        });
+        assert_eq!(rig.songs(), ["Song 1", "Song 2"]);
+        let [seven, eight] = [7, 8].map(|id| Some(entry(id).track));
+        rig.tell(Event::SongsFound {
+            id,
+            result: Ok(vec![seven, None, eight]),
+        });
+        assert_eq!(rig.songs(), ["Song 1", "Song 7", "Song 8", "Song 2"]);
+        let notice = rig.controller.state().notice.clone().unwrap_or_default();
+        assert!(
+            notice.ends_with("1 of the 3 songs isn't on Spotify"),
+            "{notice}"
+        );
+        // Told twice, it's added once.
+        rig.tell(Event::SongsFound {
+            id,
+            result: Ok(vec![Some(entry(9).track)]),
+        });
+        assert_eq!(rig.songs().len(), 4);
     }
 
     #[test]

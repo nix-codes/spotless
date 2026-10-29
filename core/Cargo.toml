@@ -22,6 +22,8 @@ rodio = { version = "0.21", default-features = false, features = ["playback"] }
 cpal = "0.16"
 # Last.fm: request signatures are MD5; the approval page opens in the browser.
 md-5 = "0.10"
+# Accents folded to their base letters, matching songs by name.
+unicode-normalization = "0.1"
 # librespot from Spotless's own fork (nix-codes/librespot, branch
 # spotless-buffering). It is the fork spotifast pins (crmne/librespot
 # spotifast-dev: librespot's dev branch plus fixes not yet released, among

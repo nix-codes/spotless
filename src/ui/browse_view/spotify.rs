@@ -475,7 +475,7 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
 
 /// Shift with the arrows, PgUp / PgDn or Home / End: the highlight moves
 /// and the selection stretches to it from where it started, as in a tab.
-fn extend(ui: &Ui, nav: &mut Nav, len: usize) {
+pub(super) fn extend(ui: &Ui, nav: &mut Nav, len: usize) {
     let last = len.saturating_sub(1);
     let from = nav.row.unwrap_or(0);
     let to = ui.input(|i| {

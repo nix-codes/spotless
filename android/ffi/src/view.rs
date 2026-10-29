@@ -840,7 +840,8 @@ pub(crate) fn browse(state: &State) -> BrowseView {
     BrowseView {
         open: browse.open,
         shown: match browse.shown {
-            core_browse::BrowseTab::Search => BrowseTab::Search,
+            // LAST.FM is the desktop's only.
+            core_browse::BrowseTab::Search | core_browse::BrowseTab::LastFm => BrowseTab::Search,
             core_browse::BrowseTab::Spotify => BrowseTab::Spotify,
         },
         page,

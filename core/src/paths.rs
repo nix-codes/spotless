@@ -74,6 +74,11 @@ impl Paths {
         self.config.join("lastfm-loved.json")
     }
 
+    /// Songs loved on Last.fm, found on Spotify.
+    pub fn lastfm_found(&self) -> PathBuf {
+        self.config.join("lastfm-found.json")
+    }
+
     /// The Spotify tab's device ID, the same every start.
     pub fn connect_device(&self) -> PathBuf {
         self.config.join("connect-device")

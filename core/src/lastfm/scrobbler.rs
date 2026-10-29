@@ -347,7 +347,7 @@ impl Task {
             .await
             .map(|(songs, _)| {
                 let mut loved = self.loved.clone();
-                loved.extend(songs);
+                loved.add_newest(songs);
                 loved
             })
         };
@@ -368,7 +368,7 @@ impl Task {
 
     /// All the songs loved, a page at a time.
     async fn read_loved(&self) -> Result<Loved, Failure> {
-        let mut loved = Loved::default();
+        let mut loved = Vec::new();
         let mut page = 1;
         loop {
             let (songs, pages) = api::loved_page(
@@ -381,7 +381,7 @@ impl Task {
             .await?;
             loved.extend(songs);
             if page >= pages {
-                return Ok(loved);
+                return Ok(loved.into());
             }
             page += 1;
         }

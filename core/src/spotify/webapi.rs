@@ -20,6 +20,7 @@ use librespot_oauth::{OAuthClient, OAuthClientBuilder, OAuthToken};
 use serde_json::Value;
 
 use crate::browser::{self, Browser};
+use crate::lastfm::loved::name_key;
 use crate::model::catalog::{Release, ReleaseGroup, SearchResults};
 use crate::model::{AlbumRef, ArtistRef, TrackRef};
 use crate::store::save_private;
@@ -32,6 +33,8 @@ const SCOPES: &[&str] = &["user-read-private"];
 
 const ARTIST_LIMIT: usize = 5;
 const RESULT_LIMIT: &str = "10";
+/// Songs looked through for one by name.
+const SONG_LIMIT: &str = "20";
 
 pub struct WebApi {
     client_id: String,
@@ -96,6 +99,25 @@ impl WebApi {
             .search_for(&[("q", name), ("type", "artist"), ("limit", RESULT_LIMIT)])
             .await?;
         Ok(named_artist(&body, name))
+    }
+
+    /// The song by `artist` (its first artist) called `title` on Spotify,
+    /// matched as loved songs are (by `loved::name_key`), if any.
+    pub async fn find_song(&mut self, artist: &str, title: &str) -> Result<Option<TrackRef>> {
+        // Quotes would end the fields early.
+        let (bare_artist, bare_title) = (artist.replace('"', ""), title.replace('"', ""));
+        let fielded = format!("track:\"{bare_title}\" artist:\"{bare_artist}\"");
+        // The fields can miss a name Spotify spells otherwise; plain words
+        // find more.
+        for query in [fielded, format!("{bare_artist} {bare_title}")] {
+            let body = self
+                .search_for(&[("q", &query), ("type", "track"), ("limit", SONG_LIMIT)])
+                .await?;
+            if let Some(track) = named_song(&body, artist, title) {
+                return Ok(Some(track));
+            }
+        }
+        Ok(None)
     }
 
     async fn search_for(&mut self, query: &[(&str, &str)]) -> Result<Value> {
@@ -213,6 +235,23 @@ fn named_artist(body: &Value, name: &str) -> Option<ArtistRef> {
         .iter()
         .filter_map(artist_ref)
         .find(|artist| plain_name(&artist.name) == wanted)
+}
+
+/// The first song in the results by `artist` first and called `title`, as
+/// loved songs are matched.
+fn named_song(body: &Value, artist: &str, title: &str) -> Option<TrackRef> {
+    let (artist, title) = (name_key(artist), name_key(title));
+    body["tracks"]["items"]
+        .as_array()?
+        .iter()
+        .filter_map(track_ref)
+        .find(|track| {
+            track
+                .artists
+                .first()
+                .is_some_and(|first| name_key(&first.name) == artist)
+                && name_key(&track.title) == title
+        })
 }
 
 /// A name in lowercase letters and digits, "&" read as "and".
@@ -366,6 +405,36 @@ mod tests {
         );
         assert_eq!(plain_name("AC/DC"), plain_name("ACDC"));
         assert_eq!(plain_name("The"), "the");
+    }
+
+    #[test]
+    fn a_song_is_found_by_its_first_artist_and_title_only() {
+        let song = |uri: &str, name: &str, artists: &[&str]| {
+            let artists: Vec<_> = artists
+                .iter()
+                .map(|a| serde_json::json!({"uri": "spotify:artist:x", "name": a}))
+                .collect();
+            serde_json::json!({"uri": uri, "name": name, "artists": artists})
+        };
+        let body = serde_json::json!({"tracks": {"items": [
+            song("spotify:track:live", "Creep - Live", &["Radiohead"]),
+            song("spotify:track:cover", "Creep", &["Someone Else", "Radiohead"]),
+            song("spotify:track:yes", "CREEP", &["Radiohead", "Someone Else"]),
+        ]}});
+        let found = |artist, title| named_song(&body, artist, title).map(|t| t.uri);
+        assert_eq!(
+            found("Radiohead", "Creep").as_deref(),
+            Some("spotify:track:yes")
+        );
+        assert_eq!(
+            found("Radiohead", "Creep (Live)").as_deref(),
+            Some("spotify:track:live")
+        );
+        assert_eq!(found("Radiohead", "Creep - Acoustic"), None);
+        assert_eq!(
+            found("Someone Else", "Creep").as_deref(),
+            Some("spotify:track:cover")
+        );
     }
 
     #[test]

@@ -60,6 +60,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Alt+V", "Show / hide the deck"),
             ("F3 or Ctrl+F", "Browse: search"),
             ("F4", "Browse: your Spotify playlists"),
+            ("F5", "Browse: songs loved on Last.fm"),
             ("Ctrl+V", "Add a pasted Spotify link"),
             ("F10", "Settings"),
             ("F1 or ?", "This list"),
@@ -112,7 +113,7 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
     }
     // Browse's tabs, even from a field: they take the keyboard to theirs.
     // Ctrl+F and F3: SEARCH, in its field; F4: YOUR SPOTIFY, in the field
-    // that finds a playlist.
+    // that finds a playlist; F5: LAST.FM, while it's there.
     if matches!(view.session, SessionState::Ready { .. }) {
         ui.input_mut(|i| {
             if take(i, Modifiers::COMMAND, Key::F) || take(i, Modifiers::NONE, Key::F3) {
@@ -122,6 +123,9 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
             if take(i, Modifiers::NONE, Key::F4) {
                 actions.push(Action::ShowBrowseTab(BrowseTab::Spotify));
                 browse_view::focus_spotify(&mut inputs.nav);
+            }
+            if browse_view::lastfm_shown(view) && take(i, Modifiers::NONE, Key::F5) {
+                actions.push(Action::ShowBrowseTab(BrowseTab::LastFm));
             }
         });
     }

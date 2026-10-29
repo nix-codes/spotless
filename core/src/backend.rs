@@ -19,7 +19,7 @@ use tokio::time::MissedTickBehavior;
 use crate::browse::{Removal, Unlisted};
 use crate::browser::Browser;
 use crate::images::CoverImage;
-use crate::lastfm::{self, LastFmState, Loved, Scrobbler, api::Keys};
+use crate::lastfm::{self, LastFmState, Loved, LovedSong, Scrobbler, api::Keys};
 use crate::model::catalog::Place;
 use crate::model::catalog::{Discography, SearchResults, Songs, SpotifyPlaylist, SpotifyTarget};
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
@@ -56,6 +56,12 @@ pub enum Command {
     },
     /// The Spotify artist with this name, for a similar artist opened.
     FindArtist(String),
+    /// These songs loved on Last.fm, on Spotify; answered with
+    /// `Event::SongsFound` and this ID.
+    FindSongs {
+        id: u64,
+        songs: Vec<LovedSong>,
+    },
     /// The songs of an album, a Spotify playlist or Liked Songs, by URI.
     Album(String),
     /// The account's own Spotify playlists, Liked Songs first.
@@ -248,6 +254,11 @@ pub enum Event {
     ArtistFound {
         name: String,
         result: Result<Option<ArtistRef>, String>,
+    },
+    /// A `FindSongs`' songs on Spotify, in order (None: not found).
+    SongsFound {
+        id: u64,
+        result: Result<Vec<Option<TrackRef>>, String>,
     },
     Cover {
         url: String,
@@ -465,6 +476,8 @@ struct Worker {
     web: Option<Arc<tokio::sync::Mutex<WebApi>>>,
     /// Held while search's browser approval runs, so it runs once.
     search_approval: Arc<tokio::sync::Mutex<()>>,
+    /// Loved songs found on Spotify so far.
+    found: Arc<tokio::sync::Mutex<lastfm::found::Found>>,
     http: reqwest::Client,
     /// Limits cover downloads running at once.
     cover_slots: Arc<tokio::sync::Semaphore>,
@@ -487,6 +500,7 @@ impl Worker {
     ) -> Self {
         let (devices, device_reports) = unbounded_channel();
         let (remotes, remote_reports) = unbounded_channel();
+        let found = Arc::new(tokio::sync::Mutex::new(lastfm::found::Found::load(&paths)));
         Self {
             paths,
             volume,
@@ -514,6 +528,7 @@ impl Worker {
             remote_reports: Some(remote_reports),
             web: None,
             search_approval: Arc::default(),
+            found,
             http: reqwest::Client::new(),
             cover_slots: Arc::new(tokio::sync::Semaphore::new(6)),
             starting: false,
@@ -1418,6 +1433,25 @@ impl Worker {
                         Err(error) => Err(error),
                     };
                     emit(Event::ArtistFound { name, result });
+                });
+            }
+            Command::FindSongs { id, songs } => {
+                let Some(web) = self.web.clone() else {
+                    let result = Err("Search isn't set up.".into());
+                    return (self.emit)(Event::SongsFound { id, result });
+                };
+                let found = Arc::clone(&self.found);
+                let approval = Arc::clone(&self.search_approval);
+                let browser = Arc::clone(&self.browser);
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = match approve_search(&web, &approval, &browser, &emit).await {
+                        Ok(()) => lastfm::found::find(&web, &found, &songs)
+                            .await
+                            .map_err(|e| format!("{e:#}")),
+                        Err(error) => Err(error),
+                    };
+                    emit(Event::SongsFound { id, result });
                 });
             }
             Command::Cover(url) => {

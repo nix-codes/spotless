@@ -32,6 +32,7 @@ use crate::lastfm;
 use crate::model::catalog::{Release, ReleaseTab};
 use crate::model::{ArtistRef, EntryId, Source, TrackRef, playlist::Playlist};
 
+mod lastfm_tab;
 mod spotify;
 
 const SLIM_WIDTH: f32 = 250.0;
@@ -102,10 +103,26 @@ enum Area {
 }
 
 /// The areas of each tab, in Tab's order.
-fn areas(tab: BrowseTab) -> [Area; 3] {
+fn areas(tab: BrowseTab) -> &'static [Area] {
     match tab {
-        BrowseTab::Search => [Area::Search, Area::Results, Area::Slim],
-        BrowseTab::Spotify => [Area::Lists, Area::Results, Area::Slim],
+        BrowseTab::Search => &[Area::Search, Area::Results, Area::Slim],
+        BrowseTab::Spotify => &[Area::Lists, Area::Results, Area::Slim],
+        BrowseTab::LastFm => &[Area::Results, Area::Slim],
+    }
+}
+
+/// LAST.FM is there while Last.fm is connected and search set up, which
+/// finds its songs on Spotify.
+pub(super) fn lastfm_shown(view: &View) -> bool {
+    let connected = matches!(view.lastfm.status, lastfm::LastFmStatus::Connected { .. });
+    connected && searchable(view)
+}
+
+/// The tab Browse shows: SEARCH in place of LAST.FM while it isn't there.
+fn shown(view: &View) -> BrowseTab {
+    match view.browse.shown {
+        BrowseTab::LastFm if !lastfm_shown(view) => BrowseTab::Search,
+        tab => tab,
     }
 }
 
@@ -125,6 +142,8 @@ enum CatalogDrag {
         uri: String,
         title: String,
     },
+    /// Songs loved on Last.fm, to find on Spotify.
+    Loved(Vec<lastfm::LovedSong>),
 }
 
 impl CatalogDrag {
@@ -133,6 +152,8 @@ impl CatalogDrag {
             Self::Tracks(tracks) if tracks.len() == 1 => tracks[0].title.clone(),
             Self::Tracks(tracks) => format!("{} songs", tracks.len()),
             Self::Album { title, .. } => title.clone(),
+            Self::Loved(songs) if songs.len() == 1 => songs[0].title.clone(),
+            Self::Loved(songs) => format!("{} songs", songs.len()),
         }
     }
 }
@@ -149,9 +170,11 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
     theme::panel(ui.painter(), slim, &palette);
 
     let page = view.browse.page();
-    let searching = view.browse.shown == BrowseTab::Search;
+    let tab = shown(view);
+    let searching = tab == BrowseTab::Search;
     let page_key = match &view.browse.spotify_open {
         _ if searching => page_id(page),
+        _ if tab == BrowseTab::LastFm => "lastfm-tab".into(),
         Some(uri) => format!("spotify-tab:{uri}"),
         None => "spotify-tab".into(),
     };
@@ -169,10 +192,11 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
         nav.keyboard = false;
     }
     // An area of the other tab: this one's like it.
-    nav.area = match nav.area {
-        Area::Search if !searching => Area::Lists,
-        Area::Lists if searching => Area::Results,
-        area => area,
+    nav.area = match (nav.area, tab) {
+        (Area::Search, BrowseTab::Spotify) => Area::Lists,
+        (Area::Search | Area::Lists, BrowseTab::LastFm) => Area::Results,
+        (Area::Lists, BrowseTab::Search) => Area::Results,
+        (area, _) => area,
     };
     switch_area(ui, view, inputs);
     keyboard(ui, view, inputs, actions);
@@ -188,8 +212,10 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
     ui.scope_builder(UiBuilder::new().max_rect(catalog.shrink(PAD)), |ui| {
         tabs(ui, view, inputs, actions);
         ui.add_space(PAD);
-        if !searching {
-            return spotify::draw(ui, view, inputs, actions);
+        match tab {
+            BrowseTab::Spotify => return spotify::draw(ui, view, inputs, actions),
+            BrowseTab::LastFm => return lastfm_tab::draw(ui, view, &mut inputs.nav, actions),
+            BrowseTab::Search => {}
         }
         search_bar(ui, view, inputs, actions);
         ui.add_space(PAD);
@@ -231,9 +257,10 @@ pub(super) fn opening(view: &View, inputs: &mut Inputs) {
     if view.browse.open {
         return;
     }
-    match view.browse.shown {
+    match shown(view) {
         BrowseTab::Search => inputs.focus_search = true,
         BrowseTab::Spotify => focus_spotify(&mut inputs.nav),
+        BrowseTab::LastFm => inputs.nav.area = Area::Results,
     }
 }
 
@@ -253,8 +280,9 @@ fn switch_area(ui: &Ui, view: &View, inputs: &mut Inputs) {
     let nav = &mut inputs.nav;
     nav.keyboard = true;
     // The search field is passed over while search isn't set up.
-    let areas: Vec<Area> = areas(view.browse.shown)
-        .into_iter()
+    let areas: Vec<Area> = areas(shown(view))
+        .iter()
+        .copied()
         .filter(|&a| a != Area::Search || searchable(view))
         .collect();
     let at = areas.iter().position(|&a| a == nav.area).unwrap_or(0) as isize;
@@ -266,8 +294,9 @@ fn switch_area(ui: &Ui, view: &View, inputs: &mut Inputs) {
 /// ← and →: the panel to the left or right, stopping at the ends. The
 /// search field sits over the results, so it counts as them.
 fn move_panel(ui: &Ui, view: &View, inputs: &mut Inputs, step: isize) {
-    let panels: Vec<Area> = areas(view.browse.shown)
-        .into_iter()
+    let panels: Vec<Area> = areas(shown(view))
+        .iter()
+        .copied()
         .filter(|&a| a != Area::Search)
         .collect();
     let area = match inputs.nav.area {
@@ -319,7 +348,7 @@ fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     if ui.ctx().text_edit_focused() {
         return;
     }
-    let searching = view.browse.shown == BrowseTab::Search;
+    let searching = shown(view) == BrowseTab::Search;
     let artist_page = searching && matches!(view.browse.page(), Page::Artist(_));
     let to_field = searching && searchable(view);
     let nav = &mut inputs.nav;
@@ -470,8 +499,13 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actio
 /// playlists on the right.
 fn tabs(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
-    let shown = view.browse.shown;
+    let shown = shown(view);
     let mut shown_rect = None;
+    let lastfm_tab = lastfm_shown(view).then_some((
+        BrowseTab::LastFm,
+        "LAST.FM",
+        "Songs you loved on Last.fm (F5)",
+    ));
     let row = ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 3.0;
         for (tab, label, key) in [
@@ -481,7 +515,10 @@ fn tabs(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
                 "YOUR SPOTIFY",
                 "Your Spotify playlists (F4)",
             ),
-        ] {
+        ]
+        .into_iter()
+        .chain(lastfm_tab)
+        {
             let font = FontId::monospace(11.0);
             let width = ui
                 .painter()
@@ -503,7 +540,7 @@ fn tabs(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
             if response.on_hover_text(key).clicked() && shown != tab {
                 actions.push(Action::ShowBrowseTab(tab));
                 inputs.nav.area = match tab {
-                    BrowseTab::Search => Area::Results,
+                    BrowseTab::Search | BrowseTab::LastFm => Area::Results,
                     BrowseTab::Spotify => Area::Lists,
                 };
             }
@@ -1325,6 +1362,7 @@ fn drop(ui: &Ui, over: bool, index: usize, actions: &mut Actions) {
     actions.push(match &*drag {
         CatalogDrag::Tracks(tracks) => Action::DropTracks(tracks.clone(), index),
         CatalogDrag::Album { uri, .. } => Action::DropAlbum(uri.clone(), index),
+        CatalogDrag::Loved(songs) => Action::DropLoved(songs.clone(), index),
     });
 }
 

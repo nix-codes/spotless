@@ -22,13 +22,14 @@ pub enum Page {
     Artist(String),
 }
 
-/// Browse's two tabs: the catalogue, searched, and the account's own
-/// Spotify playlists.
+/// Browse's tabs: the catalogue, searched, the account's own Spotify
+/// playlists, and the songs loved on Last.fm.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BrowseTab {
     #[default]
     Search,
     Spotify,
+    LastFm,
 }
 
 /// Songs taken out of a Spotify playlist or Liked Songs, to put back.

@@ -15,6 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 use super::listen::{Scrobble, Song};
+use super::loved::LovedSong;
 use crate::browser::{self, Browser};
 
 const API_URL: &str = "https://ws.audioscrobbler.com/2.0/";
@@ -222,15 +223,15 @@ pub async fn love(
         .map(drop)
 }
 
-/// A page of the songs `user` loved, newest first, `limit` to a page, as
-/// (artist, title); and how many pages there are.
+/// A page of the songs `user` loved, newest first, `limit` to a page; and
+/// how many pages there are.
 pub async fn loved_page(
     http: &reqwest::Client,
     api_key: &str,
     user: &str,
     page: u32,
     limit: u32,
-) -> Result<(Vec<(String, String)>, u32), Failure> {
+) -> Result<(Vec<LovedSong>, u32), Failure> {
     let body = answer(http.get(API_URL).query(&[
         ("method", "user.getLovedTracks"),
         ("user", user),
@@ -244,7 +245,7 @@ pub async fn loved_page(
 }
 
 /// The songs in a `user.getLovedTracks` answer, and its number of pages.
-fn loved_songs(body: &Value) -> (Vec<(String, String)>, u32) {
+fn loved_songs(body: &Value) -> (Vec<LovedSong>, u32) {
     let loved = &body["lovedtracks"];
     // One song comes alone rather than in a list.
     let tracks = match &loved["track"] {
@@ -255,9 +256,12 @@ fn loved_songs(body: &Value) -> (Vec<(String, String)>, u32) {
     let songs = tracks
         .into_iter()
         .filter_map(|track| {
-            let artist = track["artist"]["name"].as_str()?;
-            let title = track["name"].as_str()?;
-            Some((artist.to_owned(), title.to_owned()))
+            let date = track["date"]["uts"].as_str();
+            Some(LovedSong {
+                artist: track["artist"]["name"].as_str()?.to_owned(),
+                title: track["name"].as_str()?.to_owned(),
+                date: date.and_then(|uts| uts.parse().ok()).unwrap_or(0),
+            })
         })
         .collect();
     let pages = loved["@attr"]["totalPages"]
@@ -403,18 +407,23 @@ mod tests {
     fn loved_songs_come_as_artist_and_title_with_the_pages() {
         let body = serde_json::json!({"lovedtracks": {
             "track": [
-                {"name": "Roygbiv", "artist": {"name": "Boards of Canada"}},
+                {"name": "Roygbiv", "artist": {"name": "Boards of Canada"},
+                 "date": {"uts": "1761700000", "#text": "29 Oct 2025, 01:06"}},
                 {"name": "Creep - Live", "artist": {"name": "Radiohead"}},
                 {"name": "No artist"}
             ],
             "@attr": {"page": "1", "totalPages": "3", "total": "2050"}
         }});
         let (songs, pages) = loved_songs(&body);
+        let found: Vec<_> = songs
+            .iter()
+            .map(|s| (s.artist.as_str(), s.title.as_str(), s.date))
+            .collect();
         assert_eq!(
-            songs,
+            found,
             [
-                ("Boards of Canada".into(), "Roygbiv".into()),
-                ("Radiohead".into(), "Creep - Live".into())
+                ("Boards of Canada", "Roygbiv", 1761700000),
+                ("Radiohead", "Creep - Live", 0)
             ]
         );
         assert_eq!(pages, 3);
