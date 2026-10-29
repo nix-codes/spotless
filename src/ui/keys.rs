@@ -312,7 +312,10 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
         inputs.renaming = Some((view.playlist.id, view.playlist.name.clone()));
     }
     if !browsing && take(i, Modifiers::COMMAND, Key::W) && current != PlaylistId::DEFAULT {
-        if view.playlist.is_empty() || current == PlaylistId::SPOTIFY {
+        if view.playlist.is_empty()
+            || view.playlist.sync.is_some()
+            || current == PlaylistId::SPOTIFY
+        {
             actions.push(Action::ClosePlaylist(current));
         } else {
             inputs.closing = Some(current);

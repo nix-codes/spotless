@@ -500,6 +500,7 @@ impl eframe::App for App {
             repeat: state.transport.playback.repeat,
             stop_after: state.transport.stop_after(),
             library: &state.library,
+            sync: &state.sync,
             tabs: &tabs,
             playing_list: state
                 .playing_list()
@@ -556,6 +557,9 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.controller.save();
+        // The synced playlists' positions, sent as it closes.
+        self.controller
+            .wait_for_syncs(std::time::Duration::from_secs(3));
         if let Some(program) = self.restart.take() {
             update::restart(&program);
         }

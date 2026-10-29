@@ -11,6 +11,11 @@ pub struct Library {
     playlists: Vec<Playlist>,
     next_entry_id: u64,
     next_playlist_id: u64,
+    /// The synced playlists this device has had, by URI: one of the
+    /// Spotless folder's not among them opens as a tab; one closed here
+    /// stays closed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub synced_seen: Vec<String>,
 }
 
 impl Default for Library {
@@ -25,6 +30,7 @@ impl Library {
             playlists: vec![Playlist::new(PlaylistId::DEFAULT, "Default")],
             next_entry_id: 1,
             next_playlist_id: 1,
+            synced_seen: Vec::new(),
         }
     }
 
@@ -78,7 +84,18 @@ impl Library {
     pub fn entry(&mut self, track: TrackRef) -> Entry {
         let id = EntryId(self.next_entry_id);
         self.next_entry_id += 1;
-        Entry { id, track }
+        Entry {
+            id,
+            track,
+            item: None,
+        }
+    }
+
+    /// The playlist synced with this Spotify playlist, by URI.
+    pub fn synced(&self, uri: &str) -> Option<&Playlist> {
+        self.playlists
+            .iter()
+            .find(|list| list.sync.as_ref().is_some_and(|link| link.uri == uri))
     }
 
     /// Adds a playlist as the last tab.

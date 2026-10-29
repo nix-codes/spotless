@@ -89,6 +89,12 @@ pub enum Action {
     RenamePlaylist(PlaylistId, String),
     /// Moves a tab to this index, counted after it is taken out.
     MovePlaylist(PlaylistId, usize),
+    /// Syncs a playlist, keeping it the same on the account's other
+    /// devices, or stops: it stays here as it is, and on Spotify for them.
+    SetSync(PlaylistId, bool),
+    /// Opens a playlist of the Spotless folder as a synced tab, by URI and
+    /// name, or shows it if it's open.
+    OpenSynced(String, String),
 
     /// Shows or hides the playlists below the player (PL).
     TogglePlaylists,

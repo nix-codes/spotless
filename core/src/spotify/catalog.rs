@@ -262,7 +262,7 @@ pub async fn tracks(session: &Session, uris: Vec<SpotifyUri>) -> Result<Vec<Trac
 }
 
 /// Like [`tracks`], each track keeping what it came with.
-async fn tracks_with<T>(
+pub(crate) async fn tracks_with<T>(
     session: &Session,
     uris: Vec<(SpotifyUri, T)>,
 ) -> Result<Vec<(TrackRef, T)>> {

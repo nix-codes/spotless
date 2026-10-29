@@ -240,6 +240,7 @@ impl Demo {
             repeat: state.transport.playback.repeat,
             stop_after: false,
             library: &state.library,
+            sync: &state.sync,
             tabs: &tabs,
             playing_list: state.playing_list(),
             spotify: None,

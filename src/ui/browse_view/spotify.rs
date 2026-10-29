@@ -7,7 +7,9 @@
 //! REM takes them out on Spotify, and UNDO or Ctrl+Z puts them back. A playlist
 //! itself is deleted, or unfollowed if it's someone else's, from its
 //! menu, the button beside its name or Shift+Delete in the list; UNDO
-//! puts it back.
+//! puts it back. Spotless's synced playlists are listed apart, under
+//! SYNCED, those open as tabs marked OPEN; double-click shows or opens
+//! one as a tab.
 
 use std::collections::BTreeSet;
 
@@ -125,11 +127,18 @@ fn playlist_list(
         .iter()
         .filter(|p| p.name.to_lowercase().contains(&finding))
         .collect();
-    // Mine first, as the list draws them.
+    // As the list draws them: Liked Songs, synced, mine, followed.
+    let synced = |p: &SpotifyPlaylist| view.library.synced_seen.contains(&p.uri);
     let order: Vec<&SpotifyPlaylist> = shown
         .iter()
-        .filter(|p| p.owner.is_none())
-        .chain(shown.iter().filter(|p| p.owner.is_some()))
+        .filter(|p| p.uri == LIKED_SONGS)
+        .chain(shown.iter().filter(|p| p.uri != LIKED_SONGS && synced(p)))
+        .chain(
+            shown
+                .iter()
+                .filter(|p| p.uri != LIKED_SONGS && p.owner.is_none() && !synced(p)),
+        )
+        .chain(shown.iter().filter(|p| p.owner.is_some() && !synced(p)))
         .copied()
         .collect();
     // Enter leaves the field (it lets go of the keyboard itself) for the
@@ -205,14 +214,19 @@ fn playlist_list(
             ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
             // Liked Songs on its own above the rest, under a line: it
             // isn't a playlist of the account's and is ordered by Spotify.
-            let (liked, rest): (Vec<&&SpotifyPlaylist>, Vec<_>) =
-                order.iter().partition(|p| p.uri == LIKED_SONGS);
-            let mine = rest.iter().take_while(|p| p.owner.is_none());
-            let followed = rest.iter().skip_while(|p| p.owner.is_none());
+            // Spotless's synced playlists apart: the Spotless folder's.
+            let group = |keep: &dyn Fn(&SpotifyPlaylist) -> bool| -> Vec<&&SpotifyPlaylist> {
+                order.iter().filter(|p| keep(p)).collect()
+            };
+            let liked = group(&|p| p.uri == LIKED_SONGS);
+            let in_sync = group(&|p| p.uri != LIKED_SONGS && synced(p));
+            let mine = group(&|p| p.uri != LIKED_SONGS && p.owner.is_none() && !synced(p));
+            let followed = group(&|p| p.owner.is_some() && !synced(p));
             for (title, group) in [
                 (None, liked),
-                (Some("YOURS"), mine.copied().collect::<Vec<_>>()),
-                (Some("FOLLOWED"), followed.copied().collect::<Vec<_>>()),
+                (Some("SYNCED"), in_sync),
+                (Some("YOURS"), mine),
+                (Some("FOLLOWED"), followed),
             ] {
                 if group.is_empty() {
                     continue;
@@ -259,6 +273,23 @@ fn playlist_list(
                         palette.dim,
                     );
                     let mut end = count.left() - 6.0;
+                    // Synced: open as a tab, or closed here.
+                    let synced = synced(playlist);
+                    let tab = view.library.synced(&playlist.uri).map(|list| list.id);
+                    if synced {
+                        theme::sync_mark(painter, pos2(end - 4.0, rect.center().y), palette.dim);
+                        end -= 13.0;
+                    }
+                    if tab.is_some() {
+                        let open = painter.text(
+                            pos2(end, rect.center().y),
+                            Align2::RIGHT_CENTER,
+                            "OPEN",
+                            mono(),
+                            palette.dim,
+                        );
+                        end = open.left() - 6.0;
+                    }
                     if playlist.private {
                         lock(painter, pos2(end - 4.0, rect.center().y), palette.dim);
                         end -= 13.0;
@@ -282,8 +313,41 @@ fn playlist_list(
                     }
                     let unlistable = view.browse.unlistable(&playlist.uri);
                     let shareable = link(&playlist.uri).is_some();
-                    if unlistable || shareable {
+                    let open_tab = || {
+                        vec![
+                            Action::OpenSynced(playlist.uri.clone(), playlist.name.clone()),
+                            Action::CloseBrowse,
+                        ]
+                    };
+                    if synced && response.double_clicked() {
+                        for action in open_tab() {
+                            actions.push(action);
+                        }
+                    }
+                    let response = match (synced, tab) {
+                        (false, _) => response,
+                        (true, Some(_)) => {
+                            response.on_hover_text("Synced, open as a tab: double-click to show it")
+                        }
+                        (true, None) => response
+                            .on_hover_text("Synced, closed here: double-click to open it as a tab"),
+                    };
+                    if unlistable || shareable || synced {
                         response.context_menu(|ui| {
+                            if synced {
+                                let name = if tab.is_some() {
+                                    "Show its tab"
+                                } else {
+                                    "Open as synced tab"
+                                };
+                                let label = RichText::new(name).monospace().size(11.0);
+                                let button = egui::Button::new(label).frame_when_inactive(false);
+                                if ui.add(button).clicked() {
+                                    for action in open_tab() {
+                                        actions.push(action);
+                                    }
+                                }
+                            }
                             if shareable && share_menu(ui, "Copy playlist link") {
                                 actions.push(Desktop::CopyLinks(vec![playlist.uri.clone()]));
                             }
@@ -353,13 +417,37 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
     ui.horizontal(|ui| {
         let name = playlist.map_or("Spotify playlist", |p| p.name.as_str());
         ui.label(RichText::new(name).size(18.0).color(palette.current));
+        let synced = view.library.synced_seen.iter().any(|seen| seen == uri);
+        let tab = view.library.synced(uri);
         let tag = match playlist.and_then(|p| p.owner.as_ref()) {
             Some(owner) => format!("BY {} · READ ONLY", owner.to_uppercase()),
+            None if synced => "SYNCED".into(),
             None => "YOURS".into(),
         };
         ui.label(RichText::new(tag).monospace().size(10.0).color(palette.dim));
+        if synced && let Some(playlist) = playlist {
+            let (label, hint) = match tab {
+                Some(_) => ("SHOW TAB", "Shows its tab"),
+                None => ("OPEN AS TAB", "Opens it as a synced tab again"),
+            };
+            ui.add_space(4.0);
+            if small_button(ui, &palette, label, false)
+                .on_hover_text(hint)
+                .clicked()
+            {
+                actions.push(Action::OpenSynced(
+                    playlist.uri.clone(),
+                    playlist.name.clone(),
+                ));
+                actions.push(Action::CloseBrowse);
+            }
+        }
         if let Some(playlist) = playlist.filter(|p| browse.unlistable(&p.uri)) {
             let (label, hint) = match playlist.owner {
+                None if synced => (
+                    "DELETE",
+                    "Deletes this playlist on Spotify, so on every device",
+                ),
                 None => ("DELETE", "Deletes this playlist on Spotify"),
                 Some(_) => (
                     "UNFOLLOW",

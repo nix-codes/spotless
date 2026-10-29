@@ -8,6 +8,8 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
+use super::sync::{ItemId, Link, Position};
+
 /// Unique for the app's lifetime and persisted, so the same song added twice
 /// is two entries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -139,6 +141,10 @@ impl Grouping {
 pub struct Entry {
     pub id: EntryId,
     pub track: TrackRef,
+    /// In a synced playlist, the song's ID in its Spotify playlist: None
+    /// until Spotify has it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item: Option<ItemId>,
 }
 
 /// A run of songs the list shows together. Two or more in a row from one
@@ -171,6 +177,9 @@ pub struct Playlist {
     /// The Q marks, in the order they play.
     #[serde(default)]
     play_next: Vec<EntryId>,
+    /// Synced: kept on Spotify too, in this playlist.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync: Option<Link>,
 }
 
 impl Playlist {
@@ -183,6 +192,7 @@ impl Playlist {
             detached: false,
             resume_ms: 0,
             play_next: Vec::new(),
+            sync: None,
         }
     }
 
@@ -395,6 +405,93 @@ impl Playlist {
     }
 }
 
+/// Synced playlists' part.
+impl Playlist {
+    /// Each song by entry, with its Spotify ID if it has one.
+    pub fn sync_rows(&self) -> Vec<(EntryId, Option<ItemId>)> {
+        self.entries
+            .iter()
+            .map(|entry| (entry.id, entry.item.clone()))
+            .collect()
+    }
+
+    /// Gives songs their Spotify IDs.
+    pub fn set_items(&mut self, items: &[(EntryId, ItemId)]) {
+        for (id, item) in items {
+            if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == *id) {
+                entry.item = Some(item.clone());
+            }
+        }
+    }
+
+    /// Takes the Spotify IDs off, as the playlist stops being synced.
+    pub fn clear_items(&mut self) {
+        for entry in &mut self.entries {
+            entry.item = None;
+        }
+    }
+
+    /// Where it's up to, saved at `saved_at`; None while its song or a Q
+    /// marked one isn't on Spotify yet.
+    pub fn position(&self, saved_at: u64) -> Option<Position> {
+        let item = |id: EntryId| self.get(id)?.item.clone();
+        let song = match self.cursor {
+            Some(cursor) => Some(item(cursor)?),
+            None => None,
+        };
+        let marks = self
+            .play_next
+            .iter()
+            .map(|&id| item(id))
+            .collect::<Option<_>>()?;
+        Some(Position {
+            resume_s: if song.is_some() {
+                self.resume_ms / 1000
+            } else {
+                0
+            },
+            song,
+            saved_at,
+            marks,
+        })
+    }
+
+    /// Goes where `position` says, as far as it can: a song not here
+    /// leaves the cursor where it is, and its Q mark out.
+    pub fn set_position(&mut self, position: &Position) {
+        let find = |item: &ItemId| {
+            self.entries
+                .iter()
+                .find(|entry| entry.item.as_ref() == Some(item))
+                .map(|entry| entry.id)
+        };
+        if let Some(cursor) = position.song.as_ref().and_then(find) {
+            self.cursor = Some(cursor);
+            self.detached = false;
+            self.resume_ms = position.resume_s.saturating_mul(1000);
+        }
+        self.play_next = position.marks.iter().filter_map(find).collect();
+    }
+
+    /// Takes these songs, in this order, in place of the ones it has, as
+    /// another device changed them. A song gone moves the cursor as
+    /// [`Playlist::remove`] does.
+    pub fn replace_entries(&mut self, entries: Vec<Entry>) {
+        let kept: HashSet<EntryId> = entries.iter().map(|entry| entry.id).collect();
+        let gone: Vec<EntryId> = self
+            .entries
+            .iter()
+            .map(|entry| entry.id)
+            .filter(|id| !kept.contains(id))
+            .collect();
+        self.remove(&gone);
+        self.entries = entries;
+        if self.cursor.is_none() && !self.detached {
+            self.cursor = self.first();
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -413,6 +510,7 @@ pub(crate) mod tests {
                 duration_ms: 180_000,
                 source: None,
             },
+            item: None,
         }
     }
 

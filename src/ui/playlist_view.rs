@@ -29,6 +29,8 @@ use super::widgets::{
 };
 use super::{Inputs, View, spotify_view};
 use crate::action::{Action, Actions, Desktop};
+use crate::backend::SessionState;
+use crate::controller::SyncStatus;
 use crate::lastfm::{LastFmStatus, Loved};
 use crate::model::{EntryId, Playlist, PlaylistId, Run, TrackRef};
 use crate::playback::engine::Status;
@@ -47,6 +49,8 @@ const NAME_FONT: FontId = FontId::proportional(12.5);
 const COUNT_FONT: FontId = FontId::monospace(9.0);
 /// Room in a tab for ▶ and for ✕.
 const PLAY_WIDTH: f32 = 12.0;
+/// A synced tab's mark, and the gaps either side.
+const SYNC_WIDTH: f32 = 14.0;
 const CLOSE_WIDTH: f32 = 14.0;
 /// The tab being renamed.
 const RENAME_WIDTH: f32 = 152.0;
@@ -263,12 +267,18 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
                 name: "Spotify",
                 count: queue.len(),
                 own: false,
+                sync: None,
             }),
             _ => view.library.get(id).map(|list| Tab {
                 id,
                 name: &list.name,
                 count: list.len(),
                 own: true,
+                sync: list.sync.as_ref().map(|_| match view.sync.get(&id) {
+                    Some(SyncStatus::Waiting) => Sync::Waiting,
+                    Some(SyncStatus::Failed(_)) => Sync::Failed,
+                    Some(SyncStatus::UpToDate) | None => Sync::UpToDate,
+                }),
             }),
         })
         .collect();
@@ -452,6 +462,16 @@ struct Tab<'a> {
     /// A playlist of Spotless's own, rather than Spotify's queue: it can be
     /// renamed, moved and closed (not Default).
     own: bool,
+    /// Synced: how it stands (None: not synced).
+    sync: Option<Sync>,
+}
+
+/// A synced tab's mark.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Sync {
+    UpToDate,
+    Waiting,
+    Failed,
 }
 
 /// The width of a tab: ▶ if playing, the name, the song count, ✕ unless
@@ -473,8 +493,10 @@ fn tab_width(ui: &Ui, view: &View, list: &Tab) -> f32 {
     } else {
         0.0
     };
+    let sync_width = if list.sync.is_some() { SYNC_WIDTH } else { 0.0 };
     10.0 + play_width
         + width(list.name, NAME_FONT)
+        + sync_width
         + 6.0
         + width(&list.count.to_string(), COUNT_FONT)
         + close_width
@@ -559,8 +581,22 @@ fn tab(
         NAME_FONT,
         text_color,
     );
+    let mut after = name.right();
+    if let Some(sync) = list.sync {
+        let color = match sync {
+            Sync::UpToDate => palette.accent,
+            Sync::Waiting => palette.dim,
+            Sync::Failed => theme::WARNING,
+        };
+        theme::sync_mark(
+            painter,
+            pos2(after + SYNC_WIDTH / 2.0, rect.center().y),
+            color,
+        );
+        after += SYNC_WIDTH;
+    }
     painter.text(
-        pos2(name.right() + 6.0, rect.center().y),
+        pos2(after + 6.0, rect.center().y),
         Align2::LEFT_CENTER,
         count,
         COUNT_FONT,
@@ -609,8 +645,9 @@ fn tab(
     }
 
     let close = |inputs: &mut Inputs, actions: &mut Actions| {
-        // Closing the Spotify tab loses nothing: the queue is the account's.
-        if list.count == 0 || !list.own {
+        // Closing the Spotify tab loses nothing: the queue is the account's,
+        // nor a synced one, which stays on Spotify.
+        if list.count == 0 || !list.own || list.sync.is_some() {
             actions.push(Action::ClosePlaylist(list.id));
         } else {
             inputs.closing = Some(list.id);
@@ -620,6 +657,20 @@ fn tab(
         response.context_menu(|ui| {
             if item(ui, "Rename", true).clicked() {
                 inputs.renaming = Some((list.id, list.name.to_string()));
+            }
+            let synced = list.sync.is_some();
+            let signed_in = matches!(view.session, SessionState::Ready { .. });
+            let label = if synced { "Sync ✓" } else { "Sync" };
+            let hint = if synced || signed_in {
+                "Keeps it the same on your other devices"
+            } else {
+                "Sign in to sync it with your other devices"
+            };
+            if item(ui, label, synced || signed_in)
+                .on_hover_text(hint)
+                .clicked()
+            {
+                actions.push(Action::SetSync(list.id, !synced));
             }
             if item(ui, "Save to Spotify…", list.count > 0)
                 .on_hover_text("Copies its songs to a new playlist on Spotify")
@@ -659,9 +710,19 @@ fn tab(
         return response;
     }
     let hint = if !list.own {
-        "The account's queue, as Spotify plays it. Closed, Spotless leaves Spotify Connect; + opens it again. Drag to move"
+        "The account's queue, as Spotify plays it. Closed, Spotless leaves Spotify Connect; + opens it again. Drag to move".to_string()
     } else {
-        "Double-click to rename, drag to move"
+        let sync = match (list.sync, view.sync.get(&list.id)) {
+            (None, _) => "",
+            (Some(Sync::Waiting), _) => "Synced: changes wait to be sent.\n",
+            (Some(Sync::Failed), Some(SyncStatus::Failed(why))) => {
+                return response.on_hover_text_at_pointer(format!(
+                    "Synced, but Spotify refused a change: {why}\nDouble-click to rename, drag to move"
+                ));
+            }
+            (Some(_), _) => "Synced: the same on your other devices.\n",
+        };
+        format!("{sync}Double-click to rename, drag to move")
     };
     response.on_hover_text_at_pointer(hint)
 }
@@ -1630,6 +1691,7 @@ mod tests {
             repeat: false,
             stop_after: false,
             library,
+            sync: &std::collections::HashMap::new(),
             tabs: &tabs,
             playing_list: None,
             spotify: spotify.then_some(&queue),

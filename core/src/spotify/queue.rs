@@ -198,6 +198,7 @@ impl SpotifyQueue {
             .map(|(index, row)| Entry {
                 id: Self::row_id(index),
                 track: row.track().clone(),
+                item: None,
             })
             .collect();
         list.append(entries);

@@ -201,6 +201,27 @@ pub fn focus_ring(painter: &Painter, rect: Rect, palette: &Palette) {
     );
 }
 
+/// What a refusal is drawn in, whatever the phosphor: a synced tab's mark
+/// when Spotify refused a change.
+pub const WARNING: Color32 = Color32::from_rgb(222, 84, 64);
+
+/// A synced playlist's mark, centred on `c`, about 9 px high: an arrow up
+/// beside one down (⇅).
+pub fn sync_mark(painter: &Painter, c: egui::Pos2, color: Color32) {
+    let stroke = Stroke::new(1.2, color);
+    for (x, up) in [(c.x - 2.5, true), (c.x + 2.5, false)] {
+        let (tip, tail) = if up {
+            (c.y - 4.5, c.y + 4.5)
+        } else {
+            (c.y + 4.5, c.y - 4.5)
+        };
+        let back = if up { 2.5 } else { -2.5 };
+        painter.line_segment([pos2(x, tail), pos2(x, tip)], stroke);
+        painter.line_segment([pos2(x - 2.0, tip + back), pos2(x, tip)], stroke);
+        painter.line_segment([pos2(x + 2.0, tip + back), pos2(x, tip)], stroke);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

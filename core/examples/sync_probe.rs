@@ -19,6 +19,10 @@
 //! (run with `RUST_LOG=librespot_core::dealer=debug` to see those nobody
 //! asked for too); another changes the playlist's description, then adds
 //! a song, and the listener says what arrived and when.
+//! `synced`: `spotify::synced` against Spotify: makes two playlists in
+//! the Spotless folder (making it), reads them with their songs' IDs,
+//! moves songs both ways, removes and adds in one change, sends a change
+//! on a stale revision, and sets the position.
 //! The playlist is kept for the next experiments; `clean` takes every
 //! "Spotless test" playlist out of the account's list.
 //!
@@ -26,6 +30,8 @@
 //!   cargo run -p spotless-core --example sync_probe -- songs
 //!   cargo run -p spotless-core --example sync_probe -- description
 //!   cargo run -p spotless-core --example sync_probe -- push
+//!   cargo run -p spotless-core --example sync_probe -- synced
+//!   cargo run -p spotless-core --example sync_probe -- folder
 //!   cargo run -p spotless-core --example sync_probe -- control spotify:playlist:…
 //!   cargo run -p spotless-core --example sync_probe -- clean
 //!
@@ -42,6 +48,7 @@ use librespot_protocol::playlist4_external::{
 use protobuf::{Message, MessageField};
 use spotless_core::paths::Paths;
 use spotless_core::spotify::playlists;
+use spotless_core::spotify::synced::{self, Edit};
 
 const NAME: &str = "Spotless test";
 
@@ -56,6 +63,12 @@ async fn main() -> Result<()> {
         Some("songs") => songs().await,
         Some("description") => description().await,
         Some("push") => push().await,
+        Some("synced") => synced_side().await,
+        Some("folder") => {
+            let s = session().await?;
+            println!("{:?}", synced::folder(&s).await?);
+            Ok(())
+        }
         Some("variants") => variants(args.get(1).context("variants needs the URI")?).await,
         _ => bail!("list, or clean"),
     }
@@ -521,12 +534,214 @@ fn hex(bytes: &[u8]) -> String {
 async fn clean() -> Result<()> {
     let session = session().await?;
     for playlist in spotless_core::spotify::catalog::playlists(&session).await? {
-        if playlist.name == NAME {
+        if playlist.name == NAME
+            || playlist.name == SECOND
+            || playlist.name.starts_with("Spotless e2e")
+        {
             playlists::unlist(&session, &playlist.uri).await?;
             println!("took out {}", playlist.uri);
         }
     }
+    if synced::remove_empty_folder(&session).await? {
+        println!("took out the empty Spotless folder");
+    }
     Ok(())
+}
+
+const SECOND: &str = "Spotless test 2";
+
+async fn synced_side() -> Result<()> {
+    let s = session().await?;
+    let liked = s
+        .spclient()
+        .get_collection_page("collection", "", 4)
+        .await?;
+    let liked: Vec<String> = liked.items.iter().map(|i| i.uri.clone()).collect();
+    if liked.len() < 4 {
+        bail!("needs four Liked Songs");
+    }
+    let short = |uri: &str| uri.rsplit(':').next().unwrap_or_default()[..6].to_string();
+    let names = |remote: &synced::Remote| -> Vec<String> {
+        remote.songs.iter().map(|(_, uri)| short(uri)).collect()
+    };
+    let (a, b, c, d) = (
+        short(&liked[0]),
+        short(&liked[1]),
+        short(&liked[2]),
+        short(&liked[3]),
+    );
+    println!("songs a={a} b={b} c={c} d={d}");
+
+    let uri = synced::create(&s, NAME, &liked[..3]).await?;
+    println!("made {uri}");
+    let folder = synced::folder(&s).await?;
+    println!("folder: {folder:?}");
+    check(
+        "first is in the folder",
+        folder.iter().any(|(u, _)| *u == uri),
+    );
+
+    let remote = synced::read(&s, &uri).await?;
+    println!(
+        "read {:?}, ids {:?}",
+        names(&remote),
+        remote.songs.iter().map(|(id, _)| &id.0).collect::<Vec<_>>()
+    );
+    check(
+        "three songs, a b c",
+        names(&remote) == [a.as_str(), b.as_str(), c.as_str()],
+    );
+    check(
+        "each has an ID",
+        remote.songs.iter().all(|(id, _)| !id.0.is_empty()),
+    );
+
+    let revision = synced::edit(
+        &s,
+        &uri,
+        remote.revision.clone(),
+        &[Edit::Move {
+            from: 0,
+            to: 2,
+            song: liked[0].clone(),
+        }],
+    )
+    .await?;
+    let now = synced::read(&s, &uri).await?;
+    println!("moved first to last: {:?}", names(&now));
+    check("b c a", names(&now) == [b.as_str(), c.as_str(), a.as_str()]);
+    check(
+        "the edit answered the revision read",
+        now.revision == revision,
+    );
+    check(
+        "IDs follow their songs",
+        now.songs[2].0 == remote.songs[0].0,
+    );
+
+    synced::edit(
+        &s,
+        &uri,
+        now.revision.clone(),
+        &[Edit::Move {
+            from: 2,
+            to: 0,
+            song: liked[0].clone(),
+        }],
+    )
+    .await?;
+    let now = synced::read(&s, &uri).await?;
+    println!("moved last to first: {:?}", names(&now));
+    check("a b c", names(&now) == [a.as_str(), b.as_str(), c.as_str()]);
+
+    // Moved on, so that b isn't where the old revision had it.
+    let moved = synced::read(&s, &uri).await?;
+    synced::edit(
+        &s,
+        &uri,
+        moved.revision.clone(),
+        &[Edit::Move {
+            from: 1,
+            to: 2,
+            song: liked[1].clone(),
+        }],
+    )
+    .await?;
+    let stale = synced::edit(
+        &s,
+        &uri,
+        moved.revision.clone(),
+        &[Edit::Remove {
+            at: 1,
+            songs: vec![liked[1].clone()],
+        }],
+    )
+    .await;
+    println!(
+        "b removed on a stale revision: {:?}",
+        stale.as_ref().map(|_| ()).map_err(|e| format!("{e:#}"))
+    );
+    let after = synced::read(&s, &uri).await?;
+    println!("  now {:?}", names(&after));
+    check(
+        "refused, or b removed and nothing else",
+        if stale.is_err() {
+            names(&after) == [a.as_str(), c.as_str(), b.as_str()]
+        } else {
+            names(&after) == [a.as_str(), c.as_str()]
+        },
+    );
+    // Back to a b c for what follows.
+    let after = if stale.is_ok() {
+        synced::edit(
+            &s,
+            &uri,
+            after.revision.clone(),
+            &[Edit::Add {
+                at: 1,
+                songs: vec![liked[1].clone()],
+            }],
+        )
+        .await?;
+        synced::read(&s, &uri).await?
+    } else {
+        synced::edit(
+            &s,
+            &uri,
+            after.revision.clone(),
+            &[Edit::Move {
+                from: 2,
+                to: 1,
+                song: liked[1].clone(),
+            }],
+        )
+        .await?;
+        synced::read(&s, &uri).await?
+    };
+    check(
+        "a b c again",
+        names(&after) == [a.as_str(), b.as_str(), c.as_str()],
+    );
+
+    synced::edit(
+        &s,
+        &uri,
+        after.revision.clone(),
+        &[
+            Edit::Remove {
+                at: 0,
+                songs: vec![liked[0].clone()],
+            },
+            Edit::Add {
+                at: 1,
+                songs: vec![liked[3].clone()],
+            },
+            Edit::Describe("s1:00:0:0:".into()),
+        ],
+    )
+    .await?;
+    let now = synced::read(&s, &uri).await?;
+    println!(
+        "removed first, added d second, described: {:?} {:?}",
+        names(&now),
+        now.description
+    );
+    check("b d c", names(&now) == [b.as_str(), d.as_str(), c.as_str()]);
+    check("description set", now.description == "s1:00:0:0:");
+
+    let second = synced::create(&s, SECOND, &[]).await?;
+    let folder = synced::folder(&s).await?;
+    println!("folder: {folder:?}");
+    check(
+        "second goes last in the same folder",
+        folder.iter().map(|(u, _)| u.as_str()).collect::<Vec<_>>()
+            == [uri.as_str(), second.as_str()],
+    );
+    Ok(())
+}
+
+fn check(what: &str, ok: bool) {
+    println!("  {} {what}", if ok { "OK  " } else { "FAIL" });
 }
 
 fn now_ms() -> i64 {

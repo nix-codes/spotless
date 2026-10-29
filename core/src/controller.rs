@@ -6,7 +6,12 @@
 //! What only a desktop has (the window, the tray, media keys, skins and
 //! textures) stays with the interface, in `app.rs`.
 
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
+
+mod sync;
+
+pub use sync::SyncStatus;
 
 use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState, SpotifyRequest, Storage};
@@ -68,6 +73,8 @@ pub struct State {
     /// The player is the queue's: it was started last, before any local
     /// song. Paused, the queue keeps it until a local song plays.
     pub spotify_owns: bool,
+    /// How each synced playlist stands, once it has been sent or read.
+    pub sync: HashMap<PlaylistId, SyncStatus>,
 }
 
 impl State {
@@ -219,6 +226,8 @@ pub struct Controller {
     /// When the queue was last seeked: its position is shown at once, and
     /// reports from before the seek reached Spotify are kept from undoing it.
     spotify_seeked: Option<Instant>,
+    /// The synced playlists' syncs.
+    syncing: HashMap<PlaylistId, sync::Syncing>,
 }
 
 /// What songs loved on Last.fm are found on Spotify for.
@@ -368,6 +377,7 @@ impl Controller {
                 spotify_at: tabs.spotify_at,
                 spotify_starting: None,
                 spotify_owns: false,
+                sync: HashMap::new(),
             },
             unsaved: None,
             pending_adds: Vec::new(),
@@ -375,6 +385,7 @@ impl Controller {
             last_find: 0,
             resuming: false,
             spotify_seeked: None,
+            syncing: HashMap::new(),
         }
     }
 
@@ -420,6 +431,9 @@ impl Controller {
                     self.state.session = session;
                     if ready && self.state.browse.open {
                         self.read_spotify_playlists();
+                    }
+                    if ready {
+                        self.sync_on_connect();
                     }
                 }
                 // The engine holds nothing while a song waits offline.
@@ -505,8 +519,12 @@ impl Controller {
                     let requests = self.state.transport.unavailable(&mut self.state.library);
                     self.changed(requests);
                 }
-                Event::Reconnected if self.state.offline => self.resume_offline(),
-                Event::Reconnected => {}
+                Event::Reconnected => {
+                    if self.state.offline {
+                        self.resume_offline();
+                    }
+                    self.sync_on_reconnect();
+                }
                 Event::Tracks { playlist, tracks } => {
                     self.insert_tracks(playlist, None, tracks);
                 }
@@ -596,6 +614,10 @@ impl Controller {
                     songs,
                     result,
                 } => self.copied_to_spotify(target, songs, result),
+                Event::Synced { list, result } => self.synced(list, result),
+                Event::SyncCreated { list, result } => self.sync_created(list, result),
+                Event::SyncFolder(result) => self.sync_folder_read(result),
+                Event::PlaylistChanged(changed) => self.playlist_changed(changed),
                 Event::Error(message) => self.state.error = Some(message),
                 Event::Cover { .. } => theirs.push(event),
             }
@@ -810,6 +832,11 @@ impl Controller {
                 self.pending_adds.retain(|(_, target, _)| *target != list);
                 self.finding.retain(|(_, _, then)| !then.goes_to(list));
                 requests
+            }
+            Action::SetSync(list, on) => return self.set_sync(list, on),
+            Action::OpenSynced(uri, name) => {
+                self.open_synced(uri, name);
+                return;
             }
             Action::RenamePlaylist(list, name) => {
                 library.rename(list, &name);
@@ -1362,7 +1389,9 @@ impl Controller {
             self.mark_unsaved();
         }
         let name = playlist.name;
+        let synced = self.state.library.synced_seen.contains(&uri);
         let notice = match playlist.owner {
+            None if synced => format!("Deleted “{name}” on Spotify and every device."),
             None => format!("Deleted “{name}” on Spotify."),
             Some(_) => format!("Unfollowed “{name}”."),
         };
@@ -1380,6 +1409,11 @@ impl Controller {
             }
             Ok(unlisted) => {
                 self.state.notice = Some(unlisted.notice.clone());
+                // A synced one open here closes: it's gone everywhere.
+                if let Some(list) = self.state.library.synced(&unlisted.playlist) {
+                    let id = list.id;
+                    self.apply(Action::ClosePlaylist(id));
+                }
                 self.state.browse.undo = Some(Undo::Playlist(unlisted));
             }
             Err(error) => self.state.error = Some(error),
@@ -1787,7 +1821,8 @@ impl Controller {
         match SAVE_DELAY.checked_sub(since.elapsed()) {
             Some(wait) if !wait.is_zero() => Some(wait),
             _ => {
-                self.save();
+                self.store();
+                self.sync_all(false);
                 None
             }
         }
@@ -1835,7 +1870,14 @@ impl Controller {
         }
     }
 
+    /// Saves now, and sends the synced playlists' positions, as the app
+    /// closes or goes to the background.
     pub fn save(&mut self) {
+        self.store();
+        self.sync_all(true);
+    }
+
+    fn store(&mut self) {
         self.unsaved = None;
         let state = &mut self.state;
         state
@@ -3259,5 +3301,337 @@ mod tests {
             rig.controller.state().notice.as_deref(),
             Some("Moved 1 song to Default")
         );
+    }
+
+    mod synced {
+        use super::*;
+        use crate::model::sync::{ItemId, Position};
+        use crate::spotify::synced::{Changed, Done, Job, Remote};
+
+        const URI: &str = "spotify:playlist:gym";
+
+        fn item(n: u64) -> ItemId {
+            ItemId(format!("{n:04x}"))
+        }
+
+        fn ready(rig: &mut Rig) {
+            rig.tell(Event::Session(SessionState::Ready { user: "me".into() }));
+        }
+
+        fn jobs(rig: &mut Rig) -> Vec<Job> {
+            rig.sent()
+                .into_iter()
+                .filter_map(|command| match command {
+                    Command::Sync { job, .. } => Some(job),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// Spotify's answer: these songs (by number: item and track
+        /// alike), the job's songs given their items by track.
+        fn done(job: &Job, songs: &[u64], position: Option<Position>) -> Done {
+            let sent = job
+                .local
+                .iter()
+                .map(|(id, item, uri)| {
+                    let n: u64 = uri.rsplit(':').next().unwrap().parse().unwrap();
+                    (*id, item.clone().or(Some(item_n(n, songs))))
+                })
+                .collect();
+            Done {
+                remote: Remote {
+                    revision: songs.iter().map(|&n| n as u8).collect(),
+                    name: "Gym".into(),
+                    description: position.as_ref().map(Position::encode).unwrap_or_default(),
+                    songs: songs
+                        .iter()
+                        .map(|&n| (item(n), format!("spotify:track:{n}")))
+                        .collect(),
+                },
+                sent,
+                tracks: Vec::new(),
+                position,
+            }
+        }
+
+        fn item_n(n: u64, _songs: &[u64]) -> ItemId {
+            item(n)
+        }
+
+        /// A playlist "Gym" of songs 1 and 2, synced and sent.
+        fn synced_gym(rig: &mut Rig) -> PlaylistId {
+            synced_gym_named(rig, URI)
+        }
+
+        /// The same, as this Spotify playlist.
+        fn synced_gym_named(rig: &mut Rig, uri: &str) -> PlaylistId {
+            ready(rig);
+            rig.controller
+                .apply(Action::NewPlaylistWith(tracks([1, 2])));
+            let list = rig.controller.state().viewed;
+            rig.controller
+                .apply(Action::RenamePlaylist(list, "Gym".into()));
+            rig.sent();
+            rig.controller.apply(Action::SetSync(list, true));
+            assert!(rig.sent().iter().any(
+                |c| matches!(c, Command::CreateSynced { list: l, name } if *l == list && name == "Gym")
+            ));
+            assert_eq!(
+                rig.controller.state().sync.get(&list),
+                Some(&SyncStatus::Waiting)
+            );
+            rig.tell(Event::SyncCreated {
+                list,
+                result: Ok(uri.into()),
+            });
+            let job = jobs(rig).pop().expect("sent whole");
+            assert_eq!(job.uri, uri);
+            assert!(job.base.is_empty());
+            assert!(job.local.iter().all(|(_, item, _)| item.is_none()));
+            // Not yet: its song isn't on Spotify.
+            assert_eq!(job.position, None);
+            rig.tell(Event::Synced {
+                list,
+                result: Ok(done(&job, &[1, 2], None)),
+            });
+            // Now that its songs have IDs, where it's up to follows.
+            let job = jobs(rig).pop().expect("the position");
+            let position = job.position.clone().expect("a position");
+            assert_eq!(position.song, Some(item(1)));
+            rig.tell(Event::Synced {
+                list,
+                result: Ok(done(&job, &[1, 2], Some(position))),
+            });
+            list
+        }
+
+        fn titles(rig: &Rig, list: PlaylistId) -> Vec<String> {
+            super::titles(rig, list)
+        }
+
+        #[test]
+        fn a_playlist_made_synced_is_sent_whole_then_its_position() {
+            let mut rig = Rig::new("sync-whole");
+            let list = synced_gym(&mut rig);
+            let state = rig.controller.state();
+            let gym = state.library.get(list).unwrap();
+            let items: Vec<_> = gym.entries().iter().map(|e| e.item.clone()).collect();
+            assert_eq!(items, [Some(item(1)), Some(item(2))]);
+            assert_eq!(state.sync.get(&list), Some(&SyncStatus::UpToDate));
+            assert!(state.library.synced_seen.contains(&URI.to_string()));
+            // Unchanged, it isn't sent again.
+            rig.controller.save();
+            assert!(jobs(&mut rig).is_empty());
+        }
+
+        #[test]
+        fn songs_from_another_device_arrive_with_its_newer_position() {
+            let mut rig = Rig::new("sync-arrive");
+            let list = synced_gym(&mut rig);
+            jobs(&mut rig);
+            rig.tell(Event::PlaylistChanged(Changed {
+                uri: URI.into(),
+                revision: vec![9],
+            }));
+            let job = jobs(&mut rig).pop().expect("read again");
+            let theirs = Position {
+                song: Some(item(3)),
+                resume_s: 30,
+                saved_at: u64::MAX / 2,
+                marks: vec![item(2)],
+            };
+            let mut answer = done(&job, &[1, 3, 2], Some(theirs));
+            answer.tracks = vec![(item(3), Some(entry(3).track))];
+            rig.tell(Event::Synced {
+                list,
+                result: Ok(answer),
+            });
+            assert_eq!(titles(&rig, list), ["Song 1", "Song 3", "Song 2"]);
+            let gym = rig.controller.state().library.get(list).unwrap();
+            let cursor = gym.get(gym.cursor().unwrap()).unwrap();
+            assert_eq!(cursor.track.title, "Song 3");
+            assert_eq!(gym.resume_ms, 30_000);
+            assert_eq!(gym.mark_number(gym.entries()[2].id), Some(1));
+            // Its own change, told back, isn't read again.
+            let revision = vec![1, 3, 2];
+            rig.tell(Event::PlaylistChanged(Changed {
+                uri: URI.into(),
+                revision,
+            }));
+            assert!(jobs(&mut rig).iter().all(|job| job.position.is_some()));
+        }
+
+        #[test]
+        fn edits_made_offline_wait_and_go_once_connected() {
+            let mut rig = Rig::new("sync-offline");
+            let list = synced_gym(&mut rig);
+            jobs(&mut rig);
+            rig.tell(Event::Session(SessionState::Connecting));
+            let first = rig.controller.state().library.get(list).unwrap().entries()[0].id;
+            rig.controller.apply(Action::Remove(list, vec![first]));
+            rig.controller.save();
+            assert!(jobs(&mut rig).is_empty());
+            assert_eq!(
+                rig.controller.state().sync.get(&list),
+                Some(&SyncStatus::Waiting)
+            );
+            ready(&mut rig);
+            assert!(rig.sent().iter().any(|c| matches!(c, Command::SyncFolder)));
+            rig.tell(Event::SyncFolder(Ok(vec![(URI.into(), "Gym".into())])));
+            let job = jobs(&mut rig).pop().expect("sent once connected");
+            assert_eq!(job.base, [item(1), item(2)]);
+            assert_eq!(job.local.len(), 1);
+            rig.tell(Event::Synced {
+                list,
+                result: Ok(done(&job, &[2], None)),
+            });
+            assert_eq!(titles(&rig, list), ["Song 2"]);
+            assert_eq!(
+                rig.controller.state().sync.get(&list),
+                Some(&SyncStatus::UpToDate)
+            );
+        }
+
+        #[test]
+        fn the_folder_opens_new_playlists_and_unsyncs_deleted_ones() {
+            let mut rig = Rig::new("sync-folder");
+            let list = synced_gym(&mut rig);
+            // Made synced a while ago, as far as the folder goes.
+            rig.controller.syncing.get_mut(&list).unwrap().created = None;
+            rig.sent();
+            rig.tell(Event::SyncFolder(Ok(vec![(
+                "spotify:playlist:road".into(),
+                "Road trip".into(),
+            )])));
+            let state = rig.controller.state();
+            assert!(state.library.get(list).unwrap().sync.is_none());
+            assert!(
+                state
+                    .notice
+                    .as_deref()
+                    .unwrap()
+                    .starts_with("Gym was deleted")
+            );
+            let road = state
+                .library
+                .synced("spotify:playlist:road")
+                .expect("opened");
+            assert_eq!(road.name, "Road trip");
+            let road = road.id;
+            // Read, with no position written before it has read Spotify's.
+            let road_jobs: Vec<Job> = jobs(&mut rig)
+                .into_iter()
+                .filter(|job| job.uri == "spotify:playlist:road")
+                .collect();
+            assert_eq!(road_jobs.len(), 1);
+            assert_eq!(road_jobs[0].position, None);
+
+            // Closed here, it doesn't open again.
+            rig.controller.apply(Action::ClosePlaylist(road));
+            rig.tell(Event::SyncFolder(Ok(vec![(
+                "spotify:playlist:road".into(),
+                "Road trip".into(),
+            )])));
+            assert!(
+                rig.controller
+                    .state()
+                    .library
+                    .synced("spotify:playlist:road")
+                    .is_none()
+            );
+        }
+
+        #[test]
+        fn renamed_here_or_there_the_name_follows() {
+            let mut rig = Rig::new("sync-rename");
+            let list = synced_gym(&mut rig);
+            jobs(&mut rig);
+            rig.controller
+                .apply(Action::RenamePlaylist(list, "Gym days".into()));
+            rig.controller.save();
+            let job = jobs(&mut rig).pop().expect("renamed");
+            assert_eq!(job.rename.as_deref(), Some("Gym days"));
+            let mut answer = done(&job, &[1, 2], None);
+            answer.remote.name = "Gym days".into();
+            rig.tell(Event::Synced {
+                list,
+                result: Ok(answer),
+            });
+            rig.tell(Event::PlaylistChanged(Changed {
+                uri: URI.into(),
+                revision: vec![7],
+            }));
+            let job = jobs(&mut rig).pop().expect("read again");
+            assert_eq!(job.rename, None);
+            let mut answer = done(&job, &[1, 2], None);
+            answer.remote.name = "Leg day".into();
+            rig.tell(Event::Synced {
+                list,
+                result: Ok(answer),
+            });
+            assert_eq!(
+                rig.controller.state().library.get(list).unwrap().name,
+                "Leg day"
+            );
+        }
+
+        #[test]
+        fn stopped_or_closed_it_stays_on_spotify_and_deleted_it_closes() {
+            let mut rig = Rig::new("sync-stop");
+            let list = synced_gym(&mut rig);
+            rig.controller.apply(Action::SetSync(list, false));
+            let gym = rig.controller.state().library.get(list).unwrap();
+            assert!(gym.sync.is_none());
+            assert_eq!(gym.len(), 2);
+            assert!(gym.entries().iter().all(|e| e.item.is_none()));
+
+            let list = {
+                rig.controller.apply(Action::SetSync(list, true));
+                rig.tell(Event::SyncCreated {
+                    list,
+                    result: Ok(URI.into()),
+                });
+                list
+            };
+            rig.sent();
+            // Closed here, it's only gone from here.
+            rig.controller.apply(Action::ClosePlaylist(list));
+            assert!(rig.controller.state().library.get(list).is_none());
+            assert!(rig.sent().is_empty());
+            // Deleted from Browse, its open tab closes too.
+            let road = synced_gym_named(&mut rig, "spotify:playlist:road");
+            rig.tell(Event::SpotifyPlaylists(Ok(vec![SpotifyPlaylist {
+                uri: "spotify:playlist:road".into(),
+                name: "Gym".into(),
+                tracks: 2,
+                owner: None,
+                private: true,
+            }])));
+            rig.controller.apply(Action::UnlistSpotifyPlaylist(
+                "spotify:playlist:road".into(),
+            ));
+            let notice = rig
+                .sent()
+                .into_iter()
+                .find_map(|c| match c {
+                    Command::UnlistSpotifyPlaylist { notice, .. } => Some(notice),
+                    _ => None,
+                })
+                .expect("sent to Spotify");
+            assert_eq!(notice, "Deleted “Gym” on Spotify and every device.");
+            rig.tell(Event::SpotifyUnlisted {
+                result: Ok(Unlisted {
+                    playlist: "spotify:playlist:road".into(),
+                    name: "Gym".into(),
+                    at: 1,
+                    item: vec![1],
+                    notice,
+                }),
+                undo: false,
+            });
+            let list = road;
+            assert!(rig.controller.state().library.get(list).is_none());
+        }
     }
 }

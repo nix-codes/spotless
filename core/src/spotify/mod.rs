@@ -8,6 +8,7 @@ pub mod playlists;
 pub mod queue;
 pub mod remote;
 pub mod session;
+pub mod synced;
 pub mod webapi;
 
 /// The web link that opens this song, album, artist or playlist in

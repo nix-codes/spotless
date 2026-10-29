@@ -54,6 +54,8 @@ pub struct View<'a> {
     /// Playback stops once the playing song ends (Ctrl-click on Stop).
     pub stop_after: bool,
     pub library: &'a Library,
+    /// How each synced playlist stands.
+    pub sync: &'a HashMap<PlaylistId, crate::controller::SyncStatus>,
     /// The tabs in order, the Spotify tab's included while it shows.
     pub tabs: &'a [PlaylistId],
     /// The playlist the player's song is from, loaded or not.

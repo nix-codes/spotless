@@ -31,7 +31,7 @@ use crate::spotify::devices::{self, Playing, Watch};
 use crate::spotify::queue::SpotifyQueue;
 use crate::spotify::remote::Remote;
 use crate::spotify::webapi::WebApi;
-use crate::spotify::{catalog, playlists, session};
+use crate::spotify::{catalog, playlists, session, synced};
 use crate::store::Settings;
 
 #[derive(Debug)]
@@ -119,6 +119,19 @@ pub enum Command {
     },
     /// For the Spotify tab.
     Spotify(SpotifyRequest),
+    /// Syncs a synced playlist; answered with `Event::Synced`.
+    Sync {
+        list: PlaylistId,
+        job: synced::Job,
+    },
+    /// Makes a playlist's Spotify playlist, in the Spotless folder, as it
+    /// starts being synced; answered with `Event::SyncCreated`.
+    CreateSynced {
+        list: PlaylistId,
+        name: String,
+    },
+    /// The Spotless folder's playlists; answered with `Event::SyncFolder`.
+    SyncFolder,
 }
 
 /// What the Spotify tab asks of the account's queue.
@@ -275,6 +288,21 @@ pub enum Event {
         playlist: PlaylistId,
         tracks: Vec<TrackRef>,
     },
+    /// A synced playlist synced, or not.
+    Synced {
+        list: PlaylistId,
+        result: Result<synced::Done, String>,
+    },
+    /// A playlist's Spotify playlist made, by URI, as it starts being
+    /// synced.
+    SyncCreated {
+        list: PlaylistId,
+        result: Result<String, String>,
+    },
+    /// The Spotless folder's playlists, by URI and name.
+    SyncFolder(Result<Vec<(String, String)>, String>),
+    /// Spotify told of a change to one of the account's playlists.
+    PlaylistChanged(synced::Changed),
     Error(String),
 }
 
@@ -444,6 +472,8 @@ struct Worker {
     scrobbler: Option<Scrobbler>,
     /// Follows the account's other devices on the session.
     watch: Option<Watch>,
+    /// Tells of changes to the account's playlists, on the session.
+    playlist_changes: Option<tokio::task::JoinHandle<()>>,
     /// The other device playing, as the watch last told.
     elsewhere: Option<Playing>,
     /// Where the watches tell, and where `run` hears it.
@@ -512,6 +542,7 @@ impl Worker {
             engine: None,
             scrobbler: None,
             watch: None,
+            playlist_changes: None,
             elsewhere: None,
             devices,
             device_reports: Some(device_reports),
@@ -666,9 +697,23 @@ impl Worker {
         (self.emit)(Event::Session(why));
     }
 
-    /// Follows the other devices on `session` from now on.
+    /// Follows the other devices, and the playlists' changes, on `session`
+    /// from now on.
     fn watch(&mut self, session: &Session) {
         self.unwatch();
+        match synced::listen(session) {
+            Ok(changes) => {
+                let emit = Arc::clone(&self.emit);
+                self.playlist_changes = Some(tokio::spawn(async move {
+                    use futures_util::StreamExt;
+                    let mut changes = std::pin::pin!(changes);
+                    while let Some(change) = changes.next().await {
+                        emit(Event::PlaylistChanged(change));
+                    }
+                }));
+            }
+            Err(error) => log::warn!("unable to follow the playlists' changes: {error:#}"),
+        }
         let devices = self.devices.clone();
         match Watch::start(session, move |playing| {
             let _ = devices.send(playing);
@@ -679,6 +724,9 @@ impl Worker {
     }
 
     fn unwatch(&mut self) {
+        if let Some(task) = self.playlist_changes.take() {
+            task.abort();
+        }
         if let Some(watch) = self.watch.take() {
             tokio::spawn(watch.close());
         }
@@ -1570,6 +1618,45 @@ impl Worker {
                 }
             }
             Command::Spotify(request) => self.spotify(request),
+            Command::Sync { list, job } => {
+                let Some(session) = self.session.clone() else {
+                    let result = Err("offline".to_string());
+                    return (self.emit)(Event::Synced { list, result });
+                };
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = synced::sync(&session, job)
+                        .await
+                        .map_err(|e| format!("{e:#}"));
+                    if let Err(error) = &result {
+                        log::warn!("unable to sync a playlist: {error}");
+                    }
+                    emit(Event::Synced { list, result });
+                });
+            }
+            Command::CreateSynced { list, name } => {
+                let Some(session) = self.session.clone() else {
+                    let result = Err("Sign in to sync a playlist.".to_string());
+                    return (self.emit)(Event::SyncCreated { list, result });
+                };
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = synced::create(&session, &name, &[])
+                        .await
+                        .map_err(|e| format!("{e:#}"));
+                    emit(Event::SyncCreated { list, result });
+                });
+            }
+            Command::SyncFolder => {
+                let Some(session) = self.session.clone() else {
+                    return;
+                };
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = synced::folder(&session).await.map_err(|e| format!("{e:#}"));
+                    emit(Event::SyncFolder(result));
+                });
+            }
         }
     }
 

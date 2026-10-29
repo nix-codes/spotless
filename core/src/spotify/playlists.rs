@@ -235,7 +235,11 @@ pub async fn relist(session: &Session, at: usize, item: &[u8]) -> Result<()> {
         .context("Spotify didn't put the playlist back in your list")
 }
 
-async fn post_rootlist(session: &Session, base: Option<Vec<u8>>, ops: Vec<Op>) -> Result<()> {
+pub(super) async fn post_rootlist(
+    session: &Session,
+    base: Option<Vec<u8>>,
+    ops: Vec<Op>,
+) -> Result<()> {
     let endpoint = format!("/playlist/v2/user/{}/rootlist/changes", session.username());
     session
         .spclient()
@@ -288,7 +292,7 @@ async fn revision(session: &Session, playlist: &str) -> Result<Option<Vec<u8>>> 
 }
 
 /// Sends one change, answering the new revision.
-async fn post(
+pub(super) async fn post(
     session: &Session,
     playlist: &str,
     base: Option<Vec<u8>>,
@@ -375,7 +379,7 @@ fn playlist_id(uri: &str) -> Result<SpotifyId> {
     }
 }
 
-fn now_ms() -> i64 {
+pub(super) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |t| t.as_millis() as i64)
