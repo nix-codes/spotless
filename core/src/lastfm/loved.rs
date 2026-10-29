@@ -34,7 +34,8 @@ impl LovedSong {
     }
 }
 
-/// The songs loved, newest first, each once.
+/// The songs loved, each once, by artist and then title as they are
+/// compared.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(from = "Vec<LovedSong>", into = "Vec<LovedSong>")]
 pub struct Loved {
@@ -57,14 +58,15 @@ impl Loved {
             self.songs.retain(|song| song.key() != key);
             return true;
         }
-        if !self.keys.insert(key) {
+        if !self.keys.insert(key.clone()) {
             return false;
         }
         let date = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |since| since.as_secs());
+        let at = self.place(&key);
         self.songs.insert(
-            0,
+            at,
             LovedSong {
                 artist: artist.into(),
                 title: title.into(),
@@ -74,14 +76,20 @@ impl Loved {
         true
     }
 
-    /// Puts the newest songs loved, newest first, before the rest: those
-    /// not here yet.
-    pub fn add_newest(&mut self, newest: Vec<LovedSong>) {
-        for song in newest.into_iter().rev() {
-            if self.keys.insert(song.key()) {
-                self.songs.insert(0, song);
+    /// Adds the songs not here yet.
+    pub fn add(&mut self, songs: Vec<LovedSong>) {
+        for song in songs {
+            let key = song.key();
+            if self.keys.insert(key.clone()) {
+                let at = self.place(&key);
+                self.songs.insert(at, song);
             }
         }
+    }
+
+    /// Where a song not here goes, by its key.
+    fn place(&self, key: &str) -> usize {
+        self.songs.partition_point(|song| song.key().as_str() < key)
     }
 
     /// A playlist's song.
@@ -95,7 +103,7 @@ impl Loved {
         self.contains(&track.main_artist, &track.title)
     }
 
-    /// Newest first.
+    /// By artist, then title.
     pub fn songs(&self) -> &[LovedSong] {
         &self.songs
     }
@@ -112,10 +120,11 @@ impl Loved {
 impl FromIterator<LovedSong> for Loved {
     fn from_iter<I: IntoIterator<Item = LovedSong>>(songs: I) -> Self {
         let mut keys = HashSet::new();
-        let songs = songs
+        let mut songs: Vec<LovedSong> = songs
             .into_iter()
             .filter(|song| keys.insert(song.key()))
             .collect();
+        songs.sort_by_cached_key(LovedSong::key);
         Self { songs, keys }
     }
 }
@@ -201,22 +210,45 @@ mod tests {
     }
 
     #[test]
-    fn setting_says_whether_it_changed_and_the_newest_come_first() {
-        let mut loved: Loved = [song("A", "Old")].into_iter().collect();
-        assert!(loved.set("B", "New", true));
-        assert!(!loved.set("b", "new", true));
+    fn setting_says_whether_it_changed() {
+        let mut loved: Loved = [song("B", "Old")].into_iter().collect();
+        assert!(loved.set("A", "New", true));
+        assert!(!loved.set("a", "new", true));
         assert_eq!(loved.songs()[0].title, "New");
+        assert!(loved.set("A", "New", false));
+        assert_eq!(loved.songs()[0].title, "Old");
+        assert!(loved.set("B", "New", true));
         assert!(loved.set("B", "New", false));
         assert!(!loved.set("B", "New", false));
         assert_eq!(loved.len(), 1);
     }
 
     #[test]
-    fn the_newest_go_first_once_each() {
-        let mut loved: Loved = [song("A", "1"), song("A", "2")].into_iter().collect();
-        loved.add_newest(vec![song("A", "4"), song("A", "3"), song("a", "1")]);
-        let titles: Vec<&str> = loved.songs().iter().map(|s| s.title.as_str()).collect();
-        assert_eq!(titles, ["4", "3", "1", "2"]);
+    fn they_go_by_artist_then_title_once_each() {
+        let mut loved: Loved = [song("Björk", "2"), song("Abba", "1")]
+            .into_iter()
+            .collect();
+        loved.add(vec![
+            song("björk", "1"),
+            song("The Cure", "1"),
+            song("Bjork", "2"),
+            song("B-52's", "1"),
+        ]);
+        let songs: Vec<(&str, &str)> = loved
+            .songs()
+            .iter()
+            .map(|s| (s.artist.as_str(), s.title.as_str()))
+            .collect();
+        assert_eq!(
+            songs,
+            [
+                ("Abba", "1"),
+                ("B-52's", "1"),
+                ("björk", "1"),
+                ("Björk", "2"),
+                ("The Cure", "1"),
+            ]
+        );
     }
 
     #[test]

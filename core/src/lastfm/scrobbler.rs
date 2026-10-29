@@ -347,7 +347,7 @@ impl Task {
             .await
             .map(|(songs, _)| {
                 let mut loved = self.loved.clone();
-                loved.add_newest(songs);
+                loved.add(songs);
                 loved
             })
         };

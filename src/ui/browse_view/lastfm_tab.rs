@@ -1,5 +1,5 @@
 //! Browse's LAST.FM tab, while Last.fm and search are connected: the
-//! songs loved on Last.fm, newest first, with when. They are selected as
+//! songs loved on Last.fm, by artist, with when. They are selected as
 //! in a tab (click, Ctrl, Shift, Ctrl+A) and added, dragged to the slim
 //! column or played; Spotless finds them on Spotify first, by artist and
 //! title, and says which it couldn't.
