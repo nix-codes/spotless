@@ -80,6 +80,13 @@ pub struct Nav {
     slim: Option<EntryId>,
     slim_reveal: Option<usize>,
     slim_offset: f32,
+    /// The ADD TO box is highlighted in the slim column, not a song; its
+    /// list was open last frame, and the playlist highlighted in it.
+    on_box: bool,
+    box_open: bool,
+    pick: Option<usize>,
+    /// Alt+↓ or ↑: open the list, or choose from it.
+    toggle_box: bool,
     /// The songs selected on a Spotify playlist's page, by index, and the
     /// one Shift-clicks reach from.
     marked: BTreeSet<usize>,
@@ -280,6 +287,17 @@ pub(super) fn step_tab(view: &View, step: isize) -> BrowseTab {
     tabs[(at as isize + step).rem_euclid(tabs.len() as isize) as usize]
 }
 
+/// Alt+↓ or ↑, from anywhere in Browse: opens the ADD TO list, as in a
+/// Windows box, or chooses the playlist highlighted in it.
+pub(super) fn toggle_box(ui: &Ui, inputs: &mut Inputs) {
+    enter_area(ui, inputs, Area::Slim);
+    let nav = &mut inputs.nav;
+    nav.on_box = true;
+    nav.slim = None;
+    nav.keyboard = true;
+    nav.toggle_box = true;
+}
+
 /// Puts the keyboard in YOUR SPOTIFY's field that finds a playlist.
 pub(super) fn focus_spotify(nav: &mut Nav) {
     nav.area = Area::Lists;
@@ -361,7 +379,8 @@ fn page_id(page: &Page) -> String {
 }
 
 fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
-    if ui.ctx().text_edit_focused() {
+    // The ADD TO list's keys are its own: Esc closes it, not Browse.
+    if ui.ctx().text_edit_focused() || inputs.nav.box_open {
         return;
     }
     let searching = shown(view) == BrowseTab::Search;
@@ -1104,7 +1123,8 @@ fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
     let Some(target) = view.list(browse.target) else {
         return;
     };
-    ui.horizontal(|ui| {
+    // ↓ from the box is the box's: the songs don't take it too.
+    let box_keyed = ui.horizontal(|ui| {
         ui.label(
             RichText::new("ADD TO")
                 .monospace()
@@ -1126,21 +1146,31 @@ fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
             widget.weak_bg_fill = fill;
             widget.fg_stroke.color = palette.button_text;
         }
-        egui::ComboBox::from_id_salt("add-target")
+        let shown = egui::ComboBox::from_id_salt("add-target")
             .selected_text(&target.name)
             .width(ui.available_width())
             .show_ui(ui, |ui| {
                 *ui.visuals_mut() = window;
-                for &id in view.tabs {
+                for (index, &id) in view.tabs.iter().enumerate() {
                     let Some(list) = view.list(id) else { continue };
-                    if ui
-                        .selectable_label(list.id == target.id, &list.name)
-                        .clicked()
-                    {
+                    let mut item = ui.selectable_label(list.id == target.id, &list.name);
+                    if nav.pick == Some(index) {
+                        item = item.highlight();
+                        item.scroll_to_me(None);
+                    }
+                    if item.clicked() {
                         actions.push(Action::SetTarget(list.id));
                     }
                 }
             });
+        let response = shown.response.on_hover_text(
+            "The playlist + ADD adds to (Alt+↓ to choose; Ctrl+Tab / Ctrl+Shift+Tab, \
+             Ctrl+1 … 9)",
+        );
+        if nav.on_box && nav.area == Area::Slim && nav.keyboard {
+            theme::focus_ring(ui.painter(), response.rect.expand(3.0), &palette);
+        }
+        box_keys(ui, view, target, nav, &response, actions)
     });
     ui.add_space(6.0);
     let footer = 16.0;
@@ -1151,7 +1181,9 @@ fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
     let bar = Scrollbar::new(ui, view, Id::new("slim-scrollbar"));
     let (rows, slot) = bar.split(rows);
     ui.scope_builder(UiBuilder::new().max_rect(rows), |ui| {
-        slim_keys(ui, target, nav, actions);
+        if !box_keyed.inner {
+            slim_keys(ui, target, nav, actions);
+        }
         slim_rows(ui, view, nav, target, (&bar, slot), actions);
     });
     ui.painter().text(
@@ -1168,13 +1200,89 @@ fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
 
 /// The slim column's keys, when it is the active area: the arrows move the
 /// highlighted song, Enter plays it, Delete removes it.
+/// The ADD TO box's keys, while it is highlighted: Enter (or Alt+↓ / ↑)
+/// opens its list; in the list, ↑ and ↓ highlight a playlist, Enter (or
+/// Alt+↓ / ↑) chooses it and Esc closes it (egui's own). ↓ goes back to the songs. Says whether it
+/// took a key.
+fn box_keys(
+    ui: &Ui,
+    view: &View,
+    target: &Playlist,
+    nav: &mut Nav,
+    response: &egui::Response,
+    actions: &mut Actions,
+) -> bool {
+    let popup = egui::Popup::default_response_id(response);
+    let open = egui::Popup::is_id_open(ui.ctx(), popup);
+    if !open {
+        nav.pick = None;
+    }
+    nav.box_open = open;
+    if nav.area != Area::Slim || !(nav.on_box || open) || ui.ctx().text_edit_focused() {
+        return false;
+    }
+    let (up, down, mut enter) = ui.input(|i| {
+        let plain = i.modifiers.is_none();
+        (
+            plain && i.key_pressed(Key::ArrowUp),
+            plain && i.key_pressed(Key::ArrowDown),
+            plain && i.key_pressed(Key::Enter),
+        )
+    });
+    enter |= std::mem::take(&mut nav.toggle_box);
+    if !open {
+        if enter {
+            egui::Popup::open_id(ui.ctx(), popup);
+            nav.pick = view.tabs.iter().position(|&id| id == target.id);
+            nav.keyboard = true;
+        } else if down {
+            nav.on_box = false;
+            nav.slim = target.entries().first().map(|entry| entry.id);
+            nav.slim_reveal = nav.slim.map(|_| 0);
+            nav.keyboard = true;
+        }
+        return up || down || enter;
+    }
+    let last = view.tabs.len().saturating_sub(1);
+    let at = nav
+        .pick
+        .or_else(|| view.tabs.iter().position(|&id| id == target.id));
+    if up || down {
+        nav.pick = Some(match at {
+            Some(at) if up => at.saturating_sub(1),
+            Some(at) => (at + 1).min(last),
+            None => 0,
+        });
+        nav.keyboard = true;
+    }
+    if enter && let Some(&id) = at.and_then(|at| view.tabs.get(at)) {
+        actions.push(Action::SetTarget(id));
+        egui::Popup::close_id(ui.ctx(), popup);
+        nav.box_open = false;
+        nav.pick = None;
+    }
+    up || down || enter
+}
+
 fn slim_keys(ui: &Ui, list: &Playlist, nav: &mut Nav, actions: &mut Actions) {
     nav.slim = nav.slim.filter(|&id| list.index_of(id).is_some());
-    if nav.area != Area::Slim || list.is_empty() || ui.ctx().text_edit_focused() {
+    if nav.area != Area::Slim || nav.on_box || nav.box_open || ui.ctx().text_edit_focused() {
+        return;
+    }
+    let from = nav.slim.or(list.cursor()).and_then(|id| list.index_of(id));
+    // ↑ from the first song, or in an empty playlist, goes up to ADD TO.
+    let to_box = ui.input(|i| i.modifiers.is_none() && i.key_pressed(Key::ArrowUp))
+        && from.is_none_or(|at| at == 0);
+    if to_box {
+        nav.on_box = true;
+        nav.slim = None;
+        nav.keyboard = true;
+        return;
+    }
+    if list.is_empty() {
         return;
     }
     let last = list.len() - 1;
-    let from = nav.slim.or(list.cursor()).and_then(|id| list.index_of(id));
     let (to, enter, delete) = ui.input(|i| {
         if !i.modifiers.is_none() {
             return (None, false, false);
@@ -1295,6 +1403,7 @@ fn slim_rows(
             if response.clicked() {
                 nav.slim = Some(entry.id);
                 nav.area = Area::Slim;
+                nav.on_box = false;
             }
             if response.double_clicked() {
                 actions.push(Action::PlayEntry(list.id, entry.id));

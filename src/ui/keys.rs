@@ -87,7 +87,8 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
         &[
             ("Ctrl+PgDn / PgUp", "Next / previous tab"),
             ("Tab / Shift+Tab", "Next / previous area"),
-            ("↑ / ↓", "Highlight a row; to and from the search"),
+            ("↑ / ↓", "Highlight a row; to the search or ADD TO"),
+            ("Alt+↓ / ↑", "Open ADD TO; choose from it"),
             ("← / →", "The panel to the left / right"),
             ("PgUp / PgDn", "A page up / down"),
             ("Enter", "Search; open; play a song"),
@@ -140,6 +141,14 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
                 }
             }
         });
+        // Alt+↓ or ↑: Browse's ADD TO list, from a field too.
+        let add_to = view.browse.open
+            && ui.input_mut(|i| {
+                take(i, Modifiers::ALT, Key::ArrowDown) | take(i, Modifiers::ALT, Key::ArrowUp)
+            });
+        if add_to {
+            browse_view::toggle_box(ui, inputs);
+        }
     }
     // Typing in a field: the other keys belong to it.
     if ctx.text_edit_focused() {
