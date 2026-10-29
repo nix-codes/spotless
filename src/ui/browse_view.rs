@@ -257,11 +257,27 @@ pub(super) fn opening(view: &View, inputs: &mut Inputs) {
     if view.browse.open {
         return;
     }
-    match shown(view) {
+    focus_tab(shown(view), inputs);
+}
+
+/// The keyboard goes to `tab`'s field, or its list when it has none.
+pub(super) fn focus_tab(tab: BrowseTab, inputs: &mut Inputs) {
+    match tab {
         BrowseTab::Search => inputs.focus_search = true,
         BrowseTab::Spotify => focus_spotify(&mut inputs.nav),
         BrowseTab::LastFm => inputs.nav.area = Area::Results,
     }
+}
+
+/// The tab `step` tabs on from the one shown, round from the last to the
+/// first and back.
+pub(super) fn step_tab(view: &View, step: isize) -> BrowseTab {
+    let mut tabs = vec![BrowseTab::Search, BrowseTab::Spotify];
+    if lastfm_shown(view) {
+        tabs.push(BrowseTab::LastFm);
+    }
+    let at = tabs.iter().position(|&tab| tab == shown(view)).unwrap_or(0);
+    tabs[(at as isize + step).rem_euclid(tabs.len() as isize) as usize]
 }
 
 /// Puts the keyboard in YOUR SPOTIFY's field that finds a playlist.

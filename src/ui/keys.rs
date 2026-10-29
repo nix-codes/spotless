@@ -84,6 +84,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
     (
         "IN BROWSE",
         &[
+            ("Ctrl+PgDn / PgUp", "Next / previous tab"),
             ("Tab / Shift+Tab", "Next / previous area"),
             ("↑ / ↓", "Highlight a row; to and from the search"),
             ("← / →", "The panel to the left / right"),
@@ -113,19 +114,29 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
     }
     // Browse's tabs, even from a field: they take the keyboard to theirs.
     // Ctrl+F and F3: SEARCH, in its field; F4: YOUR SPOTIFY, in the field
-    // that finds a playlist; F5: LAST.FM, while it's there.
+    // that finds a playlist; F5: LAST.FM, while it's there. In Browse,
+    // Ctrl+PgDn and PgUp: the next and previous tab.
     if matches!(view.session, SessionState::Ready { .. }) {
         ui.input_mut(|i| {
+            let mut show = |tab: BrowseTab| {
+                actions.push(Action::ShowBrowseTab(tab));
+                browse_view::focus_tab(tab, inputs);
+            };
             if take(i, Modifiers::COMMAND, Key::F) || take(i, Modifiers::NONE, Key::F3) {
-                actions.push(Action::ShowBrowseTab(BrowseTab::Search));
-                inputs.focus_search = true;
+                show(BrowseTab::Search);
             }
             if take(i, Modifiers::NONE, Key::F4) {
-                actions.push(Action::ShowBrowseTab(BrowseTab::Spotify));
-                browse_view::focus_spotify(&mut inputs.nav);
+                show(BrowseTab::Spotify);
             }
             if browse_view::lastfm_shown(view) && take(i, Modifiers::NONE, Key::F5) {
-                actions.push(Action::ShowBrowseTab(BrowseTab::LastFm));
+                show(BrowseTab::LastFm);
+            }
+            if view.browse.open {
+                let step = held(i, Modifiers::COMMAND, Key::PageDown) as isize
+                    - held(i, Modifiers::COMMAND, Key::PageUp) as isize;
+                if step != 0 {
+                    show(browse_view::step_tab(view, step));
+                }
             }
         });
     }
