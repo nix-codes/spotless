@@ -510,6 +510,7 @@ impl eframe::App for App {
             covers: &self.covers,
             search: &state.search,
             lastfm: &state.lastfm,
+            loved: &state.loved,
             web_client_id: web_client_id.as_deref(),
             settings: &state.settings,
             storage: state.storage,

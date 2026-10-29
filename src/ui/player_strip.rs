@@ -6,16 +6,17 @@
 use std::time::Duration;
 
 use egui::{
-    Align, Align2, CursorIcon, FontId, Id, Layout, Rect, Response, Sense, Slider, Ui, UiBuilder,
-    pos2, vec2,
+    Align, Align2, Color32, CursorIcon, FontId, Id, Layout, Rect, Response, Sense, Slider, Ui,
+    UiBuilder, pos2, vec2,
 };
 
-use super::widgets::{Glyph, glyph_button, glyph_toggle, paint_glyph, small_button};
+use super::widgets::{Glyph, glyph_button, glyph_toggle, paint_glyph, paint_heart, small_button};
 use super::{Inputs, View, theme};
 use crate::action::{Action, Actions};
 use crate::backend::SessionState;
+use crate::lastfm::LastFmStatus;
 use crate::model::{EntryId, PlaylistId};
-use crate::playback::engine::Status;
+use crate::playback::engine::{Status, TrackInfo};
 
 pub const HEIGHT: f32 = 122.0;
 /// The LCD and the song's display beside it, with the volume row below.
@@ -28,6 +29,8 @@ const BLINK: Duration = Duration::from_secs(1);
 /// How long Play or Pause stays down for a click the player hasn't
 /// answered, in seconds.
 const PRESS_HOLD: f64 = 1.0;
+/// What the heart takes of the song's display, at its right end.
+pub(super) const HEART_ROOM: f32 = 26.0;
 
 /// Where the strip's buttons go, and how big they are together.
 pub struct Keys {
@@ -97,6 +100,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     );
     draw_title(ui, title, view);
     display_clicked(ui, title, view, inputs, actions);
+    heart(ui, title, view, view.palette.lcd, actions);
     let info = Rect::from_min_max(
         pos2(title.left(), title.bottom()),
         pos2(rect.right(), lcd.bottom()),
@@ -202,6 +206,11 @@ fn draw_title(ui: &Ui, rect: Rect, view: &View) {
     let (artist, song) = now_lines(view);
     let left = rect.left() + 10.0;
     let font = FontId::monospace(14.0);
+    let mut lines = rect;
+    if heart_song(view).is_some() {
+        lines.max.x -= HEART_ROOM;
+    }
+    let painter = painter.with_clip_rect(lines);
     for (y, line) in [(14.0, artist), (31.0, song)] {
         painter.text(
             pos2(left, rect.top() + y),
@@ -210,6 +219,53 @@ fn draw_title(ui: &Ui, rect: Rect, view: &View) {
             font.clone(),
             palette.lcd,
         );
+    }
+}
+
+/// The song the display's heart is for, while Last.fm is connected: the
+/// player's.
+pub(super) fn heart_song<'a>(view: &View<'a>) -> Option<&'a TrackInfo> {
+    let connected = matches!(view.lastfm.status, LastFmStatus::Connected { .. });
+    if !connected || view.player.status == Status::Loading {
+        return None;
+    }
+    view.player.track.as_ref()
+}
+
+/// The heart at the right end of the song's display `rect`, full while
+/// the song is loved on Last.fm; a click loves it or unloves it.
+pub(super) fn heart(ui: &Ui, rect: Rect, view: &View, color: Color32, actions: &mut Actions) {
+    let Some(track) = heart_song(view) else {
+        return;
+    };
+    let spot = Rect::from_center_size(
+        pos2(rect.right() - HEART_ROOM / 2.0, rect.center().y),
+        vec2(HEART_ROOM - 6.0, HEART_ROOM - 6.0),
+    );
+    let response = ui.interact(spot, Id::new("love-song"), Sense::click());
+    let loved = view.loved.playing(track);
+    let shown = if loved || response.hovered() {
+        color
+    } else {
+        color.gamma_multiply(0.4)
+    };
+    let painter = ui.painter().with_clip_rect(rect);
+    paint_heart(&painter, spot.center(), 12.0, shown, loved);
+    let tip = if loved {
+        "Loved on Last.fm: click to unlove"
+    } else {
+        "Love on Last.fm"
+    };
+    if response
+        .on_hover_cursor(CursorIcon::PointingHand)
+        .on_hover_text(tip)
+        .clicked()
+    {
+        actions.push(Action::SetLoved {
+            artist: track.main_artist.clone(),
+            title: track.title.clone(),
+            loved: !loved,
+        });
     }
 }
 

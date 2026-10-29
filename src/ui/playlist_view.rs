@@ -9,7 +9,8 @@
 //! Home/End move the selection; with Shift they extend it. Dragged onto
 //! another tab, the selection is copied there, or moved with Shift held
 //! (from the Spotify tab, songs to come, unless another device has it);
-//! right-click for a menu that does the same.
+//! right-click for a menu that does the same, and that loves the songs on
+//! Last.fm while it is connected.
 
 use std::collections::BTreeSet;
 
@@ -23,11 +24,13 @@ use super::scrollbar::Scrollbar;
 use super::skin_paint;
 use super::theme::{self, Palette};
 use super::widgets::{
-    Glyph, drag_ghost, field, share_menu, small_action, small_button, small_glyph, text_button, tip,
+    Glyph, drag_ghost, field, row_heart, share_menu, small_action, small_button, small_glyph,
+    text_button, tip,
 };
 use super::{Inputs, View, spotify_view};
 use crate::action::{Action, Actions, Desktop};
-use crate::model::{EntryId, Playlist, PlaylistId, Run};
+use crate::lastfm::{LastFmStatus, Loved};
+use crate::model::{EntryId, Playlist, PlaylistId, Run, TrackRef};
 use crate::playback::engine::Status;
 
 const ROW_HEIGHT: f32 = 18.0;
@@ -132,6 +135,8 @@ pub(super) enum Choice {
     CopyToSpotify,
     Move(Option<PlaylistId>),
     ToggleMarks,
+    /// Loves the songs on Last.fm, or unloves them with false.
+    Love(bool),
     /// Copies the songs' Spotify links.
     Share,
     Remove,
@@ -906,7 +911,7 @@ fn draw_rows(
             if selection.rows.len() > 1 && selection.cursor == Some(entry.id) {
                 theme::focus_ring(&painter, rect.expand(1.0), &palette);
             }
-            paint_row(&painter, rect, &palette, list, index, number_width, current);
+            paint_row(&painter, rect, view, list, index, number_width, current);
             if set_off.contains(&index) {
                 painter.hline(
                     rect.x_range(),
@@ -926,11 +931,13 @@ fn draw_rows(
                 selection.select(entry.id, index);
                 selection.reveal = None;
             }
-            let marked = response.context_menu_opened() && all_marked(list, selection);
+            let open = response.context_menu_opened();
+            let marked = open && all_marked(list, selection);
+            let loved = all_loved(view, open, selected_tracks(list, selection));
             chosen = chosen.or(row_menu(
                 &response,
                 view,
-                Menu::own(marked, selection.rows.len() > 1),
+                Menu::own(marked, loved, selection.rows.len() > 1),
             ));
             if response.drag_started() {
                 if !selected {
@@ -976,7 +983,7 @@ fn draw_rows(
     bar.paint(ui, slot, selection.offset, furthest, thumb_to.is_some());
     selection.page = ((output.inner_rect.height() / ROW_HEIGHT) as usize).max(1);
     if let Some(choice) = chosen {
-        send(list, selection, choice, actions);
+        send(list, selection, view.loved, choice, actions);
     }
 
     let Some(dragging) = dragging else { return };
@@ -1068,8 +1075,14 @@ fn header(
         selection.anchor = Some(first);
         selection.cursor = Some(first);
     }
-    let marked = response.context_menu_opened() && all_marked(list, selection);
-    let choice = row_menu(&response, view, Menu::own(marked, selection.rows.len() > 1));
+    let open = response.context_menu_opened();
+    let marked = open && all_marked(list, selection);
+    let loved = all_loved(view, open, selected_tracks(list, selection));
+    let choice = row_menu(
+        &response,
+        view,
+        Menu::own(marked, loved, selection.rows.len() > 1),
+    );
     if response.clicked() {
         let ids = songs.iter().map(|entry| entry.id);
         if ui.input(|i| i.modifiers.command) {
@@ -1097,6 +1110,49 @@ fn all_marked(list: &Playlist, selection: &Selection) -> bool {
         .all(|&id| list.mark_number(id).is_some())
 }
 
+fn selected_tracks<'a>(
+    list: &'a Playlist,
+    selection: &'a Selection,
+) -> impl Iterator<Item = &'a TrackRef> {
+    selection
+        .rows
+        .iter()
+        .filter_map(|&id| list.get(id))
+        .map(|entry| &entry.track)
+}
+
+/// For the row menu while Last.fm is connected: whether the songs are all
+/// loved there. Only worked out while the menu is `open`.
+pub(super) fn all_loved<'a>(
+    view: &View,
+    open: bool,
+    mut tracks: impl Iterator<Item = &'a TrackRef>,
+) -> Option<bool> {
+    let connected = matches!(view.lastfm.status, LastFmStatus::Connected { .. });
+    connected.then(|| open && tracks.all(|track| view.loved.track(track)))
+}
+
+/// Loves the songs on Last.fm, or unloves them: those not so already, each
+/// song once.
+pub(super) fn love<'a>(
+    loved: &Loved,
+    tracks: impl Iterator<Item = &'a TrackRef>,
+    love: bool,
+    actions: &mut Actions,
+) {
+    let mut sent = Loved::default();
+    for track in tracks {
+        let artist = track.artists.first().map_or("", |a| a.name.as_str());
+        if loved.track(track) != love && sent.set(artist, &track.title, true) {
+            actions.push(Action::SetLoved {
+                artist: artist.into(),
+                title: track.title.clone(),
+                loved: love,
+            });
+        }
+    }
+}
+
 /// What the ghost following dragged rows says: over another tab, whether
 /// they are copied or moved there (with Shift, if they `can_move`).
 pub(super) fn drag_label(ui: &Ui, count: usize, onto_tab: bool, can_move: bool) -> String {
@@ -1118,6 +1174,8 @@ pub(super) struct Menu {
     pub unmovable: Option<&'static str>,
     /// For a playlist's own rows (Play next): whether they're all marked.
     pub marked: Option<bool>,
+    /// While Last.fm is connected: whether the songs are all loved there.
+    pub loved: Option<bool>,
     pub can_remove: bool,
     /// More than one row is selected.
     pub several: bool,
@@ -1125,10 +1183,11 @@ pub(super) struct Menu {
 
 impl Menu {
     /// For a playlist's own rows, which can always move or go.
-    fn own(marked: bool, several: bool) -> Self {
+    fn own(marked: bool, loved: Option<bool>, several: bool) -> Self {
         Self {
             unmovable: None,
             marked: Some(marked),
+            loved,
             can_remove: true,
             several,
         }
@@ -1142,7 +1201,7 @@ fn item(ui: &mut Ui, name: &str, enabled: bool) -> egui::Response {
 }
 
 /// The right-click menu of the selected rows: Copy to, Move to, Play next
-/// for a playlist's own rows, Share and Remove.
+/// for a playlist's own rows, Love on Last.fm, Share and Remove.
 pub(super) fn row_menu(response: &egui::Response, view: &View, menu: Menu) -> Option<Choice> {
     let mut chosen = None;
     let targets = |ui: &mut Ui,
@@ -1197,6 +1256,16 @@ pub(super) fn row_menu(response: &egui::Response, view: &View, menu: Menu) -> Op
                 chosen = Some(Choice::ToggleMarks);
             }
         }
+        if let Some(loved) = menu.loved {
+            let label = if loved {
+                "Unlove on Last.fm"
+            } else {
+                "Love on Last.fm"
+            };
+            if item(ui, label, true).clicked() {
+                chosen = Some(Choice::Love(!loved));
+            }
+        }
         let copy = if menu.several {
             "Copy song links"
         } else {
@@ -1213,7 +1282,13 @@ pub(super) fn row_menu(response: &egui::Response, view: &View, menu: Menu) -> Op
 }
 
 /// Does what a playlist's row menu asked for to the selection.
-fn send(list: &Playlist, selection: &mut Selection, choice: Choice, actions: &mut Actions) {
+fn send(
+    list: &Playlist,
+    selection: &mut Selection,
+    loved: &Loved,
+    choice: Choice,
+    actions: &mut Actions,
+) {
     let rows = selected(list, selection);
     let tracks = || {
         rows.iter()
@@ -1238,6 +1313,7 @@ fn send(list: &Playlist, selection: &mut Selection, choice: Choice, actions: &mu
             remove(list, selection, rows, actions);
         }
         Choice::ToggleMarks => actions.push(Action::ToggleMarks(rows)),
+        Choice::Love(on) => love(loved, selected_tracks(list, selection), on, actions),
         Choice::Share => actions.push(Desktop::CopyLinks(
             rows.iter()
                 .filter_map(|&id| list.get(id))
@@ -1251,12 +1327,13 @@ fn send(list: &Playlist, selection: &mut Selection, choice: Choice, actions: &mu
 fn paint_row(
     painter: &egui::Painter,
     rect: Rect,
-    palette: &Palette,
+    view: &View,
     list: &Playlist,
     index: usize,
     number_width: usize,
     current: Option<EntryId>,
 ) {
+    let palette = view.palette;
     let entry = &list.entries()[index];
     let color = if Some(entry.id) == current {
         palette.current
@@ -1280,6 +1357,9 @@ fn paint_row(
         color,
     );
     let mut text_right = right.left() - 10.0;
+    if view.loved.track(&entry.track) {
+        text_right = row_heart(painter, text_right, rect.center().y, color) - 8.0;
+    }
     if let Some(mark) = list.mark_number(entry.id) {
         let badge = painter.text(
             pos2(text_right, rect.center().y),
@@ -1537,6 +1617,7 @@ mod tests {
         let browse = Browse::new(PlaylistId::DEFAULT, false);
         let covers = HashMap::new();
         let lastfm = LastFmState::default();
+        let loved = crate::lastfm::Loved::default();
         let outputs = Loadable::Loading;
         let spotify_list = Playlist::new(PlaylistId::SPOTIFY, "Spotify");
         let queue = SpotifyQueue::default();
@@ -1565,6 +1646,7 @@ mod tests {
             covers: &covers,
             search: &SearchState::SignedOut,
             lastfm: &lastfm,
+            loved: &loved,
             web_client_id: None,
             settings: &settings,
             storage: None,

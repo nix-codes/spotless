@@ -23,7 +23,7 @@ use egui::{
 
 use super::playlist_view::{self, Choice, Menu, RowDrag};
 use super::scrollbar;
-use super::widgets::{drag_ghost, small_action, tip};
+use super::widgets::{drag_ghost, row_heart, small_action, tip};
 use super::{Inputs, View};
 use crate::action::{Action, Actions, Desktop};
 use crate::model::{EntryId, PlaylistId};
@@ -164,6 +164,10 @@ pub fn draw(
                     .collect(),
             )),
             Choice::ToggleMarks => {}
+            Choice::Love(on) => {
+                let tracks = selection.iter().rev().filter_map(|&id| queue.row(id));
+                playlist_view::love(view.loved, tracks.map(|row| row.track()), on, actions);
+            }
         }
     }
     let adding = ui
@@ -228,6 +232,10 @@ fn draw_row(
         mono,
         color,
     );
+    let mut text_right = right.left() - 10.0;
+    if view.loved.track(track) {
+        text_right = row_heart(&painter, text_right, rect.center().y, color) - 8.0;
+    }
     let artists: Vec<&str> = track.artists.iter().map(|a| a.name.as_str()).collect();
     let title = if artists.is_empty() {
         track.title.clone()
@@ -237,7 +245,7 @@ fn draw_row(
     painter
         .with_clip_rect(Rect::from_min_max(
             rect.min,
-            pos2(right.left() - 10.0, rect.bottom()),
+            pos2(text_right, rect.bottom()),
         ))
         .text(
             pos2(rect.left() + 4.0, rect.center().y),
@@ -283,9 +291,14 @@ fn draw_row(
     } else {
         Vec::new()
     };
+    let tracks = rows
+        .iter()
+        .filter_map(|&id| queue.row(id))
+        .map(|row| row.track());
     let menu = Menu {
         unmovable: unmovable(queue, &rows),
         marked: None,
+        loved: playlist_view::all_loved(view, open, tracks),
         can_remove: open && queue.takes_songs() && !removable(queue, selection).is_empty(),
         several: rows.len() > 1,
     };

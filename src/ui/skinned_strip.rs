@@ -12,9 +12,10 @@ use egui::{
 };
 
 use super::player_strip::{
-    HEIGHT, NEXT_TIP, PAUSE_TIP, PLAY_TIP, PREVIOUS_TIP, REPEAT_TIP, SHUFFLE_TIP, display_clicked,
-    eject_clicked, eq_clicked, follow_press, held, length, now_lines, pl_clicked, rates,
-    stop_clicked, time_clicked, time_seconds, time_shown, vis_clicked,
+    HEART_ROOM, HEIGHT, NEXT_TIP, PAUSE_TIP, PLAY_TIP, PREVIOUS_TIP, REPEAT_TIP, SHUFFLE_TIP,
+    display_clicked, eject_clicked, eq_clicked, follow_press, heart, heart_song, held, length,
+    now_lines, pl_clicked, rates, stop_clicked, time_clicked, time_seconds, time_shown,
+    vis_clicked,
 };
 use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
@@ -210,6 +211,7 @@ pub fn draw(
     );
     draw_title(ui, title, view, paint, unit);
     display_clicked(ui, title, view, inputs, actions);
+    heart(ui, title, view, view.palette.lcd, actions);
     let info = Rect::from_min_max(
         pos2(title.left(), y(rows.info_y)),
         pos2(rect.right(), y(rows.info_y + rows.info)),
@@ -324,7 +326,10 @@ fn draw_title(ui: &Ui, rect: Rect, view: &View, paint: &SkinPaint, unit: f32) {
     }
     let [left, top, right, _] = padding(paint, "display").map(|n| n * unit);
     let origin = pos2(rect.left() + left, rect.top() + top).round_to_pixels(ui.pixels_per_point());
-    let width = rect.right() - right - origin.x;
+    let mut width = rect.right() - right - origin.x;
+    if heart_song(view).is_some() {
+        width -= HEART_ROOM;
+    }
     let line = (paint.cell(Role::Display).y + LINE_GAP) * unit;
     let (artist, song) = now_lines(view);
     for (index, text) in [artist, song].into_iter().enumerate() {

@@ -21,6 +21,13 @@ pub enum Action {
     /// in the browser.
     ConnectLastFm(String, String),
     DisconnectLastFm,
+    /// Loves a song on Last.fm, by its first artist and title, or doesn't
+    /// any more.
+    SetLoved {
+        artist: String,
+        title: String,
+        loved: bool,
+    },
     /// The audio cache on or off, from the next start.
     SetAudioCache(bool),
     /// The audio cache's limit in MB, from the next start.

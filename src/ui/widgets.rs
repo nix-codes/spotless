@@ -1,8 +1,8 @@
 //! Small Winamp-style controls drawn with the painter.
 
 use egui::{
-    Align2, FontId, Pos2, Rect, Response, RichText, Sense, Shape, TextEdit, Ui, Vec2, WidgetInfo,
-    WidgetType, pos2, vec2,
+    Align2, Color32, FontId, Pos2, Rect, Response, RichText, Sense, Shape, TextEdit, Ui, Vec2,
+    WidgetInfo, WidgetType, pos2, vec2,
 };
 
 use super::skin_paint;
@@ -331,4 +331,42 @@ pub fn paint_glyph(ui: &Ui, c: Pos2, glyph: Glyph, color: egui::Color32) {
             }
         }
     }
+}
+
+/// A heart `width` points wide, centred on `c`: filled, or its outline.
+pub fn paint_heart(painter: &egui::Painter, c: Pos2, width: f32, color: Color32, filled: bool) {
+    // The classic heart curve, 32 units wide and 29 high, centred.
+    let scale = width / 32.0;
+    let points: Vec<Pos2> = (0..48)
+        .map(|i| {
+            let t = i as f32 / 48.0 * std::f32::consts::TAU;
+            let x = 16.0 * t.sin().powi(3);
+            let y =
+                13.0 * t.cos() - 5.0 * (2.0 * t).cos() - 2.0 * (3.0 * t).cos() - (4.0 * t).cos();
+            pos2(c.x + x * scale, c.y - (y + 2.5) * scale)
+        })
+        .collect();
+    if filled {
+        // Every edge can be seen from the middle, so a fan fills it.
+        let mut mesh = egui::Mesh::default();
+        mesh.colored_vertex(c, color);
+        for &point in &points {
+            mesh.colored_vertex(point, color);
+        }
+        let count = points.len() as u32;
+        for i in 0..count {
+            mesh.add_triangle(0, 1 + i, 1 + (i + 1) % count);
+        }
+        painter.add(Shape::mesh(mesh));
+    }
+    // Smooths the fill's edge, which isn't antialiased.
+    painter.add(Shape::closed_line(points, egui::Stroke::new(1.0, color)));
+}
+
+/// A list row's heart for a song loved on Last.fm, its right edge at
+/// `right`; gives where it starts.
+pub fn row_heart(painter: &egui::Painter, right: f32, y: f32, color: Color32) -> f32 {
+    const WIDTH: f32 = 9.0;
+    paint_heart(painter, pos2(right - WIDTH / 2.0, y), WIDTH, color, true);
+    right - WIDTH
 }

@@ -13,12 +13,15 @@
 //!
 //! The sign-in is kept in a private `lastfm.json`; listens Last.fm hasn't
 //! taken yet wait in `lastfm-queue.json` and are sent when it can be
-//! reached again.
+//! reached again. The songs loved there are kept in `lastfm-loved.json`,
+//! read again in full now and then and their newest more often.
 
 pub mod api;
 pub mod listen;
+pub mod loved;
 mod scrobbler;
 
+pub use loved::Loved;
 pub use scrobbler::{Report, Scrobbler, start};
 
 /// Where Last.fm stands, as Settings shows it.

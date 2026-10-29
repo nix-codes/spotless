@@ -206,6 +206,67 @@ fn similar_names(body: &Value, artist: &str) -> Vec<String> {
         .collect()
 }
 
+/// Loves a song on Last.fm, or doesn't any more.
+pub async fn love(
+    http: &reqwest::Client,
+    keys: &Keys,
+    session: &str,
+    artist: &str,
+    title: &str,
+    loved: bool,
+) -> Result<(), Failure> {
+    let method = if loved { "track.love" } else { "track.unlove" };
+    let params = [("artist", artist.to_owned()), ("track", title.to_owned())];
+    call(http, keys, method, &params, Some(session))
+        .await
+        .map(drop)
+}
+
+/// A page of the songs `user` loved, newest first, `limit` to a page, as
+/// (artist, title); and how many pages there are.
+pub async fn loved_page(
+    http: &reqwest::Client,
+    api_key: &str,
+    user: &str,
+    page: u32,
+    limit: u32,
+) -> Result<(Vec<(String, String)>, u32), Failure> {
+    let body = answer(http.get(API_URL).query(&[
+        ("method", "user.getLovedTracks"),
+        ("user", user),
+        ("page", &page.to_string()),
+        ("limit", &limit.to_string()),
+        ("api_key", api_key),
+        ("format", "json"),
+    ]))
+    .await?;
+    Ok(loved_songs(&body))
+}
+
+/// The songs in a `user.getLovedTracks` answer, and its number of pages.
+fn loved_songs(body: &Value) -> (Vec<(String, String)>, u32) {
+    let loved = &body["lovedtracks"];
+    // One song comes alone rather than in a list.
+    let tracks = match &loved["track"] {
+        Value::Array(tracks) => tracks.iter().collect(),
+        track @ Value::Object(_) => vec![track],
+        _ => Vec::new(),
+    };
+    let songs = tracks
+        .into_iter()
+        .filter_map(|track| {
+            let artist = track["artist"]["name"].as_str()?;
+            let title = track["name"].as_str()?;
+            Some((artist.to_owned(), title.to_owned()))
+        })
+        .collect();
+    let pages = loved["@attr"]["totalPages"]
+        .as_str()
+        .and_then(|pages| pages.parse().ok())
+        .unwrap_or(1);
+    (songs, pages)
+}
+
 /// A signed POST to the API.
 async fn call(
     http: &reqwest::Client,
@@ -336,6 +397,34 @@ mod tests {
         ]}});
         assert_eq!(similar_names(&body, "Boards of Canada"), ["Tycho", "Bibio"]);
         assert!(similar_names(&serde_json::json!({}), "x").is_empty());
+    }
+
+    #[test]
+    fn loved_songs_come_as_artist_and_title_with_the_pages() {
+        let body = serde_json::json!({"lovedtracks": {
+            "track": [
+                {"name": "Roygbiv", "artist": {"name": "Boards of Canada"}},
+                {"name": "Creep - Live", "artist": {"name": "Radiohead"}},
+                {"name": "No artist"}
+            ],
+            "@attr": {"page": "1", "totalPages": "3", "total": "2050"}
+        }});
+        let (songs, pages) = loved_songs(&body);
+        assert_eq!(
+            songs,
+            [
+                ("Boards of Canada".into(), "Roygbiv".into()),
+                ("Radiohead".into(), "Creep - Live".into())
+            ]
+        );
+        assert_eq!(pages, 3);
+
+        let one = serde_json::json!({"lovedtracks": {
+            "track": {"name": "Roygbiv", "artist": {"name": "Boards of Canada"}},
+            "@attr": {"totalPages": "1"}
+        }});
+        assert_eq!(loved_songs(&one).0.len(), 1);
+        assert_eq!(loved_songs(&serde_json::json!({})), (Vec::new(), 1));
     }
 
     #[test]

@@ -19,7 +19,7 @@ use tokio::time::MissedTickBehavior;
 use crate::browse::{Removal, Unlisted};
 use crate::browser::Browser;
 use crate::images::CoverImage;
-use crate::lastfm::{self, LastFmState, Scrobbler, api::Keys};
+use crate::lastfm::{self, LastFmState, Loved, Scrobbler, api::Keys};
 use crate::model::catalog::Place;
 use crate::model::catalog::{Discography, SearchResults, Songs, SpotifyPlaylist, SpotifyTarget};
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
@@ -105,6 +105,12 @@ pub enum Command {
     /// Saves this Last.fm API account and approves it in the browser.
     LastFmConnect(Keys),
     LastFmDisconnect,
+    /// Loves a song on Last.fm, or doesn't any more.
+    LastFmLove {
+        artist: String,
+        title: String,
+        loved: bool,
+    },
     /// For the Spotify tab.
     Spotify(SpotifyRequest),
 }
@@ -249,6 +255,8 @@ pub enum Event {
     },
     Storage(Storage),
     LastFm(LastFmState),
+    /// The songs loved on Last.fm.
+    Loved(Loved),
     /// The outputs to choose from; None when they can't be listed.
     Outputs(Option<Vec<Output>>),
     /// The songs of an `AddLink`.
@@ -525,6 +533,7 @@ impl Worker {
             Arc::new(move |report| {
                 emit(match report {
                     lastfm::Report::State(state) => Event::LastFm(state),
+                    lastfm::Report::Loved(loved) => Event::Loved(loved),
                     lastfm::Report::Error(message) => Event::Error(message),
                 })
             }),
@@ -1289,6 +1298,15 @@ impl Worker {
             Command::LastFmDisconnect => {
                 if let Some(scrobbler) = &self.scrobbler {
                     scrobbler.disconnect();
+                }
+            }
+            Command::LastFmLove {
+                artist,
+                title,
+                loved,
+            } => {
+                if let Some(scrobbler) = &self.scrobbler {
+                    scrobbler.love(artist, title, loved);
                 }
             }
             Command::ClearCache(store) => {

@@ -64,8 +64,8 @@ pub enum Row<'a> {
     Next(&'a Queued),
 }
 
-impl Row<'_> {
-    pub fn track(&self) -> &TrackRef {
+impl<'a> Row<'a> {
+    pub fn track(&self) -> &'a TrackRef {
         match self {
             Row::Before(track) | Row::Now(track) => track,
             Row::Next(queued) => &queued.track,

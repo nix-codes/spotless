@@ -12,7 +12,7 @@ use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState, SpotifyRequest, Storage};
 use crate::browse::{Browse, Loadable, Page, Removal, Undo, Unlisted};
 use crate::browser::{self, Browser};
-use crate::lastfm::{LastFmState, LastFmStatus, api::Keys};
+use crate::lastfm::{LastFmState, LastFmStatus, Loved, api::Keys};
 use crate::model::catalog::{Place, SpotifyPlaylist, SpotifyTarget};
 use crate::model::playlist::from_source;
 use crate::model::{ArtistRef, EntryId, Library, Playback, Playlist, PlaylistId, Source, TrackRef};
@@ -49,6 +49,8 @@ pub struct State {
     pub browse: Browse,
     pub search: SearchState,
     pub lastfm: LastFmState,
+    /// The songs loved on Last.fm, for their hearts.
+    pub loved: Loved,
     /// What the caches hold, once measured.
     pub storage: Option<Storage>,
     /// The audio outputs, once listed; None when they can't be.
@@ -338,6 +340,7 @@ impl Controller {
                 settings,
                 search: SearchState::SignedOut,
                 lastfm: LastFmState::default(),
+                loved: Loved::default(),
                 storage: None,
                 outputs: Loadable::Loading,
                 spotify: None,
@@ -494,6 +497,7 @@ impl Controller {
                     }
                     self.state.lastfm = lastfm;
                 }
+                Event::Loved(loved) => self.state.loved = loved,
                 Event::Storage(storage) => self.state.storage = Some(storage),
                 Event::Outputs(outputs) => self.state.outputs = Loadable::Ready(outputs),
                 Event::SearchResults { query, results } => {
@@ -690,6 +694,19 @@ impl Controller {
             Action::DisconnectLastFm => {
                 state.notice = Some("Last.fm disconnected.".into());
                 return self.send(Command::LastFmDisconnect);
+            }
+            Action::SetLoved {
+                artist,
+                title,
+                loved,
+            } => {
+                // Shown at once; Last.fm's refusal sets it back.
+                state.loved.set(&artist, &title, loved);
+                return self.send(Command::LastFmLove {
+                    artist,
+                    title,
+                    loved,
+                });
             }
             Action::SetAudioCache(on) => {
                 state.settings.audio_cache = on;

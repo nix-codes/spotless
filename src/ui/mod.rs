@@ -67,6 +67,8 @@ pub struct View<'a> {
     pub covers: &'a HashMap<String, Cover>,
     pub search: &'a SearchState,
     pub lastfm: &'a crate::lastfm::LastFmState,
+    /// The songs loved on Last.fm, for their hearts.
+    pub loved: &'a crate::lastfm::Loved,
     /// The personal app search signs in with.
     pub web_client_id: Option<&'a str>,
     pub settings: &'a Settings,
