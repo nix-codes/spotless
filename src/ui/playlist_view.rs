@@ -24,8 +24,8 @@ use super::scrollbar::Scrollbar;
 use super::skin_paint;
 use super::theme::{self, Palette};
 use super::widgets::{
-    Glyph, drag_ghost, field, row_heart, share_menu, small_action, small_button, small_glyph,
-    text_button, tip,
+    Glyph, drag_ghost, field, row_heart, row_length, share_menu, small_action, small_button,
+    small_glyph, text_button, tip,
 };
 use super::{Inputs, View, spotify_view};
 use crate::action::{Action, Actions, Desktop};
@@ -1348,15 +1348,7 @@ fn paint_row(
         mono.clone(),
         color,
     );
-    let duration = entry.track.duration_ms / 1000;
-    let right = painter.text(
-        rect.right_center() - vec2(6.0, 0.0),
-        Align2::RIGHT_CENTER,
-        format!("{}:{:02}", duration / 60, duration % 60),
-        mono.clone(),
-        color,
-    );
-    let mut text_right = right.left() - 10.0;
+    let mut text_right = row_length(painter, rect, entry.track.duration_ms, color) - 10.0;
     if view.loved.track(&entry.track) {
         text_right = row_heart(painter, text_right, rect.center().y, color) - 8.0;
     }

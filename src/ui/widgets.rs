@@ -378,6 +378,24 @@ pub fn paint_heart(painter: &egui::Painter, c: Pos2, width: f32, color: Color32,
     painter.add(Shape::closed_line(points, egui::Stroke::new(1.0, color)));
 }
 
+/// A list row's song length, against `rect`'s right end; gives where
+/// its column starts, the same for every length up to 99:59 so the
+/// hearts and marks before it line up.
+pub fn row_length(painter: &egui::Painter, rect: Rect, ms: u32, color: Color32) -> f32 {
+    let mono = FontId::monospace(11.0);
+    let seconds = ms / 1000;
+    let right = rect.right() - 6.0;
+    let drawn = painter.text(
+        pos2(right, rect.center().y),
+        Align2::RIGHT_CENTER,
+        format!("{}:{:02}", seconds / 60, seconds % 60),
+        mono.clone(),
+        color,
+    );
+    let widest = painter.layout_no_wrap("00:00".into(), mono, color).size().x;
+    drawn.left().min(right - widest)
+}
+
 /// A list row's heart for a song loved on Last.fm, its right edge at
 /// `right`; gives where it starts.
 pub fn row_heart(painter: &egui::Painter, right: f32, y: f32, color: Color32) -> f32 {

@@ -23,7 +23,7 @@ use egui::{
 
 use super::playlist_view::{self, Choice, Menu, RowDrag};
 use super::scrollbar;
-use super::widgets::{drag_ghost, row_heart, small_action, tip};
+use super::widgets::{drag_ghost, row_heart, row_length, small_action, tip};
 use super::{Inputs, View};
 use crate::action::{Action, Actions, Desktop};
 use crate::model::{EntryId, PlaylistId};
@@ -223,16 +223,7 @@ fn draw_row(
         Row::Next(_) => palette.list_fg,
     };
     let track = row.track();
-    let mono = FontId::monospace(11.0);
-    let seconds = track.duration_ms / 1000;
-    let right = painter.text(
-        rect.right_center() - vec2(6.0, 0.0),
-        Align2::RIGHT_CENTER,
-        format!("{}:{:02}", seconds / 60, seconds % 60),
-        mono,
-        color,
-    );
-    let mut text_right = right.left() - 10.0;
+    let mut text_right = row_length(&painter, rect, track.duration_ms, color) - 10.0;
     if view.loved.track(track) {
         text_right = row_heart(&painter, text_right, rect.center().y, color) - 8.0;
     }
