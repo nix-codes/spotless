@@ -335,31 +335,46 @@ pub fn paint_glyph(ui: &Ui, c: Pos2, glyph: Glyph, color: egui::Color32) {
 
 /// A heart `width` points wide, centred on `c`: filled, or its outline.
 pub fn paint_heart(painter: &egui::Painter, c: Pos2, width: f32, color: Color32, filled: bool) {
-    // The classic heart curve, 32 units wide and 29 high, centred.
-    let scale = width / 32.0;
-    let points: Vec<Pos2> = (0..48)
-        .map(|i| {
-            let t = i as f32 / 48.0 * std::f32::consts::TAU;
-            let x = 16.0 * t.sin().powi(3);
-            let y =
-                13.0 * t.cos() - 5.0 * (2.0 * t).cos() - 2.0 * (3.0 * t).cos() - (4.0 * t).cos();
-            pos2(c.x + x * scale, c.y - (y + 2.5) * scale)
-        })
-        .collect();
+    use std::f32::consts::PI;
+    // Two lobes, circles whose outer edges are the heart's sides, and the
+    // lines from the tip that touch them.
+    let r = width * 0.26;
+    let d = width / 2.0 - r;
+    let height = width * 0.88;
+    let lobes = c.y - height / 2.0 + r;
+    let tip = pos2(c.x, c.y + height / 2.0);
+    let right = pos2(c.x + d, lobes);
+    let to_lobe = right - tip;
+    let side = to_lobe.angle() + (r / to_lobe.length()).asin();
+    let reach = (to_lobe.length_sq() - r * r).sqrt();
+    let touch = tip + reach * Vec2::angled(side);
     if filled {
-        // Every edge can be seen from the middle, so a fan fills it.
-        let mut mesh = egui::Mesh::default();
-        mesh.colored_vertex(c, color);
-        for &point in &points {
-            mesh.colored_vertex(point, color);
-        }
-        let count = points.len() as u32;
-        for i in 0..count {
-            mesh.add_triangle(0, 1 + i, 1 + (i + 1) % count);
-        }
-        painter.add(Shape::mesh(mesh));
+        // Each part antialiased on its own, with no sharp corner but the tip.
+        painter.circle_filled(pos2(c.x - d, lobes), r, color);
+        painter.circle_filled(right, r, color);
+        let left_touch = pos2(2.0 * c.x - touch.x, touch.y);
+        painter.add(Shape::convex_polygon(
+            vec![tip, left_touch, pos2(c.x - d, lobes), right, touch],
+            color,
+            egui::Stroke::NONE,
+        ));
+        return;
     }
-    // Smooths the fill's edge, which isn't antialiased.
+    // The right lobe from the cleft, over the top, to where the side
+    // leaves it; the left is its mirror.
+    let cleft = (-(r * r - d * d).sqrt()).atan2(-d);
+    let leave = side + PI / 2.0;
+    let steps = 12;
+    let arc: Vec<Pos2> = (0..=steps)
+        .map(|i| right + r * Vec2::angled(cleft + (leave - cleft) * i as f32 / steps as f32))
+        .collect();
+    let mut points: Vec<Pos2> = arc
+        .iter()
+        .rev()
+        .map(|p| pos2(2.0 * c.x - p.x, p.y))
+        .collect();
+    points.extend(arc.iter().skip(1));
+    points.push(tip);
     painter.add(Shape::closed_line(points, egui::Stroke::new(1.0, color)));
 }
 
