@@ -71,7 +71,9 @@ import dev.spotless.core.Played
 import dev.spotless.core.Song
 import dev.spotless.core.SpotifyRow
 import dev.spotless.core.SpotifyView
+import dev.spotless.core.TabSync
 import dev.spotless.core.Track
+import dev.spotless.core.Session
 import kotlin.math.abs
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Spacer
@@ -378,6 +380,16 @@ private fun Tabs(core: Core, edit: (ULong) -> Unit, add: () -> Unit) {
                         Spacer(Modifier.width(6.dp))
                     }
                     BasicText(tab.name, style = body(14.sp, if (on) Classic.lcd else Classic.chrome))
+                    // A synced one's mark, lit while it's the same as elsewhere.
+                    tab.sync?.let { sync ->
+                        val color = when (sync) {
+                            TabSync.UpToDate -> if (on) Classic.lcd else Classic.chrome
+                            TabSync.Waiting -> Classic.label
+                            is TabSync.Failed -> Classic.warning
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        Box(Modifier.size(14.dp).drawBehind { glyph(Glyph.Sync, color) })
+                    }
                 }
             }
         }
@@ -500,6 +512,26 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
             )
             TextButton("RENAME", save, enabled = name.isNotBlank() && name.trim() != tab.name)
         }
+        // Kept the same on the other devices, or not.
+        val synced = tab.sync != null
+        val signedIn = core.session is Session.Ready
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton("SYNC", {
+                focus.clearFocus()
+                core.apply(Action.SetSync(id, !synced))
+            }, Modifier.width(88.dp), enabled = synced || signedIn, lit = synced)
+            BasicText(
+                when (val sync = tab.sync) {
+                    null if !signedIn -> "Sign in to keep it the same on your other devices."
+                    null -> "Keeps it the same on your other devices."
+                    TabSync.UpToDate -> "Synced: the same on your other devices."
+                    TabSync.Waiting -> "Synced: changes wait to be sent."
+                    is TabSync.Failed -> "Synced, but Spotify refused a change: ${sync.reason}"
+                },
+                Modifier.weight(1f),
+                body(13.sp, if (tab.sync is TabSync.Failed) Classic.warning else Classic.label, FontWeight.Normal),
+            )
+        }
         // Its songs, copied once to a new playlist on Spotify.
         TextButton("SAVE TO SPOTIFY…", {
             focus.clearFocus()
@@ -519,7 +551,15 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
                     }
                 }, enabled = tab.songs > 0u, lit = clearing)
             }
-            if (id != 0UL && !clearing) {
+            // A synced one closes here only: it stays on Spotify, and
+            // YOUR SPOTIFY in Browse opens it again or deletes it.
+            if (id != 0UL && !clearing && synced) {
+                TextButton("CLOSE", {
+                    core.apply(Action.ClosePlaylist(id))
+                    done()
+                })
+            }
+            if (id != 0UL && !clearing && !synced) {
                 TextButton(if (deleting) "DELETE ${songs(tab.songs.toInt())}?" else "DELETE", {
                     // An empty playlist has nothing to lose: no second ask.
                     if (deleting || tab.songs == 0u) {

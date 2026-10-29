@@ -418,6 +418,18 @@ pub enum Action {
     },
     /// Puts back the songs or playlist taken out last.
     UndoSpotifyRemoval,
+    /// Syncs a playlist, keeping it the same on the account's other
+    /// devices, or stops: it stays here as it is, and on Spotify for them.
+    SetSync {
+        playlist: u64,
+        on: bool,
+    },
+    /// Opens a synced playlist of the Spotless folder as a tab, by URI
+    /// and name, or shows it if it's open.
+    OpenSynced {
+        uri: String,
+        name: String,
+    },
     /// Copies songs to a Spotify playlist of the account's own, or to a
     /// new one, once: it isn't kept in step with the songs' tab after.
     CopyToSpotify {
@@ -546,6 +558,8 @@ impl From<Action> for spotless_core::action::Action {
             }
             Action::UnlistSpotifyPlaylist { uri } => Core::UnlistSpotifyPlaylist(uri),
             Action::UndoSpotifyRemoval => Core::UndoSpotifyRemoval,
+            Action::SetSync { playlist, on } => Core::SetSync(PlaylistId(playlist), on),
+            Action::OpenSynced { uri, name } => Core::OpenSynced(uri, name),
             Action::CopyToSpotify { target, tracks } => {
                 Core::CopyToSpotify(target.into(), tracks.into_iter().map(Into::into).collect())
             }

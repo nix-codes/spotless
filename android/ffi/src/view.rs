@@ -2,7 +2,7 @@
 
 use spotless_core::backend::{self, SessionState};
 use spotless_core::browse::{self as core_browse, Loadable, Page};
-use spotless_core::controller::State;
+use spotless_core::controller::{State, SyncStatus};
 use spotless_core::lastfm::{self, LastFmStatus};
 use spotless_core::model::catalog::{self, ReleaseGroup as CoreGroup, ReleaseTab as CoreTab};
 use spotless_core::model::playlist::from_source;
@@ -239,6 +239,19 @@ pub struct Tab {
     pub duration_ms: u64,
     /// The Spotify tab, rather than a playlist.
     pub spotify: bool,
+    /// A synced playlist's: how it stands. None for any other.
+    pub sync: Option<TabSync>,
+}
+
+/// How a synced playlist stands, for its tab's mark.
+#[derive(Clone, Debug, PartialEq, uniffi::Enum)]
+pub enum TabSync {
+    /// The same as on the other devices.
+    UpToDate,
+    /// Changes wait to be sent: offline, or being sent.
+    Waiting,
+    /// Spotify refused a change, for this reason.
+    Failed { reason: String },
 }
 
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
@@ -262,6 +275,7 @@ pub(crate) fn tabs(state: &State) -> Tabs {
                         .map(|track| u64::from(track.duration_ms))
                         .sum(),
                     spotify: true,
+                    sync: None,
                 }),
                 _ => state.library.get(id).map(|list| Tab {
                     id: id.0,
@@ -269,6 +283,13 @@ pub(crate) fn tabs(state: &State) -> Tabs {
                     songs: count(list.len()),
                     duration_ms: duration(list),
                     spotify: false,
+                    sync: list.sync.as_ref().map(|_| match state.sync.get(&id) {
+                        Some(SyncStatus::Waiting) => TabSync::Waiting,
+                        Some(SyncStatus::Failed(reason)) => TabSync::Failed {
+                            reason: reason.clone(),
+                        },
+                        Some(SyncStatus::UpToDate) | None => TabSync::UpToDate,
+                    }),
                 }),
             })
             .collect(),
@@ -667,6 +688,10 @@ pub struct SpotifyPlaylist {
     pub liked: bool,
     /// Only the account, and those it's shared with, see it.
     pub private: bool,
+    /// One of Spotless's synced playlists, the Spotless folder's.
+    pub synced: bool,
+    /// Synced and open as a tab here.
+    pub open: bool,
 }
 
 /// Where songs copied to Spotify go.
@@ -723,6 +748,8 @@ fn your_spotify(state: &State) -> YourSpotify {
                 owner: p.owner.clone(),
                 liked: p.uri == spotless_core::spotify::catalog::LIKED_SONGS,
                 private: p.private,
+                synced: state.library.synced_seen.contains(&p.uri),
+                open: state.library.synced(&p.uri).is_some(),
             };
             // As the desktop lists them: the account's own, then followed.
             let (mine, followed): (Vec<_>, Vec<_>) =

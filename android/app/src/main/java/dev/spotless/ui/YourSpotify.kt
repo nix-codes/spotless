@@ -58,7 +58,8 @@ import dev.spotless.core.Track
  * then selects the ones between; selected songs are added, or, on the
  * account's own playlists and Liked Songs, taken out on Spotify. A
  * playlist is deleted, or unfollowed if it's someone else's, from its
- * songs' page. UNDO puts back either.
+ * songs' page. UNDO puts back either. Spotless's synced playlists are
+ * listed apart, under SYNCED; one opens as a tab again from its page.
  */
 @Composable
 fun YourSpotify(core: Core, modifier: Modifier) {
@@ -124,12 +125,17 @@ private fun LazyListScope.group(title: String, count: Int, first: Boolean) = ite
     }
 }
 
-private fun mine(playlist: SpotifyPlaylist) = playlist.owner == null
+private fun mine(playlist: SpotifyPlaylist) = playlist.owner == null && !playlist.synced
 
-/** "38 songs", after whose it is when that's someone else ("by Marta K."), or with [yours] "YOURS". */
+/**
+ * "38 songs", after whose it is when that's someone else ("by Marta K."),
+ * or with [yours] "YOURS" (or "SYNCED"), and "open as a tab" for a synced
+ * one that is.
+ */
 private fun about(playlist: SpotifyPlaylist, yours: Boolean = false) = listOfNotNull(
-    playlist.owner?.let { "by $it" } ?: "YOURS".takeIf { yours },
+    playlist.owner?.let { "by $it" } ?: (if (playlist.synced) "SYNCED" else "YOURS").takeIf { yours },
     songs(playlist.songs.toInt()).lowercase(),
+    "open as a tab".takeIf { playlist.open },
 ).joinToString(" · ")
 
 @Composable
@@ -150,8 +156,12 @@ private fun PlaylistList(core: Core, playlists: List<SpotifyPlaylist>) {
         // Liked Songs on its own above the bands: it isn't a playlist of the account's.
         val (liked, rest) = found.partition { it.liked }
         items(liked, key = { it.uri }) { playlist -> PlaylistRow(playlist) { open(playlist) } }
-        val groups = listOf("YOURS" to rest.filter(::mine), "FOLLOWED" to rest.filterNot(::mine))
-            .filter { (_, these) -> these.isNotEmpty() }
+        // Spotless's synced playlists apart, first: the Spotless folder's.
+        val groups = listOf(
+            "SYNCED" to rest.filter { it.synced },
+            "YOURS" to rest.filter(::mine),
+            "FOLLOWED" to rest.filter { !it.synced && it.owner != null },
+        ).filter { (_, these) -> these.isNotEmpty() }
         for ((i, group) in groups.withIndex()) {
             val (title, these) = group
             group(title, these.size, first = i == 0 && liked.isEmpty())
@@ -200,6 +210,9 @@ private fun PlaylistRow(playlist: SpotifyPlaylist, open: () -> Unit) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Line(playlist.name, body())
             Line(about(playlist), body(13.sp, Classic.dim, FontWeight.Normal))
+        }
+        if (playlist.synced) {
+            Box(Modifier.size(16.dp).semantics { contentDescription = "Synced" }.drawBehind { glyph(Glyph.Sync, Classic.dim) })
         }
         if (playlist.private) {
             Box(Modifier.size(16.dp).semantics { contentDescription = "Private" }.drawBehind { glyph(Glyph.Lock, Classic.dim) })
@@ -267,7 +280,10 @@ private fun PlaylistSongs(core: Core, playlist: SpotifyPlaylist, songs: AlbumSon
     }
 }
 
-/** The playlist's name and whose it is, ADD for all its songs, and DELETE or UNFOLLOW. */
+/**
+ * The playlist's name and whose it is, OPEN AS TAB for a synced one, ADD
+ * for all its songs, and DELETE (a synced one everywhere) or UNFOLLOW.
+ */
 @Composable
 private fun PlaylistBar(core: Core, playlist: SpotifyPlaylist) {
     Row(
@@ -278,6 +294,14 @@ private fun PlaylistBar(core: Core, playlist: SpotifyPlaylist) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Line(playlist.name, body(17.sp, Classic.current, FontWeight.Bold))
             Line(about(playlist, yours = true), body(13.sp, Classic.label, FontWeight.Normal))
+        }
+        // A synced one opens as a tab again, or shows the one it has.
+        if (playlist.synced) {
+            TextButton(if (playlist.open) "SHOW TAB" else "OPEN AS TAB", {
+                core.apply(Action.OpenSynced(playlist.uri, playlist.name))
+                core.spotifySongs = false
+                core.apply(Action.CloseBrowse)
+            }, Modifier.height(44.dp))
         }
         if (!playlist.liked) {
             GlyphButton(Glyph.Share, "Share the playlist", { core.share(listOf(playlist.uri)) }, Modifier.width(48.dp).height(44.dp))

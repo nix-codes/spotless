@@ -172,7 +172,7 @@ fun TextButton(
 }
 
 /** The transport's and the bars' glyphs, drawn in [color] on a 24-unit square. */
-enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check, Trash, Repeat, Shuffle, Lock, Share }
+enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check, Trash, Repeat, Shuffle, Lock, Share, Sync }
 
 @Composable
 fun GlyphButton(
@@ -254,6 +254,13 @@ fun DrawScope.glyph(glyph: Glyph, color: Color) {
             // A padlock: its body, and the shackle's arch over it.
             bar(5.5f, 11f, 13f, 10f)
             drawPath(arm(8.5f to 11f, 8.5f to 8f, 9.5f to 5.5f, 12f to 4.5f, 14.5f to 5.5f, 15.5f to 8f, 15.5f to 11f), color, style = line)
+        }
+        Glyph.Sync -> {
+            // A synced playlist's mark (⇅): an arrow up beside one down.
+            drawLine(color, Offset(8f * u, 20f * u), Offset(8f * u, 5f * u), 1.8f * u)
+            drawPath(arm(4f to 9f, 8f to 4.5f, 12f to 9f), color, style = line)
+            drawLine(color, Offset(16f * u, 4f * u), Offset(16f * u, 19f * u), 1.8f * u)
+            drawPath(arm(12f to 15f, 16f to 19.5f, 20f to 15f), color, style = line)
         }
         Glyph.Share -> {
             // Three dots, the first passing on to the other two.
