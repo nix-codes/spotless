@@ -44,7 +44,7 @@ Spotless is the player I wanted instead.
   albums in their playlists, without the detours.
 - **Keyboard users**: every action has a key.
 - **Anyone using several devices** who wants this computer's music to stay
-  separate from the phone's.
+  separate from the phone's, or the same playlists on both, synced.
 
 It isn't for you if you rely on Spotify's own playlists, recommendations
 or podcasts, or if you don't have Premium: Spotless leaves those out, and
@@ -52,9 +52,20 @@ Spotify only allows playback in other apps for Premium accounts.
 
 ## Features
 
-- **Local playlists in tabs.** As many as you like, saved between sessions. A
+- **Playlists in tabs.** As many as you like, saved between sessions. A
   *Default* playlist is always there. Rename a tab by double-clicking it;
   reorder songs and tabs by dragging.
+- **Synced playlists.** A playlist stays on the device it's on, unless you
+  sync it: *Sync* in its tab's menu (on Android, hold the tab) keeps it the
+  same on your other devices, its songs and where it's up to (the song,
+  where in it, and the Q marks). Changes arrive within a second or two
+  while both are open; ones made offline go once you're back. Spotless
+  keeps it on your Spotify, as a private playlist in a *Spotless* folder,
+  so a device signing in opens it by itself. A synced tab has a ⇅ mark,
+  grey while changes wait to be sent; closing it closes it on that device
+  only. *Your Spotify* in Browse lists them apart, under SYNCED, to open
+  one again (double-click, or *Open as tab*) or delete it everywhere. Where
+  a song was added from (its header) stays on the device it was added on.
 - **Send songs between playlists.** Drag songs onto another tab to copy
   them there, or hold Shift as you drop them to move them. Or right-click
   them: *Copy to* or *Move to* another playlist, the Spotify tab's queue,
@@ -175,7 +186,9 @@ Spotless.
 
 ## Your data
 
-Your settings and playlists stay on your computer:
+Your settings and playlists stay on your computer, except synced ones,
+which are kept on your Spotify too (a private playlist each, in a
+*Spotless* folder, with where it's up to in its description):
 
 | | Linux | Windows |
 |---|---|---|
