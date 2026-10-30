@@ -110,6 +110,8 @@ pub enum Action {
     ToggleDeck,
     /// What the deck plays the music on.
     SetDeckMedia(crate::store::DeckMedia),
+    /// The cassette holds the whole playlist (MIX) or the song (SINGLE).
+    SetCassetteMix(bool),
     /// The time shows what's left of the song, or what has played.
     ToggleTimeLeft,
 

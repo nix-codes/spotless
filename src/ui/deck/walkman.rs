@@ -1,9 +1,10 @@
 //! An '80s Walkman on its side, 336 units wide: a charcoal body with the
 //! player's buttons standing up out of its top edge as its keys, and a
 //! window over most of its front, the top right corner cut on the
-//! diagonal, with graphics printed on the glass over the cassette.
+//! diagonal, with graphics printed on the glass over the cassette, and
+//! the SINGLE / MIX switch under it.
 
-use egui::{Align2, Color32};
+use egui::{Align2, Color32, Rect};
 
 use super::Tape;
 use super::canvas::{Canvas, Face, rgb, rgba};
@@ -12,8 +13,9 @@ use super::cassette;
 pub const WIDTH: f32 = 336.0;
 const BLUE: Color32 = rgb(0x3d7bff);
 
-/// The body, `height` units tall from just under the keys' middle.
-pub fn draw(c: &Canvas, height: f32, tape: &Tape) {
+/// The body, `height` units tall from just under the keys' middle;
+/// returns where its switch can be clicked.
+pub fn draw(c: &Canvas, height: f32, tape: &Tape) -> Rect {
     let (w, h) = (WIDTH, height);
     c.shaded(
         0.0,
@@ -139,7 +141,7 @@ pub fn draw(c: &Canvas, height: f32, tape: &Tape) {
     );
     c.polygon_outline(&window, 1.5, rgb(0x08090b));
 
-    // Under the window: the name, the play light and the model.
+    // Under the window: the name, the switch, the play light and the model.
     c.outlined(
         "SPOTLESS",
         14.0,
@@ -151,19 +153,31 @@ pub fn draw(c: &Canvas, height: f32, tape: &Tape) {
         rgb(0x1c1d21),
     );
     let (lx, ly) = (w - 82.0, h - 26.0);
+    let name_end = 14.0
+        + "SPOTLESS"
+            .chars()
+            .map(|letter| c.width(&letter.to_string(), Face::Display, 26.0) + 3.0)
+            .sum::<f32>()
+        - 3.0;
+    let switch = slide_switch(c, (name_end + lx - 8.0) / 2.0, h - 20.0, tape.switch);
     if tape.playing {
         c.circle(lx, ly, 6.0, rgba(0xff5a3a, 0.25));
         c.circle(lx, ly, 2.5, rgb(0xff5a3a));
     } else {
         c.circle(lx, ly, 2.5, rgb(0x4a2a24));
     }
+    // Auto reverse only plays a part on a mixtape.
     c.text(
         "AUTO REVERSE",
         w - 14.0,
         h - 26.0,
         Face::Mono,
         7.0,
-        rgb(0x8a8e96),
+        if tape.mixtape.is_some() {
+            rgb(0x8a8e96)
+        } else {
+            rgb(0x4c4f57)
+        },
         Align2::RIGHT_CENTER,
     );
     c.text(
@@ -175,4 +189,52 @@ pub fn draw(c: &Canvas, height: f32, tape: &Tape) {
         rgb(0x9da1a9),
         Align2::RIGHT_CENTER,
     );
+    switch
+}
+
+/// The SINGLE / MIX switch round `x, y`: a slot with a ribbed silver nub
+/// `at` of the way from SINGLE (0) to MIX (1), the two printed above its
+/// ends. Returns where it can be clicked.
+fn slide_switch(c: &Canvas, x: f32, y: f32, at: f32) -> Rect {
+    let (width, height, nub) = (26.0, 8.0, 12.0);
+    let (sx, sy) = (x - width / 2.0, y - height / 2.0 + 4.0);
+    let print = rgb(0x8a8e96);
+    c.text(
+        "SINGLE",
+        sx + 2.0,
+        y - 8.0,
+        Face::Mono,
+        6.0,
+        print,
+        Align2::CENTER_CENTER,
+    );
+    c.text(
+        "MIX",
+        sx + width - 2.0,
+        y - 8.0,
+        Face::Mono,
+        6.0,
+        print,
+        Align2::CENTER_CENTER,
+    );
+    c.rect(sx, sy, width, height, 2.0, rgb(0x0e0f12));
+    c.outline(sx, sy, width, height, 2.0, 0.6, rgb(0x56595f));
+    let nx = sx + 1.0 + at * (width - nub - 2.0);
+    c.shaded(
+        nx,
+        sy + 1.0,
+        nub,
+        height - 2.0,
+        1.5,
+        &[(0.0, rgb(0xe4e7eb)), (1.0, rgb(0x8d929a))],
+    );
+    for rib in 0..4 {
+        let rx = nx + 3.0 + rib as f32 * 2.0;
+        c.line(
+            &[(rx, sy + 2.0), (rx, sy + height - 2.0)],
+            0.6,
+            rgb(0x5c6068),
+        );
+    }
+    c.r(sx - 10.0, y - 13.0, width + 20.0, 22.0)
 }

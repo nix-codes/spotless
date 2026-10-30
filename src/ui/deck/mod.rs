@@ -9,6 +9,8 @@
 //! switches to the next.
 //! The tape winds from the left reel to the right one as the song plays,
 //! and back fast when another starts; the reels turn only while it plays.
+//! The Walkman's switch (MIX) puts the whole playlist on the cassette
+//! instead: side A left to right, then auto reverse plays side B back.
 //! The disc holds the whole playlist and turns while it plays, faster the
 //! nearer the centre the laser reads. A single holds one song, and is
 //! changed for the next one's when the song changes.
@@ -26,7 +28,7 @@ use egui::{Align2, Color32, FontId, Painter, Rect, Sense, Ui, pos2, vec2};
 
 use super::{Inputs, View, player_strip, theme};
 use crate::action::{Action, Actions};
-use crate::model::TrackRef;
+use crate::model::{PlaylistId, TrackRef};
 use crate::playback::analyser::{self, BANDS, Reading};
 use crate::playback::engine::Status;
 use crate::store::DeckMedia;
@@ -51,7 +53,7 @@ const SEGMENTS: usize = 16;
 /// How fast the tape moves, in the cassette's units per second; the reels
 /// turn by it, faster the less tape they hold.
 const TAPE_SPEED: f32 = 48.0;
-/// How fast it winds to a new place, in songs per second.
+/// How fast it winds to a new place, in tapes per second.
 const WIND_SPEED: f32 = 1.6;
 /// How fast the disc turns, in radians per second where the laser reads at
 /// its whole radius; nearer the centre, faster.
@@ -64,6 +66,8 @@ const ARM_BACK: f32 = 0.35;
 const RECORD_OFF: f32 = 0.75;
 const RECORD_ON: f32 = 1.15;
 const ARM_DOWN: f32 = 1.6;
+/// The standard cassettes, in minutes for both sides.
+const CASSETTES: [u32; 4] = [46, 60, 90, 120];
 const GREEN: Color32 = rgb(0x33e65f);
 const YELLOW: Color32 = rgb(0xffd02b);
 const RED: Color32 = rgb(0xff3b2b);
@@ -74,7 +78,8 @@ pub struct Tape {
     pub progress: f32,
     /// The left and right reels' turn, in radians.
     pub angles: [f32; 2],
-    /// A for odd songs in the playlist, B for even ones.
+    /// A for odd songs in the playlist, B for even ones; on a mixtape,
+    /// the side the song is on.
     pub side: char,
     /// The song's artists, as the cassette's label has them.
     pub artist: String,
@@ -84,6 +89,21 @@ pub struct Tape {
     pub counter: f32,
     pub disc: cd::Disc,
     pub turntable: vinyl::Turntable,
+    /// The playlist on the cassette (MIX), or None for the song (SINGLE).
+    pub mixtape: Option<Mixtape>,
+    /// The Walkman's switch, from SINGLE (0) to MIX (1) as drawn.
+    pub switch: f32,
+}
+
+/// The playlist playing as a mixtape: its name, the cassette's length,
+/// and where the song playing is on it.
+pub struct Mixtape {
+    pub name: String,
+    /// Both sides, in minutes: C46, C60, C90 or C120.
+    pub minutes: u32,
+    pub side: char,
+    /// The share of the tape on the right reel.
+    pub share: f32,
 }
 
 /// What moves from frame to frame.
@@ -108,6 +128,7 @@ pub struct Motion {
     platter: f32,
     arm: Option<f32>,
     lift: f32,
+    switch: f32,
 }
 
 /// A record being changed: how long since it began, the record going, and
@@ -154,8 +175,18 @@ impl Motion {
                     moving = self.play_records(view, target, playing, dt);
                 }
             }
-            _ => self.wind(view, target, playing, dt),
+            _ => {
+                // Side B of a mixtape plays back the other way.
+                let (target, direction) = match mixtape(view) {
+                    Some(mix) => (mix.share, if mix.side == 'B' { -1.0 } else { 1.0 }),
+                    None => (target, 1.0),
+                };
+                self.wind(view, target, direction, playing, dt);
+            }
         }
+        let switch = if view.settings.cassette_mix { 1.0 } else { 0.0 };
+        self.switch += (switch - self.switch) * (dt * 16.0).min(1.0);
+        moving |= (switch - self.switch).abs() > 0.001;
 
         let share = |db: f32, floor: f32, top: f32| ((db - floor) / (top - floor)).clamp(0.0, 1.0);
         for band in 0..BANDS {
@@ -269,8 +300,9 @@ impl Motion {
         }
     }
 
-    /// Winds the tape on to `target`, the song's progress.
-    fn wind(&mut self, view: &View, target: f32, playing: bool, dt: f32) {
+    /// Winds the tape on to `target`, the share on the right reel, and
+    /// plays it in `direction` (1 left to right, -1 back).
+    fn wind(&mut self, view: &View, target: f32, direction: f32, playing: bool, dt: f32) {
         let drawn = self.drawn.get_or_insert(target);
         let gap = target - *drawn;
         let pack = |share: f32| match view.settings.deck_media {
@@ -291,7 +323,7 @@ impl Motion {
             self.winding = false;
             *drawn = target;
             if playing {
-                turn(TAPE_SPEED, target);
+                turn(TAPE_SPEED * direction, target);
                 self.counter += 0.9 * dt;
             }
         }
@@ -310,10 +342,11 @@ impl Motion {
             ),
             None => ('A', String::new(), String::new()),
         };
+        let mixtape = mixtape(view);
         Tape {
             progress: self.drawn.unwrap_or(0.0),
             angles: self.angles,
-            side,
+            side: mixtape.as_ref().map_or(side, |mix| mix.side),
             artist,
             title,
             playing: view.player.status == Status::Playing,
@@ -323,6 +356,8 @@ impl Motion {
                 ..disc(view)
             },
             turntable: self.turntable(),
+            mixtape,
+            switch: self.switch,
         }
     }
 }
@@ -382,6 +417,87 @@ fn short_title(title: &str) -> &str {
             return title;
         }
     }
+}
+
+/// A playlist on a cassette: side A takes songs while they fit in half
+/// the playlist, so no song is cut in two, and side B the rest.
+#[derive(Debug, PartialEq)]
+struct Sides {
+    /// The first song on side B.
+    split: usize,
+    /// A side's length, in ms.
+    side: u64,
+    /// Both sides, in minutes.
+    minutes: u32,
+}
+
+/// The sides of a playlist of songs `lengths` ms long, on the shortest
+/// standard cassette that holds the longer one; past a C120, one just long
+/// enough.
+fn sides(lengths: &[u64]) -> Sides {
+    let total: u64 = lengths.iter().sum();
+    let (mut split, mut a) = (0, 0);
+    while split + 1 < lengths.len() && a + lengths[split] <= total / 2 {
+        a += lengths[split];
+        split += 1;
+    }
+    if split == 0 && !lengths.is_empty() {
+        (split, a) = (1, lengths[0]);
+    }
+    let longer = a.max(total - a);
+    let minutes = CASSETTES
+        .into_iter()
+        .find(|minutes| u64::from(*minutes) * 30_000 >= longer)
+        .unwrap_or(longer.div_ceil(60_000) as u32 * 2);
+    Sides {
+        split,
+        side: u64::from(minutes) * 30_000,
+        minutes,
+    }
+}
+
+/// Where song `index` is `position` ms in: its side, and the share of the
+/// tape on the right reel. Side A runs left to right, side B back.
+fn place(lengths: &[u64], sides: &Sides, index: usize, position: u64) -> (char, f32) {
+    let first = if index < sides.split { 0 } else { sides.split };
+    let into = lengths[first..index].iter().sum::<u64>() + position.min(lengths[index]);
+    let share = (into as f32 / sides.side.max(1) as f32).clamp(0.0, 1.0);
+    if index < sides.split {
+        ('A', share)
+    } else {
+        ('B', 1.0 - share)
+    }
+}
+
+/// The playlist playing as a mixtape, when the Walkman plays and its switch
+/// is at MIX. The Spotify tab's songs aren't a playlist: a song a tape.
+fn mixtape(view: &View) -> Option<Mixtape> {
+    if !view.settings.cassette_mix || view.settings.deck_media != DeckMedia::Cassette {
+        return None;
+    }
+    let (list, entry) = player_strip::playing_entry(view)?;
+    if list == PlaylistId::SPOTIFY {
+        return None;
+    }
+    let list = view.list(list)?;
+    let index = list.index_of(entry)?;
+    let lengths: Vec<u64> = list
+        .entries()
+        .iter()
+        .map(|entry| u64::from(entry.track.duration_ms))
+        .collect();
+    let sides = sides(&lengths);
+    let position = match view.player.status {
+        Status::Stopped => 0,
+        _ => u64::from(view.player.position_now()),
+    };
+    let (side, share) = place(&lengths, &sides, index, position);
+    Some(Mixtape {
+        name: list.name.clone(),
+        minutes: sides.minutes,
+        side,
+        share,
+    })
 }
 
 /// The disc of the playlist playing, and where in it the song plays.
@@ -481,6 +597,7 @@ pub fn draw(
     let tape = inputs.deck.tape(view);
     let painter = ui.painter().clone();
     let media = view.settings.deck_media;
+    let mut switch = None;
     let (art, keys_top, bottom, spectrum_top) = match media {
         DeckMedia::Reel => {
             let plate = reel::PLATE * k;
@@ -505,7 +622,7 @@ pub fn draw(
             match media {
                 DeckMedia::Cd => cd::draw(&canvas, height, &tape),
                 DeckMedia::Vinyl => vinyl::draw(&canvas, height, &tape.turntable),
-                _ => walkman::draw(&canvas, height, &tape),
+                _ => switch = Some(walkman::draw(&canvas, height, &tape)),
             }
             let art = Rect::from_min_max(pos2(left, top + band), pos2(left + width, bottom));
             (art, top + MARGIN, bottom, top + band)
@@ -523,6 +640,21 @@ pub fn draw(
         .clicked()
     {
         actions.push(Action::SetDeckMedia(media.next()));
+    }
+    if let Some(rect) = switch {
+        let mix = view.settings.cassette_mix;
+        let tip = if mix {
+            "Put only the song playing on the tape (SINGLE)"
+        } else {
+            "Put the whole playlist on the tape (MIX)"
+        };
+        if ui
+            .interact(rect, ui.id().with("cassette mix"), Sense::click())
+            .on_hover_text(tip)
+            .clicked()
+        {
+            actions.push(Action::SetCassetteMix(!mix));
+        }
     }
     let row = Rect::from_min_size(pos2(left + SIDE, keys_top), vec2(keys.width, keys.height));
     player_strip::draw_keys(ui, row, &keys, view, inputs, actions);
@@ -659,7 +791,47 @@ fn draw_levels(painter: &Painter, rect: Rect, view: &View, motion: &Motion) {
 
 #[cfg(test)]
 mod tests {
-    use super::short_title;
+    use super::{Sides, place, short_title, sides};
+
+    const MINUTE: u64 = 60_000;
+
+    #[test]
+    fn a_mixtape_splits_between_songs() {
+        // 39 minutes: side A takes the first 19, the third song doesn't fit.
+        let lengths = [9 * MINUTE, 10 * MINUTE, 8 * MINUTE, 12 * MINUTE];
+        let mix = sides(&lengths);
+        assert_eq!(
+            mix,
+            Sides {
+                split: 2,
+                side: 23 * MINUTE,
+                minutes: 46
+            }
+        );
+        assert_eq!(place(&lengths, &mix, 0, 0), ('A', 0.0));
+        let (side, share) = place(&lengths, &mix, 1, 0);
+        assert_eq!(side, 'A');
+        assert!((share - 9.0 / 23.0).abs() < 1e-6);
+        // Side B starts with all the tape on the right reel.
+        assert_eq!(place(&lengths, &mix, 2, 0), ('B', 1.0));
+        let (side, share) = place(&lengths, &mix, 3, MINUTE);
+        assert_eq!(side, 'B');
+        assert!((share - (1.0 - 9.0 / 23.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_mixtape_takes_the_cassette_it_fits() {
+        assert_eq!(sides(&[20 * MINUTE, 20 * MINUTE]).minutes, 46);
+        assert_eq!(sides(&[25 * MINUTE, 25 * MINUTE]).minutes, 60);
+        assert_eq!(sides(&[44 * MINUTE, 45 * MINUTE]).minutes, 90);
+        assert_eq!(sides(&[50 * MINUTE, 55 * MINUTE]).minutes, 120);
+        // Longer than a C120: just long enough.
+        assert_eq!(sides(&[70 * MINUTE, 73 * MINUTE + 1]).minutes, 148);
+        // A song longer than half still goes on side A, alone.
+        let mix = sides(&[30 * MINUTE, 5 * MINUTE, 5 * MINUTE]);
+        assert_eq!((mix.split, mix.minutes), (1, 60));
+        assert_eq!(sides(&[3 * MINUTE]).split, 1);
+    }
 
     #[test]
     fn a_tape_leaves_out_the_version() {

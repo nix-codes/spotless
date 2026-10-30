@@ -1,6 +1,6 @@
 //! A cassette, 262 × 154 units: its shell, a label written in marker with
-//! the artist and the song, and a window onto the two reels winding the
-//! tape from left to right as the song plays.
+//! the artist and the song, or a mixtape's playlist, and a window onto the
+//! two reels winding the tape as it plays.
 
 use egui::{Align2, Color32};
 
@@ -55,9 +55,14 @@ pub fn draw(c: &Canvas, tape: &Tape) {
         Align2::CENTER_CENTER,
     );
     // The artists up to the tape type, the title across the label, cut
-    // short with dots if they're too long.
+    // short with dots if they're too long; a mixtape has only the
+    // playlist's name, and its length.
+    let (top, length) = match &tape.mixtape {
+        Some(mix) => (&mix.name, format!("TYPE II · {}", mix.minutes)),
+        None => (&tape.artist, "TYPE II · 90".to_string()),
+    };
     c.text(
-        &c.cut(&tape.artist, Face::Marker, 15.0, lw - 60.0 - 28.0),
+        &c.cut(top, Face::Marker, 15.0, lw - 60.0 - 28.0),
         lx + 22.0,
         ly + 14.0,
         Face::Marker,
@@ -66,7 +71,7 @@ pub fn draw(c: &Canvas, tape: &Tape) {
         Align2::LEFT_CENTER,
     );
     c.text(
-        "TYPE II · 90",
+        &length,
         lx + lw - 8.0,
         ly + 13.0,
         Face::Mono,
@@ -74,15 +79,17 @@ pub fn draw(c: &Canvas, tape: &Tape) {
         rgb(0x5a564c),
         Align2::RIGHT_CENTER,
     );
-    c.text(
-        &c.cut(&tape.title, Face::Marker, 11.0, lw - 20.0),
-        lx + 10.0,
-        ly + 39.0,
-        Face::Marker,
-        11.0,
-        INK,
-        Align2::LEFT_CENTER,
-    );
+    if tape.mixtape.is_none() {
+        c.text(
+            &c.cut(&tape.title, Face::Marker, 11.0, lw - 20.0),
+            lx + 10.0,
+            ly + 39.0,
+            Face::Marker,
+            11.0,
+            INK,
+            Align2::LEFT_CENTER,
+        );
+    }
     // The window, with the reels.
     let (cx, cy, dx) = (w / 2.0, ly + 70.0, w * 0.2125);
     let (wx, wy, ww, wh) = (

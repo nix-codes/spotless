@@ -1258,6 +1258,10 @@ impl Controller {
                 self.state.settings.deck_media = media;
                 self.mark_unsaved();
             }
+            Action::SetCassetteMix(mix) => {
+                self.state.settings.cassette_mix = mix;
+                self.mark_unsaved();
+            }
             Action::ToggleTimeLeft => {
                 self.state.settings.time_left = !self.state.settings.time_left;
                 self.mark_unsaved();
@@ -2184,6 +2188,8 @@ mod tests {
         rig.controller
             .apply(Action::SetDeckMedia(crate::store::DeckMedia::Reel));
         assert_eq!(settings(&rig).deck_media, crate::store::DeckMedia::Reel);
+        rig.controller.apply(Action::SetCassetteMix(true));
+        assert!(settings(&rig).cassette_mix);
         rig.controller.apply(Action::ToggleDeck);
         assert!(!settings(&rig).deck_shown);
     }
