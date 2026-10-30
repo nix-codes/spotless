@@ -661,16 +661,13 @@ fn tab(
             }
             let synced = list.sync.is_some();
             let signed_in = matches!(view.session, SessionState::Ready { .. });
-            let label = if synced { "Sync ✓" } else { "Sync" };
-            let hint = if synced || signed_in {
-                "Keeps it the same on your other devices"
-            } else {
-                "Sign in to sync it with your other devices"
+            let label = if synced { "Stop syncing" } else { "Sync" };
+            let hint = match (synced, signed_in) {
+                (_, false) => "Sign in to sync it with your other devices",
+                (false, true) => "Keeps it the same on your other devices",
+                (true, true) => "Stops syncing: it's deleted from Spotify and stays only here",
             };
-            if item(ui, label, synced || signed_in)
-                .on_hover_text(hint)
-                .clicked()
-            {
+            if item(ui, label, signed_in).on_hover_text(hint).clicked() {
                 actions.push(Action::SetSync(list.id, !synced));
             }
             if item(ui, "Save to Spotify…", list.count > 0)

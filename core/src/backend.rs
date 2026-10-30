@@ -313,6 +313,8 @@ pub enum Event {
     SyncFolder(Result<Vec<(String, String)>, String>),
     /// Spotify told of a change to one of the account's playlists.
     PlaylistChanged(synced::Changed),
+    /// Spotify told of a change to the account's list of playlists.
+    PlaylistsChanged,
     Error(String),
 }
 
@@ -484,6 +486,8 @@ struct Worker {
     watch: Option<Watch>,
     /// Tells of changes to the account's playlists, on the session.
     playlist_changes: Option<tokio::task::JoinHandle<()>>,
+    /// Tells of changes to the account's list of playlists, on the session.
+    list_changes: Option<tokio::task::JoinHandle<()>>,
     /// The other device playing, as the watch last told.
     elsewhere: Option<Playing>,
     /// Where the watches tell, and where `run` hears it.
@@ -553,6 +557,7 @@ impl Worker {
             scrobbler: None,
             watch: None,
             playlist_changes: None,
+            list_changes: None,
             elsewhere: None,
             devices,
             device_reports: Some(device_reports),
@@ -724,6 +729,19 @@ impl Worker {
             }
             Err(error) => log::warn!("unable to follow the playlists' changes: {error:#}"),
         }
+        match synced::listen_list(session) {
+            Ok(changes) => {
+                let emit = Arc::clone(&self.emit);
+                self.list_changes = Some(tokio::spawn(async move {
+                    use futures_util::StreamExt;
+                    let mut changes = std::pin::pin!(changes);
+                    while changes.next().await.is_some() {
+                        emit(Event::PlaylistsChanged);
+                    }
+                }));
+            }
+            Err(error) => log::warn!("unable to follow the list of playlists: {error:#}"),
+        }
         let devices = self.devices.clone();
         match Watch::start(session, move |playing| {
             let _ = devices.send(playing);
@@ -735,6 +753,9 @@ impl Worker {
 
     fn unwatch(&mut self) {
         if let Some(task) = self.playlist_changes.take() {
+            task.abort();
+        }
+        if let Some(task) = self.list_changes.take() {
             task.abort();
         }
         if let Some(watch) = self.watch.take() {

@@ -6,7 +6,7 @@
 //! What only a desktop has (the window, the tray, media keys, skins and
 //! textures) stays with the interface, in `app.rs`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 mod sync;
@@ -231,6 +231,9 @@ pub struct Controller {
     spotify_seeked: Option<Instant>,
     /// The synced playlists' syncs.
     syncing: HashMap<PlaylistId, sync::Syncing>,
+    /// Spotify playlists of playlists no longer synced, being deleted:
+    /// UNDO doesn't offer to put those back.
+    desynced: HashSet<String>,
 }
 
 /// What songs loved on Last.fm are found on Spotify for.
@@ -389,6 +392,7 @@ impl Controller {
             pending_adds: Vec::new(),
             pending_batches: Vec::new(),
             finding: Vec::new(),
+            desynced: HashSet::new(),
             last_find: 0,
             resuming: false,
             spotify_seeked: None,
@@ -647,6 +651,7 @@ impl Controller {
                 Event::SyncCreated { list, result } => self.sync_created(list, result),
                 Event::SyncFolder(result) => self.sync_folder_read(result),
                 Event::PlaylistChanged(changed) => self.playlist_changed(changed),
+                Event::PlaylistsChanged => self.sync_on_connect(),
                 Event::Error(message) => self.state.error = Some(message),
                 Event::Cover { .. } => theirs.push(event),
             }
@@ -1485,6 +1490,9 @@ impl Controller {
         match result {
             Ok(unlisted) if undo => {
                 self.state.notice = Some(format!("Put “{}” back.", unlisted.name));
+            }
+            Ok(unlisted) if self.desynced.remove(&unlisted.playlist) => {
+                self.state.notice = Some(unlisted.notice);
             }
             Ok(unlisted) => {
                 self.state.notice = Some(unlisted.notice.clone());
@@ -3791,7 +3799,7 @@ mod tests {
                     .notice
                     .as_deref()
                     .unwrap()
-                    .starts_with("Gym was deleted")
+                    .starts_with("Gym was taken off Spotify")
             );
             let road = state
                 .library
@@ -3857,14 +3865,67 @@ mod tests {
         }
 
         #[test]
-        fn stopped_or_closed_it_stays_on_spotify_and_deleted_it_closes() {
+        fn a_change_to_the_list_of_playlists_reads_the_folder() {
+            let mut rig = Rig::new("sync-list");
+            ready(&mut rig);
+            rig.sent();
+            rig.tell(Event::PlaylistsChanged);
+            assert!(rig.sent().iter().any(|c| matches!(c, Command::SyncFolder)));
+            // One being made here, in the folder before Spotify answered,
+            // isn't opened as another tab.
+            rig.controller
+                .apply(Action::NewPlaylistWith(tracks([1, 2])));
+            let list = rig.controller.state().viewed;
+            rig.controller.apply(Action::SetSync(list, true));
+            let tabs = rig.controller.state().library.playlists().len();
+            rig.tell(Event::SyncFolder(Ok(vec![(URI.into(), "Playlist".into())])));
+            rig.tell(Event::SyncCreated {
+                list,
+                result: Ok(URI.into()),
+            });
+            let library = &rig.controller.state().library;
+            assert_eq!(library.playlists().len(), tabs);
+            assert_eq!(library.synced(URI).map(|l| l.id), Some(list));
+        }
+
+        #[test]
+        fn stopped_it_goes_from_spotify_closed_it_stays_and_deleted_it_closes() {
             let mut rig = Rig::new("sync-stop");
             let list = synced_gym(&mut rig);
+            rig.sent();
             rig.controller.apply(Action::SetSync(list, false));
             let gym = rig.controller.state().library.get(list).unwrap();
             assert!(gym.sync.is_none());
             assert_eq!(gym.len(), 2);
             assert!(gym.entries().iter().all(|e| e.item.is_none()));
+            // Stopped, its Spotify playlist is deleted, and it stays here,
+            // with nothing for UNDO to put back.
+            let notice = rig
+                .sent()
+                .into_iter()
+                .find_map(|c| match c {
+                    Command::UnlistSpotifyPlaylist {
+                        playlist, notice, ..
+                    } if playlist == URI => Some(notice),
+                    _ => None,
+                })
+                .expect("deleted on Spotify");
+            assert_eq!(
+                notice,
+                "Gym isn't synced any more: it's gone from Spotify, and only here."
+            );
+            rig.tell(Event::SpotifyUnlisted {
+                result: Ok(Unlisted {
+                    playlist: URI.into(),
+                    name: "Gym".into(),
+                    at: 1,
+                    item: vec![1],
+                    notice,
+                }),
+                undo: false,
+            });
+            assert!(rig.controller.state().library.get(list).is_some());
+            assert_eq!(rig.controller.state().browse.undo, None);
 
             let list = {
                 rig.controller.apply(Action::SetSync(list, true));

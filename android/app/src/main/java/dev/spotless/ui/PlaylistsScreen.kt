@@ -547,12 +547,12 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
             TextButton("SYNC", {
                 focus.clearFocus()
                 core.apply(Action.SetSync(id, !synced))
-            }, Modifier.width(88.dp), enabled = synced || signedIn, lit = synced)
+            }, Modifier.width(88.dp), enabled = signedIn, lit = synced)
             BasicText(
                 when (val sync = tab.sync) {
                     null if !signedIn -> "Sign in to keep it the same on your other devices."
                     null -> "Keeps it the same on your other devices."
-                    TabSync.UpToDate -> "Synced: the same on your other devices."
+                    TabSync.UpToDate -> "Synced: the same on your other devices. Off, it's only here."
                     TabSync.Waiting -> "Synced: changes wait to be sent."
                     is TabSync.Failed -> "Synced, but Spotify refused a change: ${sync.reason}"
                 },

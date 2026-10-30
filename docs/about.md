@@ -63,8 +63,10 @@ Spotify only allows playback in other apps for Premium accounts.
   keeps it on your Spotify, as a private playlist in a *Spotless* folder,
   so a device signing in opens it by itself. A synced tab has a ⇅ mark,
   grey while changes wait to be sent; closing it closes it on that device
-  only. *Your Spotify* in Browse lists them apart, under SYNCED, to open
-  one again (double-click, or *Open as tab*) or delete it everywhere. Where
+  only. *Stop syncing* (on Android, SYNC again) deletes it from Spotify
+  and keeps it on that device only; your other devices keep theirs, no
+  longer synced. *Your Spotify* in Browse lists them apart, under SYNCED,
+  to open one again (double-click, or *Open as tab*) or delete it everywhere. Where
   a song was added from (its header) stays on the device it was added on.
 - **Send songs between playlists.** Drag songs onto another tab to copy
   them there, or hold Shift as you drop them to move them. Or right-click

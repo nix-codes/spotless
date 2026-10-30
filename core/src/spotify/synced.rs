@@ -572,6 +572,19 @@ pub fn listen(session: &Session) -> Result<impl Stream<Item = Changed> + Send + 
     ))
 }
 
+/// When Spotify tells of a change to the account's list of playlists (its
+/// rootlist, folders and all): one taken out, put in, moved or renamed.
+pub fn listen_list(session: &Session) -> Result<impl Stream<Item = ()> + Send + use<>> {
+    let changes =
+        session
+            .dealer()
+            .listen_for("hm://playlist/v2/user/", |message: DealerMessage| {
+                log::debug!("the list of playlists changed: {}", message.uri);
+                Ok(())
+            })?;
+    Ok(changes.filter_map(|change: Result<(), librespot_core::Error>| async move { change.ok() }))
+}
+
 fn playlist_id(uri: &str) -> Result<SpotifyId> {
     match SpotifyUri::from_uri(uri) {
         Ok(SpotifyUri::Playlist { id, .. }) => Ok(id),

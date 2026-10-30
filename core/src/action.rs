@@ -90,7 +90,8 @@ pub enum Action {
     /// Moves a tab to this index, counted after it is taken out.
     MovePlaylist(PlaylistId, usize),
     /// Syncs a playlist, keeping it the same on the account's other
-    /// devices, or stops: it stays here as it is, and on Spotify for them.
+    /// devices, or stops: its Spotify playlist is deleted, and it stays
+    /// here only (the other devices keep theirs, not synced).
     SetSync(PlaylistId, bool),
     /// Opens a playlist of the Spotless folder as a synced tab, by URI and
     /// name, or shows it if it's open.

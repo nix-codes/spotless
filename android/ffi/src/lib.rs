@@ -438,7 +438,8 @@ pub enum Action {
     /// Puts back the songs or playlist taken out last.
     UndoSpotifyRemoval,
     /// Syncs a playlist, keeping it the same on the account's other
-    /// devices, or stops: it stays here as it is, and on Spotify for them.
+    /// devices, or stops: its Spotify playlist is deleted, and it stays
+    /// here only (the other devices keep theirs, not synced).
     SetSync {
         playlist: u64,
         on: bool,

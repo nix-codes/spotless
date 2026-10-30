@@ -300,8 +300,9 @@ impl Controller {
         }
     }
 
-    /// Signed in: reads the Spotless folder, for playlists new to this
-    /// device, then catches up with every synced playlist.
+    /// Signed in, or the account's list of playlists changed: reads the
+    /// Spotless folder, for playlists new to this device or gone from it,
+    /// then catches up with every synced playlist.
     pub(super) fn sync_on_connect(&mut self) {
         self.send(Command::SyncFolder);
     }
@@ -324,6 +325,16 @@ impl Controller {
             }
         };
         let in_folder: HashSet<&str> = folder.iter().map(|(uri, _)| uri.as_str()).collect();
+        // Seen in the folder, one just made is there: gone from it later,
+        // it was deleted.
+        for list in self.state.library.playlists() {
+            if let Some(link) = &list.sync
+                && in_folder.contains(link.uri.as_str())
+                && let Some(syncing) = self.syncing.get_mut(&list.id)
+            {
+                syncing.created = None;
+            }
+        }
         let gone: Vec<PlaylistId> = self
             .state
             .library
@@ -346,12 +357,15 @@ impl Controller {
             self.unsync(id);
             if let Some(list) = self.state.library.get(id) {
                 self.state.notice = Some(format!(
-                    "{} was deleted on another device; kept here, not synced.",
+                    "{} was taken off Spotify on another device; kept here, not synced.",
                     list.name
                 ));
             }
         }
-        for (uri, name) in &folder {
+        // One being made here may be in the folder before it's known here.
+        let making = (self.state.library.playlists().iter())
+            .any(|list| list.sync.as_ref().is_some_and(|link| link.uri.is_empty()));
+        for (uri, name) in folder.iter().filter(|_| !making) {
             let library = &self.state.library;
             if library.synced(uri).is_none() && !library.synced_seen.contains(uri) {
                 self.open_synced(uri.clone(), name.clone());
@@ -399,15 +413,35 @@ impl Controller {
         if on == list.sync.is_some() {
             return;
         }
+        let signed_in = matches!(self.state.session, SessionState::Ready { .. });
         if !on {
+            // Its Spotify playlist is deleted, so that must be possible now.
+            if !signed_in {
+                self.state.error = Some("Sign in to stop syncing a playlist.".into());
+                return;
+            }
             let name = list.name.clone();
+            let uri = list.sync.as_ref().map(|link| link.uri.clone());
             self.unsync(id);
-            self.state.notice = Some(format!(
-                "{name} isn't synced any more; it stays on your other devices."
-            ));
+            match uri.filter(|uri| !uri.is_empty()) {
+                Some(uri) => {
+                    self.desynced.insert(uri.clone());
+                    self.send(Command::UnlistSpotifyPlaylist {
+                        playlist: uri,
+                        name: name.clone(),
+                        notice: format!(
+                            "{name} isn't synced any more: it's gone from Spotify, and only here."
+                        ),
+                    });
+                }
+                // Not made on Spotify yet: nothing to delete there.
+                None => {
+                    self.state.notice = Some(format!("{name} isn't synced any more."));
+                }
+            }
             return;
         }
-        if !matches!(self.state.session, SessionState::Ready { .. }) {
+        if !signed_in {
             self.state.error = Some("Sign in to sync a playlist.".into());
             return;
         }
@@ -428,6 +462,16 @@ impl Controller {
             return;
         };
         match result {
+            // Sync was turned off meanwhile: it goes again.
+            Ok(uri) if list.sync.is_none() => {
+                let name = list.name.clone();
+                self.desynced.insert(uri.clone());
+                self.send(Command::UnlistSpotifyPlaylist {
+                    playlist: uri,
+                    notice: format!("{name} isn't synced any more."),
+                    name,
+                });
+            }
             Ok(uri) => {
                 list.sync = Some(Link {
                     uri: uri.clone(),

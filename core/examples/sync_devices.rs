@@ -2,8 +2,8 @@
 //! the account, on folders of their own: A syncs a new "Spotless e2e"
 //! playlist, B finds it in the Spotless folder as it signs in, B removes
 //! a song, A marks one Q and renames it, each followed by the other, and B
-//! deletes it from Browse, which A, signing in again, keeps unsynced. Each
-//! step's time is printed. Nothing plays; the playlist is gone after (the
+//! stops syncing it, which deletes it from Spotify: B keeps it, and A, open
+//! all along, keeps it unsynced. Each step's time is printed. Nothing plays; the playlist is gone after (the
 //! Spotless folder stays: `sync_probe clean` takes it out if empty).
 //!
 //!   SPOTLESS_AUDIO_DEVICE=nope cargo run -p spotless-core --example sync_devices
@@ -182,35 +182,39 @@ fn main() -> Result<()> {
             .is_some_and(|l| l.name == format!("{NAME} 2"))
     })?;
 
-    // B deletes it from Browse, which closes its tab; A, signing in
-    // again, keeps it unsynced.
+    // B stops syncing it: it's deleted from Spotify, B keeps it, and A,
+    // open all along, keeps it too, unsynced, as Spotify tells it the
+    // list of playlists changed.
+    b.apply(Action::SetSync(list_b, false));
+    until(
+        &mut a,
+        &mut b,
+        "A unsynced it, kept here, still open",
+        30,
+        |a, _| {
+            a.state()
+                .library
+                .get(list_a)
+                .is_some_and(|l| l.sync.is_none() && l.len() == 2)
+        },
+    )?;
+    let kept = b.state().library.get(list_b);
+    if !kept.is_some_and(|l| l.sync.is_none() && l.len() == 2) {
+        bail!("B didn't keep it");
+    }
+    println!("        A: {:?}", a.state().notice);
+    println!("        B: {:?}", b.state().notice);
     b.apply(Action::ReadSpotifyPlaylists);
     until(
         &mut a,
         &mut b,
-        "B read its Spotify playlists",
+        "gone from B's Spotify playlists",
         30,
-        |_, b| b.state().browse.unlistable(&uri),
+        |_, b| {
+            matches!(&b.state().browse.spotify_playlists,
+            Some(spotless_core::browse::Loadable::Ready(lists)) if lists.iter().all(|l| l.uri != uri))
+        },
     )?;
-    b.apply(Action::UnlistSpotifyPlaylist(uri.clone()));
-    until(&mut a, &mut b, "B deleted it", 10, |_, b| {
-        b.state().library.get(list_b).is_none()
-    })?;
-    std::thread::sleep(Duration::from_secs(3));
-    drop(a);
-    let config = root.join("a").join("config");
-    let mut a = Controller::new(
-        Paths::from_dirs(config, root.join("a").join("cache"))?,
-        || {},
-    );
-    until(&mut a, &mut b, "A unsynced it, kept here", 60, |a, _| {
-        a.state()
-            .library
-            .playlists()
-            .iter()
-            .any(|l| l.name.starts_with(NAME) && l.sync.is_none())
-    })?;
-    println!("        A: {:?}", a.state().notice);
     let _ = std::fs::remove_dir_all(&root);
     Ok(())
 }
