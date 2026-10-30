@@ -39,6 +39,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.first
@@ -878,11 +880,14 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
             return if (at > 0) at + starts.count { it <= at } - 1 else 0
         }
         val state = remember(list.id) { LazyListState(opening()) }
-        // A tap on the player's song glides it there again.
+        // A tap on the player's song glides it there again: in a scope of
+        // its own, or clearing the jump would end this effect, and the
+        // glide with it.
+        val gliding = rememberCoroutineScope()
         LaunchedEffect(core.jump, list.id) {
             if (core.jump == list.id) {
                 core.jump = null
-                state.glideTo(opening())
+                gliding.launch { state.glideTo(opening()) }
             }
         }
         ScrollingList(state, Modifier.fillMaxSize()) {
@@ -1111,11 +1116,13 @@ private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, se
     LaunchedEffect(now >= 0) {
         if (now > 0) state.scrollToItem(now - 1)
     }
-    // A tap on the player's song glides it there again.
+    // A tap on the player's song glides it there again, in a scope of its
+    // own (see Songs).
+    val gliding = rememberCoroutineScope()
     LaunchedEffect(core.jump, id) {
         if (core.jump == id) {
             core.jump = null
-            state.glideTo((now - 1).coerceAtLeast(0))
+            gliding.launch { state.glideTo((now - 1).coerceAtLeast(0)) }
         }
     }
     Column(modifier.fillMaxWidth().padding(horizontal = 8.dp).lcd().padding(2.dp)) {
