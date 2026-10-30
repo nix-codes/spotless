@@ -66,7 +66,7 @@ fun SpotifyPicker(core: Core, tracks: List<Track>, name: String, saving: Boolean
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             BasicText(
-                if (saving) "SAVE TO A NEW SPOTIFY PLAYLIST" else "COPY ${songs(tracks.size)} TO SPOTIFY",
+                if (saving) "EXPORT TO A NEW SPOTIFY PLAYLIST" else "COPY ${songs(tracks.size)} TO SPOTIFY",
                 Modifier.weight(1f),
                 label(12.sp, Classic.label, 0.06.em),
             )

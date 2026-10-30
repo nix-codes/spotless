@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -141,8 +142,15 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
         } else {
             TopBar(core, openSettings)
         }
-        Tabs(core, { editing = it }, { adding = !adding })
-        editing?.let { TabEditor(core, it) { editing = null } }
+        val naming = remember(editing) {
+            editing?.let { id -> core.tabs.tabs.firstOrNull { it.id == id && !it.spotify }?.let { NameEdit(id, it.name) } }
+        }
+        // A tab held is shown too: the one pressed in is the one edited.
+        Tabs(core, naming, {
+            editing = it
+            core.apply(Action.SelectPlaylist(it))
+        }, { adding = !adding }, { if (it != editing) editing = null })
+        editing?.let { TabEditor(core, it, naming) { editing = null } }
         if (adding && core.settings.spotifyTabClosed) AddBar(core) { adding = false }
         Summary(core, queue, selected)
         ErrorNote(core)
@@ -325,18 +333,19 @@ private class TabDrag(val id: ULong, val from: Int, val lefts: List<Float>, val 
 }
 
 /**
- * The playlists' tabs. Holding one opens its editor; holding it and sliding
- * moves it, the others making room.
+ * The playlists' tabs. Holding one opens its editor, its name typed in the
+ * tab itself; holding it and sliding moves it, the others making room.
  */
 @Composable
-private fun Tabs(core: Core, edit: (ULong) -> Unit, add: () -> Unit) {
+private fun Tabs(core: Core, naming: NameEdit?, edit: (ULong) -> Unit, add: () -> Unit, tapped: (ULong?) -> Unit) {
     val tabs = core.tabs.tabs
     val state = rememberLazyListState()
     var drag by remember { mutableStateOf<TabDrag?>(null) }
     val gap = with(LocalDensity.current) { 4.dp.toPx() }
     val haptics = LocalHapticFeedback.current
-    // The viewed tab in sight: there already on opening, glided to after.
-    val viewed = tabs.indexOfFirst { it.id == core.tabs.viewed }
+    // The viewed tab in sight, or the one held: there already on opening,
+    // glided to after.
+    val viewed = tabs.indexOfFirst { it.id == (naming?.id ?: core.tabs.viewed) }
     var opened by remember { mutableStateOf(false) }
     LaunchedEffect(viewed) {
         if (viewed < 0) return@LaunchedEffect
@@ -374,7 +383,11 @@ private fun Tabs(core: Core, edit: (ULong) -> Unit, add: () -> Unit) {
                 label = "tab",
             )
             ChromeButton(
-                { core.apply(Action.SelectPlaylist(tab.id)) },
+                {
+                    // Another tab than the one held: its editor closes.
+                    tapped(tab.id)
+                    core.apply(Action.SelectPlaylist(tab.id))
+                },
                 Modifier
                     .fillMaxHeight()
                     .zIndex(if (held != null) 1f else 0f)
@@ -425,7 +438,11 @@ private fun Tabs(core: Core, edit: (ULong) -> Unit, add: () -> Unit) {
                         if (core.player.status == Status.PLAYING) DancingBars() else PlayMark()
                         Spacer(Modifier.width(6.dp))
                     }
-                    BasicText(tab.name, style = body(14.sp, if (on) Classic.lcd else Classic.chrome))
+                    if (naming?.id == tab.id) {
+                        NameField(core, naming)
+                    } else {
+                        BasicText(tab.name, style = body(14.sp, if (on) Classic.lcd else Classic.chrome))
+                    }
                     // A synced one's mark, lit while it's the same as elsewhere.
                     tab.sync?.let { sync ->
                         val color = when (sync) {
@@ -443,7 +460,10 @@ private fun Tabs(core: Core, edit: (ULong) -> Unit, add: () -> Unit) {
             // With the Spotify tab closed, + opens it too.
             val closed = core.settings.spotifyTabClosed
             ChromeButton(
-                { if (closed) add() else core.apply(Action.NewPlaylist) },
+                {
+                    tapped(null)
+                    if (closed) add() else core.apply(Action.NewPlaylist)
+                },
                 Modifier.fillMaxHeight(),
                 description = if (closed) "New playlist or the Spotify tab" else "New playlist",
             ) {
@@ -510,9 +530,54 @@ private fun AddBar(core: Core, done: () -> Unit) {
     }
 }
 
-/** A held tab's name, syncing, place, and closing or deleting it. */
+/** The held tab's name as typed: in the tab, kept by the editor. */
+private class NameEdit(val id: ULong, name: String) {
+    var name by mutableStateOf(name)
+    val field = FocusRequester()
+
+    /** The name typed, kept; left empty, it's the old name again. */
+    fun keep(core: Core) {
+        val now = core.tabs.tabs.firstOrNull { it.id == id }?.name ?: return
+        if (name.isBlank()) {
+            name = now
+        } else if (name.trim() != now) {
+            core.apply(Action.RenamePlaylist(id, name.trim()))
+        }
+    }
+}
+
+/** The held tab's name, typed in place; the keyboard comes on a tap. */
 @Composable
-private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
+private fun NameField(core: Core, naming: NameEdit) {
+    val focus = LocalFocusManager.current
+    BasicTextField(
+        naming.name,
+        { naming.name = it },
+        Modifier
+            .widthIn(min = 32.dp, max = 220.dp)
+            .focusRequester(naming.field)
+            // Underlined: it can be typed in.
+            .drawBehind {
+                drawLine(Classic.lcd, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+            }
+            .semantics { contentDescription = "Playlist name" },
+        textStyle = body(14.sp, Classic.lcd),
+        singleLine = true,
+        cursorBrush = SolidColor(Classic.lcd),
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = {
+            naming.keep(core)
+            focus.clearFocus()
+        }),
+    )
+}
+
+/**
+ * A held tab's syncing, exporting and closing or deleting, and ? for what
+ * they do. Its name is typed in the tab.
+ */
+@Composable
+private fun TabEditor(core: Core, id: ULong, naming: NameEdit?, done: () -> Unit) {
     val tabs = core.tabs.tabs
     val at = tabs.indexOfFirst { it.id == id }
     if (at < 0) {
@@ -521,56 +586,34 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
         return
     }
     val tab = tabs[at]
-    if (tab.spotify) return SpotifyTabEditor(core, id, at, done)
-    var name by remember(id) { mutableStateOf(tab.name) }
+    if (tab.spotify || naming == null) return SpotifyTabEditor(core, id, at, done)
     // Deleting asks once more, on the same button.
     var deleting by remember(id) { mutableStateOf(false) }
     var saving by remember(id) { mutableStateOf(false) }
+    var help by remember(id) { mutableStateOf(false) }
     val focus = LocalFocusManager.current
-    val nameField = remember { FocusRequester() }
-    // The name typed is kept on leaving the field, before whatever is
-    // tapped next; left empty, it's the old name again.
+    // The name typed is kept before whatever is tapped next.
     val keep = {
-        val now = core.tabs.tabs.firstOrNull { it.id == id }?.name
-        if (now != null && name.isNotBlank() && name.trim() != now) core.apply(Action.RenamePlaylist(id, name.trim()))
-        if (name.isBlank()) name = now ?: name
+        naming.keep(core)
         focus.clearFocus()
     }
     // Closed some other way, or another tab held: still kept.
     DisposableEffect(id) { onDispose { keep() } }
-    val close = {
-        keep()
-        done()
-    }
     if (saving) {
         return SpotifyPicker(core, core.tracks(id), tab.name, saving = true, close = { saving = false }, done = done)
     }
+    val synced = tab.sync != null
+    val signedIn = core.session is Session.Ready
     Column(
         Modifier.fillMaxWidth().padding(8.dp).background(Classic.frame).bevel().padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            BasicTextField(
-                name,
-                { name = it },
-                Modifier
-                    .weight(1f)
-                    .height(44.dp)
-                    .focusRequester(nameField)
-                    .lcd()
-                    .padding(horizontal = 12.dp, vertical = 12.dp)
-                    .semantics { contentDescription = "Playlist name" },
-                textStyle = body(16.sp, Classic.lcd),
-                singleLine = true,
-                cursorBrush = SolidColor(Classic.lcd),
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { keep() }),
-            )
-            GlyphButton(Glyph.Close, "Done", close, Modifier.width(48.dp))
+        if (help) {
+            TabHelp {
+                help = false
+            }
+            return@Column
         }
-        // Kept the same on the other devices, or not.
-        val synced = tab.sync != null
-        val signedIn = core.session is Session.Ready
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             // Pressed in, with the tab's ⇅, while it's synced.
             ChromeButton({
@@ -587,64 +630,30 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
                     BasicText(if (synced) "SYNCED" else "SYNC", style = label(color = color))
                 }
             }
-            BasicText(
-                when (val sync = tab.sync) {
-                    null if !signedIn -> "Sign in to keep it the same on your other devices."
-                    null -> "Keeps it the same on your other devices."
-                    TabSync.UpToDate -> "The same on your other devices. Tap to stop: it stays only here."
-                    TabSync.Waiting -> "Changes wait to be sent. Tap to stop: it stays only here."
-                    is TabSync.Failed -> "Spotify refused a change: ${sync.reason}"
-                },
-                Modifier.weight(1f),
-                body(13.sp, if (tab.sync is TabSync.Failed) Classic.warning else Classic.label, FontWeight.Normal),
-            )
+            // Its songs, copied once to a new playlist on Spotify.
+            TextButton("EXPORT TO SPOTIFY…", {
+                keep()
+                saving = true
+            }, Modifier.weight(1f), enabled = tab.songs > 0u)
         }
-        // Not synced: the Spotless folder has its name. Renamed, it's synced.
-        if (core.tabs.syncNameTaken == id) {
-            BasicText(
-                "A synced playlist called “${tab.name}” is already on Spotify. Rename this one, " +
-                    "or replace that one: your other devices keep it, no longer synced.",
-                style = body(13.sp, Classic.warning, FontWeight.Normal),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton("RENAME", { nameField.requestFocus() }, Modifier.weight(1f))
-                TextButton("REPLACE IT", {
-                    keep()
-                    core.apply(Action.ReplaceSynced(id))
-                }, Modifier.weight(1f))
-                TextButton("CANCEL", {
-                    keep()
-                    core.apply(Action.DismissSyncNameTaken)
-                }, Modifier.weight(1f))
-            }
-        }
-        // Its songs, copied once to a new playlist on Spotify.
-        TextButton("COPY TO NEW SPOTIFY PLAYLIST…", {
-            keep()
-            saving = true
-        }, Modifier.fillMaxWidth(), enabled = tab.songs > 0u)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton("◀", {
-                keep()
-                core.apply(Action.MovePlaylist(id, (at - 1).toUInt()))
-            }, enabled = at > 0)
-            TextButton("▶", {
-                keep()
-                core.apply(Action.MovePlaylist(id, (at + 1).toUInt()))
-            }, enabled = at < tabs.lastIndex)
-            if (!deleting) BasicText("MOVE TAB", style = label(color = Classic.label))
+            if (!deleting) {
+                TextButton("?", {
+                    keep()
+                    help = true
+                }, Modifier.width(48.dp))
+            }
             Box(Modifier.weight(1f))
-            // What loses the tab; the last one leaves an empty Default. A
-            // synced one closes only: it stays on Spotify, and YOUR SPOTIFY
-            // in Browse opens it again or deletes it.
+            // A synced one closes only: it stays on Spotify, and YOUR
+            // SPOTIFY in Browse opens it again or deletes it. The last one
+            // leaves an empty Default.
             if (synced) {
                 TextButton("CLOSE TAB", {
                     keep()
                     core.apply(Action.ClosePlaylist(id))
                     done()
                 })
-            }
-            if (!synced) {
+            } else {
                 val delete = {
                     // An empty playlist has nothing to lose: no second ask.
                     if (deleting || tab.songs == 0u) {
@@ -661,7 +670,63 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
                     GlyphButton(Glyph.Trash, "Delete the playlist", delete, Modifier.width(48.dp))
                 }
             }
+            GlyphButton(Glyph.Close, "Done", {
+                keep()
+                done()
+            }, Modifier.width(48.dp))
         }
+        // Only what needs a look: changes not yet sent, or refused.
+        when (val sync = tab.sync) {
+            TabSync.Waiting -> "Changes wait to be sent."
+            is TabSync.Failed -> "Spotify refused a change: ${sync.reason}"
+            else -> null
+        }?.let {
+            BasicText(it, style = body(13.sp, if (tab.sync is TabSync.Failed) Classic.warning else Classic.label, FontWeight.Normal))
+        }
+        // Not synced: the Spotless folder has its name. Renamed, it's synced.
+        if (core.tabs.syncNameTaken == id) {
+            BasicText(
+                "A synced playlist called “${tab.name}” is already on Spotify. Rename this one, " +
+                    "or replace that one: your other devices keep it, no longer synced.",
+                style = body(13.sp, Classic.warning, FontWeight.Normal),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton("RENAME", { naming.field.requestFocus() }, Modifier.weight(1f))
+                TextButton("REPLACE IT", {
+                    keep()
+                    core.apply(Action.ReplaceSynced(id))
+                }, Modifier.weight(1f))
+                TextButton("CANCEL", {
+                    keep()
+                    core.apply(Action.DismissSyncNameTaken)
+                }, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** What the tab editor's buttons do, in their place until OK. */
+@Composable
+private fun TabHelp(ok: () -> Unit) {
+    @Composable
+    fun Line(what: @Composable () -> Unit, does: String) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.width(72.dp)) { what() }
+            BasicText(does, Modifier.weight(1f), body(13.sp, Classic.chrome, FontWeight.Normal))
+        }
+    }
+    @Composable
+    fun Word(text: String) = BasicText(text, style = label(color = Classic.lcd))
+    @Composable
+    fun Mark(glyph: Glyph) = Box(Modifier.size(16.dp).drawBehind { glyph(glyph, Classic.lcd) })
+    Line({ Word("NAME") }, "Tap the name in the tab to rename it.")
+    Line({ Word("⇅ SYNC") }, "Keeps it the same on your other devices: its songs and where it's up to. Tap again to stop; it stays only here.")
+    Line({ Word("EXPORT…") }, "Makes a new playlist on Spotify with its songs, once. Changing the tab later doesn't change it.")
+    Line({ Mark(Glyph.Trash) }, "Deletes the playlist. A synced one has CLOSE TAB instead: it stays on Spotify, and Browse's YOUR SPOTIFY opens it again.")
+    Line({ Word("MOVE") }, "Hold a tab and slide it.")
+    Row {
+        Box(Modifier.weight(1f))
+        TextButton("OK", ok, Modifier.width(72.dp))
     }
 }
 
