@@ -10,7 +10,9 @@
 //! The tape winds from the left reel to the right one as the song plays,
 //! and back fast when another starts; the reels turn only while it plays.
 //! The Walkman's switch (MIX) puts the whole playlist on the cassette
-//! instead: side A left to right, then auto reverse plays side B back.
+//! instead: side A left to right, then auto reverse plays side B back; the
+//! reel deck's lever at 3¾ IPS puts it on the reels, in one pass at half
+//! the speed.
 //! The disc holds the whole playlist and turns while it plays, faster the
 //! nearer the centre the laser reads. A single holds one song, and is
 //! changed for the next one's when the song changes; at 33 an LP holds
@@ -101,6 +103,10 @@ pub struct Tape {
     pub mixtape: Option<Mixtape>,
     /// The Walkman's switch, from SINGLE (0) to MIX (1) as drawn.
     pub switch: f32,
+    /// The playlist on the reels at 3¾ IPS, or None at 7½.
+    pub reel_list: Option<String>,
+    /// The reel deck's lever, from 3¾ (0) to 7½ (1) as drawn.
+    pub lever: f32,
 }
 
 /// The playlist playing as a mixtape: its name, the cassette's length,
@@ -139,6 +145,8 @@ pub struct Motion {
     /// The arm is up and on its way to another place on the record.
     cueing: bool,
     switch: f32,
+    /// The reel deck's lever, from 7½ (0) to 3¾ (1).
+    slow: f32,
 }
 
 /// A record being changed, or an LP turned over: how long since it
@@ -215,17 +223,21 @@ impl Motion {
                 }
             }
             _ => {
-                // Side B of a mixtape plays back the other way.
-                let (target, direction) = match mixtape(view) {
-                    Some(mix) => (mix.share, if mix.side == 'B' { -1.0 } else { 1.0 }),
-                    None => (target, 1.0),
+                // Side B of a mixtape plays back the other way; reels at
+                // 3¾ run at half the speed.
+                let (target, pace) = match (mixtape(view), slow_reel(view)) {
+                    (Some(mix), _) => (mix.share, if mix.side == 'B' { -1.0 } else { 1.0 }),
+                    (_, Some(album)) => (album.through(), 0.5),
+                    _ => (target, 1.0),
                 };
-                self.wind(view, target, direction, playing, dt);
+                self.wind(view, target, pace, playing, dt);
             }
         }
         let switch = if view.settings.cassette_mix { 1.0 } else { 0.0 };
         self.switch += (switch - self.switch) * (dt * 16.0).min(1.0);
-        moving |= (switch - self.switch).abs() > 0.001;
+        let slow = if view.settings.reel_slow { 1.0 } else { 0.0 };
+        self.slow += (slow - self.slow) * (dt * 14.0).min(1.0);
+        moving |= (switch - self.switch).abs() > 0.001 || (slow - self.slow).abs() > 0.001;
 
         let share = |db: f32, floor: f32, top: f32| ((db - floor) / (top - floor)).clamp(0.0, 1.0);
         for band in 0..BANDS {
@@ -383,8 +395,9 @@ impl Motion {
     }
 
     /// Winds the tape on to `target`, the share on the right reel, and
-    /// plays it in `direction` (1 left to right, -1 back).
-    fn wind(&mut self, view: &View, target: f32, direction: f32, playing: bool, dt: f32) {
+    /// plays it at `pace` (1 left to right, -1 back, 0.5 at half the
+    /// speed).
+    fn wind(&mut self, view: &View, target: f32, pace: f32, playing: bool, dt: f32) {
         let drawn = self.drawn.get_or_insert(target);
         let gap = target - *drawn;
         let pack = |share: f32| match view.settings.deck_media {
@@ -405,8 +418,8 @@ impl Motion {
             self.winding = false;
             *drawn = target;
             if playing {
-                turn(TAPE_SPEED * direction, target);
-                self.counter += 0.9 * dt;
+                turn(TAPE_SPEED * pace, target);
+                self.counter += 0.9 * dt * pace.abs();
             }
         }
         self.counter = self.counter.max(0.0);
@@ -443,6 +456,8 @@ impl Motion {
             },
             mixtape,
             switch: self.switch,
+            reel_list: slow_reel(view).map(|album| album.name),
+            lever: 1.0 - self.slow,
         }
     }
 }
@@ -592,6 +607,13 @@ impl Album {
         into as f32 / self.sides.longer.max(1) as f32
     }
 
+    /// How far through the whole playlist the song playing is.
+    fn through(&self) -> f32 {
+        let before: u64 = self.lengths[..self.index].iter().sum();
+        let total: u64 = self.lengths.iter().sum();
+        (before + self.position.min(self.lengths[self.index])) as f32 / total.max(1) as f32
+    }
+
     /// The side of the LP the song playing is on.
     fn lp(&self) -> vinyl::Record {
         let side = self.side();
@@ -642,6 +664,14 @@ fn album(view: &View) -> Option<Album> {
         index,
         position,
     })
+}
+
+/// The playlist playing on the reels, when the reel deck plays at 3¾.
+fn slow_reel(view: &View) -> Option<Album> {
+    if !view.settings.reel_slow || view.settings.deck_media != DeckMedia::Reel {
+        return None;
+    }
+    album(view)
 }
 
 /// The playlist playing as a mixtape, when the Walkman plays and its switch
@@ -759,6 +789,7 @@ pub fn draw(
     let media = view.settings.deck_media;
     let mut switch = None;
     let mut speeds = None;
+    let mut lever = None;
     let (art, keys_top, bottom, spectrum_top) = match media {
         DeckMedia::Reel => {
             let plate = reel::PLATE * k;
@@ -767,7 +798,7 @@ pub fn draw(
                 origin: pos2(left, top),
                 k,
             };
-            reel::draw(&canvas, band / k, &tape);
+            lever = Some(reel::draw(&canvas, band / k, &tape));
             let art = Rect::from_min_size(pos2(left, top), vec2(width, plate));
             (art, top + plate + MARGIN, top + plate + band, top)
         }
@@ -815,6 +846,21 @@ pub fn draw(
             .clicked()
         {
             actions.push(Action::SetCassetteMix(!mix));
+        }
+    }
+    if let Some(rect) = lever {
+        let slow = view.settings.reel_slow;
+        let tip = if slow {
+            "Play a song a reel (7½ IPS)"
+        } else {
+            "Play the whole playlist on the reels (3¾ IPS)"
+        };
+        if ui
+            .interact(rect, ui.id().with("reel speed"), Sense::click())
+            .on_hover_text(tip)
+            .clicked()
+        {
+            actions.push(Action::SetReelSlow(!slow));
         }
     }
     if let Some([lp, single]) = speeds {
@@ -1018,6 +1064,8 @@ mod tests {
         let b = album(3, 0);
         assert_eq!(b.lp().lp.unwrap().side, 'B');
         assert!((b.needle() - 8.0 / 20.0).abs() < 1e-6);
+        // On the reels, one pass through all of it.
+        assert!((b.through() - 27.0 / 39.0).abs() < 1e-6);
         // The same side when a song is added: no change of record.
         assert!(a.lp().same(&album(0, 0).lp()));
         assert!(!a.lp().same(&b.lp()));

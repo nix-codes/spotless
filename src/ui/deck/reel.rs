@@ -1,12 +1,12 @@
 //! A reel-to-reel deck seen from the front, 336 units wide, after an
 //! Otari: two wooden reels with gold hubs, nearly touching, standing up out
 //! of the case's top edge; the tape drops off each round a guide and runs
-//! level through the heads, past the capstan; a counter, and the player's
-//! buttons along the bottom as its transport keys.
+//! level through the heads, past the capstan; a counter, the speed lever,
+//! and the player's buttons along the bottom as its transport keys.
 
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_3, PI, TAU};
 
-use egui::{Align2, Color32};
+use egui::{Align2, Color32, Rect};
 
 use super::Tape;
 use super::canvas::{Canvas, Face, blend, rgb, rgba};
@@ -48,8 +48,9 @@ pub fn pack(share: f32) -> f32 {
     (HUB * HUB + share.clamp(0.0, 1.0) * (FULL * FULL - HUB * HUB)).sqrt()
 }
 
-/// The deck, the keys' strip `keys` units tall included.
-pub fn draw(c: &Canvas, keys: f32, tape: &Tape) {
+/// The deck, the keys' strip `keys` units tall included; returns where
+/// its speed lever can be clicked.
+pub fn draw(c: &Canvas, keys: f32, tape: &Tape) -> Rect {
     let (w, h) = (WIDTH, PLATE + keys);
     // The case: wooden all round, a dark grey panel, a wooden strip over
     // the keys and the keys' recess.
@@ -172,26 +173,71 @@ pub fn draw(c: &Canvas, keys: f32, tape: &Tape) {
             Align2::CENTER_CENTER,
         );
     }
+    let lever = speed_lever(c, w, cy_counter, tape.lever);
+    // The reels last, over the tape's start and the case's top edge.
+    // The song and its artists on the left reel, or at 3¾ the playlist.
+    let tags = match &tape.reel_list {
+        Some(list) => (list.as_str(), ""),
+        None => (tape.title.as_str(), tape.artist.as_str()),
+    };
+    reel(c, lx, cy, rl, tape.angles[0], Some(tags));
+    reel(c, rx, cy, rr, tape.angles[1], None);
+    lever
+}
+
+/// The model and the speed lever beside it on the line at `y`: a chrome
+/// bat toggle on its nut, leaning from 3¾ (`at` 0) to 7½ (1). Returns
+/// where it can be clicked.
+fn speed_lever(c: &Canvas, w: f32, y: f32, at: f32) -> Rect {
+    let print = rgb(0xb8bcc4);
     c.text(
-        "X-90 · 7½ IPS",
-        w - 14.0,
-        cy_counter,
+        "X-90",
+        238.0,
+        y,
         Face::Mono,
         6.5,
-        rgb(0xb8bcc4),
+        print,
+        Align2::LEFT_CENTER,
+    );
+    let (bx, by) = (290.0, y + 3.0);
+    for (speed, dx) in [("3¾", -12.0), ("7½", 12.0)] {
+        c.text(
+            speed,
+            bx + dx,
+            y - 3.0,
+            Face::Mono,
+            6.5,
+            print,
+            Align2::CENTER_CENTER,
+        );
+    }
+    c.text(
+        "IPS",
+        w - 14.0,
+        y,
+        Face::Mono,
+        6.5,
+        print,
         Align2::RIGHT_CENTER,
     );
-    // The reels last, over the tape's start and the case's top edge.
-    // The song and its artists on the left reel.
-    reel(
-        c,
-        lx,
-        cy,
-        rl,
-        tape.angles[0],
-        Some((&tape.title, &tape.artist)),
+    let chrome = [(0.0, rgb(0xf4f6f8)), (1.0, rgb(0x6a7078))];
+    c.sector(bx, by, 0.0, 3.6, 0.0, TAU, |px, py| {
+        blend(
+            &chrome,
+            ((px - bx + 1.0).hypot(py - by + 1.0) / 4.0).min(1.0),
+        )
+    });
+    c.circle(bx, by, 1.6, rgb(0x2a2b2e));
+    let a = -FRAC_PI_2 + (at - 0.5) * 1.2;
+    let tip = (bx + a.cos() * 9.0, by + a.sin() * 9.0);
+    c.line(
+        &[(bx + 1.0, by + 1.5), (tip.0 + 1.0, tip.1 + 1.5)],
+        2.4,
+        rgba(0x000000, 0.35),
     );
-    reel(c, rx, cy, rr, tape.angles[1], None);
+    c.line(&[(bx, by), tip], 2.0, rgb(0xd8dce2));
+    c.circle(tip.0, tip.1, 1.6, rgb(0xe8eaee));
+    c.r(bx - 20.0, y - 12.0, 40.0, 22.0)
 }
 
 /// A wavy line of wood grain, `length` units long, its points at `at(t)`.

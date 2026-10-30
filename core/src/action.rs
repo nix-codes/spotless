@@ -115,6 +115,9 @@ pub enum Action {
     /// The turntable plays the whole playlist on an LP (33) or a single
     /// for each song (45).
     SetVinylLp(bool),
+    /// The reels play the whole playlist at 3¾ IPS, or a song a reel at
+    /// 7½.
+    SetReelSlow(bool),
     /// The time shows what's left of the song, or what has played.
     ToggleTimeLeft,
 

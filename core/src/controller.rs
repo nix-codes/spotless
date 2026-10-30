@@ -1266,6 +1266,10 @@ impl Controller {
                 self.state.settings.vinyl_lp = lp;
                 self.mark_unsaved();
             }
+            Action::SetReelSlow(slow) => {
+                self.state.settings.reel_slow = slow;
+                self.mark_unsaved();
+            }
             Action::ToggleTimeLeft => {
                 self.state.settings.time_left = !self.state.settings.time_left;
                 self.mark_unsaved();
@@ -2196,6 +2200,8 @@ mod tests {
         assert!(settings(&rig).cassette_mix);
         rig.controller.apply(Action::SetVinylLp(true));
         assert!(settings(&rig).vinyl_lp);
+        rig.controller.apply(Action::SetReelSlow(true));
+        assert!(settings(&rig).reel_slow);
         rig.controller.apply(Action::ToggleDeck);
         assert!(!settings(&rig).deck_shown);
     }
