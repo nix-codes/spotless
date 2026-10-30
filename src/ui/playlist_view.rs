@@ -771,7 +771,7 @@ fn tab(
             if item(ui, label, signed_in).on_hover_text(hint).clicked() {
                 actions.push(Action::SetSync(list.id, !synced));
             }
-            if item(ui, "Save to Spotify…", list.count > 0)
+            if item(ui, "Export to Spotify…", list.count > 0)
                 .on_hover_text("Copies its songs to a new playlist on Spotify")
                 .clicked()
                 && let Some(songs) = view.library.get(list.id)
