@@ -544,17 +544,28 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
         val synced = tab.sync != null
         val signedIn = core.session is Session.Ready
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton("SYNC", {
+            // Pressed in, with the tab's ⇅, while it's synced.
+            ChromeButton({
                 focus.clearFocus()
                 core.apply(Action.SetSync(id, !synced))
-            }, Modifier.width(88.dp), enabled = signedIn, lit = synced)
+            }, Modifier.width(112.dp), on = synced, enabled = signedIn, description = if (synced) "Synced; tap to stop" else "Sync") {
+                val color = when {
+                    !signedIn -> Classic.label
+                    synced -> Classic.lcd
+                    else -> Classic.chrome
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (synced) Box(Modifier.size(14.dp).drawBehind { glyph(Glyph.Sync, color) })
+                    BasicText(if (synced) "SYNCED" else "SYNC", style = label(color = color))
+                }
+            }
             BasicText(
                 when (val sync = tab.sync) {
                     null if !signedIn -> "Sign in to keep it the same on your other devices."
                     null -> "Keeps it the same on your other devices."
-                    TabSync.UpToDate -> "Synced: the same on your other devices. Off, it's only here."
-                    TabSync.Waiting -> "Synced: changes wait to be sent."
-                    is TabSync.Failed -> "Synced, but Spotify refused a change: ${sync.reason}"
+                    TabSync.UpToDate -> "The same on your other devices. Tap to stop: it stays only here."
+                    TabSync.Waiting -> "Changes wait to be sent. Tap to stop: it stays only here."
+                    is TabSync.Failed -> "Spotify refused a change: ${sync.reason}"
                 },
                 Modifier.weight(1f),
                 body(13.sp, if (tab.sync is TabSync.Failed) Classic.warning else Classic.label, FontWeight.Normal),
