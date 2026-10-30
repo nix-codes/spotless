@@ -4,6 +4,7 @@
 
 mod browse_view;
 pub mod deck;
+mod dialog;
 mod equaliser_view;
 mod keys;
 mod player_strip;

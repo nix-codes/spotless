@@ -20,6 +20,7 @@ use egui::{
     ScrollArea, Sense, Stroke, TextEdit, Ui, UiBuilder, pos2, vec2,
 };
 
+use super::dialog::{self, Answer};
 use super::scrollbar::Scrollbar;
 use super::skin_paint;
 use super::theme::{self, Palette};
@@ -776,40 +777,25 @@ fn confirm_close(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Action
         return;
     };
     let palette = view.palette;
-    let modal = egui::Modal::new(Id::new("close-playlist"))
-        .frame(
-            egui::Frame::new()
-                .fill(palette.frame)
-                .stroke(Stroke::new(1.0, palette.hi))
-                .inner_margin(16),
-        )
-        .show(ui.ctx(), |ui| {
-            ui.set_max_width(320.0);
-            ui.label(
-                RichText::new(format!("Close “{}”?", list.name))
-                    .size(15.0)
-                    .color(palette.current),
-            );
-            ui.add_space(4.0);
-            let songs = match list.len() {
-                1 => "Its song is removed with it.".to_string(),
-                n => format!("Its {n} songs are removed with it."),
-            };
-            ui.label(RichText::new(songs).color(palette.chrome));
-            ui.add_space(12.0);
-            ui.horizontal(|ui| {
-                if small_button(ui, &palette, "CLOSE PLAYLIST", false).clicked() {
-                    actions.push(Action::ClosePlaylist(list.id));
-                    return true;
-                }
-                small_button(ui, &palette, "KEEP", false)
-                    .on_hover_text("Esc")
-                    .clicked()
-            })
-            .inner
-        });
-    let escape = ui.input(|i| i.key_pressed(Key::Escape));
-    if modal.inner || modal.backdrop_response.clicked() || escape {
+    let buttons = [("CLOSE PLAYLIST", "Enter"), ("KEEP", "Esc")];
+    let answer = dialog::show(ui, &palette, Id::new("close-playlist"), &buttons, |ui| {
+        ui.set_max_width(320.0);
+        ui.label(
+            RichText::new(format!("Close “{}”?", list.name))
+                .size(15.0)
+                .color(palette.current),
+        );
+        ui.add_space(4.0);
+        let songs = match list.len() {
+            1 => "Its song is removed with it.".to_string(),
+            n => format!("Its {n} songs are removed with it."),
+        };
+        ui.label(RichText::new(songs).color(palette.chrome));
+    });
+    if answer == Answer::Chose(0) {
+        actions.push(Action::ClosePlaylist(list.id));
+    }
+    if answer != Answer::Waiting {
         inputs.closing = None;
     }
 }
