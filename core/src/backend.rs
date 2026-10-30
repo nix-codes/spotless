@@ -30,7 +30,7 @@ use crate::playback::transport::Request;
 use crate::spotify::devices::{self, Playing, Watch};
 use crate::spotify::queue::SpotifyQueue;
 use crate::spotify::remote::Remote;
-use crate::spotify::webapi::WebApi;
+use crate::spotify::webapi::{SongsPage, WebApi};
 use crate::spotify::{catalog, playlists, session, synced};
 use crate::store::Settings;
 
@@ -47,6 +47,11 @@ pub enum Command {
     Seek(u32),
     Volume(u16),
     Search(String),
+    /// The search's songs after the first `offset`.
+    MoreSongs {
+        query: String,
+        offset: usize,
+    },
     /// An artist's discography, by artist URI.
     Discography(String),
     /// Artists like this one, from Last.fm with this API key.
@@ -230,6 +235,11 @@ pub enum Event {
     SearchResults {
         query: String,
         results: Result<SearchResults, String>,
+    },
+    /// A search's next page of songs, and whether Spotify has more.
+    MoreSongs {
+        query: String,
+        result: Result<SongsPage, String>,
     },
     Discography {
         artist: String,
@@ -1436,6 +1446,24 @@ impl Worker {
                         emit(Event::Search(SearchState::SignedOut));
                     }
                     emit(Event::SearchResults { query, results });
+                });
+            }
+            Command::MoreSongs { query, offset } => {
+                let Some(web) = self.web.clone() else { return };
+                let approval = Arc::clone(&self.search_approval);
+                let browser = Arc::clone(&self.browser);
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = match approve_search(&web, &approval, &browser, &emit).await {
+                        Ok(()) => web
+                            .lock()
+                            .await
+                            .search_songs(&query, offset)
+                            .await
+                            .map_err(|e| format!("{e:#}")),
+                        Err(error) => Err(error),
+                    };
+                    emit(Event::MoreSongs { query, result });
                 });
             }
             Command::Discography(artist) => {

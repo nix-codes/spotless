@@ -366,6 +366,10 @@ pub enum Action {
     Search {
         query: String,
     },
+    /// Reads the search's next songs.
+    MoreSongs {
+        query: String,
+    },
     /// Drops a search from the recent ones, or all of them with None.
     ForgetSearch {
         query: Option<String>,
@@ -542,6 +546,7 @@ impl From<Action> for spotless_core::action::Action {
             Action::CloseBrowse => Core::CloseBrowse,
             Action::Back => Core::Back,
             Action::Search { query } => Core::Search(query),
+            Action::MoreSongs { query } => Core::MoreSongs(query),
             Action::ForgetSearch { query } => Core::ForgetSearch(query),
             Action::OpenArtist { artist } => Core::OpenArtist(artist.into()),
             Action::ToggleAlbum { album } => Core::ToggleAlbum(album),

@@ -596,6 +596,10 @@ pub enum SearchPage {
         artists: Vec<Artist>,
         albums: Vec<ReleaseRow>,
         songs: Vec<Track>,
+        /// Spotify has more songs: MoreSongs reads the next ones.
+        more_songs: bool,
+        /// The next songs are being read.
+        reading_songs: bool,
     },
     Failed {
         message: String,
@@ -812,6 +816,8 @@ pub(crate) fn browse(state: &State) -> BrowseView {
                         .map(|release| release_row(state, release))
                         .collect(),
                     songs: tracks(&results.songs),
+                    more_songs: results.more_songs,
+                    reading_songs: results.reading_songs,
                 },
                 Some(Loadable::Failed(message)) => SearchPage::Failed {
                     message: message.clone(),

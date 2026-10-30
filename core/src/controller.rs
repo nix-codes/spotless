@@ -547,6 +547,26 @@ impl Controller {
                     };
                     self.state.browse.searches.insert(query, loaded);
                 }
+                Event::MoreSongs { query, result } => {
+                    let Some(Loadable::Ready(results)) = self.state.browse.searches.get_mut(&query)
+                    else {
+                        continue;
+                    };
+                    results.reading_songs = false;
+                    match result {
+                        Ok(page) => {
+                            // Spotify's pages can overlap: a song shows once.
+                            for song in page.songs {
+                                if !results.songs.iter().any(|s| s.uri == song.uri) {
+                                    results.songs.push(song);
+                                }
+                            }
+                            results.songs_read += page.read;
+                            results.more_songs = page.more;
+                        }
+                        Err(error) => self.state.error = Some(error),
+                    }
+                }
                 Event::Discography { artist, result } => {
                     let loaded = match result {
                         Ok(discography) => {
@@ -1118,6 +1138,16 @@ impl Controller {
                     self.send(Command::Search(query));
                 }
                 self.mark_unsaved();
+            }
+            Action::MoreSongs(query) => {
+                if let Some(Loadable::Ready(results)) = browse.searches.get_mut(&query)
+                    && results.more_songs
+                    && !results.reading_songs
+                {
+                    results.reading_songs = true;
+                    let offset = results.songs_read;
+                    self.send(Command::MoreSongs { query, offset });
+                }
             }
             Action::ForgetSearch(query) => {
                 match query {
@@ -3064,6 +3094,52 @@ mod tests {
         rig.controller.apply(Action::Stop);
         rig.sent();
         rig.tell(Event::Reconnected);
+        assert!(rig.sent().is_empty());
+    }
+
+    #[test]
+    fn more_songs_reads_the_next_page_once_and_adds_the_new_ones() {
+        use crate::model::catalog::SearchResults;
+        use crate::spotify::webapi::SongsPage;
+        let mut rig = Rig::new("more-songs");
+        rig.controller.apply(Action::Search("boards".into()));
+        rig.sent();
+        rig.tell(Event::SearchResults {
+            query: "boards".into(),
+            results: Ok(SearchResults {
+                songs: tracks([1, 2]),
+                songs_read: 10,
+                more_songs: true,
+                ..SearchResults::default()
+            }),
+        });
+        rig.controller.apply(Action::MoreSongs("boards".into()));
+        // Pressed again while it reads: asked once.
+        rig.controller.apply(Action::MoreSongs("boards".into()));
+        let more: Vec<_> = rig
+            .sent()
+            .into_iter()
+            .filter(|c| matches!(c, Command::MoreSongs { .. }))
+            .collect();
+        assert!(
+            matches!(&more[..], [Command::MoreSongs { query, offset: 10 }] if query == "boards")
+        );
+        rig.tell(Event::MoreSongs {
+            query: "boards".into(),
+            result: Ok(SongsPage {
+                songs: tracks([2, 3]),
+                read: 10,
+                more: false,
+            }),
+        });
+        let Some(Loadable::Ready(results)) = rig.controller.state().browse.searches.get("boards")
+        else {
+            panic!("the search's results");
+        };
+        assert_eq!(results.songs, tracks([1, 2, 3]));
+        assert_eq!(results.songs_read, 20);
+        assert!(!results.more_songs && !results.reading_songs);
+        rig.controller.apply(Action::MoreSongs("boards".into()));
         assert!(rig.sent().is_empty());
     }
 

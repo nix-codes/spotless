@@ -702,6 +702,30 @@ fn search_page(
         for (i, track) in results.songs.iter().enumerate() {
             song(ui, view, nav, i + 1, track, true, actions);
         }
+        if results.reading_songs {
+            note(ui, view, "Reading more songs…");
+        } else if results.more_songs {
+            more_songs(ui, view, nav, query, actions);
+        }
+    }
+}
+
+/// The row under a search's songs that reads the next page of them.
+fn more_songs(ui: &mut Ui, view: &View, nav: &mut Nav, query: &str, actions: &mut Actions) {
+    let palette = view.palette;
+    let row = row(ui, &palette, nav, TRACK_HEIGHT, None, |painter, rect| {
+        painter.text(
+            rect.left_center(),
+            Align2::LEFT_CENTER,
+            "MORE SONGS",
+            mono(),
+            palette.accent,
+        );
+    });
+    let open = matches!(row.act, Some(Act::Open));
+    let tip = "The next songs Spotify found (Enter)";
+    if row.response.on_hover_text(tip).clicked() || open {
+        actions.push(Action::MoreSongs(query.to_string()));
     }
 }
 

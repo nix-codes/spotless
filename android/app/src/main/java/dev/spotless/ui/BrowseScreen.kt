@@ -124,7 +124,7 @@ private fun Catalog(core: Core, modifier: Modifier) {
         ) {
             when (page) {
                 is BrowsePage.Home -> home(core, page)
-                is BrowsePage.Search -> search(core, page.page)
+                is BrowsePage.Search -> search(core, page.query, page.page)
                 is BrowsePage.Artist -> artist(core, page.page)
             }
         }
@@ -213,7 +213,7 @@ private fun LazyListScope.home(core: Core, page: BrowsePage.Home) {
     }
 }
 
-private fun LazyListScope.search(core: Core, page: SearchPage) {
+private fun LazyListScope.search(core: Core, query: String, page: SearchPage) {
     when (page) {
         SearchPage.Loading -> note("Searching…")
         is SearchPage.Failed -> note(page.message)
@@ -233,6 +233,17 @@ private fun LazyListScope.search(core: Core, page: SearchPage) {
                 section("SONGS")
                 itemsIndexed(page.songs) { _, track ->
                     TrackRow(core, track, null, "${artists(track)} · ${track.album.name}")
+                }
+                if (page.readingSongs) {
+                    note("Reading more songs…")
+                } else if (page.moreSongs) {
+                    item {
+                        TextButton(
+                            "MORE SONGS",
+                            { core.apply(Action.MoreSongs(query)) },
+                            Modifier.padding(12.dp).height(36.dp),
+                        )
+                    }
                 }
             }
         }

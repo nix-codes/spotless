@@ -44,6 +44,13 @@ pub struct SearchResults {
     pub artists: Vec<ArtistRef>,
     pub albums: Vec<Release>,
     pub songs: Vec<TrackRef>,
+    /// Spotify has more songs for the search than these.
+    pub more_songs: bool,
+    /// The songs Spotify has sent so far, those that weren't kept too:
+    /// where its next page starts.
+    pub songs_read: usize,
+    /// The next page of songs is being read.
+    pub reading_songs: bool,
 }
 
 impl SearchResults {

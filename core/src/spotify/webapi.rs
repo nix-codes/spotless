@@ -93,6 +93,21 @@ impl WebApi {
         Ok(parse_search(&body))
     }
 
+    /// The search's songs from `offset` on, a page of them, and whether
+    /// Spotify has more after those.
+    pub async fn search_songs(&mut self, query: &str, offset: usize) -> Result<SongsPage> {
+        let offset = offset.to_string();
+        let body = self
+            .search_for(&[
+                ("q", query),
+                ("type", "track"),
+                ("limit", RESULT_LIMIT),
+                ("offset", &offset),
+            ])
+            .await?;
+        Ok(songs_page(&body))
+    }
+
     /// The artist Spotify knows by this name (one Last.fm named), if any.
     pub async fn find_artist(&mut self, name: &str) -> Result<Option<ArtistRef>> {
         let body = self
@@ -215,6 +230,7 @@ impl WebApi {
 
 fn parse_search(body: &Value) -> SearchResults {
     let items = |key: &str| body[key]["items"].as_array().cloned().unwrap_or_default();
+    let page = songs_page(body);
     SearchResults {
         artists: items("artists")
             .iter()
@@ -222,7 +238,30 @@ fn parse_search(body: &Value) -> SearchResults {
             .take(ARTIST_LIMIT)
             .collect(),
         albums: items("albums").iter().filter_map(release).collect(),
-        songs: items("tracks").iter().filter_map(track_ref).collect(),
+        songs: page.songs,
+        more_songs: page.more,
+        songs_read: page.read,
+        reading_songs: false,
+    }
+}
+
+/// A page of a search's songs.
+#[derive(Debug, PartialEq)]
+pub struct SongsPage {
+    pub songs: Vec<TrackRef>,
+    /// The items Spotify sent, those that aren't songs to keep too.
+    pub read: usize,
+    /// Spotify has a page after this one.
+    pub more: bool,
+}
+
+fn songs_page(body: &Value) -> SongsPage {
+    let tracks = &body["tracks"];
+    let items = tracks["items"].as_array().map_or(&[][..], Vec::as_slice);
+    SongsPage {
+        songs: items.iter().filter_map(track_ref).collect(),
+        read: items.len(),
+        more: tracks["next"].is_string() && !items.is_empty(),
     }
 }
 
@@ -475,5 +514,25 @@ mod tests {
             results.songs[0].album.name,
             "Music Has the Right to Children"
         );
+        assert_eq!((results.songs_read, results.more_songs), (2, false));
+    }
+
+    #[test]
+    fn a_page_of_songs_says_whether_spotify_has_more() {
+        let song = serde_json::json!({
+            "uri": "spotify:track:c", "name": "Roygbiv", "duration_ms": 151000,
+            "album": {"uri": "spotify:album:d", "name": "Music Has the Right to Children"},
+            "artists": [{"uri": "spotify:artist:a", "name": "Boards of Canada"}]
+        });
+        let next = "https://api.spotify.com/v1/search?offset=20";
+        let page = songs_page(&serde_json::json!({
+            "tracks": {"items": [song, {"name": "no uri"}], "next": next}
+        }));
+        assert_eq!((page.songs.len(), page.read, page.more), (1, 2, true));
+        let last = songs_page(&serde_json::json!({"tracks": {"items": [song], "next": null}}));
+        assert!(!last.more);
+        // An empty page ends it, whatever Spotify says comes next.
+        let empty = songs_page(&serde_json::json!({"tracks": {"items": [], "next": next}}));
+        assert!(!empty.more);
     }
 }

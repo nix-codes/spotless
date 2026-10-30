@@ -118,6 +118,8 @@ pub enum Action {
     CloseBrowse,
     Back,
     Search(String),
+    /// Reads the search's next page of songs.
+    MoreSongs(String),
     /// Drops a search from the recent ones, or all of them with None.
     ForgetSearch(Option<String>),
     OpenArtist(ArtistRef),
