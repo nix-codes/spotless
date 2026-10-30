@@ -117,8 +117,8 @@ Spotify only allows playback in other apps for Premium accounts.
   a new one; right-click a tab, *Save to Spotify…*, to make a new playlist
   of all its songs. A new playlist's name is asked first, the tab's to
   start with. On Android, select songs, then COPY and SPOTIFY…; or hold
-  a tab and SAVE TO SPOTIFY…. It's a copy, made once: changing the tab
-  later doesn't change the Spotify playlist.
+  a tab and COPY TO NEW SPOTIFY PLAYLIST…. It's a copy, made once:
+  changing the tab later doesn't change the Spotify playlist.
 - **Share**, as in the Spotify app: right-click songs, an album, an
   artist or a Spotify playlist, *Share > Copy song link*, for its
   open.spotify.com link (several songs, a link a line). On Android,

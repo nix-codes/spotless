@@ -32,6 +32,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import kotlinx.coroutines.delay
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -507,19 +508,27 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
     val tab = tabs[at]
     if (tab.spotify) return SpotifyTabEditor(core, id, at, done)
     var name by remember(id) { mutableStateOf(tab.name) }
-    // Clearing and deleting each ask once more, on the same button.
-    var clearing by remember(id) { mutableStateOf(false) }
+    // Deleting asks once more, on the same button.
     var deleting by remember(id) { mutableStateOf(false) }
     var saving by remember(id) { mutableStateOf(false) }
-    if (saving) {
-        return SpotifyPicker(core, core.tracks(id), tab.name, saving = true, close = { saving = false }, done = done)
-    }
     val focus = LocalFocusManager.current
     val nameField = remember { FocusRequester() }
-    val save = {
-        if (name.isNotBlank() && name.trim() != tab.name) core.apply(Action.RenamePlaylist(id, name))
+    // The name typed is kept on leaving the field, before whatever is
+    // tapped next; left empty, it's the old name again.
+    val keep = {
+        val now = core.tabs.tabs.firstOrNull { it.id == id }?.name
+        if (now != null && name.isNotBlank() && name.trim() != now) core.apply(Action.RenamePlaylist(id, name.trim()))
+        if (name.isBlank()) name = now ?: name
         focus.clearFocus()
+    }
+    // Closed some other way, or another tab held: still kept.
+    DisposableEffect(id) { onDispose { keep() } }
+    val close = {
+        keep()
         done()
+    }
+    if (saving) {
+        return SpotifyPicker(core, core.tracks(id), tab.name, saving = true, close = { saving = false }, done = done)
     }
     Column(
         Modifier.fillMaxWidth().padding(8.dp).background(Classic.frame).bevel().padding(8.dp),
@@ -540,9 +549,9 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
                 singleLine = true,
                 cursorBrush = SolidColor(Classic.lcd),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { save() }),
+                keyboardActions = KeyboardActions(onDone = { keep() }),
             )
-            TextButton("RENAME", save, enabled = name.isNotBlank() && name.trim() != tab.name)
+            GlyphButton(Glyph.Close, "Done", close, Modifier.width(48.dp))
         }
         // Kept the same on the other devices, or not.
         val synced = tab.sync != null
@@ -550,7 +559,7 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             // Pressed in, with the tab's ⇅, while it's synced.
             ChromeButton({
-                focus.clearFocus()
+                keep()
                 core.apply(Action.SetSync(id, !synced))
             }, Modifier.width(112.dp), on = synced, enabled = signedIn, description = if (synced) "Synced; tap to stop" else "Sync") {
                 val color = when {
@@ -584,52 +593,59 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton("RENAME", { nameField.requestFocus() }, Modifier.weight(1f))
-                TextButton("REPLACE IT", { core.apply(Action.ReplaceSynced(id)) }, Modifier.weight(1f))
-                TextButton("CANCEL", { core.apply(Action.DismissSyncNameTaken) }, Modifier.weight(1f))
+                TextButton("REPLACE IT", {
+                    keep()
+                    core.apply(Action.ReplaceSynced(id))
+                }, Modifier.weight(1f))
+                TextButton("CANCEL", {
+                    keep()
+                    core.apply(Action.DismissSyncNameTaken)
+                }, Modifier.weight(1f))
             }
         }
         // Its songs, copied once to a new playlist on Spotify.
-        TextButton("SAVE TO SPOTIFY…", {
-            focus.clearFocus()
+        TextButton("COPY TO NEW SPOTIFY PLAYLIST…", {
+            keep()
             saving = true
         }, Modifier.fillMaxWidth(), enabled = tab.songs > 0u)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton("◀", { core.apply(Action.MovePlaylist(id, (at - 1).toUInt())) }, enabled = at > 0)
-            TextButton("▶", { core.apply(Action.MovePlaylist(id, (at + 1).toUInt())) }, enabled = at < tabs.lastIndex)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton("◀", {
+                keep()
+                core.apply(Action.MovePlaylist(id, (at - 1).toUInt()))
+            }, enabled = at > 0)
+            TextButton("▶", {
+                keep()
+                core.apply(Action.MovePlaylist(id, (at + 1).toUInt()))
+            }, enabled = at < tabs.lastIndex)
+            if (!deleting) BasicText("MOVE TAB", style = label(color = Classic.label))
             Box(Modifier.weight(1f))
-            if (!deleting) {
-                TextButton(if (clearing) "CLEAR ${songs(tab.songs.toInt())}?" else "CLEAR", {
-                    if (clearing) {
-                        core.clear(id)
-                        done()
-                    } else {
-                        clearing = true
-                    }
-                }, enabled = tab.songs > 0u, lit = clearing)
-            }
-            // A synced one closes here only: it stays on Spotify, and
-            // YOUR SPOTIFY in Browse opens it again or deletes it.
-            if (id != 0UL && !clearing && synced) {
-                TextButton("CLOSE", {
+            // What loses the tab (never Default's). A synced one closes
+            // only: it stays on Spotify, and YOUR SPOTIFY in Browse opens
+            // it again or deletes it.
+            if (id != 0UL && synced) {
+                TextButton("CLOSE TAB", {
+                    keep()
                     core.apply(Action.ClosePlaylist(id))
                     done()
                 })
             }
-            if (id != 0UL && !clearing && !synced) {
-                TextButton(if (deleting) "DELETE ${songs(tab.songs.toInt())}?" else "DELETE", {
+            if (id != 0UL && !synced) {
+                val delete = {
                     // An empty playlist has nothing to lose: no second ask.
                     if (deleting || tab.songs == 0u) {
                         core.apply(Action.ClosePlaylist(id))
                         done()
                     } else {
+                        keep()
                         deleting = true
                     }
-                }, lit = deleting)
+                }
+                if (deleting) {
+                    TextButton("DELETE ${songs(tab.songs.toInt())}?", delete, lit = true)
+                } else {
+                    GlyphButton(Glyph.Trash, "Delete the playlist", delete, Modifier.width(48.dp))
+                }
             }
-            GlyphButton(Glyph.Close, "Done", {
-                focus.clearFocus()
-                done()
-            }, Modifier.width(48.dp))
         }
     }
 }
