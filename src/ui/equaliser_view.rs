@@ -338,7 +338,9 @@ fn save_preset(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
             if !response.has_focus() && !response.lost_focus() {
                 response.request_focus();
             }
-            let entered = response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+            // Its Enter, not the playlist's too: that would play the song.
+            let entered = response.lost_focus()
+                && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let can = !name.trim().is_empty();

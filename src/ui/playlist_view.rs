@@ -870,6 +870,8 @@ fn rename_field(
         if !ui.input(|i| i.key_pressed(Key::Escape)) {
             actions.push(Action::RenamePlaylist(id, name.trim().to_string()));
         }
+        // Its Enter, not the list's too: that would play the song.
+        ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
         *renaming = None;
     } else if !field.has_focus() {
         field.request_focus();
