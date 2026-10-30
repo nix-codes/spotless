@@ -8,8 +8,10 @@ use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
-use crate::model::catalog::{Discography, Place, ReleaseTab, SearchResults, SpotifyPlaylist};
-use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
+use crate::model::catalog::{
+    Discography, Place, Release, ReleaseTab, SearchResults, SpotifyPlaylist,
+};
+use crate::model::{ArtistRef, EntryId, PlaylistId, Source, TrackRef};
 
 /// How long rows just added light up in the slim column.
 pub const FLASH: Duration = Duration::from_millis(1200);
@@ -73,6 +75,18 @@ impl Undo {
             Undo::Playlist(unlisted) => &unlisted.notice,
         }
     }
+}
+
+/// What ADD ALL adds on an artist's page: what the page shows.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AddAll {
+    /// The tab's releases, by URI, in the order shown.
+    Releases(Vec<String>),
+    /// The popular songs, or what a find found: the songs found, and whole
+    /// the releases found by their title.
+    Songs(Vec<TrackRef>),
+    /// A release found by its title is still being read.
+    Reading,
 }
 
 /// What a find narrows a page to: names with every word typed in them,
@@ -207,6 +221,103 @@ impl Browse {
         }
     }
 
+    /// The discography of the artist whose page is shown, once read.
+    pub fn discography(&self) -> Option<&Discography> {
+        let Page::Artist(uri) = self.page() else {
+            return None;
+        };
+        match self.artists.get(uri) {
+            Some(Loadable::Ready(discography)) => Some(discography),
+            _ => None,
+        }
+    }
+
+    /// The artist's page shows its popular songs, in place of the releases.
+    pub fn popular_shown(&self) -> bool {
+        self.popular && !self.similar && self.discography().is_some_and(|d| !d.popular.is_empty())
+    }
+
+    /// The artist page's releases on its tab, in the order shown.
+    pub fn releases_shown(&self) -> Vec<&Release> {
+        let Some(discography) = self.discography() else {
+            return Vec::new();
+        };
+        let mut releases: Vec<&Release> = (discography.releases.iter())
+            .filter(|release| self.tab.includes(release.group))
+            .collect();
+        if self.newest_first {
+            releases.reverse();
+        }
+        releases
+    }
+
+    /// What a find shows of a release: None when nothing of it has the
+    /// find; else the songs that have it, by their place on it, none when
+    /// only its title does. The release is the row: its songs go by their
+    /// own names.
+    pub fn found_in(&self, release: &Release, find: &Find) -> Option<Vec<(usize, &TrackRef)>> {
+        let found: Vec<_> = match self.albums.get(&release.uri) {
+            Some(Loadable::Ready(tracks)) => (tracks.iter().enumerate())
+                .filter(|(_, track)| find.song(track))
+                .collect(),
+            _ => Vec::new(),
+        };
+        (!found.is_empty() || find.matches(&[&release.title])).then_some(found)
+    }
+
+    /// What ADD ALL adds on the artist's page shown; None off one, with its
+    /// similar artists shown, or with nothing shown to add.
+    pub fn add_all(&self) -> Option<AddAll> {
+        let discography = self.discography()?;
+        if self.similar {
+            return None;
+        }
+        let find = self.finder();
+        // A song of an album's comes from that album, as when added alone.
+        let from_album = |track: &TrackRef| {
+            let mut track = track.clone();
+            track.source = Some(Source::album(&track.album));
+            track
+        };
+        let all = if self.popular_shown() {
+            AddAll::Songs(
+                (discography.popular.iter())
+                    .filter(|track| find.as_ref().is_none_or(|find| find.track(track)))
+                    .cloned()
+                    .collect(),
+            )
+        } else if let Some(find) = &find {
+            let mut songs = Vec::new();
+            for release in self.releases_shown() {
+                match self.found_in(release, find) {
+                    None => {}
+                    Some(found) if !found.is_empty() => {
+                        songs.extend(found.into_iter().map(|(_, track)| from_album(track)));
+                    }
+                    Some(_) => match self.albums.get(&release.uri) {
+                        Some(Loadable::Ready(tracks)) => {
+                            songs.extend(tracks.iter().map(from_album))
+                        }
+                        Some(Loadable::Failed(_)) => {}
+                        None | Some(Loadable::Loading) => return Some(AddAll::Reading),
+                    },
+                }
+            }
+            AddAll::Songs(songs)
+        } else {
+            AddAll::Releases(
+                (self.releases_shown().into_iter())
+                    .map(|release| release.uri.clone())
+                    .collect(),
+            )
+        };
+        match &all {
+            AddAll::Releases(none) if none.is_empty() => None,
+            AddAll::Songs(none) if none.is_empty() => None,
+            _ => Some(all),
+        }
+    }
+
     /// What the page shown is narrowed to, while something is typed in
     /// its find.
     pub fn finder(&self) -> Option<Find> {
@@ -313,6 +424,49 @@ impl Browse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn add_all_adds_what_the_artist_page_shows() {
+        let mut browse = Browse::new(PlaylistId::DEFAULT, false);
+        let discography = crate::demo::discography();
+        let uri = discography.artist.uri.clone();
+        browse
+            .artists
+            .insert(uri.clone(), Loadable::Ready(discography.clone()));
+        browse.go(Page::Artist(uri));
+        let of_tab: Vec<String> = (discography.releases.iter())
+            .filter(|r| browse.tab.includes(r.group))
+            .map(|r| r.uri.clone())
+            .collect();
+        assert_eq!(browse.add_all(), Some(AddAll::Releases(of_tab.clone())));
+        browse.newest_first = true;
+        let newest: Vec<String> = of_tab.into_iter().rev().collect();
+        assert_eq!(browse.add_all(), Some(AddAll::Releases(newest)));
+
+        browse.popular = true;
+        assert_eq!(
+            browse.add_all(),
+            Some(AddAll::Songs(discography.popular.clone()))
+        );
+        browse.popular = false;
+
+        // A find: a release found by its title waits for its songs, then
+        // goes whole; one found by a song gives that song.
+        browse.find = Some("static".into());
+        assert_eq!(browse.add_all(), Some(AddAll::Reading));
+        for (album, songs) in crate::demo::release_songs() {
+            browse.albums.insert(album, Loadable::Ready(songs));
+        }
+        let Some(AddAll::Songs(songs)) = browse.add_all() else {
+            panic!("the songs found");
+        };
+        let titles: Vec<&str> = songs.iter().map(|s| s.title.as_str()).collect();
+        // Newest first: Everything Is Static has no songs in the demo.
+        assert_eq!(titles, ["Static Rain"]);
+        assert!(songs.iter().all(|s| s.source.is_some()));
+        browse.find = Some("nothing like it".into());
+        assert_eq!(browse.add_all(), None);
+    }
 
     #[test]
     fn a_find_wants_every_word_in_the_names_whatever_the_case_and_accents() {

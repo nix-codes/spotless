@@ -396,6 +396,10 @@ pub enum Action {
     ShowSimilar {
         artist: Artist,
     },
+    /// The artist page shows its popular songs instead of the releases.
+    ShowPopular,
+    /// Adds what the artist's page shows (ADD ALL).
+    AddAll,
     /// Opens a similar artist, by name, finding it on Spotify first.
     OpenSimilar {
         name: String,
@@ -558,6 +562,8 @@ impl From<Action> for spotless_core::action::Action {
             Action::ExpandAlbums { albums } => Core::ExpandAlbums(albums),
             Action::SetTab { tab } => Core::SetTab(tab.into()),
             Action::ShowSimilar { artist } => Core::ShowSimilar(artist.into()),
+            Action::ShowPopular => Core::ShowPopular,
+            Action::AddAll => Core::AddAll,
             Action::OpenSimilar { name } => Core::OpenSimilar(name),
             Action::ToggleSort => Core::ToggleSort,
             Action::ShowBrowseTab { tab } => Core::ShowBrowseTab(tab.into()),
@@ -894,6 +900,7 @@ mod tests {
             Arc::new(Recorder::default()),
         )
         .unwrap();
+        spotless.apply(Action::OpenBrowse);
         spotless.apply(Action::OpenArtist {
             artist: (&spotless_core::demo::artist()).into(),
         });
@@ -903,15 +910,26 @@ mod tests {
         let browse = spotless.browse();
         assert_eq!(browse.find.as_deref(), Some("STATIC"));
         let BrowsePage::Artist {
-            page: ArtistPage::Ready {
-                releases, unread, ..
-            },
+            page:
+                ArtistPage::Ready {
+                    releases,
+                    unread,
+                    popular,
+                    popular_ranks,
+                    add_all,
+                    ..
+                },
             ..
         } = browse.page
         else {
             panic!("the demo artist's page");
         };
         assert_eq!(unread, 0);
+        // The popular songs too, each with its rank among all of them.
+        let popular: Vec<&str> = popular.iter().map(|t| t.title.as_str()).collect();
+        assert_eq!((popular, popular_ranks), (vec!["Static Rain"], vec![1]));
+        // ADD ALL: the song found, Everything Is Static having none here.
+        assert_eq!(add_all, AddAll::Songs { count: 1 });
         let found: Vec<(&str, bool)> = (releases.iter())
             .map(|row| (row.release.title.as_str(), row.expanded))
             .collect();
@@ -930,6 +948,23 @@ mod tests {
         assert_eq!((titles, numbers.clone()), (vec!["Static Rain"], vec![4]));
         spotless.apply(Action::Find { text: None });
         assert_eq!(spotless.browse().find, None);
+
+        // POPULAR shows in place of the releases; ADD ALL adds its songs.
+        spotless.apply(Action::ShowPopular);
+        let browse = spotless.browse();
+        assert!(browse.popular);
+        let BrowsePage::Artist {
+            page: ArtistPage::Ready { add_all, .. },
+            ..
+        } = browse.page
+        else {
+            panic!("the demo artist's page");
+        };
+        assert_eq!(add_all, AddAll::Songs { count: 5 });
+        let id = spotless.tabs().viewed;
+        let before = spotless.playlist(id).unwrap().songs.len();
+        spotless.apply(Action::AddAll);
+        assert_eq!(spotless.playlist(id).unwrap().songs.len(), before + 5);
         let _ = std::fs::remove_dir_all(root);
     }
 }

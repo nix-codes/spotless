@@ -32,7 +32,7 @@ use super::widgets::{
 use super::{Inputs, View};
 use crate::action::{Action, Actions, Desktop};
 use crate::backend::SearchState;
-use crate::browse::{BrowseTab, Find, Loadable, Page};
+use crate::browse::{AddAll, BrowseTab, Find, Loadable, Page};
 use crate::lastfm;
 use crate::model::catalog::{Discography, Release, ReleaseTab};
 use crate::model::{ArtistRef, EntryId, Source, TrackRef, playlist::Playlist};
@@ -952,15 +952,8 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
     let similar_tab =
         lastfm::api::is_key(&view.lastfm.api_key) || browse.similar_artists.contains_key(uri);
     let similar = browse.similar && similar_tab;
-    let popular = browse.popular && !discography.popular.is_empty();
-    let mut releases: Vec<&Release> = discography
-        .releases
-        .iter()
-        .filter(|r| browse.tab.includes(r.group))
-        .collect();
-    if browse.newest_first {
-        releases.reverse();
-    }
+    let popular = browse.popular_shown();
+    let releases = browse.releases_shown();
     // Where the row's last button ended, for ADD ALL to go after it.
     let end = ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
@@ -1029,16 +1022,7 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
         ui.cursor().min
     });
     if !similar {
-        let pressed = nav.add_all;
-        add_all(
-            ui,
-            view,
-            discography,
-            &releases,
-            popular,
-            (end.inner, pressed),
-            actions,
-        );
+        add_all(ui, view, (end.inner, nav.add_all), actions);
     }
     ui.add_space(8.0);
     if similar {
@@ -1215,7 +1199,7 @@ fn album(
         Some(Loadable::Ready(tracks)) => Some(tracks),
         _ => None,
     };
-    let found = match find.map(|find| found_in(view, release, find)) {
+    let found = match find.map(|find| view.browse.found_in(release, find)) {
         Some(None) => return false,
         Some(Some(found)) => found,
         None => Vec::new(),
@@ -1325,77 +1309,23 @@ pub(super) fn adds_all(view: &View) -> bool {
         && matches!(view.browse.page(), Page::Artist(_))
 }
 
-/// What a find shows of a release: None when nothing of it has the find;
-/// else the songs that have it, by their place on it, none when only its
-/// title does. The release is the row: its songs go by their own names.
-fn found_in<'a>(
-    view: &View<'a>,
-    release: &Release,
-    find: &Find,
-) -> Option<Vec<(usize, &'a TrackRef)>> {
-    let found: Vec<_> = match view.browse.albums.get(&release.uri) {
-        Some(Loadable::Ready(tracks)) => (tracks.iter().enumerate())
-            .filter(|(_, track)| find.song(track))
-            .collect(),
-        _ => Vec::new(),
-    };
-    (!found.is_empty() || find.matches(&[&release.title])).then_some(found)
-}
-
 /// The ADD ALL button, at the right end of an artist page's tabs: adds
 /// what the page shows to the playlist + ADD adds to. The tab's releases, in the
 /// order shown; the popular songs; with a find, what it found: the songs
 /// found, and whole the releases found by their title.
-fn add_all(
-    ui: &mut Ui,
-    view: &View,
-    discography: &Discography,
-    releases: &[&Release],
-    popular: bool,
-    (end, pressed): (egui::Pos2, bool),
-    actions: &mut Actions,
-) {
+fn add_all(ui: &mut Ui, view: &View, (end, pressed): (egui::Pos2, bool), actions: &mut Actions) {
     let browse = view.browse;
-    let find = browse.finder();
-    // A song of an album's comes from that album, as when added alone.
-    let from_album = |track: &TrackRef| {
-        let mut track = track.clone();
-        track.source = Some(Source::album(&track.album));
-        track
-    };
-    let mut albums = Vec::new();
-    let mut songs: Vec<TrackRef> = Vec::new();
-    // A release found by its title, still being read: wait for it.
-    let mut reading = false;
-    if popular {
-        songs.extend(
-            (discography.popular.iter())
-                .filter(|track| find.as_ref().is_none_or(|find| find.track(track)))
-                .cloned(),
-        );
-    } else if let Some(find) = &find {
-        for release in releases {
-            match found_in(view, release, find) {
-                None => {}
-                Some(found) if !found.is_empty() => {
-                    songs.extend(found.into_iter().map(|(_, track)| from_album(track)));
-                }
-                Some(_) => match browse.albums.get(&release.uri) {
-                    Some(Loadable::Ready(tracks)) => songs.extend(tracks.iter().map(from_album)),
-                    Some(Loadable::Failed(_)) => {}
-                    None | Some(Loadable::Loading) => reading = true,
-                },
-            }
+    let (what, reading) = match browse.add_all() {
+        None => return,
+        Some(AddAll::Reading) => (String::new(), true),
+        Some(AddAll::Songs(songs)) if songs.len() == 1 => ("the song shown".into(), false),
+        Some(AddAll::Songs(songs)) => (format!("the {} songs shown", songs.len()), false),
+        Some(AddAll::Releases(releases)) if releases.len() == 1 => {
+            ("the release shown".into(), false)
         }
-    } else {
-        albums.extend(releases.iter().map(|release| release.uri.clone()));
-    }
-    let what = match (albums.len(), songs.len()) {
-        (0, 0) => return,
-        (0, 1) => "the song shown".to_string(),
-        (0, n) => format!("the {n} songs shown"),
-        (1, _) => "the release shown".to_string(),
-        (n, _) => format!("the {n} releases shown"),
+        Some(AddAll::Releases(releases)) => {
+            (format!("the {} releases shown", releases.len()), false)
+        }
     };
     let to = view
         .list(browse.target)
@@ -1423,11 +1353,7 @@ fn add_all(
         format!("Adds {what}{to} (Shift+Insert)")
     };
     if super::widgets::tip(button, &tip).clicked() || (pressed && !reading) {
-        actions.push(if albums.is_empty() {
-            Action::AddTracks(songs)
-        } else {
-            Action::AddAlbums(albums)
-        });
+        actions.push(Action::AddAll);
     }
 }
 

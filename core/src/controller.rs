@@ -15,7 +15,7 @@ pub use sync::SyncStatus;
 
 use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState, SpotifyRequest, Storage};
-use crate::browse::{Browse, Loadable, Page, Removal, Undo, Unlisted};
+use crate::browse::{AddAll, Browse, Loadable, Page, Removal, Undo, Unlisted};
 use crate::browser::{self, Browser};
 use crate::lastfm::{LastFmState, LastFmStatus, Loved, LovedSong, api::Keys};
 use crate::model::catalog::{Place, SpotifyPlaylist, SpotifyTarget};
@@ -1308,6 +1308,11 @@ impl Controller {
             }
             Action::PlayLoved(song) => self.find_loved(vec![song], FoundFor::Play),
             Action::AddAlbum(album) => self.add_album(album, None),
+            Action::AddAll => match self.state.browse.add_all() {
+                Some(AddAll::Releases(albums)) => self.apply(Action::AddAlbums(albums)),
+                Some(AddAll::Songs(songs)) => self.apply(Action::AddTracks(songs)),
+                Some(AddAll::Reading) | None => {}
+            },
             Action::AddAlbums(albums) => {
                 let target = self.state.browse.target;
                 for album in &albums {

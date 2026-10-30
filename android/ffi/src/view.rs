@@ -600,13 +600,11 @@ fn release_row(state: &State, release: &catalog::Release) -> ReleaseRow {
 /// its songs' names, and then open, with those songs only.
 fn found_row(state: &State, release: &catalog::Release, find: &Find) -> Option<ReleaseRow> {
     let mut row = release_row(state, release);
-    let titled = find.matches(&[&release.title]);
-    let Some(Loadable::Ready(list)) = state.browse.albums.get(&release.uri) else {
-        return titled.then_some(row);
-    };
-    let found: Vec<usize> = (0..list.len()).filter(|&i| find.song(&list[i])).collect();
+    let found: Vec<usize> = (state.browse.found_in(release, find)?.into_iter())
+        .map(|(i, _)| i)
+        .collect();
     if found.is_empty() {
-        return titled.then_some(row);
+        return Some(row);
     }
     if let AlbumSongs::Ready { tracks, numbers } = &mut row.songs {
         *tracks = found.iter().map(|&i| tracks[i].clone()).collect();
@@ -668,6 +666,12 @@ pub enum ArtistPage {
         /// With a find, the tab's releases whose songs are still being
         /// read for it.
         unread: u32,
+        /// Spotify's pick of its most played songs, and each one's rank
+        /// among them: with a find, only some show.
+        popular: Vec<Track>,
+        popular_ranks: Vec<u32>,
+        /// What ADD ALL adds: what the page shows.
+        add_all: AddAll,
         /// SIMILAR is offered: a Last.fm API key is saved.
         similar_offered: bool,
         similar: SimilarArtists,
@@ -675,6 +679,19 @@ pub enum ArtistPage {
     Failed {
         message: String,
     },
+}
+
+/// What ADD ALL (`Action::AddAll`) adds on an artist's page.
+#[derive(Clone, Debug, PartialEq, uniffi::Enum)]
+pub enum AddAll {
+    /// Nothing shown to add, or similar artists shown.
+    Nothing,
+    /// The tab's releases, in the order shown.
+    Releases { count: u32 },
+    /// The popular songs, or what a find found.
+    Songs { count: u32 },
+    /// A release found by its title is still being read.
+    Reading,
 }
 
 #[derive(Clone, Debug, PartialEq, uniffi::Enum)]
@@ -820,6 +837,8 @@ pub struct BrowseView {
     pub tab: ReleaseTab,
     /// The artist page shows similar artists instead of the tab.
     pub similar: bool,
+    /// The artist page shows its popular songs instead of the releases.
+    pub popular: bool,
     /// The similar artist being looked for on Spotify, by name.
     pub finding: Option<String>,
     pub newest_first: bool,
@@ -879,11 +898,12 @@ pub(crate) fn browse(state: &State) -> BrowseView {
                     };
                     let of_tab =
                         || (releases.iter()).filter(|release| browse.tab.includes(release.group));
-                    let mut shown: Vec<ReleaseRow> = match &find {
-                        Some(find) => of_tab()
+                    let in_order = browse.releases_shown().into_iter();
+                    let shown: Vec<ReleaseRow> = match &find {
+                        Some(find) => in_order
                             .filter_map(|release| found_row(state, release, find))
                             .collect(),
-                        None => of_tab()
+                        None => in_order
                             .map(|release| release_row(state, release))
                             .collect(),
                     };
@@ -898,11 +918,29 @@ pub(crate) fn browse(state: &State) -> BrowseView {
                             .count(),
                         None => 0,
                     };
-                    if browse.newest_first {
-                        shown.reverse();
-                    }
+                    let popular: Vec<(usize, &TrackRef)> = (discography.popular.iter())
+                        .enumerate()
+                        .filter(|(_, track)| find.as_ref().is_none_or(|f| f.track(track)))
+                        .collect();
                     ArtistPage::Ready {
                         artist: (&discography.artist).into(),
+                        popular: tracks(
+                            &popular
+                                .iter()
+                                .map(|(_, t)| (*t).clone())
+                                .collect::<Vec<_>>(),
+                        ),
+                        popular_ranks: popular.iter().map(|(i, _)| count(i + 1)).collect(),
+                        add_all: match browse.add_all() {
+                            None => AddAll::Nothing,
+                            Some(core_browse::AddAll::Reading) => AddAll::Reading,
+                            Some(core_browse::AddAll::Releases(releases)) => AddAll::Releases {
+                                count: count(releases.len()),
+                            },
+                            Some(core_browse::AddAll::Songs(songs)) => AddAll::Songs {
+                                count: count(songs.len()),
+                            },
+                        },
                         counts: TabCounts {
                             all: on(CoreTab::All),
                             albums: on(CoreTab::Albums),
@@ -943,6 +981,7 @@ pub(crate) fn browse(state: &State) -> BrowseView {
         target: browse.target.0,
         tab: browse.tab.into(),
         similar: browse.similar,
+        popular: browse.popular_shown(),
         finding: browse.finding.as_ref().map(|(name, _)| name.clone()),
         newest_first: browse.newest_first,
         covers: browse.show_covers,

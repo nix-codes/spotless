@@ -150,6 +150,9 @@ pub enum Action {
     /// Appends these albums' songs to the target playlist, in this order,
     /// all at once when every one is read.
     AddAlbums(Vec<String>),
+    /// Appends what the artist's page shows to the target playlist (ADD
+    /// ALL; see `Browse::add_all`).
+    AddAll,
     /// Songs dropped on the slim column, before the row at this index.
     DropTracks(Vec<TrackRef>, usize),
     /// An album dropped on the slim column, before the row at this index.

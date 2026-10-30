@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import dev.spotless.Core
 import dev.spotless.core.Action
+import dev.spotless.core.AddAll
 import dev.spotless.core.AlbumSongs
 import dev.spotless.core.Artist
 import dev.spotless.core.ArtistPage
@@ -331,6 +332,14 @@ private fun LazyListScope.artist(core: Core, page: ArtistPage) {
                 return
             }
             val find = core.browse.find?.trim().orEmpty()
+            listBar(core, page)
+            if (core.browse.popular) {
+                if (page.popular.isEmpty()) note("No popular song has “$find”.")
+                itemsIndexed(page.popular) { i, track ->
+                    TrackRow(core, track, page.popularRanks[i].toInt(), track.album.name)
+                }
+                return
+            }
             if (page.unread > 0u) note("Reading the songs, ${page.unread} releases to go…")
             if (page.releases.isEmpty()) {
                 when {
@@ -339,6 +348,45 @@ private fun LazyListScope.artist(core: Core, page: ArtistPage) {
                 }
             }
             releases(core, page.releases, withArtist = false)
+        }
+    }
+}
+
+/**
+ * First in an artist's list, what acts on it: the releases' order and ALL
+ * SONGS on the left; on the right, over the rows' own ADD and +, ADD ALL,
+ * which adds what the list shows (the tab's releases in their order, the
+ * popular songs, or what the find found) to the playlist ADD adds to. It
+ * isn't there while a release the find found is still being read.
+ */
+private fun LazyListScope.listBar(core: Core, page: ArtistPage.Ready) {
+    val releases = page.releases.takeUnless { core.browse.popular }.orEmpty()
+    val what = when (val addAll = page.addAll) {
+        is AddAll.Releases -> if (addAll.count == 1u) "the release shown" else "the ${addAll.count} releases shown"
+        is AddAll.Songs -> if (addAll.count == 1u) "the song shown" else "the ${addAll.count} songs shown"
+        AddAll.Nothing, AddAll.Reading -> null
+    }
+    if (releases.isEmpty() && what == null) return
+    item(key = "list-bar") {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp, start = 6.dp, end = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (releases.isNotEmpty()) {
+                TextButton(
+                    if (core.browse.newestFirst) "NEWEST FIRST" else "OLDEST FIRST",
+                    { core.apply(Action.ToggleSort) },
+                )
+                // Every release shown opened, or all closed again.
+                val open = releases.all { it.expanded }
+                TextButton(
+                    if (open) "HIDE SONGS" else "ALL SONGS",
+                    { core.apply(Action.ExpandAlbums(if (open) emptyList() else releases.map { it.release.uri })) },
+                )
+            }
+            Box(Modifier.weight(1f))
+            if (what != null) AddButton("ADD ALL", label(), "Add $what") { core.apply(Action.AddAll) }
         }
     }
 }
@@ -380,6 +428,7 @@ private fun ArtistBar(core: Core, page: BrowsePage.Artist) {
     val ready = page.page as? ArtistPage.Ready
     val counts = ready?.counts
     val similar = core.browse.similar && ready?.similarOffered == true
+    val popular = core.browse.popular
     val tabs = listOf(
         ReleaseTab.ALL to ("ALL" to counts?.all),
         ReleaseTab.ALBUMS to ("ALBUMS" to counts?.albums),
@@ -394,31 +443,22 @@ private fun ArtistBar(core: Core, page: BrowsePage.Artist) {
                     if (count != null) "$text $count" else text,
                     { core.apply(Action.SetTab(tab)) },
                     Modifier.weight(1f),
-                    on = !similar && core.browse.tab == tab,
+                    on = !similar && !popular && core.browse.tab == tab,
                 )
             }
         }
+        // What shows in place of the releases, then the tools; the order
+        // and ALL SONGS are over the list, with ADD ALL.
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (!similar) {
-                TextButton(
-                    if (core.browse.newestFirst) "NEWEST FIRST" else "OLDEST FIRST",
-                    { core.apply(Action.ToggleSort) },
-                )
+            // Spotify's pick of the artist's most played.
+            if (ready?.popular?.isNotEmpty() == true || popular) {
+                TextButton("POPULAR", { core.apply(Action.ShowPopular) }, on = popular)
             }
-            // Every release of the tab opened, or all closed again.
-            val releases = ready?.releases.orEmpty()
-            if (!similar && releases.isNotEmpty()) {
-                val open = releases.all { it.expanded }
-                TextButton(
-                    if (open) "HIDE SONGS" else "ALL SONGS",
-                    { core.apply(Action.ExpandAlbums(if (open) emptyList() else releases.map { it.release.uri })) },
-                )
-            }
-            Box(Modifier.weight(1f))
-            if (!similar) TextButton("FIND", { toggleFind(core) }, on = core.browse.find != null)
             if (ready?.similarOffered == true) {
                 TextButton("SIMILAR", { core.apply(Action.ShowSimilar(ready.artist)) }, on = similar)
             }
+            Box(Modifier.weight(1f))
+            if (!similar) TextButton("FIND", { toggleFind(core) }, on = core.browse.find != null)
             TextButton("PICS", { core.apply(Action.ToggleCovers) }, on = core.browse.covers)
         }
     }
