@@ -39,6 +39,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -333,6 +335,19 @@ private fun Tabs(core: Core, edit: (ULong) -> Unit, add: () -> Unit) {
     var drag by remember { mutableStateOf<TabDrag?>(null) }
     val gap = with(LocalDensity.current) { 4.dp.toPx() }
     val haptics = LocalHapticFeedback.current
+    // The viewed tab in sight: there already on opening, glided to after.
+    val viewed = tabs.indexOfFirst { it.id == core.tabs.viewed }
+    var opened by remember { mutableStateOf(false) }
+    LaunchedEffect(viewed) {
+        if (viewed < 0) return@LaunchedEffect
+        // Laid out first, so a tab already in sight stays put.
+        snapshotFlow { state.layoutInfo.totalItemsCount }.first { it > 0 }
+        val info = state.layoutInfo
+        val item = info.visibleItemsInfo.firstOrNull { it.index == viewed }
+        val seen = item != null && item.offset >= info.viewportStartOffset && item.offset + item.size <= info.viewportEndOffset
+        if (!seen) if (opened) state.animateScrollToItem(viewed) else state.scrollToItem(viewed)
+        opened = true
+    }
     LazyRow(
         Modifier.fillMaxWidth().height(44.dp),
         state = state,
