@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- The debug build's icon: the released one's (src/main), the LCD amber
+         so the two apps tell apart. -->
+    <path android:fillColor="#111117" android:pathData="M24.67,24.67H83.33V83.33H24.67Z" />
+    <path android:fillColor="#0B0B0F" android:pathData="M26,26H82V82H26Z" />
+    <path android:fillColor="#FFB000" android:pathData="M34.67,37.33L54.0,48.67L34.67,60.0ZM59.33,52.0H64.67V74.0H59.33ZM67.33,43.33H72.67V74.0H67.33Z" />
+    <path android:fillColor="#A87400" android:pathData="M34.67,65.33H40.0V74.0H34.67ZM42.67,61.33H48.0V74.0H42.67ZM50.67,57.33H56.0V74.0H50.67Z" />
+</vector>
