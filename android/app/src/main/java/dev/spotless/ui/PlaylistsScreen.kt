@@ -800,11 +800,10 @@ private fun Summary(core: Core, queue: SpotifyView?, selected: List<ULong>) {
         }
         // Errors show in full below.
         val message = core.message?.takeIf { !it.error }
-        val hint = if (list?.songs?.isNotEmpty() == true || queue?.rows?.isNotEmpty() == true) "HOLD A SONG TO SELECT" else ""
         // Stop after this song outranks the latest news: Stop, pressed in, says so too.
         val stopping = if (core.player.stopAfter) "STOPS AFTER THIS SONG" else null
         Line(
-            if (clearing) "" else stopping ?: message?.text ?: hint,
+            if (clearing) "" else stopping ?: message?.text ?: "",
             label(12.sp, Classic.label, 0.02.em).copy(textAlign = TextAlign.End),
             Modifier.weight(1f),
         )
@@ -822,16 +821,15 @@ private fun Summary(core: Core, queue: SpotifyView?, selected: List<ULong>) {
         // The queue's CLEAR stops it and empties it.
         val count = if (queue != null) queue.toCome.toInt() else list?.songs?.size ?: 0
         if (count > 0) {
-            ChromeButton({
-                if (clearing) {
+            if (clearing) {
+                ChromeButton({
                     if (queue != null) core.apply(Action.ClearSpotify) else list?.let { core.clear(it.id) }
                     clearing = false
-                } else {
-                    clearing = true
+                }, Modifier.height(32.dp), on = true) {
+                    BasicText("CLEAR ${songs(count)}?", style = label(11.sp, Classic.lcd))
                 }
-            }, Modifier.height(32.dp), on = clearing) {
-                val words = if (clearing) "CLEAR ${songs(count)}?" else "CLEAR"
-                BasicText(words, style = label(11.sp, if (clearing) Classic.lcd else Classic.chrome))
+            } else {
+                GlyphButton(Glyph.Clear, "Clear", { clearing = true }, Modifier.height(32.dp).width(44.dp))
             }
         }
     }
