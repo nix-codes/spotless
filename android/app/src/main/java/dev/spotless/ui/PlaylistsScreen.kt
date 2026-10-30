@@ -510,7 +510,7 @@ private fun AddBar(core: Core, done: () -> Unit) {
     }
 }
 
-/** A held tab's name, place, emptying it, and deleting it (never Default's). */
+/** A held tab's name, syncing, place, and closing or deleting it. */
 @Composable
 private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
     val tabs = core.tabs.tabs
@@ -634,17 +634,17 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
             }, enabled = at < tabs.lastIndex)
             if (!deleting) BasicText("MOVE TAB", style = label(color = Classic.label))
             Box(Modifier.weight(1f))
-            // What loses the tab (never Default's). A synced one closes
-            // only: it stays on Spotify, and YOUR SPOTIFY in Browse opens
-            // it again or deletes it.
-            if (id != 0UL && synced) {
+            // What loses the tab; the last one leaves an empty Default. A
+            // synced one closes only: it stays on Spotify, and YOUR SPOTIFY
+            // in Browse opens it again or deletes it.
+            if (synced) {
                 TextButton("CLOSE TAB", {
                     keep()
                     core.apply(Action.ClosePlaylist(id))
                     done()
                 })
             }
-            if (id != 0UL && !synced) {
+            if (!synced) {
                 val delete = {
                     // An empty playlist has nothing to lose: no second ask.
                     if (deleting || tab.songs == 0u) {
