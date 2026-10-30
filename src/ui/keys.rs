@@ -96,6 +96,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Shift+Insert", "Add all shown (ADD ALL)"),
             ("Delete", "Remove from the playlist"),
             ("Shift+Delete", "Delete / unfollow a playlist"),
+            ("Ctrl+Enter", "Open a synced playlist as a tab"),
             ("Ctrl+A", "Select all of a Spotify playlist"),
             ("/", "Find in the results or the releases"),
             ("Ctrl+Z", "Undo a removal on Spotify"),

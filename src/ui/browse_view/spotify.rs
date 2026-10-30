@@ -78,6 +78,18 @@ pub(super) fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut 
             _ => {}
         }
     }
+    // Ctrl+Enter, from any area: the synced playlist shown as its tab
+    // (OPEN AS TAB or SHOW TAB). Taken before the field takes it as Enter.
+    if ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Enter))
+        && let Some(playlist) = open.and_then(|uri| playlists.iter().find(|p| p.uri == uri))
+        && view.library.synced_seen.contains(&playlist.uri)
+    {
+        actions.push(Action::OpenSynced(
+            playlist.uri.clone(),
+            playlist.name.clone(),
+        ));
+        actions.push(Action::CloseBrowse);
+    }
     ui.scope_builder(UiBuilder::new().max_rect(list), |ui| {
         playlist_list(ui, view, nav, playlists, open, actions);
     });
@@ -427,8 +439,8 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
         ui.label(RichText::new(tag).monospace().size(10.0).color(palette.dim));
         if synced && let Some(playlist) = playlist {
             let (label, hint) = match tab {
-                Some(_) => ("SHOW TAB", "Shows its tab"),
-                None => ("OPEN AS TAB", "Opens it as a synced tab again"),
+                Some(_) => ("SHOW TAB", "Shows its tab (Ctrl+Enter)"),
+                None => ("OPEN AS TAB", "Opens it as a synced tab again (Ctrl+Enter)"),
             };
             ui.add_space(4.0);
             if small_button(ui, &palette, label, false)
