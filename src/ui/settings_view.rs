@@ -24,7 +24,7 @@ use crate::lastfm::api::is_key;
 use crate::model::Grouping;
 use crate::skin;
 use crate::spotify::webapi::REDIRECT_URI;
-use crate::store::AUDIO_CACHE_SIZES;
+use crate::store::{AUDIO_CACHE_SIZES, SPOTIFY_TAB};
 use crate::update::{self, Status};
 
 const DASHBOARD: &str = "https://developer.spotify.com/dashboard";
@@ -358,8 +358,9 @@ fn items(category: Category, view: &View, outputs: usize) -> Vec<Item> {
             Item::LastFmConnect,
             Item::LastFmLink,
         ],
-        Category::Playback => [Item::Levelling, Item::SpotifyTab]
+        Category::Playback => [Item::Levelling]
             .into_iter()
+            .chain(SPOTIFY_TAB.then_some(Item::SpotifyTab))
             .chain((0..outputs).map(Item::Output))
             .collect(),
         Category::Display => [Item::Smaller, Item::Larger, Item::Covers]
@@ -715,7 +716,8 @@ impl Controls<'_, '_> {
             }
             note(ui, palette, "Evens out loudness between songs and albums.");
         });
-        row(ui, palette, "Spotify tab", |ui| {
+        // Hidden while the Spotify tab isn't offered.
+        let spotify_tab = |ui: &mut Ui| {
             let on = settings.spotify_tab_enabled;
             let switch = toggle(ui, palette, on);
             self.ring(ui, Item::SpotifyTab, &switch);
@@ -727,7 +729,10 @@ impl Controls<'_, '_> {
                 palette,
                 "Shows Spotify's queue, as your other devices play it, and makes Spotless a device they can hand it to.",
             );
-        });
+        };
+        if SPOTIFY_TAB {
+            row(ui, palette, "Spotify tab", spotify_tab);
+        }
         row(ui, palette, "Output", |ui| match self.view.outputs {
             Loadable::Ready(Some(_)) => {
                 for (i, (output, name)) in outputs.iter().enumerate() {

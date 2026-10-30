@@ -1135,6 +1135,8 @@ pub struct SettingsView {
     pub song_headers: String,
     /// The Spotify tab can be used (Settings).
     pub spotify_tab_enabled: bool,
+    /// The Spotify tab is offered in Settings at all.
+    pub spotify_tab_offered: bool,
     /// It can, but was closed: + offers it again.
     pub spotify_tab_closed: bool,
     /// The time shows what's left of the song instead of what has played.
@@ -1218,6 +1220,7 @@ pub(crate) fn settings(state: &State) -> SettingsView {
         phosphor: settings.phosphor.key().into(),
         song_headers: settings.grouping.key().into(),
         spotify_tab_enabled: settings.spotify_tab_enabled,
+        spotify_tab_offered: spotless_core::store::SPOTIFY_TAB,
         spotify_tab_closed: settings.spotify_tab_enabled && !settings.spotify_tab,
         time_left: settings.time_left,
     }

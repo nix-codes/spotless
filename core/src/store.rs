@@ -178,6 +178,11 @@ pub fn save_history(paths: &Paths, history: &History) -> Result<()> {
     write_atomically(&paths.history(), &serde_json::to_vec(history)?)
 }
 
+/// The Spotify tab is offered: while false it's never on, and Settings
+/// doesn't show it, as if it weren't there. Kept off for now while its
+/// future is weighed; its code stays.
+pub const SPOTIFY_TAB: bool = false;
+
 /// The settings. `web_client_id` goes through its own methods; keys
 /// Spotless doesn't know are kept as they are.
 #[derive(Clone, Debug)]
@@ -210,7 +215,8 @@ pub struct Settings {
     /// The release the user asked not to be told of again, by its version.
     pub skipped_update: Option<String>,
     /// The Spotify tab can be used: off (as at first) in Settings, it is
-    /// never shown and Spotless never joins Spotify Connect.
+    /// never shown and Spotless never joins Spotify Connect. Always off
+    /// while [`SPOTIFY_TAB`] is.
     pub spotify_tab_enabled: bool,
     /// The Spotify tab is open, unless closed like any tab.
     pub spotify_tab: bool,
@@ -335,10 +341,11 @@ impl Settings {
                 .get("skipped_update")
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            spotify_tab_enabled: raw
-                .get("spotify_tab_enabled")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            spotify_tab_enabled: SPOTIFY_TAB
+                && raw
+                    .get("spotify_tab_enabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
             spotify_tab: raw
                 .get("spotify_tab")
                 .and_then(Value::as_bool)

@@ -23,7 +23,7 @@ More in [Screenshots](docs/screenshots.md).
 | | Spotify's app | Spotless |
 |---|---|---|
 | Speed | Heavy; screens and lists take a moment to load | Light and quick: it starts in a moment and responds at once |
-| What plays | One queue, synced across your devices | Your own playlists, each kept on this device only or synced, the same on your computer and phone, and each playing on its own; or, in the Spotify tab, your account's queue, shared as usual |
+| What plays | One queue, synced across your devices | Your own playlists, each kept on this device only or synced, the same on your computer and phone, and each playing on its own |
 | Playing an album | Play replaces part of the queue; Add to queue puts it at the end | Add it to any playlist, or press Q to play songs next, without losing anything |
 | After a song plays | It's gone from the queue | It stays; the playlist just moves on, so you can go back |
 | Finding albums | Several screens, and the scroll position is lost | Search, then an artist's albums in date order, with songs opening inline |
