@@ -13,7 +13,8 @@
 //! instead: side A left to right, then auto reverse plays side B back.
 //! The disc holds the whole playlist and turns while it plays, faster the
 //! nearer the centre the laser reads. A single holds one song, and is
-//! changed for the next one's when the song changes.
+//! changed for the next one's when the song changes; at 33 an LP holds
+//! the whole playlist, and is turned over for side B.
 
 mod canvas;
 mod cassette;
@@ -58,14 +59,21 @@ const WIND_SPEED: f32 = 1.6;
 /// How fast the disc turns, in radians per second where the laser reads at
 /// its whole radius; nearer the centre, faster.
 const DISC_SPEED: f32 = 2.4 * 0.417;
-/// 45 rpm, in radians per second.
+/// 45 rpm and 33⅓, in radians per second.
 const SINGLE_SPEED: f32 = 45.0 / 60.0 * std::f32::consts::TAU;
+const LP_SPEED: f32 = 100.0 / 3.0 / 60.0 * std::f32::consts::TAU;
 /// When a record change's steps end, in seconds: the arm back at its rest,
 /// the old record off, the new one on the spindle, the arm on the record.
 const ARM_BACK: f32 = 0.35;
 const RECORD_OFF: f32 = 0.75;
 const RECORD_ON: f32 = 1.15;
 const ARM_DOWN: f32 = 1.6;
+/// When an LP's turning over ends its steps, in seconds: the arm back, the
+/// record up, over, down on the platter, the arm on it.
+const LIFTED: f32 = 0.6;
+const TURNED: f32 = 1.3;
+const DROPPED: f32 = 1.55;
+const FLIP_DOWN: f32 = 2.0;
 /// The standard cassettes, in minutes for both sides.
 const CASSETTES: [u32; 4] = [46, 60, 90, 120];
 const GREEN: Color32 = rgb(0x33e65f);
@@ -128,15 +136,29 @@ pub struct Motion {
     platter: f32,
     arm: Option<f32>,
     lift: f32,
+    /// The arm is up and on its way to another place on the record.
+    cueing: bool,
     switch: f32,
 }
 
-/// A record being changed: how long since it began, the record going, and
-/// where the arm was.
+/// A record being changed, or an LP turned over: how long since it
+/// began, the record going, and where the arm was.
 struct Change {
     t: f32,
     old: vinyl::Record,
     from: f32,
+    flip: bool,
+}
+
+impl Change {
+    /// When the record is down on the platter, and when the arm is on it.
+    fn ends(&self) -> (f32, f32) {
+        if self.flip {
+            (DROPPED, FLIP_DOWN)
+        } else {
+            (RECORD_ON, ARM_DOWN)
+        }
+    }
 }
 
 impl Motion {
@@ -153,15 +175,27 @@ impl Motion {
         };
         let media = view.settings.deck_media;
         let now = record(view);
-        if now != self.record {
-            if media == DeckMedia::Vinyl
-                && let (Some(old), Some(_)) = (self.record.take(), &now)
-            {
-                let from = self.arm.unwrap_or(vinyl::REST);
-                self.change = Some(Change { t: 0.0, old, from });
-            }
-            self.record = now;
+        let same = match (&now, &self.record) {
+            (Some(now), Some(on)) => now.same(on),
+            (now, on) => now == on,
+        };
+        if !same
+            && media == DeckMedia::Vinyl
+            && let (Some(old), Some(new)) = (self.record.take(), &now)
+        {
+            // The other side of the same LP: it's turned over.
+            let flip = old.lp.is_some()
+                && new.lp.is_some()
+                && (old.title == new.title && old.label == new.label);
+            let from = self.arm.unwrap_or(vinyl::REST);
+            self.change = Some(Change {
+                t: 0.0,
+                old,
+                from,
+                flip,
+            });
         }
+        self.record = now;
         let mut moving = false;
         match media {
             DeckMedia::Cd | DeckMedia::Vinyl => {
@@ -172,7 +206,12 @@ impl Motion {
                     self.disc_angle += DISC_SPEED / cd::radius(disc(view).at) * dt;
                 }
                 if media == DeckMedia::Vinyl {
-                    moving = self.play_records(view, target, playing, dt);
+                    let groove = match self.record.as_ref().and_then(|record| record.lp.as_ref()) {
+                        Some(_) => album(view).map(|album| vinyl::arm_on_lp(album.needle())),
+                        None => None,
+                    };
+                    let arm = groove.unwrap_or_else(|| vinyl::arm_for(target));
+                    moving = self.play_records(view, arm, playing, dt);
                 }
             }
             _ => {
@@ -224,41 +263,60 @@ impl Motion {
                 .any(|top| *top > 0.0)
     }
 
-    /// Moves the record change on, the arm to `progress` through the song,
-    /// and the record and platter round; says whether anything moves.
-    fn play_records(&mut self, view: &View, progress: f32, playing: bool, dt: f32) -> bool {
+    /// Moves the record change on, the arm to `groove`, its angle over
+    /// the song playing, and the record and platter round; says whether
+    /// anything moves.
+    fn play_records(&mut self, view: &View, groove: f32, playing: bool, dt: f32) -> bool {
         if let Some(change) = &mut self.change {
             change.t += dt;
-            if change.t >= ARM_DOWN {
+            if change.t >= change.ends().1 {
                 self.change = None;
+                self.cueing = false;
             }
         }
         let resting = view.player.status == Status::Stopped || self.record.is_none();
-        let target = if resting {
-            vinyl::REST
-        } else {
-            vinyl::arm_for(progress)
-        };
+        let target = if resting { vinyl::REST } else { groove };
         let arm = self.arm.get_or_insert(target);
         let before = *arm;
         let rest = vinyl::REST;
         match &self.change {
             Some(c) if c.t < ARM_BACK => *arm = c.from + (rest - c.from) * ease(c.t / ARM_BACK),
-            Some(c) if c.t < RECORD_ON => *arm = rest,
+            Some(c) if c.t < c.ends().0 => *arm = rest,
             Some(c) => {
-                *arm = rest + (target - rest) * ease((c.t - RECORD_ON) / (ARM_DOWN - RECORD_ON))
+                let (on, down) = c.ends();
+                *arm = rest + (target - rest) * ease((c.t - on) / (down - on))
             }
-            None => *arm += (target - *arm) * (dt * 8.0).min(1.0),
+            None => {
+                // Far off, as after a skip on an LP, the arm is lifted
+                // there and lowered; near, it follows the groove.
+                let gap = target - *arm;
+                if gap.abs() > 0.03 {
+                    self.cueing = true;
+                }
+                if !self.cueing {
+                    *arm += gap * (dt * 8.0).min(1.0);
+                } else if self.lift > 0.85 {
+                    *arm += (1.4 * dt).min(gap.abs()) * gap.signum();
+                }
+                if (target - *arm).abs() < 0.002 {
+                    self.cueing = false;
+                }
+            }
         }
         let arm_moved = (*arm - before).abs() > 0.0005;
-        let dropping = matches!(&self.change, Some(c) if (ARM_BACK..RECORD_ON).contains(&c.t));
+        let dropping = matches!(&self.change, Some(c) if (ARM_BACK..c.ends().0).contains(&c.t));
         if playing {
-            self.platter += SINGLE_SPEED * dt;
+            let lp = self
+                .record
+                .as_ref()
+                .is_some_and(|record| record.lp.is_some());
+            let speed = if lp { LP_SPEED } else { SINGLE_SPEED };
+            self.platter += speed * dt;
             if !dropping {
-                self.spin += SINGLE_SPEED * dt;
+                self.spin += speed * dt;
             }
         }
-        let up = if matches!(&self.change, Some(c) if c.t < ARM_DOWN - 0.1) {
+        let up = if self.cueing || matches!(&self.change, Some(c) if c.t < c.ends().1 - 0.1) {
             1.0
         } else {
             0.0
@@ -273,9 +331,32 @@ impl Motion {
             record: record.clone(),
             slide: 0.0,
             lifted: 0.0,
+            over: 1.0,
         };
         let record = match &self.change {
             Some(c) if c.t < ARM_BACK => Some(still(&c.old)),
+            // An LP turned over: up, over, down.
+            Some(c) if c.flip && c.t < LIFTED => Some(vinyl::Placed {
+                lifted: ease((c.t - ARM_BACK) / (LIFTED - ARM_BACK)),
+                ..still(&c.old)
+            }),
+            Some(c) if c.flip && c.t < TURNED => {
+                let t = ease((c.t - LIFTED) / (TURNED - LIFTED));
+                let record = if t < 0.5 {
+                    Some(&c.old)
+                } else {
+                    self.record.as_ref()
+                };
+                record.map(|record| vinyl::Placed {
+                    lifted: 1.0,
+                    over: (t * std::f32::consts::PI).cos(),
+                    ..still(record)
+                })
+            }
+            Some(c) if c.flip => self.record.as_ref().map(|record| vinyl::Placed {
+                lifted: 1.0 - ease((c.t - TURNED) / (DROPPED - TURNED)),
+                ..still(record)
+            }),
             Some(c) if c.t < RECORD_OFF => Some(vinyl::Placed {
                 slide: ease((c.t - ARM_BACK) / (RECORD_OFF - ARM_BACK)) * vinyl::SLIDE,
                 ..still(&c.old)
@@ -297,6 +378,7 @@ impl Motion {
             platter: self.platter,
             arm: self.arm.unwrap_or(vinyl::REST),
             lift: self.lift,
+            lp: false,
         }
     }
 
@@ -355,7 +437,10 @@ impl Motion {
                 angle: self.disc_angle,
                 ..disc(view)
             },
-            turntable: self.turntable(),
+            turntable: vinyl::Turntable {
+                lp: view.settings.vinyl_lp,
+                ..self.turntable()
+            },
             mixtape,
             switch: self.switch,
         }
@@ -371,6 +456,11 @@ fn ease(t: f32) -> f32 {
 /// The single of the song playing: its artists, its title and its place
 /// in the playlist, which picks its label.
 fn record(view: &View) -> Option<vinyl::Record> {
+    if view.settings.vinyl_lp
+        && let Some(album) = album(view)
+    {
+        return Some(album.lp());
+    }
     let (list, entry) = player_strip::playing_entry(view)?;
     let list = view.list(list)?;
     let track = &list.get(entry)?.track;
@@ -378,6 +468,7 @@ fn record(view: &View) -> Option<vinyl::Record> {
         artist: artists(track),
         title: short_title(&track.title).to_string(),
         label: list.index_of(entry)?,
+        lp: None,
     })
 }
 
@@ -425,10 +516,12 @@ fn short_title(title: &str) -> &str {
 struct Sides {
     /// The first song on side B.
     split: usize,
-    /// A side's length, in ms.
+    /// A side's length on the cassette, in ms.
     side: u64,
     /// Both sides, in minutes.
     minutes: u32,
+    /// The longer side's songs, in ms: as far as an LP's grooves reach.
+    longer: u64,
 }
 
 /// The sides of a playlist of songs `lengths` ms long, on the shortest
@@ -453,6 +546,7 @@ fn sides(lengths: &[u64]) -> Sides {
         split,
         side: u64::from(minutes) * 30_000,
         minutes,
+        longer,
     }
 }
 
@@ -469,12 +563,62 @@ fn place(lengths: &[u64], sides: &Sides, index: usize, position: u64) -> (char, 
     }
 }
 
-/// The playlist playing as a mixtape, when the Walkman plays and its switch
-/// is at MIX. The Spotify tab's songs aren't a playlist: a song a tape.
-fn mixtape(view: &View) -> Option<Mixtape> {
-    if !view.settings.cassette_mix || view.settings.deck_media != DeckMedia::Cassette {
-        return None;
+/// The playlist playing laid out on two sides, as on a mixtape or an LP,
+/// and where the song playing is.
+struct Album {
+    list: PlaylistId,
+    name: String,
+    lengths: Vec<u64>,
+    sides: Sides,
+    index: usize,
+    position: u64,
+}
+
+impl Album {
+    /// The songs on the song playing's side.
+    fn side(&self) -> std::ops::Range<usize> {
+        if self.index < self.sides.split {
+            0..self.sides.split
+        } else {
+            self.sides.split..self.lengths.len()
+        }
     }
+
+    /// How far into its side the song playing is, as a share of the longer
+    /// side: how far in on an LP the needle is.
+    fn needle(&self) -> f32 {
+        let before: u64 = self.lengths[self.side().start..self.index].iter().sum();
+        let into = before + self.position.min(self.lengths[self.index]);
+        into as f32 / self.sides.longer.max(1) as f32
+    }
+
+    /// The side of the LP the song playing is on.
+    fn lp(&self) -> vinyl::Record {
+        let side = self.side();
+        let longer = self.sides.longer.max(1) as f32;
+        let mut marks = vec![0.0];
+        let mut sum = 0;
+        for length in &self.lengths[side.clone()] {
+            sum += length;
+            marks.push(sum as f32 / longer);
+        }
+        vinyl::Record {
+            artist: String::new(),
+            title: self.name.clone(),
+            label: self.list.0 as usize,
+            lp: Some(vinyl::Lp {
+                side: if side.start == 0 { 'A' } else { 'B' },
+                songs: side.len(),
+                seconds: sum / 1000,
+                marks,
+            }),
+        }
+    }
+}
+
+/// The playlist playing, on two sides. The Spotify tab's songs aren't a
+/// playlist: they play a song a tape or a record.
+fn album(view: &View) -> Option<Album> {
     let (list, entry) = player_strip::playing_entry(view)?;
     if list == PlaylistId::SPOTIFY {
         return None;
@@ -486,15 +630,31 @@ fn mixtape(view: &View) -> Option<Mixtape> {
         .iter()
         .map(|entry| u64::from(entry.track.duration_ms))
         .collect();
-    let sides = sides(&lengths);
     let position = match view.player.status {
         Status::Stopped => 0,
         _ => u64::from(view.player.position_now()),
     };
-    let (side, share) = place(&lengths, &sides, index, position);
-    Some(Mixtape {
+    Some(Album {
+        list: list.id,
         name: list.name.clone(),
-        minutes: sides.minutes,
+        sides: sides(&lengths),
+        lengths,
+        index,
+        position,
+    })
+}
+
+/// The playlist playing as a mixtape, when the Walkman plays and its switch
+/// is at MIX.
+fn mixtape(view: &View) -> Option<Mixtape> {
+    if !view.settings.cassette_mix || view.settings.deck_media != DeckMedia::Cassette {
+        return None;
+    }
+    let album = album(view)?;
+    let (side, share) = place(&album.lengths, &album.sides, album.index, album.position);
+    Some(Mixtape {
+        name: album.name,
+        minutes: album.sides.minutes,
         side,
         share,
     })
@@ -598,6 +758,7 @@ pub fn draw(
     let painter = ui.painter().clone();
     let media = view.settings.deck_media;
     let mut switch = None;
+    let mut speeds = None;
     let (art, keys_top, bottom, spectrum_top) = match media {
         DeckMedia::Reel => {
             let plate = reel::PLATE * k;
@@ -621,7 +782,7 @@ pub fn draw(
             let height = (bottom - body_top) / k;
             match media {
                 DeckMedia::Cd => cd::draw(&canvas, height, &tape),
-                DeckMedia::Vinyl => vinyl::draw(&canvas, height, &tape.turntable),
+                DeckMedia::Vinyl => speeds = Some(vinyl::draw(&canvas, height, &tape.turntable)),
                 _ => switch = Some(walkman::draw(&canvas, height, &tape)),
             }
             let art = Rect::from_min_max(pos2(left, top + band), pos2(left + width, bottom));
@@ -654,6 +815,21 @@ pub fn draw(
             .clicked()
         {
             actions.push(Action::SetCassetteMix(!mix));
+        }
+    }
+    if let Some([lp, single]) = speeds {
+        for (rect, on, tip, id) in [
+            (lp, true, "Play the whole playlist on an LP (33)", "33"),
+            (single, false, "Play a single for each song (45)", "45"),
+        ] {
+            if ui
+                .interact(rect, ui.id().with(id), Sense::click())
+                .on_hover_text(tip)
+                .clicked()
+                && view.settings.vinyl_lp != on
+            {
+                actions.push(Action::SetVinylLp(on));
+            }
         }
     }
     let row = Rect::from_min_size(pos2(left + SIDE, keys_top), vec2(keys.width, keys.height));
@@ -791,7 +967,7 @@ fn draw_levels(painter: &Painter, rect: Rect, view: &View, motion: &Motion) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Sides, place, short_title, sides};
+    use super::{Album, PlaylistId, Sides, place, short_title, sides};
 
     const MINUTE: u64 = 60_000;
 
@@ -805,7 +981,8 @@ mod tests {
             Sides {
                 split: 2,
                 side: 23 * MINUTE,
-                minutes: 46
+                minutes: 46,
+                longer: 20 * MINUTE,
             }
         );
         assert_eq!(place(&lengths, &mix, 0, 0), ('A', 0.0));
@@ -817,6 +994,33 @@ mod tests {
         let (side, share) = place(&lengths, &mix, 3, MINUTE);
         assert_eq!(side, 'B');
         assert!((share - (1.0 - 9.0 / 23.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn an_lp_has_a_band_a_song_on_its_side() {
+        let lengths = vec![9 * MINUTE, 10 * MINUTE, 8 * MINUTE, 12 * MINUTE];
+        let album = |index, position| Album {
+            list: PlaylistId(3),
+            name: "Night Drive".into(),
+            sides: sides(&lengths),
+            lengths: lengths.clone(),
+            index,
+            position,
+        };
+        // The longer side, B, reaches the run-out: side A stops short.
+        let a = album(1, MINUTE);
+        assert!((a.needle() - 10.0 / 20.0).abs() < 1e-6);
+        let record = a.lp();
+        let lp = record.lp.as_ref().unwrap();
+        assert_eq!((lp.side, lp.songs, lp.seconds), ('A', 2, 19 * 60));
+        assert_eq!(lp.marks, vec![0.0, 0.45, 0.95]);
+        assert_eq!((record.title.as_str(), record.label), ("Night Drive", 3));
+        let b = album(3, 0);
+        assert_eq!(b.lp().lp.unwrap().side, 'B');
+        assert!((b.needle() - 8.0 / 20.0).abs() < 1e-6);
+        // The same side when a song is added: no change of record.
+        assert!(a.lp().same(&album(0, 0).lp()));
+        assert!(!a.lp().same(&b.lp()));
     }
 
     #[test]

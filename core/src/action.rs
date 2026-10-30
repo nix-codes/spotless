@@ -112,6 +112,9 @@ pub enum Action {
     SetDeckMedia(crate::store::DeckMedia),
     /// The cassette holds the whole playlist (MIX) or the song (SINGLE).
     SetCassetteMix(bool),
+    /// The turntable plays the whole playlist on an LP (33) or a single
+    /// for each song (45).
+    SetVinylLp(bool),
     /// The time shows what's left of the song, or what has played.
     ToggleTimeLeft,
 
