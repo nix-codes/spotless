@@ -134,6 +134,9 @@ pub enum Command {
     CreateSynced {
         list: PlaylistId,
         name: String,
+        /// Deletes the folder's playlists by that name first, rather than
+        /// making none (`Event::SyncNameTaken`).
+        replace: bool,
     },
     /// The Spotless folder's playlists; answered with `Event::SyncFolder`.
     SyncFolder,
@@ -308,6 +311,11 @@ pub enum Event {
     SyncCreated {
         list: PlaylistId,
         result: Result<String, String>,
+    },
+    /// A playlist wasn't made for `list`: the Spotless folder has one by
+    /// its name already.
+    SyncNameTaken {
+        list: PlaylistId,
     },
     /// The Spotless folder's playlists, by URI and name.
     SyncFolder(Result<Vec<(String, String)>, String>),
@@ -1683,17 +1691,28 @@ impl Worker {
                     emit(Event::Synced { list, result });
                 });
             }
-            Command::CreateSynced { list, name } => {
+            Command::CreateSynced {
+                list,
+                name,
+                replace,
+            } => {
                 let Some(session) = self.session.clone() else {
                     let result = Err("Sign in to sync a playlist.".to_string());
                     return (self.emit)(Event::SyncCreated { list, result });
                 };
                 let emit = Arc::clone(&self.emit);
                 tokio::spawn(async move {
-                    let result = synced::create(&session, &name, &[])
-                        .await
-                        .map_err(|e| format!("{e:#}"));
-                    emit(Event::SyncCreated { list, result });
+                    match synced::create(&session, &name, &[], replace).await {
+                        Ok(synced::Created::NameTaken) => emit(Event::SyncNameTaken { list }),
+                        Ok(synced::Created::Made(uri)) => emit(Event::SyncCreated {
+                            list,
+                            result: Ok(uri),
+                        }),
+                        Err(e) => emit(Event::SyncCreated {
+                            list,
+                            result: Err(format!("{e:#}")),
+                        }),
+                    }
                 });
             }
             Command::SyncFolder => {

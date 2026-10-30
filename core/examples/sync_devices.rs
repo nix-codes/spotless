@@ -3,7 +3,9 @@
 //! playlist, B finds it in the Spotless folder as it signs in, B removes
 //! a song, A marks one Q and renames it, each followed by the other, and B
 //! stops syncing it, which deletes it from Spotify: B keeps it, and A, open
-//! all along, keeps it unsynced. Each step's time is printed. Nothing plays; the playlist is gone after (the
+//! all along, keeps it unsynced. Then A syncs another, and B, syncing one
+//! by the same name, is asked, and replaces it. Each step's time is
+//! printed. Nothing plays; the playlist is gone after (the
 //! Spotless folder stays: `sync_probe clean` takes it out if empty).
 //!
 //!   SPOTLESS_AUDIO_DEVICE=nope cargo run -p spotless-core --example sync_devices
@@ -61,6 +63,27 @@ fn until(
     Ok(())
 }
 
+const URIS: [&str; 3] = [
+    "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+    "spotify:track:3n3Ppam7vgaVa1iaRUc9Lp",
+    "spotify:track:7qiZfU4dY1lWllzX7mPBI3",
+];
+
+/// One of [`URIS`], with a made-up title.
+fn track(n: usize) -> TrackRef {
+    TrackRef {
+        uri: URIS[n].to_string(),
+        title: format!("A's song {n}"),
+        artists: vec![],
+        album: AlbumRef {
+            uri: String::new(),
+            name: String::new(),
+        },
+        duration_ms: 200_000,
+        source: None,
+    }
+}
+
 fn ready(c: &Controller) -> bool {
     matches!(c.state().session, SessionState::Ready { .. })
 }
@@ -97,26 +120,7 @@ fn main() -> Result<()> {
 
     // A makes a playlist of three songs (titles filled in by A only) and
     // syncs it.
-    let uris = [
-        "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
-        "spotify:track:3n3Ppam7vgaVa1iaRUc9Lp",
-        "spotify:track:7qiZfU4dY1lWllzX7mPBI3",
-    ];
-    let tracks: Vec<TrackRef> = uris
-        .iter()
-        .enumerate()
-        .map(|(n, uri)| TrackRef {
-            uri: uri.to_string(),
-            title: format!("A's song {n}"),
-            artists: vec![],
-            album: AlbumRef {
-                uri: String::new(),
-                name: String::new(),
-            },
-            duration_ms: 200_000,
-            source: None,
-        })
-        .collect();
+    let tracks: Vec<TrackRef> = (0..URIS.len()).map(track).collect();
     a.apply(Action::NewPlaylistWith(tracks));
     let list_a = a.state().viewed;
     a.apply(Action::RenamePlaylist(list_a, NAME.into()));
@@ -215,6 +219,46 @@ fn main() -> Result<()> {
             Some(spotless_core::browse::Loadable::Ready(lists)) if lists.iter().all(|l| l.uri != uri))
         },
     )?;
+
+    // A syncs another; B, syncing one by the same name, is asked, then
+    // replaces it: A, open, keeps its own unsynced.
+    let clash = format!("{NAME} clash");
+    a.apply(Action::NewPlaylistWith(vec![track(0)]));
+    let first = a.state().viewed;
+    a.apply(Action::RenamePlaylist(first, clash.clone()));
+    a.apply(Action::SetSync(first, true));
+    until(&mut a, &mut b, "A synced another", 60, |a, _| {
+        up_to_date(a, first)
+    })?;
+    b.apply(Action::NewPlaylistWith(vec![track(1), track(2)]));
+    let second = b.state().viewed;
+    b.apply(Action::RenamePlaylist(second, clash.to_uppercase()));
+    b.apply(Action::SetSync(second, true));
+    until(&mut a, &mut b, "B asked: the name is taken", 30, |_, b| {
+        b.state().sync_name_taken == Some(second)
+    })?;
+    b.apply(Action::ReplaceSynced(second));
+    until(
+        &mut a,
+        &mut b,
+        "B replaced it; A keeps its own, unsynced",
+        60,
+        |a, b| {
+            up_to_date(b, second)
+                && a.state()
+                    .library
+                    .get(first)
+                    .is_some_and(|l| l.sync.is_none() && l.len() == 1)
+        },
+    )?;
+    println!("        A: {:?}", a.state().notice);
+    b.apply(Action::SetSync(second, false));
+    until(&mut a, &mut b, "B stopped syncing it: gone", 30, |_, b| {
+        b.state()
+            .notice
+            .as_deref()
+            .is_some_and(|n| n.contains("gone from Spotify"))
+    })?;
     let _ = std::fs::remove_dir_all(&root);
     Ok(())
 }

@@ -572,7 +572,7 @@ async fn synced_side() -> Result<()> {
     );
     println!("songs a={a} b={b} c={c} d={d}");
 
-    let uri = synced::create(&s, NAME, &liked[..3]).await?;
+    let uri = made(synced::create(&s, NAME, &liked[..3], false).await?)?;
     println!("made {uri}");
     let folder = synced::folder(&s).await?;
     println!("folder: {folder:?}");
@@ -729,7 +729,7 @@ async fn synced_side() -> Result<()> {
     check("b d c", names(&now) == [b.as_str(), d.as_str(), c.as_str()]);
     check("description set", now.description == "s1:00:0:0:");
 
-    let second = synced::create(&s, SECOND, &[]).await?;
+    let second = made(synced::create(&s, SECOND, &[], false).await?)?;
     let folder = synced::folder(&s).await?;
     println!("folder: {folder:?}");
     check(
@@ -754,5 +754,13 @@ fn playlist_id(uri: &str) -> Result<SpotifyId> {
     match SpotifyUri::from_uri(uri) {
         Ok(SpotifyUri::Playlist { id, .. }) => Ok(id),
         _ => bail!("not a Spotify playlist: {uri}"),
+    }
+}
+
+/// The URI of a playlist [`synced::create`] made.
+fn made(created: synced::Created) -> Result<String> {
+    match created {
+        synced::Created::Made(uri) => Ok(uri),
+        synced::Created::NameTaken => bail!("the Spotless folder has one by that name"),
     }
 }

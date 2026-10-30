@@ -57,6 +57,8 @@ pub struct View<'a> {
     pub library: &'a Library,
     /// How each synced playlist stands.
     pub sync: &'a HashMap<PlaylistId, crate::controller::SyncStatus>,
+    /// A playlist not synced because the Spotless folder has its name.
+    pub sync_name_taken: Option<PlaylistId>,
     /// The tabs in order, the Spotify tab's included while it shows.
     pub tabs: &'a [PlaylistId],
     /// The playlist the player's song is from, loaded or not.
@@ -199,6 +201,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     // A newer release is announced once no other question is open; it
     // takes the keys before anything else can.
     let announcing = inputs.closing.is_none()
+        && view.sync_name_taken.is_none()
         && inputs.renaming.is_none()
         && inputs.spotify_pick.is_none()
         && !inputs.help

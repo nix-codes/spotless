@@ -93,6 +93,11 @@ pub enum Action {
     /// devices, or stops: its Spotify playlist is deleted, and it stays
     /// here only (the other devices keep theirs, not synced).
     SetSync(PlaylistId, bool),
+    /// Syncs a playlist whose name the Spotless folder has already,
+    /// deleting that one first (its devices keep it, not synced).
+    ReplaceSynced(PlaylistId),
+    /// The question of a name taken in the Spotless folder goes unanswered.
+    DismissSyncNameTaken,
     /// Opens a playlist of the Spotless folder as a synced tab, by URI and
     /// name, or shows it if it's open.
     OpenSynced(String, String),

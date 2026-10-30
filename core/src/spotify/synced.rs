@@ -393,10 +393,52 @@ pub async fn folder(session: &Session) -> Result<Vec<(String, String)>> {
         .collect())
 }
 
+/// What [`create`] did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Created {
+    /// Made, by this URI.
+    Made(String),
+    /// Not made: the Spotless folder has a playlist by that name already.
+    NameTaken,
+}
+
+/// Whether two playlists' names are the same, case and spaces round them
+/// aside.
+pub fn same_name(a: &str, b: &str) -> bool {
+    a.trim().to_lowercase() == b.trim().to_lowercase()
+}
+
 /// Makes a private playlist by this name, last in the Spotless folder
 /// (made first in the account's list if there's none), with these songs.
-/// Answers its URI.
-pub async fn create(session: &Session, name: &str, songs: &[String]) -> Result<String> {
+/// Unless told to `replace` them, deleting them first, it makes none if
+/// the folder has one by that name already.
+pub async fn create(
+    session: &Session,
+    name: &str,
+    songs: &[String],
+    replace: bool,
+) -> Result<Created> {
+    let taken: Vec<String> = folder(session)
+        .await?
+        .into_iter()
+        .filter(|(_, other)| same_name(other, name))
+        .map(|(uri, _)| uri)
+        .collect();
+    if !taken.is_empty() && !replace {
+        return Ok(Created::NameTaken);
+    }
+    for uri in &taken {
+        playlists::unlist(session, uri)
+            .await
+            .context("the playlist by that name couldn't be deleted")?;
+    }
+    create_in_folder(session, name, songs)
+        .await
+        .map(Created::Made)
+}
+
+/// Makes the playlist and moves it into the folder; answers its URI.
+async fn create_in_folder(session: &Session, name: &str, songs: &[String]) -> Result<String> {
     let uri = playlists::create(session, name, true, songs).await?;
     // `create` lists it first; it moves into the folder.
     let root = rootlist(session).await?;

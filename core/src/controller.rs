@@ -75,6 +75,10 @@ pub struct State {
     pub spotify_owns: bool,
     /// How each synced playlist stands, once it has been sent or read.
     pub sync: HashMap<PlaylistId, SyncStatus>,
+    /// A playlist that wasn't synced because the Spotless folder has one
+    /// by its name: asked whether to rename it or replace that one. It's
+    /// synced once renamed.
+    pub sync_name_taken: Option<PlaylistId>,
 }
 
 impl State {
@@ -387,6 +391,7 @@ impl Controller {
                 spotify_starting: None,
                 spotify_owns: false,
                 sync: HashMap::new(),
+                sync_name_taken: None,
             },
             unsaved: None,
             pending_adds: Vec::new(),
@@ -649,6 +654,7 @@ impl Controller {
                 } => self.copied_to_spotify(target, songs, result),
                 Event::Synced { list, result } => self.synced(list, result),
                 Event::SyncCreated { list, result } => self.sync_created(list, result),
+                Event::SyncNameTaken { list } => self.sync_name_taken(list),
                 Event::SyncFolder(result) => self.sync_folder_read(result),
                 Event::PlaylistChanged(changed) => self.playlist_changed(changed),
                 Event::PlaylistsChanged => self.sync_on_connect(),
@@ -867,14 +873,26 @@ impl Controller {
                 self.finding.retain(|(_, _, then)| !then.goes_to(list));
                 requests
             }
-            Action::SetSync(list, on) => return self.set_sync(list, on),
+            Action::SetSync(list, on) => return self.set_sync(list, on, false),
+            Action::ReplaceSynced(list) => return self.set_sync(list, true, true),
+            Action::DismissSyncNameTaken => {
+                self.state.sync_name_taken = None;
+                return;
+            }
             Action::OpenSynced(uri, name) => {
                 self.open_synced(uri, name);
                 return;
             }
             Action::RenamePlaylist(list, name) => {
                 library.rename(list, &name);
-                return self.mark_unsaved();
+                let to_sync = state.sync_name_taken == Some(list);
+                self.mark_unsaved();
+                // Renamed for want of a name free in the Spotless folder:
+                // synced now, or asked again.
+                if to_sync {
+                    self.set_sync(list, true, false);
+                }
+                return;
             }
             Action::MovePlaylist(list, index) => {
                 library.move_playlist(list, index);
@@ -3663,7 +3681,7 @@ mod tests {
             rig.sent();
             rig.controller.apply(Action::SetSync(list, true));
             assert!(rig.sent().iter().any(
-                |c| matches!(c, Command::CreateSynced { list: l, name } if *l == list && name == "Gym")
+                |c| matches!(c, Command::CreateSynced { list: l, name, replace: false } if *l == list && name == "Gym")
             ));
             assert_eq!(
                 rig.controller.state().sync.get(&list),
@@ -3862,6 +3880,44 @@ mod tests {
                 rig.controller.state().library.get(list).unwrap().name,
                 "Leg day"
             );
+        }
+
+        #[test]
+        fn a_name_taken_in_the_folder_is_asked_about_then_replaced() {
+            let mut rig = Rig::new("sync-taken");
+            ready(&mut rig);
+            rig.controller
+                .apply(Action::NewPlaylistWith(tracks([1, 2])));
+            let list = rig.controller.state().viewed;
+            rig.controller
+                .apply(Action::RenamePlaylist(list, "Gym".into()));
+            rig.controller.apply(Action::SetSync(list, true));
+            rig.sent();
+            rig.tell(Event::SyncNameTaken { list });
+            let state = rig.controller.state();
+            assert_eq!(state.sync_name_taken, Some(list));
+            assert!(state.library.get(list).unwrap().sync.is_none());
+            assert_eq!(state.sync.get(&list), None);
+            // Renamed, it's synced by its new name.
+            rig.controller
+                .apply(Action::RenamePlaylist(list, "Leg day".into()));
+            assert_eq!(rig.controller.state().sync_name_taken, None);
+            assert!(rig.sent().iter().any(|c| matches!(
+                c,
+                Command::CreateSynced { list: l, name, replace: false } if *l == list && name == "Leg day"
+            )));
+            rig.tell(Event::SyncNameTaken { list });
+            // Dismissed, nothing is sent; replaced, it's made anew.
+            rig.controller.apply(Action::DismissSyncNameTaken);
+            assert_eq!(rig.controller.state().sync_name_taken, None);
+            assert!(rig.sent().is_empty());
+            rig.tell(Event::SyncNameTaken { list });
+            rig.controller.apply(Action::ReplaceSynced(list));
+            assert_eq!(rig.controller.state().sync_name_taken, None);
+            assert!(rig.sent().iter().any(|c| matches!(
+                c,
+                Command::CreateSynced { list: l, replace: true, .. } if *l == list
+            )));
         }
 
         #[test]

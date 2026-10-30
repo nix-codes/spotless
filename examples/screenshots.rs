@@ -241,6 +241,7 @@ impl Demo {
             stop_after: false,
             library: &state.library,
             sync: &state.sync,
+            sync_name_taken: state.sync_name_taken,
             tabs: &tabs,
             playing_list: state.playing_list(),
             spotify: None,

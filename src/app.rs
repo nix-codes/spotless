@@ -504,6 +504,7 @@ impl eframe::App for App {
             stop_after: state.transport.stop_after(),
             library: &state.library,
             sync: &state.sync,
+            sync_name_taken: state.sync_name_taken,
             tabs: &tabs,
             playing_list: state
                 .playing_list()

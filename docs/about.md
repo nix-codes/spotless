@@ -58,7 +58,9 @@ Spotify only allows playback in other apps for Premium accounts.
 - **Synced playlists.** A playlist stays on the device it's on, unless you
   sync it: *Sync* in its tab's menu (on Android, hold the tab) keeps it the
   same on your other devices, its songs and where it's up to (the song,
-  where in it, and the Q marks). Changes arrive within a second or two
+  where in it, and the Q marks). If a synced playlist by that name is
+  already on Spotify, it asks first: rename this one, or replace that
+  one. Changes arrive within a second or two
   while both are open; ones made offline go once you're back. Spotless
   keeps it on your Spotify, as a private playlist in a *Spotless* folder,
   so a device signing in opens it by itself. A synced tab has a ⇅ mark,

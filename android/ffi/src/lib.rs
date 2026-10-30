@@ -444,6 +444,13 @@ pub enum Action {
         playlist: u64,
         on: bool,
     },
+    /// Syncs a playlist whose name the Spotless folder has already,
+    /// deleting that one first (its devices keep it, not synced).
+    ReplaceSynced {
+        playlist: u64,
+    },
+    /// The question of a name taken in the Spotless folder goes unanswered.
+    DismissSyncNameTaken,
     /// Opens a synced playlist of the Spotless folder as a tab, by URI
     /// and name, or shows it if it's open.
     OpenSynced {
@@ -600,6 +607,8 @@ impl From<Action> for spotless_core::action::Action {
             Action::UnlistSpotifyPlaylist { uri } => Core::UnlistSpotifyPlaylist(uri),
             Action::UndoSpotifyRemoval => Core::UndoSpotifyRemoval,
             Action::SetSync { playlist, on } => Core::SetSync(PlaylistId(playlist), on),
+            Action::ReplaceSynced { playlist } => Core::ReplaceSynced(PlaylistId(playlist)),
+            Action::DismissSyncNameTaken => Core::DismissSyncNameTaken,
             Action::OpenSynced { uri, name } => Core::OpenSynced(uri, name),
             Action::CopyToSpotify { target, tracks } => {
                 Core::CopyToSpotify(target.into(), tracks.into_iter().map(Into::into).collect())

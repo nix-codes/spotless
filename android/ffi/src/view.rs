@@ -270,6 +270,9 @@ pub struct Tabs {
     pub tabs: Vec<Tab>,
     /// The playlist shown.
     pub viewed: u64,
+    /// A playlist not synced because the Spotless folder has its name:
+    /// renamed, it's synced; or ReplaceSynced, or DismissSyncNameTaken.
+    pub sync_name_taken: Option<u64>,
 }
 
 pub(crate) fn tabs(state: &State) -> Tabs {
@@ -305,6 +308,7 @@ pub(crate) fn tabs(state: &State) -> Tabs {
             })
             .collect(),
         viewed: state.viewed.0,
+        sync_name_taken: state.sync_name_taken.map(|id| id.0),
     }
 }
 

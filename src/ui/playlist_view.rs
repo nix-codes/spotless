@@ -200,7 +200,11 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         .selection
         .rows
         .retain(|&id| list.index_of(id).is_some());
-    if inputs.renaming.is_none() && inputs.closing.is_none() && inputs.spotify_pick.is_none() {
+    if inputs.renaming.is_none()
+        && inputs.closing.is_none()
+        && inputs.spotify_pick.is_none()
+        && view.sync_name_taken.is_none()
+    {
         keyboard(ui, list, &mut inputs.selection, actions);
     }
     ui.scope_builder(UiBuilder::new().max_rect(rows), |ui| {
@@ -225,6 +229,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         toolbar(ui, view, inputs, actions);
     });
     confirm_close(ui, view, inputs, actions);
+    confirm_sync(ui, view, inputs, actions);
 }
 
 /// Moves a glide on, started by J or stopped by any other scroll, click
@@ -794,6 +799,50 @@ fn confirm_close(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Action
     }
     if answer != Answer::Waiting {
         inputs.closing = None;
+    }
+}
+
+/// A playlist wasn't synced, the Spotless folder having one by its name:
+/// RENAME opens its tab's name field (it's synced once renamed), REPLACE IT
+/// deletes that one first. Hidden while the name is typed.
+fn confirm_sync(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
+    let Some(list) = view.sync_name_taken.and_then(|id| view.library.get(id)) else {
+        return;
+    };
+    if inputs.renaming.is_some() {
+        return;
+    }
+    let palette = view.palette;
+    let buttons = [
+        ("RENAME", "Enter"),
+        (
+            "REPLACE IT",
+            "Deletes the one on Spotify, then syncs this one",
+        ),
+        ("CANCEL", "Esc"),
+    ];
+    let answer = dialog::show(ui, &palette, Id::new("sync-name-taken"), &buttons, |ui| {
+        ui.set_max_width(360.0);
+        ui.label(
+            RichText::new(format!("Sync “{}”?", list.name))
+                .size(15.0)
+                .color(palette.current),
+        );
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(format!(
+                "A synced playlist called “{}” is already on Spotify. Rename this one, \
+                 or replace that one: your other devices keep it, no longer synced.",
+                list.name
+            ))
+            .color(palette.chrome),
+        );
+    });
+    match answer {
+        Answer::Chose(0) => inputs.renaming = Some((list.id, list.name.to_string())),
+        Answer::Chose(1) => actions.push(Action::ReplaceSynced(list.id)),
+        Answer::Waiting => {}
+        _ => actions.push(Action::DismissSyncNameTaken),
     }
 }
 
@@ -1675,6 +1724,7 @@ mod tests {
             stop_after: false,
             library,
             sync: &std::collections::HashMap::new(),
+            sync_name_taken: None,
             tabs: &tabs,
             playing_list: None,
             spotify: spotify.then_some(&queue),

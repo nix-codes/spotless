@@ -41,6 +41,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -513,6 +515,7 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
         return SpotifyPicker(core, core.tracks(id), tab.name, saving = true, close = { saving = false }, done = done)
     }
     val focus = LocalFocusManager.current
+    val nameField = remember { FocusRequester() }
     val save = {
         if (name.isNotBlank() && name.trim() != tab.name) core.apply(Action.RenamePlaylist(id, name))
         focus.clearFocus()
@@ -529,6 +532,7 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
                 Modifier
                     .weight(1f)
                     .height(44.dp)
+                    .focusRequester(nameField)
                     .lcd()
                     .padding(horizontal = 12.dp, vertical = 12.dp)
                     .semantics { contentDescription = "Playlist name" },
@@ -570,6 +574,19 @@ private fun TabEditor(core: Core, id: ULong, done: () -> Unit) {
                 Modifier.weight(1f),
                 body(13.sp, if (tab.sync is TabSync.Failed) Classic.warning else Classic.label, FontWeight.Normal),
             )
+        }
+        // Not synced: the Spotless folder has its name. Renamed, it's synced.
+        if (core.tabs.syncNameTaken == id) {
+            BasicText(
+                "A synced playlist called “${tab.name}” is already on Spotify. Rename this one, " +
+                    "or replace that one: your other devices keep it, no longer synced.",
+                style = body(13.sp, Classic.warning, FontWeight.Normal),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton("RENAME", { nameField.requestFocus() }, Modifier.weight(1f))
+                TextButton("REPLACE IT", { core.apply(Action.ReplaceSynced(id)) }, Modifier.weight(1f))
+                TextButton("CANCEL", { core.apply(Action.DismissSyncNameTaken) }, Modifier.weight(1f))
+            }
         }
         // Its songs, copied once to a new playlist on Spotify.
         TextButton("SAVE TO SPOTIFY…", {

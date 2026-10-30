@@ -405,8 +405,11 @@ impl Controller {
         self.sync_if_due(id, false, true);
     }
 
-    /// Starts syncing playlist `id`, or stops.
-    pub(super) fn set_sync(&mut self, id: PlaylistId, on: bool) {
+    /// Starts syncing playlist `id`, or stops. Started, it makes no
+    /// playlist when the Spotless folder has one by its name, unless told
+    /// to `replace` it.
+    pub(super) fn set_sync(&mut self, id: PlaylistId, on: bool, replace: bool) {
+        self.state.sync_name_taken = None;
         let Some(list) = self.state.library.get(id) else {
             return;
         };
@@ -452,7 +455,22 @@ impl Controller {
         }
         self.state.sync.insert(id, SyncStatus::Waiting);
         self.mark_unsaved();
-        self.send(Command::CreateSynced { list: id, name });
+        self.send(Command::CreateSynced {
+            list: id,
+            name,
+            replace,
+        });
+    }
+
+    /// Playlist `id` wasn't synced: the Spotless folder has one by its
+    /// name. The user is asked what to do.
+    pub(super) fn sync_name_taken(&mut self, id: PlaylistId) {
+        let Some(list) = self.state.library.get_mut(id) else {
+            return;
+        };
+        list.sync = None;
+        self.state.sync.remove(&id);
+        self.state.sync_name_taken = Some(id);
     }
 
     /// Playlist `id`'s Spotify playlist was made, or not.
