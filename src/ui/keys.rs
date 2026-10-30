@@ -93,6 +93,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("PgUp / PgDn", "A page up / down"),
             ("Enter", "Search; open; play a song"),
             ("Insert or A", "Add the album or song"),
+            ("Shift+Insert", "Add all shown (ADD ALL)"),
             ("Delete", "Remove from the playlist"),
             ("Shift+Delete", "Delete / unfollow a playlist"),
             ("Ctrl+A", "Select all of a Spotify playlist"),
@@ -345,6 +346,10 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     }
 
     // Ctrl+V arrives as a paste. Text that isn't a Spotify link is left alone.
+    // So does Shift+Insert on Windows: on an artist's page, that is ADD ALL.
+    if browse_view::adds_all(view) && browse_view::add_all_pressed(i) {
+        return;
+    }
     i.events.retain(|event| match event {
         Event::Paste(text) if crate::spotify::catalog::parse_uri(text.trim()).is_ok() => {
             actions.push(Action::AddLink(text.trim().to_string()));

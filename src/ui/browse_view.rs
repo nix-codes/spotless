@@ -4,20 +4,22 @@
 //! Tab and Shift+Tab move between three areas: the search field, the
 //! results and the slim column. In the results, the arrows move a
 //! highlighted row; Enter opens it (an artist, an album's or a playlist's
-//! songs) or plays it (a song), Insert or A adds it. In the slim column, Enter plays and Delete
-//! removes. Alt+1…4 pick the release tab, Alt+5 shows similar artists,
-//! Alt+6 the popular songs, Ctrl+S the order, Ctrl+E shows or hides all songs, C the pics. Esc goes
-//! back to the playlists, Backspace or Alt+Left back a page. Ctrl+F (in `keys.rs`) jumps to the
-//! search field. / opens the page's find, under the search field: what's
-//! typed in it narrows the results or the discography shown, and Esc
-//! closes it.
+//! songs) or plays it (a song), Insert or A adds it. In the slim column,
+//! Enter plays and Delete removes. On an artist's page Alt+1…4 pick the
+//! release tab, Alt+5 shows similar artists, Alt+6 the popular songs,
+//! Shift+Insert adds all the page shows, Ctrl+S sets the order and Ctrl+E
+//! shows or hides all songs. C turns the pics on and off. Esc goes back to
+//! the playlists, Backspace or Alt+Left back a page. Ctrl+F (in `keys.rs`)
+//! jumps to the search field. / opens the page's find, under the search
+//! field: what's typed in it narrows the results or the discography
+//! shown, and Esc closes it.
 
 use std::collections::BTreeSet;
 
 use egui::{
-    Align2, Color32, FocusDirection, FontId, Id, Key, Painter, Rect, Response, RichText,
-    ScrollArea, Sense, Stroke, StrokeKind, TextEdit, Ui, UiBuilder, WidgetInfo, WidgetType, pos2,
-    vec2,
+    Align2, Color32, FocusDirection, FontId, Id, InputState, Key, Modifiers, Painter, Rect,
+    Response, RichText, ScrollArea, Sense, Stroke, StrokeKind, TextEdit, Ui, UiBuilder, WidgetInfo,
+    WidgetType, pos2, vec2,
 };
 
 use super::scrollbar::{self, Scrollbar};
@@ -78,8 +80,9 @@ pub struct Nav {
     /// Set by the keys for the highlighted row: scroll to it, act on it.
     reveal: bool,
     act: Option<Act>,
-    /// Ctrl+E, for the artist page.
+    /// Ctrl+E and Shift+Insert, for the artist page.
     expand_all: bool,
+    add_all: bool,
     /// What's typed in the page's find, and whether it should take the
     /// keyboard; nothing on the page had it, last frame.
     find: String,
@@ -273,6 +276,7 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
         nav.act = None;
         nav.reveal = false;
         nav.expand_all = false;
+        nav.add_all = false;
     });
     ui.scope_builder(UiBuilder::new().max_rect(slim.shrink(8.0)), |ui| {
         slim_column(ui, view, &mut inputs.nav, actions);
@@ -472,6 +476,9 @@ fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
             }
             if i.modifiers.command && i.key_pressed(Key::E) {
                 nav.expand_all = true;
+            }
+            if add_all_pressed(i) {
+                nav.add_all = true;
             }
         }
         if plain && i.key_pressed(Key::ArrowLeft) {
@@ -1022,13 +1029,14 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
         ui.cursor().min
     });
     if !similar {
+        let pressed = nav.add_all;
         add_all(
             ui,
             view,
             discography,
             &releases,
             popular,
-            end.inner,
+            (end.inner, pressed),
             actions,
         );
     }
@@ -1300,6 +1308,23 @@ fn album(
     true
 }
 
+/// Shift+Insert, ADD ALL's key on an artist page. On Windows it arrives as
+/// a paste, of whatever the clipboard holds, with Shift held (Ctrl+V's has
+/// Ctrl).
+pub(super) fn add_all_pressed(i: &InputState) -> bool {
+    let shift = i.modifiers.matches_exact(Modifiers::SHIFT);
+    shift
+        && (i.key_pressed(Key::Insert)
+            || i.events.iter().any(|e| matches!(e, egui::Event::Paste(_))))
+}
+
+/// An artist's page shows on the search tab: Shift+Insert is ADD ALL's.
+pub(super) fn adds_all(view: &View) -> bool {
+    view.browse.open
+        && shown(view) == BrowseTab::Search
+        && matches!(view.browse.page(), Page::Artist(_))
+}
+
 /// What a find shows of a release: None when nothing of it has the find;
 /// else the songs that have it, by their place on it, none when only its
 /// title does. The release is the row: its songs go by their own names.
@@ -1327,7 +1352,7 @@ fn add_all(
     discography: &Discography,
     releases: &[&Release],
     popular: bool,
-    end: egui::Pos2,
+    (end, pressed): (egui::Pos2, bool),
     actions: &mut Actions,
 ) {
     let browse = view.browse;
@@ -1395,9 +1420,9 @@ fn add_all(
     let tip = if reading {
         "Waiting for the songs to be read".to_string()
     } else {
-        format!("Adds {what}{to}")
+        format!("Adds {what}{to} (Shift+Insert)")
     };
-    if super::widgets::tip(button, &tip).clicked() {
+    if super::widgets::tip(button, &tip).clicked() || (pressed && !reading) {
         actions.push(if albums.is_empty() {
             Action::AddTracks(songs)
         } else {
@@ -2060,4 +2085,51 @@ fn mono() -> FontId {
 
 fn tag() -> FontId {
     FontId::monospace(9.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use egui::{Event, RawInput};
+
+    use super::*;
+
+    /// Whether these events, with these keys held, press ADD ALL.
+    fn presses(modifiers: Modifiers, events: Vec<Event>) -> bool {
+        let ctx = egui::Context::default();
+        let mut events = events;
+        events.insert(0, Event::ModifiersChanged(modifiers));
+        let raw = RawInput {
+            events,
+            ..RawInput::default()
+        };
+        let mut pressed = false;
+        let _ = ctx.run_ui(raw, |ui| pressed = ui.input(add_all_pressed));
+        pressed
+    }
+
+    fn key(key: Key, modifiers: Modifiers) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }
+    }
+
+    #[test]
+    fn shift_insert_is_add_all_as_a_key_or_as_windows_paste() {
+        let paste = || Event::Paste("spotify:track:x".into());
+        assert!(presses(
+            Modifiers::SHIFT,
+            vec![key(Key::Insert, Modifiers::SHIFT)]
+        ));
+        assert!(presses(Modifiers::SHIFT, vec![paste()]));
+        // Ctrl+V's paste, and Insert alone, aren't.
+        assert!(!presses(Modifiers::COMMAND, vec![paste()]));
+        assert!(!presses(
+            Modifiers::NONE,
+            vec![key(Key::Insert, Modifiers::NONE)]
+        ));
+    }
 }
