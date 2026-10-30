@@ -70,29 +70,35 @@ pub fn artist() -> ArtistRef {
     }
 }
 
-/// The artist's releases, oldest first.
+/// The artist's releases, oldest first, and its popular songs.
 pub fn discography() -> Discography {
+    let releases: Vec<Release> = DISCOGRAPHY
+        .iter()
+        .enumerate()
+        .map(|(n, (title, year, group, kind, songs))| Release {
+            uri: format!("spotify:album:demo-{n}"),
+            title: (*title).into(),
+            artists: ARTIST.into(),
+            year: *year,
+            group: *group,
+            kind: (*kind).into(),
+            tracks: match songs.len() {
+                0 if *kind == "SINGLE" => 2,
+                0 if *kind == "EP" => 5,
+                0 => 9 + n % 5,
+                songs => songs,
+            },
+            cover: Some(cover_url(n)),
+        })
+        .collect();
+    let popular = POPULAR
+        .iter()
+        .map(|&(release, song)| songs_of(&releases[release], DISCOGRAPHY[release].4)[song].clone())
+        .collect();
     Discography {
         artist: artist(),
-        releases: DISCOGRAPHY
-            .iter()
-            .enumerate()
-            .map(|(n, (title, year, group, kind, songs))| Release {
-                uri: format!("spotify:album:demo-{n}"),
-                title: (*title).into(),
-                artists: ARTIST.into(),
-                year: *year,
-                group: *group,
-                kind: (*kind).into(),
-                tracks: match songs.len() {
-                    0 if *kind == "SINGLE" => 2,
-                    0 if *kind == "EP" => 5,
-                    0 => 9 + n % 5,
-                    songs => songs,
-                },
-                cover: Some(cover_url(n)),
-            })
-            .collect(),
+        releases,
+        popular,
     }
 }
 
@@ -104,21 +110,25 @@ pub fn release_songs() -> Vec<(String, Vec<TrackRef>)> {
         .into_iter()
         .zip(DISCOGRAPHY)
         .map(|(release, (_, _, _, _, songs))| {
-            let album = AlbumRef {
-                uri: release.uri.clone(),
-                name: release.title.clone(),
-            };
-            let tracks = (songs.iter().enumerate())
-                .map(|(n, (title, secs))| TrackRef {
-                    uri: format!("{}-{n}", release.uri.replace("album", "track")),
-                    title: (*title).into(),
-                    artists: vec![artist()],
-                    album: album.clone(),
-                    duration_ms: secs * 1000,
-                    source: None,
-                })
-                .collect();
+            let tracks = songs_of(&release, songs);
             (release.uri, tracks)
+        })
+        .collect()
+}
+
+fn songs_of(release: &Release, songs: &[(&str, u32)]) -> Vec<TrackRef> {
+    let album = AlbumRef {
+        uri: release.uri.clone(),
+        name: release.title.clone(),
+    };
+    (songs.iter().enumerate())
+        .map(|(n, (title, secs))| TrackRef {
+            uri: format!("{}-{n}", release.uri.replace("album", "track")),
+            title: (*title).into(),
+            artists: vec![artist()],
+            album: album.clone(),
+            duration_ms: secs * 1000,
+            source: None,
         })
         .collect()
 }
@@ -387,6 +397,9 @@ type Album = (
 
 /// The artist's releases, oldest first; the songs of the first few make
 /// up their playlist.
+/// The popular songs, by release and song in `DISCOGRAPHY`.
+const POPULAR: &[(usize, usize)] = &[(1, 3), (2, 1), (0, 1), (1, 1), (2, 0)];
+
 const DISCOGRAPHY: &[Album] = &[
     (
         "Low Orbit",

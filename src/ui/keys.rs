@@ -98,7 +98,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+A", "Select all of a Spotify playlist"),
             ("/", "Find in the results or the releases"),
             ("Ctrl+Z", "Undo a removal on Spotify"),
-            ("Alt+1 … 5", "Release tabs, then Similar"),
+            ("Alt+1 … 6", "Release tabs, then Similar, Popular"),
             ("Ctrl+S", "Oldest / newest first"),
             ("Ctrl+E", "Show / hide all songs"),
             ("C", "Pics on / off"),

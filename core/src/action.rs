@@ -136,6 +136,8 @@ pub enum Action {
     /// Shows artists like this one (the artist page's), reading them from
     /// Last.fm if needed.
     ShowSimilar(ArtistRef),
+    /// The artist page shows its popular songs instead of the releases.
+    ShowPopular,
     /// Opens a similar artist, by name, finding it on Spotify first.
     OpenSimilar(String),
     ToggleSort,
@@ -145,6 +147,9 @@ pub enum Action {
     AddTracks(Vec<TrackRef>),
     /// Appends an album's songs to the target playlist.
     AddAlbum(String),
+    /// Appends these albums' songs to the target playlist, in this order,
+    /// all at once when every one is read.
+    AddAlbums(Vec<String>),
     /// Songs dropped on the slim column, before the row at this index.
     DropTracks(Vec<TrackRef>, usize),
     /// An album dropped on the slim column, before the row at this index.

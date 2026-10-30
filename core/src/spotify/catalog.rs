@@ -431,6 +431,7 @@ pub async fn discography(session: &Session, artist: &SpotifyUri) -> Result<Disco
         .collect();
     let uris: Vec<SpotifyUri> = entries.iter().map(|(_, uri)| uri.clone()).collect();
     let mut albums = read_many::<Album>(session, &uris, ExtensionKind::ALBUM_V4).await?;
+    let popular = popular(session, &artist).await;
     let mut releases = Vec::new();
     for (group, uri) in entries {
         let Some(album) = albums.remove(&uri.to_uri()) else {
@@ -461,7 +462,31 @@ pub async fn discography(session: &Session, artist: &SpotifyUri) -> Result<Disco
             image: image_url(&artist.portrait_group),
         },
         releases: tidy(releases),
+        popular,
     })
+}
+
+/// The artist's most played songs. Spotify sends the account's country's
+/// list only, and the session may not know its country yet just after
+/// signing in: then the list sent is taken. None, if they can't be read:
+/// the discography shows without them.
+async fn popular(session: &Session, artist: &Artist) -> Vec<TrackRef> {
+    let mut uris = artist.top_tracks.for_country(&session.country());
+    if uris.is_empty()
+        && let Some(sent) = artist.top_tracks.first()
+    {
+        uris = sent.tracks.clone();
+    }
+    let read = match read_many::<Track>(session, &uris, ExtensionKind::TRACK_V4).await {
+        Ok(read) => read,
+        Err(error) => {
+            log::warn!("popular songs of {}: {error:#}", artist.name);
+            return Vec::new();
+        }
+    };
+    uris.iter()
+        .filter_map(|uri| read.get(&uri.to_uri()).map(track_ref))
+        .collect()
 }
 
 /// The album's cover at Spotify's default size (300 px), else any.

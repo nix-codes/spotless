@@ -215,6 +215,9 @@ pub struct Controller {
     /// Albums whose songs go to a playlist (at an index, or at the end)
     /// once they are read.
     pending_adds: Vec<(String, PlaylistId, Option<usize>)>,
+    /// Albums whose songs go to the end of a playlist together, in order,
+    /// once every one is read.
+    pending_batches: Vec<(Vec<String>, PlaylistId)>,
     /// Songs loved on Last.fm being found on Spotify, by the ID they were
     /// asked for with, and where they go once found.
     finding: Vec<(u64, Vec<LovedSong>, FoundFor)>,
@@ -384,6 +387,7 @@ impl Controller {
             },
             unsaved: None,
             pending_adds: Vec::new(),
+            pending_batches: Vec::new(),
             finding: Vec::new(),
             last_find: 0,
             resuming: false,
@@ -625,6 +629,7 @@ impl Controller {
                                 .insert(album, Loadable::Failed(error));
                         }
                     }
+                    self.add_batches_read();
                 }
                 Event::SpotifyPlaylists(result) => self.spotify_playlists_read(result),
                 Event::SpotifyEdited {
@@ -1191,7 +1196,12 @@ impl Controller {
             Action::SetTab(tab) => {
                 browse.tab = tab;
                 browse.similar = false;
+                browse.popular = false;
                 self.read_for_find();
+            }
+            Action::ShowPopular => {
+                browse.popular = true;
+                browse.similar = false;
             }
             Action::Find(find) => {
                 browse.find = find;
@@ -1199,6 +1209,7 @@ impl Controller {
             }
             Action::ShowSimilar(artist) => {
                 browse.similar = true;
+                browse.popular = false;
                 if matches!(
                     browse.similar_artists.get(&artist.uri),
                     Some(Loadable::Ready(_) | Loadable::Loading)
@@ -1297,6 +1308,14 @@ impl Controller {
             }
             Action::PlayLoved(song) => self.find_loved(vec![song], FoundFor::Play),
             Action::AddAlbum(album) => self.add_album(album, None),
+            Action::AddAlbums(albums) => {
+                let target = self.state.browse.target;
+                for album in &albums {
+                    self.read_album(album.clone());
+                }
+                self.pending_batches.push((albums, target));
+                self.add_batches_read();
+            }
             Action::DropAlbum(album, at) => self.add_album(album, Some(at)),
             Action::ReadSpotifyPlaylists => self.read_spotify_playlists(),
             Action::ShowBrowseTab(tab) => {
@@ -1604,6 +1623,44 @@ impl Controller {
         }
     }
 
+    /// Adds the batches of albums whose songs are all read now (those that
+    /// couldn't be, left out), each in its order.
+    fn add_batches_read(&mut self) {
+        let albums = &self.state.browse.albums;
+        let (read, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.pending_batches)
+            .into_iter()
+            .partition(|(batch, _)| {
+                batch
+                    .iter()
+                    .all(|album| !matches!(albums.get(album), None | Some(Loadable::Loading)))
+            });
+        self.pending_batches = waiting;
+        for (batch, list) in read {
+            let mut tracks = Vec::new();
+            let mut unread = 0;
+            for album in batch {
+                match self.state.browse.albums.get(&album) {
+                    Some(Loadable::Ready(songs)) => {
+                        tracks.extend(self.added_from(&album, songs.clone()));
+                    }
+                    _ => unread += 1,
+                }
+            }
+            if !tracks.is_empty() {
+                self.insert_tracks(list, None, tracks);
+            }
+            if unread > 0 {
+                self.state.error = Some(match unread {
+                    1 => "One of the releases couldn't be read.".into(),
+                    n => format!("{n} of the releases couldn't be read."),
+                });
+            }
+        }
+        if !self.pending_batches.is_empty() {
+            self.state.notice = Some("Reading the songs…".into());
+        }
+    }
+
     /// An album's or a Spotify playlist's songs, as added from it.
     fn added_from(&self, uri: &str, tracks: Vec<TrackRef>) -> Vec<TrackRef> {
         let name = match self.state.browse.spotify_playlist(uri) {
@@ -1682,7 +1739,8 @@ impl Controller {
         let Some(Loadable::Ready(discography)) = browse.artists.get(uri) else {
             return;
         };
-        if browse.find.is_none() {
+        // Popular songs are found among themselves.
+        if browse.find.is_none() || browse.popular {
             return;
         }
         let albums: Vec<String> = discography
@@ -2487,6 +2545,40 @@ mod tests {
             rig.sent()
                 .iter()
                 .any(|c| matches!(c, Command::SpotifyPlaylists))
+        );
+    }
+
+    #[test]
+    fn albums_added_together_arrive_together_in_their_order_whenever_read() {
+        let mut rig = Rig::new("add-albums");
+        let viewed = rig.controller.state().viewed;
+        let uris = |rig: &Rig| -> Vec<String> {
+            let list = rig.controller.state().library.get(viewed).unwrap();
+            list.entries().iter().map(|e| e.track.uri.clone()).collect()
+        };
+        let before = uris(&rig);
+        let albums = ["spotify:album:a", "spotify:album:b", "spotify:album:c"];
+        rig.controller
+            .apply(Action::AddAlbums(albums.map(String::from).to_vec()));
+        // Read last first, one failing: nothing until all are answered.
+        rig.tell(Event::Album {
+            album: albums[2].into(),
+            result: Ok(songs(tracks([5, 6]))),
+        });
+        rig.tell(Event::Album {
+            album: albums[1].into(),
+            result: Err("gone".into()),
+        });
+        assert_eq!(uris(&rig), before);
+        rig.tell(Event::Album {
+            album: albums[0].into(),
+            result: Ok(songs(tracks([1, 2]))),
+        });
+        let added: Vec<String> = tracks([1, 2, 5, 6]).into_iter().map(|t| t.uri).collect();
+        assert_eq!(uris(&rig)[before.len()..], added);
+        assert_eq!(
+            rig.controller.state().error.as_deref(),
+            Some("One of the releases couldn't be read.")
         );
     }
 

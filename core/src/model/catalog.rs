@@ -64,6 +64,9 @@ pub struct Discography {
     pub artist: ArtistRef,
     /// Oldest first.
     pub releases: Vec<Release>,
+    /// The artist's most played songs, Spotify's own pick for the
+    /// account's country, most played first.
+    pub popular: Vec<TrackRef>,
 }
 
 /// One of the account's playlists on Spotify, or its Liked Songs.

@@ -6,7 +6,7 @@
 //! highlighted row; Enter opens it (an artist, an album's or a playlist's
 //! songs) or plays it (a song), Insert or A adds it. In the slim column, Enter plays and Delete
 //! removes. Alt+1…4 pick the release tab, Alt+5 shows similar artists,
-//! Ctrl+S the order, Ctrl+E shows or hides all songs, C the pics. Esc goes
+//! Alt+6 the popular songs, Ctrl+S the order, Ctrl+E shows or hides all songs, C the pics. Esc goes
 //! back to the playlists, Backspace or Alt+Left back a page. Ctrl+F (in `keys.rs`) jumps to the
 //! search field. / opens the page's find, under the search field: what's
 //! typed in it narrows the results or the discography shown, and Esc
@@ -24,15 +24,15 @@ use super::scrollbar::{self, Scrollbar};
 use super::settings_view::Category;
 use super::theme::{self, Palette};
 use super::widgets::{
-    BUTTON_HEIGHT, SMALL_HEIGHT, field, share_menu, small_button, small_button_width, text_button,
-    text_button_width,
+    BUTTON_HEIGHT, SMALL_HEIGHT, field, share_menu, small_action, small_button, small_button_width,
+    text_button, text_button_width,
 };
 use super::{Inputs, View};
 use crate::action::{Action, Actions, Desktop};
 use crate::backend::SearchState;
 use crate::browse::{BrowseTab, Find, Loadable, Page};
 use crate::lastfm;
-use crate::model::catalog::{Release, ReleaseTab};
+use crate::model::catalog::{Discography, Release, ReleaseTab};
 use crate::model::{ArtistRef, EntryId, Source, TrackRef, playlist::Playlist};
 
 mod lastfm_tab;
@@ -464,6 +464,9 @@ fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
             {
                 actions.push(Action::ShowSimilar(artist));
             }
+            if i.modifiers.alt && i.key_pressed(Key::Num6) {
+                actions.push(Action::ShowPopular);
+            }
             if i.modifiers.command && i.key_pressed(Key::S) {
                 actions.push(Action::ToggleSort);
             }
@@ -876,7 +879,7 @@ fn search_page(
     if !songs.is_empty() {
         section(ui, view, "SONGS");
         for (i, track) in songs {
-            song(ui, view, nav, i + 1, track, true, actions);
+            song(ui, view, nav, i + 1, track, true, None, actions);
         }
         if results.reading_songs {
             note(ui, view, "Reading more songs…");
@@ -942,6 +945,7 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
     let similar_tab =
         lastfm::api::is_key(&view.lastfm.api_key) || browse.similar_artists.contains_key(uri);
     let similar = browse.similar && similar_tab;
+    let popular = browse.popular && !discography.popular.is_empty();
     let mut releases: Vec<&Release> = discography
         .releases
         .iter()
@@ -950,7 +954,8 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
     if browse.newest_first {
         releases.reverse();
     }
-    ui.horizontal_wrapped(|ui| {
+    // Where the row's last button ended, for ADD ALL to go after it.
+    let end = ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
         for (n, tab) in ReleaseTab::ALL.into_iter().enumerate() {
             let count = discography
@@ -959,7 +964,8 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
                 .filter(|r| tab.includes(r.group))
                 .count();
             let label = format!("{} {count}", tab.label());
-            if small_button(ui, &palette, &label, !similar && tab == browse.tab)
+            let on = !similar && !popular && tab == browse.tab;
+            if small_button(ui, &palette, &label, on)
                 .on_hover_text(format!("Alt+{}", n + 1))
                 .clicked()
             {
@@ -973,8 +979,15 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
         {
             actions.push(Action::ShowSimilar(discography.artist.clone()));
         }
-        if similar {
-            return;
+        if !discography.popular.is_empty()
+            && small_button(ui, &palette, "POPULAR", popular)
+                .on_hover_text("Its most played songs, as Spotify ranks them (Alt+6)")
+                .clicked()
+        {
+            actions.push(Action::ShowPopular);
+        }
+        if similar || popular {
+            return ui.cursor().min;
         }
         ui.add_space(12.0);
         let sort = if browse.newest_first {
@@ -1006,15 +1019,30 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
                 releases.iter().map(|r| r.uri.clone()).collect()
             }));
         }
+        ui.cursor().min
     });
+    if !similar {
+        add_all(
+            ui,
+            view,
+            discography,
+            &releases,
+            popular,
+            end.inner,
+            actions,
+        );
+    }
     ui.add_space(8.0);
     if similar {
         return similar_artists(ui, view, nav, uri, actions);
     }
+    let find = browse.finder();
+    if popular {
+        return popular_songs(ui, view, nav, discography, find.as_ref(), actions);
+    }
     if releases.is_empty() {
         note(ui, view, "Nothing here.");
     }
-    let find = browse.finder();
     if let Some(find) = &find {
         let unread = releases
             .iter()
@@ -1050,6 +1078,31 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
             None,
             actions,
         );
+    }
+}
+
+/// The artist's most played songs, Spotify's pick, in its order: what
+/// POPULAR shows in place of the releases.
+fn popular_songs(
+    ui: &mut Ui,
+    view: &View,
+    nav: &mut Nav,
+    discography: &Discography,
+    find: Option<&Find>,
+    actions: &mut Actions,
+) {
+    let artist = Some(discography.artist.uri.as_str());
+    let mut any = false;
+    for (i, track) in discography.popular.iter().enumerate() {
+        if find.is_none_or(|find| find.track(track)) {
+            song(ui, view, nav, i + 1, track, true, artist, actions);
+            any = true;
+        }
+    }
+    if !any {
+        nav.found_none = true;
+        let typed = view.browse.find.as_deref().unwrap_or_default().trim();
+        note(ui, view, &format!("No popular song has “{typed}”."));
     }
 }
 
@@ -1154,16 +1207,11 @@ fn album(
         Some(Loadable::Ready(tracks)) => Some(tracks),
         _ => None,
     };
-    // The album is the row: its songs are found by their own names.
-    let found: Vec<(usize, &TrackRef)> = match (find, read) {
-        (Some(find), Some(tracks)) => (tracks.iter().enumerate())
-            .filter(|(_, track)| find.song(track))
-            .collect(),
-        _ => Vec::new(),
+    let found = match find.map(|find| found_in(view, release, find)) {
+        Some(None) => return false,
+        Some(Some(found)) => found,
+        None => Vec::new(),
     };
-    if find.is_some_and(|find| !find.matches(&[&release.title])) && found.is_empty() {
-        return false;
-    }
     let expanded = view.browse.expanded.contains(&release.uri) || !found.is_empty();
     let year = if release.year > 0 {
         release.year.to_string()
@@ -1236,7 +1284,7 @@ fn album(
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     for (i, track) in tracks {
-                        song(ui, view, nav, i + 1, track, false, actions);
+                        song(ui, view, nav, i + 1, track, false, None, actions);
                     }
                 });
             });
@@ -1244,12 +1292,118 @@ fn album(
         }
         Some(Loadable::Ready(_)) => {
             for (i, track) in tracks {
-                song(ui, view, nav, i + 1, track, false, actions);
+                song(ui, view, nav, i + 1, track, false, None, actions);
             }
             ui.add_space(4.0);
         }
     }
     true
+}
+
+/// What a find shows of a release: None when nothing of it has the find;
+/// else the songs that have it, by their place on it, none when only its
+/// title does. The release is the row: its songs go by their own names.
+fn found_in<'a>(
+    view: &View<'a>,
+    release: &Release,
+    find: &Find,
+) -> Option<Vec<(usize, &'a TrackRef)>> {
+    let found: Vec<_> = match view.browse.albums.get(&release.uri) {
+        Some(Loadable::Ready(tracks)) => (tracks.iter().enumerate())
+            .filter(|(_, track)| find.song(track))
+            .collect(),
+        _ => Vec::new(),
+    };
+    (!found.is_empty() || find.matches(&[&release.title])).then_some(found)
+}
+
+/// The ADD ALL button, at the right end of an artist page's tabs: adds
+/// what the page shows to the playlist + ADD adds to. The tab's releases, in the
+/// order shown; the popular songs; with a find, what it found: the songs
+/// found, and whole the releases found by their title.
+fn add_all(
+    ui: &mut Ui,
+    view: &View,
+    discography: &Discography,
+    releases: &[&Release],
+    popular: bool,
+    end: egui::Pos2,
+    actions: &mut Actions,
+) {
+    let browse = view.browse;
+    let find = browse.finder();
+    // A song of an album's comes from that album, as when added alone.
+    let from_album = |track: &TrackRef| {
+        let mut track = track.clone();
+        track.source = Some(Source::album(&track.album));
+        track
+    };
+    let mut albums = Vec::new();
+    let mut songs: Vec<TrackRef> = Vec::new();
+    // A release found by its title, still being read: wait for it.
+    let mut reading = false;
+    if popular {
+        songs.extend(
+            (discography.popular.iter())
+                .filter(|track| find.as_ref().is_none_or(|find| find.track(track)))
+                .cloned(),
+        );
+    } else if let Some(find) = &find {
+        for release in releases {
+            match found_in(view, release, find) {
+                None => {}
+                Some(found) if !found.is_empty() => {
+                    songs.extend(found.into_iter().map(|(_, track)| from_album(track)));
+                }
+                Some(_) => match browse.albums.get(&release.uri) {
+                    Some(Loadable::Ready(tracks)) => songs.extend(tracks.iter().map(from_album)),
+                    Some(Loadable::Failed(_)) => {}
+                    None | Some(Loadable::Loading) => reading = true,
+                },
+            }
+        }
+    } else {
+        albums.extend(releases.iter().map(|release| release.uri.clone()));
+    }
+    let what = match (albums.len(), songs.len()) {
+        (0, 0) => return,
+        (0, 1) => "the song shown".to_string(),
+        (0, n) => format!("the {n} songs shown"),
+        (1, _) => "the release shown".to_string(),
+        (n, _) => format!("the {n} releases shown"),
+    };
+    let to = view
+        .list(browse.target)
+        .map_or(String::new(), |list| format!(" to “{}”", list.name));
+    // At the right end, over the rows' own + buttons (3 points in from
+    // the edge): on the tabs' last line, else on a line of its own.
+    let label = "+ ADD ALL";
+    let size = vec2(small_button_width(ui, label), SMALL_HEIGHT);
+    let right = ui.max_rect().right() - 3.0;
+    let top = if right - size.x - 12.0 >= end.x {
+        end.y
+    } else {
+        let (line, _) = ui.allocate_exact_size(
+            vec2(ui.available_width(), SMALL_HEIGHT + 4.0),
+            Sense::hover(),
+        );
+        line.bottom() - SMALL_HEIGHT
+    };
+    let rect = Rect::from_min_size(pos2(right - size.x, top), size);
+    let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
+    let button = small_action(&mut child, &view.palette, label, !reading);
+    let tip = if reading {
+        "Waiting for the songs to be read".to_string()
+    } else {
+        format!("Adds {what}{to}")
+    };
+    if super::widgets::tip(button, &tip).clicked() {
+        actions.push(if albums.is_empty() {
+            Action::AddTracks(songs)
+        } else {
+            Action::AddAlbums(albums)
+        });
+    }
 }
 
 /// Draws a cover or an artist's picture in `rect`, asking for it when it
@@ -1283,7 +1437,9 @@ fn cover(painter: &Painter, view: &View, url: Option<&String>, rect: Rect, actio
 }
 
 /// A song row: double-click plays it now, + adds it. `full` shows the
-/// artist and album, for search results.
+/// artists and album, for search results and an artist's popular songs;
+/// `page_artist`, the artist whose page it is, goes without saying.
+#[allow(clippy::too_many_arguments)]
 fn song(
     ui: &mut Ui,
     view: &View,
@@ -1291,6 +1447,7 @@ fn song(
     number: usize,
     track: &TrackRef,
     full: bool,
+    page_artist: Option<&str>,
     actions: &mut Actions,
 ) {
     let palette = view.palette;
@@ -1300,6 +1457,7 @@ fn song(
     let artists = track
         .artists
         .iter()
+        .filter(|a| Some(a.uri.as_str()) != page_artist)
         .map(|a| a.name.as_str())
         .collect::<Vec<_>>()
         .join(", ");
@@ -1323,7 +1481,7 @@ fn song(
                 pos2(right.left() - 8.0, rect.bottom()),
             );
             let mut parts = vec![(number.as_str(), mono(), palette.dim)];
-            if full {
+            if full && !artists.is_empty() {
                 parts.push((artists.as_str(), body(), palette.list_fg));
                 parts.push(("-", body(), palette.dim));
             }

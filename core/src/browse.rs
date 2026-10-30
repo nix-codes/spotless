@@ -157,6 +157,8 @@ pub struct Browse {
     pub tab: ReleaseTab,
     /// The artist page shows similar artists instead of the releases.
     pub similar: bool,
+    /// The artist page shows its popular songs instead of the releases.
+    pub popular: bool,
     /// A similar artist being looked for on Spotify, and the page it was
     /// opened from.
     pub finding: Option<(String, Page)>,
@@ -193,6 +195,7 @@ impl Browse {
             expanded: HashSet::new(),
             tab: ReleaseTab::default(),
             similar: false,
+            popular: false,
             finding: None,
             newest_first: false,
             recent: Vec::new(),
@@ -237,6 +240,7 @@ impl Browse {
         if matches!(page, Page::Artist(_)) {
             self.tab = ReleaseTab::default();
             self.similar = false;
+            self.popular = false;
             self.newest_first = false;
         }
         self.history.push(page);
@@ -337,10 +341,11 @@ mod tests {
         let mut browse = Browse::new(PlaylistId::DEFAULT, false);
         browse.tab = ReleaseTab::All;
         browse.similar = true;
+        browse.popular = true;
         browse.newest_first = true;
         browse.go(Page::Artist("spotify:artist:a".into()));
         assert_eq!(browse.tab, ReleaseTab::Albums);
-        assert!(!browse.similar);
+        assert!(!browse.similar && !browse.popular);
         assert!(!browse.newest_first);
     }
 
