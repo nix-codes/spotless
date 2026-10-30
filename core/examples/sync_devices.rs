@@ -11,6 +11,8 @@
 //!   SPOTLESS_AUDIO_DEVICE=nope cargo run -p spotless-core --example sync_devices
 //!
 //! Sign in through the app first: this reuses its saved credential.
+//! Close Spotless on every device first: one open while this runs opens
+//! the "Spotless e2e" playlists as tabs, and keeps them once deleted.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
