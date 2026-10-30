@@ -915,7 +915,7 @@ impl Controls<'_, '_> {
             note(
                 ui,
                 palette,
-                "A bar under the player says when one is out. Off, it shows only here.",
+                "A window says when one is out. Off, it shows only here.",
             );
         });
         let status = self.view.update;

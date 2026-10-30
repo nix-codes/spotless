@@ -1,119 +1,137 @@
-//! The bar under the player that says a newer Spotless is out: UPDATE,
-//! its notes (WHAT'S NEW), and once it is installed, RESTART. × hides it
-//! until Spotless next starts; Settings › About turns it off for good.
+//! The window that says a newer Spotless is out, with its notes: UPDATE,
+//! LATER (until Spotless next starts), and SKIP THIS VERSION. Once UPDATE
+//! is pressed it follows the download, then offers RESTART. Settings ›
+//! About turns it off for good.
 
-use egui::{Align, Id, Label, Layout, Rect, RichText, ScrollArea, Ui, UiBuilder, pos2, vec2};
+use egui::{Id, Label, RichText, ScrollArea, Sense, Ui, UiBuilder, vec2};
 
+use super::dialog::{self, Answer};
 use super::settings_view::open_in_browser;
-use super::theme::{self, Palette};
-use super::widgets::small_button;
+use super::theme::Palette;
 use super::{View, scrollbar};
 use crate::action::{Actions, Desktop};
 use crate::update::{Release, Status};
 
-/// The bar's row, and the height its notes take below it when open.
-const ROW: f32 = 30.0;
-const NOTES: f32 = 160.0;
+/// The most height the notes take before they scroll.
+const NOTES: f32 = 220.0;
+const WIDTH: f32 = 380.0;
 
-/// What the bar keeps between frames.
+/// What the window keeps between frames.
 #[derive(Default)]
-pub struct Bar {
-    /// × was pressed: hidden until Spotless next starts.
+pub struct Popup {
+    /// LATER was pressed: hidden until Spotless next starts.
     pub hidden: bool,
-    /// The notes are open.
-    pub notes: bool,
 }
 
-/// The bar's height, 0 when it doesn't show.
-pub fn height(view: &View, bar: &Bar) -> f32 {
-    match shown(view, bar) {
-        Some(release) if bar.notes && has_notes(release) => ROW + NOTES,
-        Some(_) => ROW,
-        None => 0.0,
-    }
+/// The release the window is about, while it shows.
+pub fn shown<'a>(view: &View<'a>, popup: &Popup) -> Option<&'a Release> {
+    let skipped = view.settings.skipped_update.as_deref();
+    release(view.update).filter(|release| {
+        view.settings.update_notices
+            && !popup.hidden
+            && skipped != Some(release.version.to_string().as_str())
+    })
 }
 
-/// The release the bar is about, while it shows.
-fn shown<'a>(view: &View<'a>, bar: &Bar) -> Option<&'a Release> {
-    release(view.update).filter(|_| view.settings.update_notices && !bar.hidden)
+/// What a button of the window does.
+enum Choice {
+    Act(&'static str, Desktop),
+    Download,
+    Later,
+    Skip,
 }
 
-fn has_notes(release: &Release) -> bool {
-    !release.notes.trim().is_empty()
-}
-
-pub fn draw(ui: &mut Ui, rect: Rect, view: &View, bar: &mut Bar, actions: &mut Actions) {
-    let Some(release) = shown(view, bar) else {
+pub fn draw(ui: &Ui, view: &View, popup: &mut Popup, actions: &mut Actions) {
+    let Some(release) = shown(view, popup) else {
         return;
     };
     let palette = view.palette;
-    theme::panel(ui.painter(), rect, &palette);
     let version = release.version;
-    let text = match view.update {
-        Status::Installing(_) => format!("Downloading Spotless {version}…"),
-        Status::Installed(_) => {
-            format!("Spotless {version} is installed: it starts the next time Spotless does.")
-        }
-        Status::Failed { error, .. } => format!("Couldn't update to Spotless {version}: {error}"),
-        _ => format!("Spotless {version} is out."),
+    let (title, text) = match view.update {
+        Status::Installing(_) => (format!("Downloading Spotless {version}…"), None),
+        Status::Installed(_) => (
+            format!("Spotless {version} is installed"),
+            Some(
+                "It starts the next time Spotless does. RESTART starts it now, stopping the \
+                 song playing.",
+            ),
+        ),
+        Status::Failed { error, .. } => (
+            format!("Couldn't update to Spotless {version}"),
+            Some(error.as_str()),
+        ),
+        _ => (format!("Spotless {version} is out"), None),
     };
-    let row = Rect::from_min_size(rect.min, vec2(rect.width(), ROW)).shrink2(vec2(10.0, 0.0));
-    ui.scope_builder(UiBuilder::new().max_rect(row), |ui| {
-        // The buttons from the right; the words take what is left.
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if small_button(ui, &palette, "×", false)
-                .on_hover_text("Hide until Spotless starts again")
-                .clicked()
-            {
-                bar.hidden = true;
-            }
-            if has_notes(release) {
-                let label = if bar.notes {
-                    "HIDE NOTES"
-                } else {
-                    "WHAT'S NEW"
-                };
-                if small_button(ui, &palette, label, bar.notes).clicked() {
-                    bar.notes = !bar.notes;
-                }
-            }
-            if !release.installable() {
-                if small_button(ui, &palette, "DOWNLOAD", false).clicked() {
-                    open_in_browser(&release.page);
-                }
-            } else if let Some((label, action)) = update_button(view.update)
-                && small_button(ui, &palette, label, false).clicked()
-            {
-                actions.push(action);
-            }
-            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                ui.add(Label::new(RichText::new(text).color(palette.current)).truncate());
-            });
-        });
-    });
-    if !bar.notes || !has_notes(release) {
-        return;
+    let mut choices = Vec::new();
+    if !release.installable() {
+        choices.push(Choice::Download);
+    } else if let Some((label, action)) = update_button(view.update) {
+        choices.push(Choice::Act(label, action));
     }
-    let area = Rect::from_min_max(
-        pos2(rect.left() + 10.0, row.bottom()),
-        rect.max - vec2(4.0, 6.0),
-    );
-    ui.scope_builder(UiBuilder::new().max_rect(area), |ui| {
-        let id = Id::new("update-notes");
-        // An ID of its own: the playlist's area would otherwise share its
-        // offset.
-        let area = ScrollArea::vertical().id_salt(id);
-        scrollbar::show(ui, view, id, area, |area, ui| {
-            area.show(ui, |ui| {
-                notes(ui, &palette, &release.notes);
-                ui.add_space(4.0);
-                let link = RichText::new("Release page on GitHub").color(palette.accent);
-                if ui.link(link).clicked() {
-                    open_in_browser(&release.page);
-                }
-            })
-        });
+    choices.push(Choice::Later);
+    if matches!(view.update, Status::Available(_) | Status::Failed { .. }) {
+        choices.push(Choice::Skip);
+    }
+    let buttons: Vec<(&str, &str)> = choices
+        .iter()
+        .map(|choice| match choice {
+            Choice::Act(label, _) => (*label, ""),
+            Choice::Download => ("DOWNLOAD", "Opens its page on GitHub"),
+            Choice::Later => ("LATER", "Asks again when Spotless next starts"),
+            Choice::Skip => ("SKIP THIS VERSION", "Not asked again about this one"),
+        })
+        .collect();
+    let answer = dialog::show(ui, &palette, Id::new("update"), &buttons, |ui| {
+        ui.set_width(WIDTH);
+        ui.label(RichText::new(title).size(15.0).color(palette.current));
+        if let Some(text) = text {
+            ui.add_space(4.0);
+            ui.add(Label::new(RichText::new(text).color(palette.chrome)).wrap());
+        }
+        if !release.notes.trim().is_empty() {
+            ui.add_space(8.0);
+            // As tall as the notes, measured the frame before, up to NOTES.
+            let id = Id::new("update-notes");
+            let measured = id.with("height");
+            let height = ui.data(|d| d.get_temp::<f32>(measured)).unwrap_or(NOTES);
+            let (rect, _) = ui.allocate_exact_size(vec2(WIDTH, height), Sense::hover());
+            let tall = ui
+                .scope_builder(UiBuilder::new().max_rect(rect), |ui| {
+                    let area = ScrollArea::vertical().id_salt(id);
+                    scrollbar::show(ui, view, id, area, |area, ui| {
+                        area.show(ui, |ui| {
+                            notes(ui, &palette, &release.notes);
+                            ui.min_rect().height()
+                        })
+                    })
+                })
+                .inner
+                .min(NOTES);
+            if tall != height {
+                ui.data_mut(|d| d.insert_temp(measured, tall));
+                ui.ctx().request_repaint();
+            }
+        }
+        ui.add_space(4.0);
+        let link = RichText::new("Release page on GitHub").color(palette.accent);
+        if ui.link(link).clicked() {
+            open_in_browser(&release.page);
+        }
     });
+    match answer {
+        Answer::Waiting => {}
+        Answer::Dismissed => popup.hidden = true,
+        Answer::Chose(index) => match &choices[index] {
+            // The window stays, to follow the download and offer RESTART.
+            Choice::Act(_, action) => actions.push(action.clone()),
+            Choice::Download => {
+                open_in_browser(&release.page);
+                popup.hidden = true;
+            }
+            Choice::Later => popup.hidden = true,
+            Choice::Skip => actions.push(Desktop::SkipUpdate(version.to_string())),
+        },
+    }
 }
 
 /// A release's notes: Markdown's headings and lists, as plain text.

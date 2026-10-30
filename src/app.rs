@@ -209,6 +209,9 @@ impl App {
             }
             Desktop::SetUpdates(on) => self.controller.settings_mut().updates = on,
             Desktop::SetUpdateNotices(on) => self.controller.settings_mut().update_notices = on,
+            Desktop::SkipUpdate(version) => {
+                self.controller.settings_mut().skipped_update = Some(version)
+            }
             Desktop::CheckForUpdate => self.updater.check(),
             Desktop::Update => self.updater.install(),
             Desktop::Restart => {

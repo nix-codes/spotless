@@ -207,6 +207,8 @@ pub struct Settings {
     pub updates: bool,
     /// A newer release found is announced in a bar under the player.
     pub update_notices: bool,
+    /// The release the user asked not to be told of again, by its version.
+    pub skipped_update: Option<String>,
     /// The Spotify tab can be used: off (as at first) in Settings, it is
     /// never shown and Spotless never joins Spotify Connect.
     pub spotify_tab_enabled: bool,
@@ -317,6 +319,10 @@ impl Settings {
                 .get("update_notices")
                 .and_then(Value::as_bool)
                 .unwrap_or(true),
+            skipped_update: raw
+                .get("skipped_update")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             spotify_tab_enabled: raw
                 .get("spotify_tab_enabled")
                 .and_then(Value::as_bool)
@@ -391,6 +397,10 @@ impl Settings {
         match &self.audio_output {
             Some(output) => raw.insert("audio_output".into(), output.clone().into()),
             None => raw.remove("audio_output"),
+        };
+        match &self.skipped_update {
+            Some(version) => raw.insert("skipped_update".into(), version.clone().into()),
+            None => raw.remove("skipped_update"),
         };
         match &self.skin {
             Some(skin) => raw.insert("skin".into(), skin.clone().into()),

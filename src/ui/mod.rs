@@ -137,8 +137,8 @@ pub struct Inputs {
     pub fit: Fit,
     /// The name being typed to save the equaliser's bands as a preset.
     pub preset_name: Option<String>,
-    /// The bar announcing a newer release.
-    pub update: update_view::Bar,
+    /// The window announcing a newer release.
+    pub update: update_view::Popup,
     /// The deck's reels, bars and needles as they move.
     pub deck: deck::Motion,
     /// Play or Pause pressed and not yet answered by the player.
@@ -196,6 +196,16 @@ pub(super) fn undo_shown(view: &View) -> bool {
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let settings_open = inputs.settings.is_some();
+    // A newer release is announced once no other question is open; it
+    // takes the keys before anything else can.
+    let announcing = inputs.closing.is_none()
+        && inputs.renaming.is_none()
+        && inputs.spotify_pick.is_none()
+        && !inputs.help
+        && update_view::shown(view, &inputs.update).is_some();
+    if announcing {
+        update_view::draw(ui, view, &mut inputs.update, actions);
+    }
     keys::global(ui, view, inputs, actions);
     // A key for another screen (Ctrl+B, J, Ctrl+T…) leaves the settings.
     let elsewhere = actions.core().any(|action| {
@@ -268,15 +278,6 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         below = section.bottom();
     }
     let sections_height = below - strip.bottom();
-    let notice = update_view::height(view, &inputs.update);
-    if notice > 0.0 {
-        let rect = Rect::from_min_size(
-            egui::pos2(full.left() + GUTTER, below + 6.0),
-            vec2(full.width() - 2.0 * GUTTER, notice),
-        );
-        update_view::draw(ui, rect, view, &mut inputs.update, actions);
-        below = rect.bottom();
-    }
 
     // With PL off the window is the player alone, unless Browse, the
     // settings, the keys or a question needs the room.
@@ -286,7 +287,8 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         && !view.browse.open
         && inputs.settings.is_none()
         && !inputs.help
-        && inputs.closing.is_none();
+        && inputs.closing.is_none()
+        && !announcing;
     let sections = Sections {
         equaliser: view.settings.equaliser_shown,
         deck: deck_shown.then_some(view.settings.deck_media),
