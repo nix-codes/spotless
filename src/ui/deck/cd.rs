@@ -6,10 +6,13 @@
 //! The disc shows its shiny side, which a real player's window wouldn't:
 //! that's where the music shows. It holds the whole playlist, each song a
 //! ring from the centre out, and the laser's red dot moves out as it plays.
+//! At 8cm, set by a switch beside the lights, a mini CD holds the song
+//! instead, at its real size beside a full disc, and slides out of the
+//! window for the next one's.
 
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, TAU};
 
-use egui::{Align2, Color32};
+use egui::{Align2, Color32, Rect};
 
 use super::Tape;
 use super::canvas::{Canvas, Face, blend, rgb, rgba};
@@ -21,8 +24,14 @@ const HOLE: f32 = 0.125;
 const CLEAR: f32 = 0.33;
 const INNER: f32 = 0.417;
 const OUTER: f32 = 0.967;
+/// A mini CD's edge and where its music ends: the same hole and middle on
+/// an 8 cm disc.
+const MINI: f32 = 40.0 / 60.0;
+const MINI_OUTER: f32 = 38.5 / 60.0;
 /// The playlist fills the disc but for this much spare.
 const SPARE: f32 = 1.06;
+/// How far a mini CD slides to be out of sight under the lid.
+pub const SLIDE: f32 = 125.0;
 const BLUE: Color32 = rgb(0x3d7bff);
 const PRINT: Color32 = rgb(0x8a8e96);
 const SPECTRUM: [u32; 7] = [
@@ -30,7 +39,7 @@ const SPECTRUM: [u32; 7] = [
 ];
 
 /// What the disc and the LCD show.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Disc {
     /// Where each song ends, as a share of the playlist's time.
     pub ends: Vec<f32>,
@@ -42,17 +51,33 @@ pub struct Disc {
     pub status: Status,
     /// How far the disc has turned, in radians.
     pub angle: f32,
+    /// A mini CD holding the song, `at` its share of it.
+    pub mini: bool,
+    /// How far it's slid to the right while it's changed, and whether
+    /// it's being changed: no laser, and READ on the LCD.
+    pub slide: f32,
+    pub changing: bool,
 }
 
-/// Where `at` of the playlist lies, as a share of the disc's radius: the
-/// disc reads from the centre out at a steady speed, so by area.
-pub fn radius(at: f32) -> f32 {
+impl Disc {
+    /// Where the laser reads, as a share of a full disc's radius.
+    pub fn reads_at(&self) -> f32 {
+        radius(self.mini, self.at)
+    }
+}
+
+/// Where `at` of what's on the disc lies, as a share of a full disc's
+/// radius: the disc reads from the centre out at a steady speed, so by
+/// area.
+fn radius(mini: bool, at: f32) -> f32 {
+    let outer = if mini { MINI_OUTER } else { OUTER };
     let share = at.clamp(0.0, 1.0) / SPARE;
-    (INNER * INNER + share * (OUTER * OUTER - INNER * INNER)).sqrt()
+    (INNER * INNER + share * (outer * outer - INNER * INNER)).sqrt()
 }
 
-/// The body, `height` units tall from just under the keys' middle.
-pub fn draw(c: &Canvas, height: f32, tape: &Tape) {
+/// The body, `height` units tall from just under the keys' middle;
+/// returns where its 8cm / 12cm switch can be clicked.
+pub fn draw(c: &Canvas, height: f32, tape: &Tape) -> Rect {
     let (w, h) = (super::walkman::WIDTH, height);
     c.shaded(
         0.0,
@@ -76,7 +101,27 @@ pub fn draw(c: &Canvas, height: f32, tape: &Tape) {
         blend(&[(0.0, rgb(0x5a5e66)), (1.0, rgb(0x16171a))], t)
     });
     c.circle(cx, cy, wr, rgb(0x0c0d10));
-    disc(c, cx, cy, r, &tape.disc);
+    // The tray's ring for a mini CD.
+    c.ring(cx, cy, (MINI * r) + 1.4, 1.2, rgb(0x1c1e23));
+    c.ring(cx, cy, (MINI * r) + 0.5, 0.5, rgb(0x2a2d33));
+    let body = [(0.0, rgb(0x45484f)), (1.0, rgb(0x2a2c31))];
+    if tape.disc.slide == 0.0 {
+        disc(c, cx, cy, r, &tape.disc);
+    } else {
+        // Sliding under the lid: drawn in the band it slides along, the
+        // lid round the window laid back over it, and the bezel.
+        let band = c.clipped(0.0, cy - wr, w, 2.0 * wr);
+        disc(&band, cx + tape.disc.slide, cy, r, &tape.disc);
+        band.sector(cx, cy, wr + 4.0, 3.0 * wr, 0.0, TAU, |_, y| {
+            blend(&body, (y / h).clamp(0.0, 1.0))
+        });
+        band.outline(0.0, 0.0, w, h, 18.0, 1.0, rgb(0x1a1b1f));
+        band.outline(6.0, 18.0, w - 12.0, h - 24.0, 14.0, 1.5, rgb(0x1c1d21));
+        band.sector(cx, cy, wr, wr + 4.0, 0.0, TAU, |x, y| {
+            let t = ((x - cx) + (y - cy)) / (4.0 * wr) + 0.5;
+            blend(&[(0.0, rgb(0x5a5e66)), (1.0, rgb(0x16171a))], t)
+        });
+    }
     let clamp = r * 0.11;
     c.sector(cx, cy, 0.0, clamp, 0.0, TAU, |x, y| {
         let d = ((x - cx + 2.0).powi(2) + (y - cy + 2.0).powi(2)).sqrt() / clamp;
@@ -160,6 +205,7 @@ pub fn draw(c: &Canvas, height: f32, tape: &Tape) {
         rgb(0x6e727a),
         Align2::RIGHT_CENTER,
     );
+    super::walkman::slide_switch(c, px + pw - 20.0, 140.0, tape.cd_size, ["8cm", "12cm"])
 }
 
 /// The disc's shiny side, `r` units across from `cx, cy`.
@@ -177,7 +223,9 @@ fn disc(c: &Canvas, cx: f32, cy: f32, r: f32, disc: &Disc) {
         (0.88, rgb(0xa6acb5)),
         (1.0, rgb(0xeef1f5)),
     ];
-    c.sector(cx, cy, CLEAR * r, r * 0.985, 0.0, TAU, |x, y| {
+    let edge = if disc.mini { MINI * r } else { r };
+    let radius = |at: f32| radius(disc.mini, at);
+    c.sector(cx, cy, CLEAR * r, edge * 0.985, 0.0, TAU, |x, y| {
         blend(&mirror, ((angle(x, y) + FRAC_PI_4) / TAU).rem_euclid(1.0))
     });
     // A rainbow where there's music: thin rings whose colours sit at a
@@ -221,7 +269,13 @@ fn disc(c: &Canvas, cx: f32, cy: f32, r: f32, disc: &Disc) {
     c.ring(cx, cy, CLEAR * r, 1.0, rgba(0xffffff, 0.19));
     c.ring(cx, cy, HOLE * r, 1.0, rgba(0xffffff, 0.19));
     // The matrix code pressed round the middle: what shows it turning.
-    let code: Vec<char> = "SPOTLESS-CD 01 ▲ L042 ".chars().collect();
+    // A mini CD's carries its song's number.
+    let code = if disc.mini {
+        format!("SPOTLESS-CD3 {:02} ▲ S{:03} ", disc.number, disc.number)
+    } else {
+        "SPOTLESS-CD 01 ▲ L042 ".to_string()
+    };
+    let code: Vec<char> = code.chars().collect();
     let at = (CLEAR + 0.045) * r;
     for (i, letter) in code.iter().enumerate() {
         let a = disc.angle + i as f32 / code.len() as f32 * TAU * 0.65 - FRAC_PI_2;
@@ -236,10 +290,10 @@ fn disc(c: &Canvas, cx: f32, cy: f32, r: f32, disc: &Disc) {
             5.0,
         );
     }
-    c.ring(cx, cy, r, 1.0, rgba(0xffffff, 0.31));
+    c.ring(cx, cy, edge, 1.0, rgba(0xffffff, 0.31));
     // The laser reads from this side: a red dot where the playlist has
     // got to.
-    if disc.number > 0 {
+    if disc.number > 0 && !disc.changing {
         let (x, y) = (cx + radius(disc.at) * r, cy);
         let strength = if disc.status == Status::Playing {
             1.0
@@ -268,11 +322,17 @@ fn lcd(c: &Canvas, x: f32, y: f32, w: f32, h: f32, disc: &Disc) {
     );
     let stopped = disc.status == Status::Stopped;
     let seconds = if stopped { 0 } else { disc.seconds };
+    // While a disc is changed, it's read: no song yet.
     let number = match disc.number {
+        _ if disc.changing => "--".to_string(),
         0 => "--".to_string(),
         n => format!("{n:02}"),
     };
-    let time = format!("{:>2}:{:02}", seconds / 60, seconds % 60);
+    let time = if disc.changing {
+        "--:--".to_string()
+    } else {
+        format!("{:>2}:{:02}", seconds / 60, seconds % 60)
+    };
     let digits = |text: &str, x: f32, colour: Color32, align: Align2| {
         c.text(text, x, y + 22.0, Face::Mono, 22.0, colour, align);
     };
@@ -282,7 +342,7 @@ fn lcd(c: &Canvas, x: f32, y: f32, w: f32, h: f32, disc: &Disc) {
     digits(&time, x + w - 6.0, on, Align2::RIGHT_CENTER);
     let small = y + 41.0;
     c.text(
-        "TRACK",
+        if disc.changing { "READ" } else { "TRACK" },
         x + 8.0,
         small,
         Face::Sans,
@@ -320,6 +380,17 @@ fn lcd(c: &Canvas, x: f32, y: f32, w: f32, h: f32, disc: &Disc) {
         esp,
         Align2::LEFT_CENTER,
     );
+    if disc.mini && !disc.changing {
+        c.text(
+            "8cm",
+            x + 84.0,
+            small,
+            Face::Sans,
+            6.0,
+            on,
+            Align2::LEFT_CENTER,
+        );
+    }
     // The battery, nearly full.
     let (bx, by) = (x + w - 22.0, y + 37.0);
     c.outline(bx, by, 14.0, 8.0, 0.0, 1.0, on);

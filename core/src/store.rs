@@ -239,6 +239,9 @@ pub struct Settings {
     /// The deck's reels play at 3¾ IPS, the whole playlist in one pass,
     /// instead of at 7½, a song a reel.
     pub reel_slow: bool,
+    /// The deck's CD player plays a mini CD for each song (8cm), instead
+    /// of the whole playlist on one disc (12cm).
+    pub cd_mini: bool,
     /// The time shows what's left of the song, after a minus, instead of
     /// what has played (Winamp's time display mode).
     pub time_left: bool,
@@ -373,6 +376,7 @@ impl Settings {
             cassette_mix: flag("cassette_mix"),
             vinyl_lp: flag("vinyl_lp"),
             reel_slow: flag("reel_slow"),
+            cd_mini: flag("cd_mini"),
             time_left: flag("time_left"),
             window: raw
                 .get("window")
@@ -432,6 +436,7 @@ impl Settings {
         raw.insert("cassette_mix".into(), self.cassette_mix.into());
         raw.insert("vinyl_lp".into(), self.vinyl_lp.into());
         raw.insert("reel_slow".into(), self.reel_slow.into());
+        raw.insert("cd_mini".into(), self.cd_mini.into());
         raw.insert("time_left".into(), self.time_left.into());
         match self.window.map(serde_json::to_value) {
             Some(Ok(window)) => raw.insert("window".into(), window),
@@ -606,12 +611,14 @@ mod tests {
         assert!(!settings.cassette_mix, "a song a tape to start with");
         assert!(!settings.vinyl_lp, "a single a song to start with");
         assert!(!settings.reel_slow, "a song a reel to start with");
+        assert!(!settings.cd_mini, "the playlist on a disc to start with");
         assert!(!settings.time_left);
         settings.deck_shown = true;
         settings.deck_media = DeckMedia::Reel;
         settings.cassette_mix = true;
         settings.vinyl_lp = true;
         settings.reel_slow = true;
+        settings.cd_mini = true;
         settings.time_left = true;
         settings.save(&paths).unwrap();
         let read = Settings::load(&paths);
@@ -621,6 +628,7 @@ mod tests {
         assert!(read.cassette_mix);
         assert!(read.vinyl_lp);
         assert!(read.reel_slow);
+        assert!(read.cd_mini);
         assert_eq!(read.grouping, Grouping::Source, "by source to start with");
         for media in [
             DeckMedia::Cassette,

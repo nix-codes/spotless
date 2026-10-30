@@ -14,7 +14,9 @@
 //! reel deck's lever at 3¾ IPS puts it on the reels, in one pass at half
 //! the speed.
 //! The disc holds the whole playlist and turns while it plays, faster the
-//! nearer the centre the laser reads. A single holds one song, and is
+//! nearer the centre the laser reads; at 8cm a mini CD holds the song,
+//! and slides out for the next one's when the song changes. A single
+//! holds one song, and is
 //! changed for the next one's when the song changes; at 33 an LP holds
 //! the whole playlist, and is turned over for side B.
 
@@ -76,6 +78,12 @@ const LIFTED: f32 = 0.6;
 const TURNED: f32 = 1.3;
 const DROPPED: f32 = 1.55;
 const FLIP_DOWN: f32 = 2.0;
+/// When a mini CD's change ends its steps, in seconds: the disc spun down,
+/// slid out, the next slid in, and up to speed.
+const DISC_DOWN: f32 = 0.45;
+const DISC_OUT: f32 = 0.85;
+const DISC_IN: f32 = 1.25;
+const DISC_UP: f32 = 1.6;
 /// The standard cassettes, in minutes for both sides.
 const CASSETTES: [u32; 4] = [46, 60, 90, 120];
 const GREEN: Color32 = rgb(0x33e65f);
@@ -107,6 +115,8 @@ pub struct Tape {
     pub reel_list: Option<String>,
     /// The reel deck's lever, from 3¾ (0) to 7½ (1) as drawn.
     pub lever: f32,
+    /// The CD player's switch, from 8cm (0) to 12cm (1) as drawn.
+    pub cd_size: f32,
 }
 
 /// The playlist playing as a mixtape: its name, the cassette's length,
@@ -135,6 +145,15 @@ pub struct Motion {
     level_tops: [f32; 2],
     level_holds: [f32; 2],
     disc_angle: f32,
+    /// The disc in the CD player (mini, and its song), the one before it
+    /// as it was last drawn, the change between them, and how far it's
+    /// slowed (0 at speed, 1 still).
+    disc_on: Option<(bool, usize)>,
+    disc_last: Option<cd::Disc>,
+    disc_change: Option<(f32, cd::Disc)>,
+    disc_still: f32,
+    /// The CD player's switch, from 12cm (0) to 8cm (1).
+    mini: f32,
     /// The single on the platter, and the one being changed for it.
     record: Option<vinyl::Record>,
     change: Option<Change>,
@@ -210,8 +229,11 @@ impl Motion {
                 // Neither winds: the laser or the arm goes to its place.
                 self.drawn = Some(target);
                 self.winding = false;
-                if media == DeckMedia::Cd && playing {
-                    self.disc_angle += DISC_SPEED / cd::radius(disc(view).at) * dt;
+                if media == DeckMedia::Cd {
+                    moving |= self.play_disc(view, playing, dt);
+                } else {
+                    self.disc_on = None;
+                    self.disc_change = None;
                 }
                 if media == DeckMedia::Vinyl {
                     let groove = match self.record.as_ref().and_then(|record| record.lp.as_ref()) {
@@ -237,7 +259,11 @@ impl Motion {
         self.switch += (switch - self.switch) * (dt * 16.0).min(1.0);
         let slow = if view.settings.reel_slow { 1.0 } else { 0.0 };
         self.slow += (slow - self.slow) * (dt * 14.0).min(1.0);
-        moving |= (switch - self.switch).abs() > 0.001 || (slow - self.slow).abs() > 0.001;
+        let mini = if view.settings.cd_mini { 1.0 } else { 0.0 };
+        self.mini += (mini - self.mini) * (dt * 16.0).min(1.0);
+        moving |= (switch - self.switch).abs() > 0.001
+            || (slow - self.slow).abs() > 0.001
+            || (mini - self.mini).abs() > 0.001;
 
         let share = |db: f32, floor: f32, top: f32| ((db - floor) / (top - floor)).clamp(0.0, 1.0);
         for band in 0..BANDS {
@@ -273,6 +299,67 @@ impl Motion {
                 .iter()
                 .chain(&self.level_tops)
                 .any(|top| *top > 0.0)
+    }
+
+    /// Moves a mini CD's change on and the disc round, slowed while it's
+    /// changed; says whether anything moves.
+    fn play_disc(&mut self, view: &View, playing: bool, dt: f32) -> bool {
+        let now = disc(view);
+        let on = (now.mini, if now.mini { now.number } else { 0 });
+        if self.disc_on.is_some_and(|before| before != on)
+            && self.disc_change.is_none()
+            && let Some(old) = self.disc_last.take()
+        {
+            self.disc_change = Some((0.0, old));
+        }
+        self.disc_on = Some(on);
+        if let Some((t, _)) = &mut self.disc_change {
+            *t += dt;
+            if *t >= DISC_UP {
+                self.disc_change = None;
+            }
+        }
+        let stopping = matches!(&self.disc_change, Some((t, _)) if *t < DISC_IN);
+        let (still, rate) = if stopping { (1.0, 7.0) } else { (0.0, 4.0) };
+        self.disc_still += (still - self.disc_still) * (dt * rate).min(1.0);
+        if playing {
+            self.disc_angle += DISC_SPEED / now.reads_at() * dt * (1.0 - self.disc_still);
+        }
+        if self.disc_change.is_none() {
+            self.disc_last = Some(now);
+        }
+        self.disc_change.is_some() || self.disc_still > 0.01
+    }
+
+    /// The disc as drawn: in a change, the old one spun down with the
+    /// laser going back in and slid out, then the next one slid in.
+    fn shown_disc(&self, view: &View) -> cd::Disc {
+        let angle = self.disc_angle;
+        let now = cd::Disc {
+            angle,
+            ..disc(view)
+        };
+        match &self.disc_change {
+            Some((t, old)) if *t < DISC_DOWN => cd::Disc {
+                at: old.at * (1.0 - ease(t / DISC_DOWN)),
+                angle,
+                ..old.clone()
+            },
+            Some((t, old)) if *t < DISC_OUT => cd::Disc {
+                slide: ease((t - DISC_DOWN) / (DISC_OUT - DISC_DOWN)) * cd::SLIDE,
+                changing: true,
+                at: 0.0,
+                angle,
+                ..old.clone()
+            },
+            Some((t, _)) if *t < DISC_IN => cd::Disc {
+                slide: -(1.0 - ease((t - DISC_OUT) / (DISC_IN - DISC_OUT))) * cd::SLIDE,
+                changing: true,
+                at: 0.0,
+                ..now
+            },
+            _ => now,
+        }
     }
 
     /// Moves the record change on, the arm to `groove`, its angle over
@@ -446,10 +533,7 @@ impl Motion {
             title,
             playing: view.player.status == Status::Playing,
             counter: self.counter,
-            disc: cd::Disc {
-                angle: self.disc_angle,
-                ..disc(view)
-            },
+            disc: self.shown_disc(view),
             turntable: vinyl::Turntable {
                 lp: view.settings.vinyl_lp,
                 ..self.turntable()
@@ -458,6 +542,7 @@ impl Motion {
             switch: self.switch,
             reel_list: slow_reel(view).map(|album| album.name),
             lever: 1.0 - self.slow,
+            cd_size: 1.0 - self.mini,
         }
     }
 }
@@ -690,7 +775,8 @@ fn mixtape(view: &View) -> Option<Mixtape> {
     })
 }
 
-/// The disc of the playlist playing, and where in it the song plays.
+/// The disc of the playlist playing, and where in it the song plays; at
+/// 8cm, the song's mini CD.
 fn disc(view: &View) -> cd::Disc {
     let player = view.player;
     let Some((list, index)) = player_strip::playing_entry(view)
@@ -717,13 +803,20 @@ fn disc(view: &View) -> cd::Disc {
     };
     let before: u64 = lengths[..index].iter().sum();
     let length = lengths[index].max(1);
+    let played = u64::from(position).min(length);
+    let mini = view.settings.cd_mini;
     cd::Disc {
-        ends,
-        at: (before + u64::from(position).min(length)) as f32 / total,
+        ends: if mini { vec![1.0] } else { ends },
+        at: if mini {
+            played as f32 / length as f32
+        } else {
+            (before + played) as f32 / total
+        },
         number: index + 1,
         seconds: position / 1000,
         status: player.status,
-        angle: 0.0,
+        mini,
+        ..cd::Disc::default()
     }
 }
 
@@ -790,6 +883,7 @@ pub fn draw(
     let mut switch = None;
     let mut speeds = None;
     let mut lever = None;
+    let mut size = None;
     let (art, keys_top, bottom, spectrum_top) = match media {
         DeckMedia::Reel => {
             let plate = reel::PLATE * k;
@@ -812,7 +906,7 @@ pub fn draw(
             };
             let height = (bottom - body_top) / k;
             match media {
-                DeckMedia::Cd => cd::draw(&canvas, height, &tape),
+                DeckMedia::Cd => size = Some(cd::draw(&canvas, height, &tape)),
                 DeckMedia::Vinyl => speeds = Some(vinyl::draw(&canvas, height, &tape.turntable)),
                 _ => switch = Some(walkman::draw(&canvas, height, &tape)),
             }
@@ -846,6 +940,21 @@ pub fn draw(
             .clicked()
         {
             actions.push(Action::SetCassetteMix(!mix));
+        }
+    }
+    if let Some(rect) = size {
+        let mini = view.settings.cd_mini;
+        let tip = if mini {
+            "Play the whole playlist on one disc (12cm)"
+        } else {
+            "Play a mini CD for each song (8cm)"
+        };
+        if ui
+            .interact(rect, ui.id().with("disc size"), Sense::click())
+            .on_hover_text(tip)
+            .clicked()
+        {
+            actions.push(Action::SetCdMini(!mini));
         }
     }
     if let Some(rect) = lever {

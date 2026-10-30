@@ -1270,6 +1270,10 @@ impl Controller {
                 self.state.settings.reel_slow = slow;
                 self.mark_unsaved();
             }
+            Action::SetCdMini(mini) => {
+                self.state.settings.cd_mini = mini;
+                self.mark_unsaved();
+            }
             Action::ToggleTimeLeft => {
                 self.state.settings.time_left = !self.state.settings.time_left;
                 self.mark_unsaved();
@@ -2202,6 +2206,8 @@ mod tests {
         assert!(settings(&rig).vinyl_lp);
         rig.controller.apply(Action::SetReelSlow(true));
         assert!(settings(&rig).reel_slow);
+        rig.controller.apply(Action::SetCdMini(true));
+        assert!(settings(&rig).cd_mini);
         rig.controller.apply(Action::ToggleDeck);
         assert!(!settings(&rig).deck_shown);
     }

@@ -118,6 +118,9 @@ pub enum Action {
     /// The reels play the whole playlist at 3¾ IPS, or a song a reel at
     /// 7½.
     SetReelSlow(bool),
+    /// The CD player plays a mini CD for each song (8cm) or the playlist
+    /// on one disc (12cm).
+    SetCdMini(bool),
     /// The time shows what's left of the song, or what has played.
     ToggleTimeLeft,
 

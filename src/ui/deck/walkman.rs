@@ -159,7 +159,13 @@ pub fn draw(c: &Canvas, height: f32, tape: &Tape) -> Rect {
             .map(|letter| c.width(&letter.to_string(), Face::Display, 26.0) + 3.0)
             .sum::<f32>()
         - 3.0;
-    let switch = slide_switch(c, (name_end + lx - 8.0) / 2.0, h - 20.0, tape.switch);
+    let switch = slide_switch(
+        c,
+        (name_end + lx - 8.0) / 2.0,
+        h - 20.0,
+        tape.switch,
+        ["SINGLE", "MIX"],
+    );
     if tape.playing {
         c.circle(lx, ly, 6.0, rgba(0xff5a3a, 0.25));
         c.circle(lx, ly, 2.5, rgb(0xff5a3a));
@@ -192,15 +198,15 @@ pub fn draw(c: &Canvas, height: f32, tape: &Tape) -> Rect {
     switch
 }
 
-/// The SINGLE / MIX switch round `x, y`: a slot with a ribbed silver nub
-/// `at` of the way from SINGLE (0) to MIX (1), the two printed above its
-/// ends. Returns where it can be clicked.
-fn slide_switch(c: &Canvas, x: f32, y: f32, at: f32) -> Rect {
+/// A two-way slide switch round `x, y`: a slot with a ribbed silver nub
+/// `at` of the way from one setting (0) to the other (1), the two printed
+/// above its ends. Returns where it can be clicked.
+pub(super) fn slide_switch(c: &Canvas, x: f32, y: f32, at: f32, settings: [&str; 2]) -> Rect {
     let (width, height, nub) = (26.0, 8.0, 12.0);
     let (sx, sy) = (x - width / 2.0, y - height / 2.0 + 4.0);
     let print = rgb(0x8a8e96);
     c.text(
-        "SINGLE",
+        settings[0],
         sx + 2.0,
         y - 8.0,
         Face::Mono,
@@ -209,7 +215,7 @@ fn slide_switch(c: &Canvas, x: f32, y: f32, at: f32) -> Rect {
         Align2::CENTER_CENTER,
     );
     c.text(
-        "MIX",
+        settings[1],
         sx + width - 2.0,
         y - 8.0,
         Face::Mono,

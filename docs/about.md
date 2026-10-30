@@ -162,9 +162,10 @@ Spotify only allows playback in other apps for Premium accounts.
   with its switch at MIX, holds the whole playlist, side A then side B),
   of a reel-to-reel deck whose tape winds from one reel to the other (at
   3¾ IPS, the whole playlist in one pass), of a portable CD player whose
-  disc holds the whole playlist, or of a turntable that changes the
-  single for each song (or, at 33, plays the whole playlist on an LP and
-  turns it over for side B); click it to switch. Beside it, the music's spectrum and its left and right levels, as it
+  disc holds the whole playlist (or, at 8cm, a mini CD for each song), or
+  of a turntable that changes the single for each song (or, at 33, plays
+  the whole playlist on an LP and turns it over for side B); click it to
+  switch. Beside it, the music's spectrum and its left and right levels, as it
   plays.
 - **Settings** (F10): account, search, Last.fm, audio output, volume levelling,
   interface size, skin and colour, tray, and the audio and cover caches.
