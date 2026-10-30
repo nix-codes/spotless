@@ -117,6 +117,8 @@ pub struct Inputs {
     pub focus_search: bool,
     /// The tab being renamed, and the name typed so far.
     pub renaming: Option<(PlaylistId, String)>,
+    /// How far the tabs are scrolled, when they don't all fit.
+    pub tab_scroll: playlist_view::TabScroll,
     /// The playlist waiting for Close to be confirmed.
     pub closing: Option<PlaylistId>,
     /// Songs waiting for the Spotify playlist they are copied to.

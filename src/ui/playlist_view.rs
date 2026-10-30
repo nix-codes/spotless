@@ -26,7 +26,7 @@ use super::skin_paint;
 use super::theme::{self, Palette};
 use super::widgets::{
     Glyph, drag_ghost, field, row_heart, row_length, share_menu, small_action, small_button,
-    small_glyph, text_button, tip,
+    small_button_width, small_glyph, text_button, tip,
 };
 use super::{Inputs, View, spotify_view};
 use crate::action::{Action, Actions, Desktop};
@@ -309,57 +309,122 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
     let bar = ui
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = TAB_GAP;
-            let (strip, _) = ui.allocate_exact_size(vec2(total, TAB_HEIGHT), Sense::hover());
-            // The dragged tab follows the pointer along the strip.
-            let floating = dragged.and_then(|(from, grab)| {
-                let pointer = ui.ctx().pointer_interact_pos()?;
-                let left = (pointer.x - grab - strip.left()).clamp(0.0, total - widths[from]);
-                Some((from, left))
-            });
-            let (lefts, to) = tab_layout(&widths, floating);
-            let order = (0..tabs.len())
-                .filter(|&i| Some(i) != floating.map(|(from, _)| from))
-                .chain(floating.map(|(from, _)| from));
-            for i in order {
-                let list = &tabs[i];
-                let slide = if Some(i) == floating.map(|(from, _)| from) {
-                    0.0
-                } else {
-                    TAB_SLIDE
-                };
-                let left = ui.ctx().animate_value_with_time(
-                    Id::new(("tab-left", list.id)),
-                    lefts[i],
-                    slide,
-                );
-                let rect = Rect::from_min_size(
-                    pos2(strip.left() + left, strip.top()),
-                    vec2(widths[i], TAB_HEIGHT),
-                );
-                if Some(list.id) == renaming {
-                    ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
-                        rename_field(ui, list.id, &mut inputs.renaming, actions);
-                    });
-                    drawn.push((list.id, rect));
-                    continue;
+            // Too many to fit: ‹ › and the wheel scroll them.
+            let plus_width = small_button_width(ui, "+") + TAB_GAP;
+            let arrows_width = small_button_width(ui, "‹") + small_button_width(ui, "›");
+            let overflow = total + TAB_GAP + plus_width > ui.available_width();
+            let width = if overflow {
+                (ui.available_width() - plus_width - arrows_width - 2.0 * TAB_GAP).max(0.0)
+            } else {
+                total
+            };
+            let back =
+                overflow.then(|| small_action(ui, &palette, "‹", inputs.tab_scroll.to > 0.0));
+            let (strip, strip_response) =
+                ui.allocate_exact_size(vec2(width, TAB_HEIGHT), Sense::hover());
+            let ahead = overflow
+                .then(|| small_action(ui, &palette, "›", inputs.tab_scroll.to < total - width));
+            let at = tab_layout(&widths, None).0;
+            let scroll = &mut inputs.tab_scroll;
+            // The shown tab in sight: there already on opening, glided to
+            // after.
+            if let Some(shown) = tabs.iter().position(|t| t.id == view.playlist.id)
+                && (scroll.shown != Some(view.playlist.id) || scroll.width != width)
+            {
+                scroll.to = scroll_to_show(at[shown], widths[shown], scroll.to, width);
+                scroll.shown = Some(view.playlist.id);
+                scroll.width = width;
+            }
+            if back.is_some_and(|b| b.on_hover_text("Earlier tabs").clicked()) {
+                scroll.to = scroll_step(&at, &widths, scroll.to, width, false);
+            }
+            if ahead.is_some_and(|a| a.on_hover_text("Later tabs").clicked()) {
+                scroll.to = scroll_step(&at, &widths, scroll.to, width, true);
+            }
+            if overflow && strip_response.contains_pointer() {
+                let delta = ui.input(|i| i.smooth_scroll_delta);
+                scroll.to -= delta.x + delta.y;
+            }
+            // A tab or songs dragged near an end scroll it.
+            let dragging = DragAndDrop::has_payload_of_type::<TabDrag>(ui.ctx())
+                || DragAndDrop::has_payload_of_type::<RowDrag>(ui.ctx());
+            if overflow
+                && dragging
+                && let Some(pointer) = ui.ctx().pointer_interact_pos()
+                && (strip.top()..=strip.bottom()).contains(&pointer.y)
+            {
+                let speed = 360.0 * ui.input(|i| i.stable_dt).min(0.1);
+                if pointer.x < strip.left() + SCROLL_EDGE {
+                    scroll.to -= speed;
+                    ui.ctx().request_repaint();
+                } else if pointer.x > strip.right() - SCROLL_EDGE {
+                    scroll.to += speed;
+                    ui.ctx().request_repaint();
                 }
-                if slide == 0.0 && !skin_paint::has_chrome(ui.ctx(), "tab") {
-                    // Over the others, it hides them.
-                    ui.painter().rect_filled(rect, 0.0, palette.list_bg);
-                }
-                let response = tab(ui, view, list, rect, inputs, actions);
-                onto_tab |= list.id != view.playlist.id
-                    && response.dnd_hover_payload::<RowDrag>().is_some();
-                if slide == 0.0
-                    && response.drag_stopped()
-                    && let Some(to) = to
-                {
-                    DragAndDrop::clear_payload(ui.ctx());
-                    if to != i {
-                        actions.push(Action::MovePlaylist(list.id, to));
+            }
+            scroll.to = scroll.to.clamp(0.0, (total - width).max(0.0));
+            let offset = if dragging {
+                scroll.to
+            } else {
+                ui.ctx()
+                    .animate_value_with_time(Id::new("tab-scroll"), scroll.to, TAB_SLIDE)
+            };
+            let mut clipped = ui.new_child(UiBuilder::new().max_rect(strip));
+            clipped.set_clip_rect(strip.intersect(ui.clip_rect()));
+            {
+                let ui = &mut clipped;
+                let origin = strip.left() - offset;
+                // The dragged tab follows the pointer along the strip.
+                let floating = dragged.and_then(|(from, grab)| {
+                    let pointer = ui.ctx().pointer_interact_pos()?;
+                    let left = (pointer.x - grab - origin).clamp(0.0, total - widths[from]);
+                    Some((from, left))
+                });
+                let (lefts, to) = tab_layout(&widths, floating);
+                let order = (0..tabs.len())
+                    .filter(|&i| Some(i) != floating.map(|(from, _)| from))
+                    .chain(floating.map(|(from, _)| from));
+                for i in order {
+                    let list = &tabs[i];
+                    let slide = if Some(i) == floating.map(|(from, _)| from) {
+                        0.0
+                    } else {
+                        TAB_SLIDE
+                    };
+                    let left = ui.ctx().animate_value_with_time(
+                        Id::new(("tab-left", list.id)),
+                        lefts[i],
+                        slide,
+                    );
+                    let rect = Rect::from_min_size(
+                        pos2(origin + left, strip.top()),
+                        vec2(widths[i], TAB_HEIGHT),
+                    );
+                    if Some(list.id) == renaming {
+                        ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
+                            rename_field(ui, list.id, &mut inputs.renaming, actions);
+                        });
+                        drawn.push((list.id, rect.intersect(strip)));
+                        continue;
                     }
+                    if slide == 0.0 && !skin_paint::has_chrome(ui.ctx(), "tab") {
+                        // Over the others, it hides them.
+                        ui.painter().rect_filled(rect, 0.0, palette.list_bg);
+                    }
+                    let response = tab(ui, view, list, rect, inputs, actions);
+                    onto_tab |= list.id != view.playlist.id
+                        && response.dnd_hover_payload::<RowDrag>().is_some();
+                    if slide == 0.0
+                        && response.drag_stopped()
+                        && let Some(to) = to
+                    {
+                        DragAndDrop::clear_payload(ui.ctx());
+                        if to != i {
+                            actions.push(Action::MovePlaylist(list.id, to));
+                        }
+                    }
+                    drawn.push((list.id, rect.intersect(strip)));
                 }
-                drawn.push((list.id, rect));
             }
             // With the Spotify tab closed, + opens it too.
             let spotify_closed = view.settings.spotify_tab_enabled && !view.settings.spotify_tab;
@@ -386,6 +451,45 @@ fn tab_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
         .rect;
     baseline(ui, view, &drawn, bar);
     onto_tab
+}
+
+/// How far the tabs are scrolled when they don't all fit.
+#[derive(Default)]
+pub struct TabScroll {
+    /// The offset scrolled to, which the strip glides to.
+    to: f32,
+    /// The tab last brought into sight as the one shown, and the strip's
+    /// width then: a narrower window brings it into sight again.
+    shown: Option<PlaylistId>,
+    width: f32,
+}
+
+/// The offset from `offset` that puts a tab at `left`, `width` wide, in a
+/// strip `strip` wide, moving no more than that takes.
+fn scroll_to_show(left: f32, width: f32, offset: f32, strip: f32) -> f32 {
+    if left < offset {
+        left
+    } else if left + width > offset + strip {
+        left + width - strip
+    } else {
+        offset
+    }
+}
+
+/// The offset from `offset` that brings the next tab cut off or hidden,
+/// later ones if `ahead`, wholly into a strip `strip` wide.
+fn scroll_step(lefts: &[f32], widths: &[f32], offset: f32, strip: f32, ahead: bool) -> f32 {
+    let tabs = lefts.iter().zip(widths);
+    let next = if ahead {
+        tabs.map(|(l, w)| l + w)
+            .find(|&right| right > offset + strip + 0.5)
+            .map(|right| right - strip)
+    } else {
+        tabs.map(|(l, _)| *l)
+            .rev()
+            .find(|&left| left < offset - 0.5)
+    };
+    next.unwrap_or(offset)
 }
 
 /// Where each tab's left edge goes, from the strip's start, and, while one
@@ -1780,6 +1884,28 @@ mod tests {
         frame(vec![], &mut actions);
         let _ = std::fs::remove_dir_all(&root);
         actions.into_iter().collect()
+    }
+
+    #[test]
+    fn the_shown_tab_scrolls_into_sight_no_further_than_needed() {
+        // Tabs at 0..50, 53..153 and 156..206, in a strip 100 wide.
+        assert_eq!(scroll_to_show(53.0, 100.0, 0.0, 100.0), 53.0);
+        assert_eq!(scroll_to_show(156.0, 50.0, 0.0, 100.0), 106.0);
+        assert_eq!(scroll_to_show(0.0, 50.0, 106.0, 100.0), 0.0);
+        assert_eq!(scroll_to_show(156.0, 50.0, 120.0, 100.0), 120.0);
+    }
+
+    #[test]
+    fn the_arrows_bring_the_next_cut_off_tab_wholly_into_sight() {
+        let (lefts, widths) = ([0.0, 53.0, 156.0], [50.0, 100.0, 50.0]);
+        // The second tab is cut off on the right, then the third.
+        assert_eq!(scroll_step(&lefts, &widths, 0.0, 100.0, true), 53.0);
+        assert_eq!(scroll_step(&lefts, &widths, 53.0, 100.0, true), 106.0);
+        assert_eq!(scroll_step(&lefts, &widths, 106.0, 100.0, true), 106.0);
+        // Back: the second tab's start, then the first's.
+        assert_eq!(scroll_step(&lefts, &widths, 106.0, 100.0, false), 53.0);
+        assert_eq!(scroll_step(&lefts, &widths, 53.0, 100.0, false), 0.0);
+        assert_eq!(scroll_step(&lefts, &widths, 0.0, 100.0, false), 0.0);
     }
 
     #[test]
