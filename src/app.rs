@@ -12,7 +12,6 @@ use crate::backend::{Command, Event};
 use crate::controller::Controller;
 use crate::focus::Focus;
 use crate::media::{EventHook, MediaControls, MediaEvent, NowPlaying};
-use crate::model::PlaylistId;
 use crate::paths::Paths;
 use crate::phosphor::Phosphor;
 use crate::playback::engine::Status;
@@ -487,8 +486,8 @@ impl eframe::App for App {
         let web_client_id = state.settings.web_client_id();
         let playlist = state
             .list(state.viewed)
-            .or_else(|| state.library.get(PlaylistId::DEFAULT))
-            .expect("Default always exists");
+            .or_else(|| state.library.playlists().first())
+            .expect("there's always a playlist");
         let player = state.now_playing();
         let tabs = state.tabs();
         let view = View {

@@ -52,9 +52,9 @@ Spotify only allows playback in other apps for Premium accounts.
 
 ## Features
 
-- **Playlists in tabs.** As many as you like, saved between sessions. A
-  *Default* playlist is always there. Rename a tab by double-clicking it;
-  reorder songs and tabs by dragging.
+- **Playlists in tabs.** As many as you like, saved between sessions;
+  close the last one and an empty *Default* takes its place. Rename a tab
+  by double-clicking it; reorder songs and tabs by dragging.
 - **Synced playlists.** A playlist stays on the device it's on, unless you
   sync it: *Sync* in its tab's menu (on Android, hold the tab) keeps it the
   same on your other devices, its songs and where it's up to (the song,

@@ -313,7 +313,7 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
         actions.push(Action::CloseBrowse);
         inputs.renaming = Some((view.playlist.id, view.playlist.name.clone()));
     }
-    if !browsing && take(i, Modifiers::COMMAND, Key::W) && current != PlaylistId::DEFAULT {
+    if !browsing && take(i, Modifiers::COMMAND, Key::W) {
         if view.playlist.is_empty()
             || view.playlist.sync.is_some()
             || current == PlaylistId::SPOTIFY

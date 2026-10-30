@@ -1,10 +1,14 @@
-//! All the playlists, of which Default always exists, and the ID counters.
+//! All the playlists, never none, and the ID counters.
 
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
 use super::playlist::{Entry, EntryId, Playlist, PlaylistId, TrackRef};
+
+/// The name of the playlist a library starts with, and of the one that
+/// takes the last one's place.
+const DEFAULT_NAME: &str = "Default";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Library {
@@ -27,21 +31,21 @@ impl Default for Library {
 impl Library {
     pub fn new() -> Self {
         Self {
-            playlists: vec![Playlist::new(PlaylistId::DEFAULT, "Default")],
+            playlists: vec![Playlist::new(PlaylistId::DEFAULT, DEFAULT_NAME)],
             next_entry_id: 1,
             next_playlist_id: 1,
             synced_seen: Vec::new(),
         }
     }
 
-    /// Restores the invariants of a library read from disk: Default exists,
-    /// IDs are unique and the counters are past every ID in use.
+    /// Restores the invariants of a library read from disk: there's a
+    /// playlist, IDs are unique and the counters are past every ID in use.
     pub fn repair(&mut self) {
         let mut seen = HashSet::new();
         self.playlists.retain(|list| seen.insert(list.id));
-        if !seen.contains(&PlaylistId::DEFAULT) {
+        if self.playlists.is_empty() {
             self.playlists
-                .insert(0, Playlist::new(PlaylistId::DEFAULT, "Default"));
+                .push(Playlist::new(PlaylistId::DEFAULT, DEFAULT_NAME));
         }
         // An entry ID in two playlists is kept in the first only.
         let mut entries = HashSet::new();
@@ -67,9 +71,14 @@ impl Library {
         self.next_playlist_id = self.next_playlist_id.max(max_list + 1);
     }
 
-    /// In tab order. Default is never missing.
+    /// In tab order. Never empty.
     pub fn playlists(&self) -> &[Playlist] {
         &self.playlists
+    }
+
+    /// The first tab's playlist, for want of another.
+    pub fn first(&self) -> PlaylistId {
+        self.playlists[0].id
     }
 
     pub fn get(&self, id: PlaylistId) -> Option<&Playlist> {
@@ -106,14 +115,17 @@ impl Library {
         id
     }
 
-    /// Deletes a playlist. Default cannot be deleted.
+    /// Deletes a playlist. The last one leaves a new, empty Default in
+    /// its place, with an ID of its own.
     pub fn delete(&mut self, id: PlaylistId) -> bool {
-        if id == PlaylistId::DEFAULT {
+        let Some(at) = self.playlists.iter().position(|list| list.id == id) else {
             return false;
+        };
+        self.playlists.remove(at);
+        if self.playlists.is_empty() {
+            self.create(DEFAULT_NAME);
         }
-        let before = self.playlists.len();
-        self.playlists.retain(|list| list.id != id);
-        self.playlists.len() != before
+        true
     }
 
     /// Renames a playlist. A blank name is refused.
@@ -154,18 +166,24 @@ mod tests {
     use crate::model::playlist::tests::entry;
 
     #[test]
-    fn default_always_exists() {
+    fn the_last_playlist_deleted_leaves_a_new_default() {
         let mut library = Library::new();
         assert_eq!(library.playlists()[0].id, PlaylistId::DEFAULT);
-        assert!(!library.delete(PlaylistId::DEFAULT));
         let mix = library.create("Mix");
+        assert!(library.delete(PlaylistId::DEFAULT));
+        assert!(!library.delete(PlaylistId::DEFAULT));
+        assert_eq!(library.first(), mix);
         assert!(library.delete(mix));
-        assert!(!library.delete(mix));
-        assert_eq!(library.playlists().len(), 1);
+        let [fresh] = library.playlists() else {
+            panic!("one playlist");
+        };
+        assert_eq!(fresh.name, "Default");
+        assert!(fresh.is_empty());
+        assert!(fresh.id != mix && fresh.id != PlaylistId::DEFAULT);
     }
 
     #[test]
-    fn repair_restores_default_and_counters() {
+    fn repair_restores_a_playlist_and_counters() {
         let mut library = Library::new();
         let mix = library.create("Mix");
         let list = library.get_mut(mix).unwrap();
@@ -173,9 +191,12 @@ mod tests {
         library.playlists.retain(|list| list.id == mix);
         library.next_entry_id = 1;
         library.repair();
-        assert_eq!(library.playlists()[0].id, PlaylistId::DEFAULT);
+        assert_eq!(library.first(), mix);
         assert_eq!(library.get(mix).unwrap().len(), 2);
         assert_eq!(library.entry(entry(0).track).id, EntryId(42));
+        library.playlists.clear();
+        library.repair();
+        assert_eq!(library.playlists()[0].name, "Default");
     }
 
     #[test]

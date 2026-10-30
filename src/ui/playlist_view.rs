@@ -598,18 +598,13 @@ fn tab_width(ui: &Ui, view: &View, list: &Tab) -> f32 {
     } else {
         0.0
     };
-    let close_width = if list.id != PlaylistId::DEFAULT {
-        CLOSE_WIDTH
-    } else {
-        0.0
-    };
     let sync_width = if list.sync.is_some() { SYNC_WIDTH } else { 0.0 };
     10.0 + play_width
         + width(list.name, NAME_FONT)
         + sync_width
         + 6.0
         + width(&list.count.to_string(), COUNT_FONT)
-        + close_width
+        + CLOSE_WIDTH
         + 10.0
 }
 
@@ -660,7 +655,6 @@ fn tab(
     let palette = view.palette;
     let shown = list.id == view.playlist.id;
     let playing = view.playing_list == Some(list.id);
-    let closable = list.id != PlaylistId::DEFAULT;
     let count = list.count.to_string();
     let play_width = if playing { PLAY_WIDTH } else { 0.0 };
     let response = ui.interact(rect, Id::new(("tab", list.id)), Sense::click_and_drag());
@@ -715,18 +709,16 @@ fn tab(
     let close =
         Rect::from_center_size(pos2(rect.right() - 12.0, rect.center().y), vec2(10.0, 10.0));
     let pointer = ui.ctx().pointer_interact_pos();
-    let over_close = closable && pointer.is_some_and(|p| close.expand(2.0).contains(p));
-    if closable {
-        let color = if over_close && response.hovered() {
-            palette.accent
-        } else {
-            palette.dim
-        };
-        let stroke = Stroke::new(1.2, color);
-        let c = close.shrink(2.0);
-        painter.line_segment([c.left_top(), c.right_bottom()], stroke);
-        painter.line_segment([c.right_top(), c.left_bottom()], stroke);
-    }
+    let over_close = pointer.is_some_and(|p| close.expand(2.0).contains(p));
+    let color = if over_close && response.hovered() {
+        palette.accent
+    } else {
+        palette.dim
+    };
+    let stroke = Stroke::new(1.2, color);
+    let c = close.shrink(2.0);
+    painter.line_segment([c.left_top(), c.right_bottom()], stroke);
+    painter.line_segment([c.right_top(), c.left_bottom()], stroke);
 
     // Rows dragged from another tab: copied here when dropped, or moved.
     if !shown && response.dnd_hover_payload::<RowDrag>().is_some() {
@@ -790,7 +782,7 @@ fn tab(
                     new: true,
                 });
             }
-            if closable && item(ui, "Close", true).clicked() {
+            if item(ui, "Close", true).clicked() {
                 close(inputs, actions);
             }
         });

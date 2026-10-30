@@ -21,7 +21,7 @@ pub struct EntryId(pub u64);
 pub struct PlaylistId(pub u64);
 
 impl PlaylistId {
-    /// The playlist that always exists.
+    /// The playlist a new library starts with.
     pub const DEFAULT: Self = Self(0);
     /// The Spotify tab's, which shows the account's queue: no playlist of
     /// the library has it.

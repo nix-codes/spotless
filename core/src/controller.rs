@@ -349,7 +349,7 @@ impl Controller {
     fn with_backend(paths: Paths, settings: Settings, started: anyhow::Result<Backend>) -> Self {
         let (mut library, tabs) = store::load_library(&paths);
         let history = store::load_history(&paths);
-        let viewed = tabs.viewed.or(tabs.playing).unwrap_or(PlaylistId::DEFAULT);
+        let viewed = tabs.viewed.or(tabs.playing).unwrap_or(library.first());
         let mut playback = Playback::new(seed());
         playback.repeat = settings.repeat;
         playback.set_shuffle(settings.shuffle);
@@ -746,10 +746,7 @@ impl Controller {
         // With the Spotify tab shown, local playback goes on in the
         // playlist it played.
         let viewed = match state.viewed {
-            PlaylistId::SPOTIFY => state
-                .transport
-                .playing_list()
-                .unwrap_or(PlaylistId::DEFAULT),
+            PlaylistId::SPOTIFY => state.transport.playing_list().unwrap_or(library.first()),
             viewed => viewed,
         };
         let requests = match action {
@@ -862,7 +859,7 @@ impl Controller {
                 // The tab before it takes its place.
                 let neighbour = index
                     .and_then(|i| library.playlists().get(i.saturating_sub(1)))
-                    .map_or(PlaylistId::DEFAULT, |l| l.id);
+                    .map_or(library.first(), |l| l.id);
                 if state.viewed == list {
                     state.viewed = neighbour;
                 }
@@ -968,11 +965,7 @@ impl Controller {
             state.spotify_starting = None;
             state.spotify_owns = false;
             if state.viewed == PlaylistId::SPOTIFY {
-                state.viewed = state
-                    .library
-                    .playlists()
-                    .first()
-                    .map_or(PlaylistId::DEFAULT, |list| list.id);
+                state.viewed = state.library.first();
             }
         }
         self.mark_unsaved();
@@ -2781,6 +2774,22 @@ mod tests {
         rig.controller.apply(Action::ClosePlaylist(third));
         assert_eq!(rig.controller.state().viewed, second);
         assert!(rig.controller.state().library.get(third).is_none());
+    }
+
+    #[test]
+    fn closing_the_only_tab_shows_a_new_empty_default() {
+        let mut rig = Rig::new("close-last");
+        rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+        rig.controller.apply(Action::Play);
+        rig.controller
+            .apply(Action::ClosePlaylist(PlaylistId::DEFAULT));
+        let state = rig.controller.state();
+        let [fresh] = state.library.playlists() else {
+            panic!("one tab");
+        };
+        assert_eq!((fresh.name.as_str(), fresh.len()), ("Default", 0));
+        assert_eq!(state.viewed, fresh.id);
+        assert_eq!(state.transport.playing_list(), None);
     }
 
     #[test]
