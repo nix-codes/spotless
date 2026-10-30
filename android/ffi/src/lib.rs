@@ -277,6 +277,13 @@ pub enum Action {
         secret: String,
     },
     DisconnectLastFm,
+    /// Loves a song on Last.fm, by its first artist and title, or doesn't
+    /// any more.
+    SetLoved {
+        artist: String,
+        title: String,
+        loved: bool,
+    },
     /// From the next start.
     SetAudioCache {
         on: bool,
@@ -405,7 +412,7 @@ pub enum Action {
         name: String,
     },
     ToggleSort,
-    /// Shows Browse's SEARCH or YOUR SPOTIFY, opening Browse if it's closed.
+    /// Shows a tab of Browse, opening Browse if it's closed.
     ShowBrowseTab {
         tab: BrowseTab,
     },
@@ -463,6 +470,14 @@ pub enum Action {
     PlayNow {
         track: Track,
     },
+    /// Finds songs loved on Last.fm on Spotify and adds them.
+    AddLoved {
+        songs: Vec<LovedSong>,
+    },
+    /// Finds a song loved on Last.fm on Spotify and plays it as PlayNow.
+    PlayLoved {
+        song: LovedSong,
+    },
     /// Copies songs to the end of a playlist (the Spotify tab's: queues
     /// them).
     CopyTo {
@@ -508,6 +523,15 @@ impl From<Action> for spotless_core::action::Action {
             }
             Action::ConnectLastFm { api_key, secret } => Core::ConnectLastFm(api_key, secret),
             Action::DisconnectLastFm => Core::DisconnectLastFm,
+            Action::SetLoved {
+                artist,
+                title,
+                loved,
+            } => Core::SetLoved {
+                artist,
+                title,
+                loved,
+            },
             Action::SetAudioCache { on } => Core::SetAudioCache(on),
             Action::SetAudioCacheSize { mb } => Core::SetAudioCacheSize(mb),
             Action::MeasureStorage => Core::MeasureStorage,
@@ -586,6 +610,10 @@ impl From<Action> for spotless_core::action::Action {
             }
             Action::AddAlbum { album } => Core::AddAlbum(album),
             Action::PlayNow { track } => Core::PlayNow(track.into()),
+            Action::AddLoved { songs } => {
+                Core::AddLoved(songs.into_iter().map(Into::into).collect())
+            }
+            Action::PlayLoved { song } => Core::PlayLoved(song.into()),
             Action::CopyTo { playlist, tracks } => Core::CopyTo(
                 PlaylistId(playlist),
                 tracks.into_iter().map(Into::into).collect(),
@@ -657,6 +685,20 @@ mod tests {
         assert!(list.songs.is_empty());
         assert_eq!(list.cursor, None);
         assert!(spotless.playlist(made + 1000).is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn last_fm_shows_search_in_its_place_while_not_connected() {
+        let (spotless, root) = spotless("lastfm-tab");
+        spotless.apply(Action::ShowBrowseTab {
+            tab: BrowseTab::LastFm,
+        });
+        let browse = spotless.browse();
+        assert!(browse.open);
+        assert_eq!(browse.shown, BrowseTab::Search);
+        assert_eq!(browse.loved, None);
+        assert_eq!(spotless.player().loved, None);
         let _ = std::fs::remove_dir_all(root);
     }
 

@@ -66,8 +66,8 @@ import dev.spotless.core.SimilarArtists
 import dev.spotless.core.Track
 
 /**
- * Browse: the catalog (search, results and artist pages) and YOUR
- * SPOTIFY, the account's own playlists; then the playlist ADD adds to
+ * Browse: the catalog (search, results and artist pages), YOUR SPOTIFY,
+ * the account's own playlists, and LAST.FM, the songs loved there; then the playlist ADD adds to
  * (the desktop's slim column), and a small player.
  */
 @Composable
@@ -93,10 +93,10 @@ fun BrowseScreen(core: Core) {
             GlyphButton(Glyph.Close, "Back to the playlists", { core.apply(Action.CloseBrowse) }, Modifier.width(48.dp))
         }
         BrowseTabs(core)
-        if (browse.shown == BrowseTab.SPOTIFY) {
-            YourSpotify(core, Modifier.weight(1f))
-        } else {
-            Catalog(core, Modifier.weight(1f))
+        when (browse.shown) {
+            BrowseTab.SPOTIFY -> YourSpotify(core, Modifier.weight(1f))
+            BrowseTab.LAST_FM -> browse.loved?.let { LovedSongs(core, it, Modifier.weight(1f)) }
+            BrowseTab.SEARCH -> Catalog(core, Modifier.weight(1f))
         }
         ErrorNote(core, Modifier.padding(top = 4.dp))
         Column(
@@ -138,7 +138,7 @@ private fun Catalog(core: Core, modifier: Modifier) {
     }
 }
 
-/** SEARCH and YOUR SPOTIFY. */
+/** SEARCH, YOUR SPOTIFY, and LAST.FM while it's there. */
 @Composable
 private fun BrowseTabs(core: Core) {
     val shown = core.browse.shown
@@ -152,6 +152,9 @@ private fun BrowseTabs(core: Core) {
             // What changed on Spotify meanwhile shows.
             core.apply(Action.ReadSpotifyPlaylists)
         }, Modifier.weight(1f), on = shown == BrowseTab.SPOTIFY)
+        if (core.browse.loved != null) {
+            TextButton("LAST.FM", { core.apply(Action.ShowBrowseTab(BrowseTab.LAST_FM)) }, Modifier.weight(1f), on = shown == BrowseTab.LAST_FM)
+        }
     }
 }
 

@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -141,6 +142,7 @@ fun PlayerPanel(core: Core) {
                     Line(info, mono(13.sp, Classic.dim))
                 }
             }
+            Heart(core)
         }
         SeekBar(player) { core.apply(Action.Seek(it)) }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -174,6 +176,28 @@ fun PlayerPanel(core: Core) {
                 Modifier.weight(1f), lit = player.repeat,
             )
         }
+    }
+}
+
+/**
+ * While Last.fm is connected, the display's heart: full while the song is
+ * loved there; a tap loves it or unloves it.
+ */
+@Composable
+private fun Heart(core: Core) {
+    val player = core.player
+    val loved = player.loved ?: return
+    val track = player.track ?: return
+    Box(
+        Modifier
+            .size(44.dp)
+            .clickable(onClickLabel = if (loved) "Unlove on Last.fm" else "Love on Last.fm") {
+                core.apply(Action.SetLoved(track.mainArtist, track.title, !loved))
+            }
+            .semantics { contentDescription = if (loved) "Loved on Last.fm" else "Not loved on Last.fm" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(24.dp).drawBehind { glyph(if (loved) Glyph.Heart else Glyph.Unloved, if (loved) Classic.lcd else Classic.dim) })
     }
 }
 

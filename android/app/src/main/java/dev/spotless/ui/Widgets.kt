@@ -172,7 +172,8 @@ fun TextButton(
 }
 
 /** The transport's and the bars' glyphs, drawn in [color] on a 24-unit square. */
-enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check, Trash, Repeat, Shuffle, Lock, Share, Sync }
+/** Heart is a song loved on Last.fm; Unloved, its outline, one that isn't. */
+enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check, Trash, Repeat, Shuffle, Lock, Share, Sync, Heart, Unloved }
 
 @Composable
 fun GlyphButton(
@@ -270,6 +271,20 @@ fun DrawScope.glyph(glyph: Glyph, color: Color) {
                 drawCircle(color, 3f * u, to)
             }
             drawCircle(color, 3f * u, from)
+        }
+        Glyph.Heart, Glyph.Unloved -> {
+            // Two round lobes, meeting in a point below.
+            val heart = Path().apply {
+                moveTo(12f * u, 20.5f * u)
+                cubicTo(5f * u, 15.5f * u, 2.5f * u, 12f * u, 2.5f * u, 8.5f * u)
+                cubicTo(2.5f * u, 5.5f * u, 4.8f * u, 3.5f * u, 7.5f * u, 3.5f * u)
+                cubicTo(9.5f * u, 3.5f * u, 11f * u, 4.6f * u, 12f * u, 6.2f * u)
+                cubicTo(13f * u, 4.6f * u, 14.5f * u, 3.5f * u, 16.5f * u, 3.5f * u)
+                cubicTo(19.2f * u, 3.5f * u, 21.5f * u, 5.5f * u, 21.5f * u, 8.5f * u)
+                cubicTo(21.5f * u, 12f * u, 19f * u, 15.5f * u, 12f * u, 20.5f * u)
+                close()
+            }
+            if (glyph == Glyph.Heart) drawPath(heart, color) else drawPath(heart, color, style = Stroke(width = 1.8f * u))
         }
         Glyph.Repeat -> {
             // Two arrows chasing each other round a loop.

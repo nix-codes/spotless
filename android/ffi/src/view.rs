@@ -3,7 +3,7 @@
 use spotless_core::backend::{self, SessionState};
 use spotless_core::browse::{self as core_browse, Find, Loadable, Page};
 use spotless_core::controller::{State, SyncStatus};
-use spotless_core::lastfm::{self, LastFmStatus};
+use spotless_core::lastfm::{self, LastFmStatus, LovedSong as CoreLovedSong};
 use spotless_core::model::catalog::{self, ReleaseGroup as CoreGroup, ReleaseTab as CoreTab};
 use spotless_core::model::playlist::from_source;
 use spotless_core::model::{
@@ -149,6 +149,8 @@ pub struct NowPlaying {
     pub uri: String,
     pub title: String,
     pub artists: String,
+    /// The first artist, as Last.fm knows the song by.
+    pub main_artist: String,
     pub album: String,
     pub duration_ms: u32,
     pub cover_url: Option<String>,
@@ -170,6 +172,9 @@ pub struct Player {
     /// Paused for want of a connection to Spotify; it goes on when there
     /// is one again.
     pub offline: bool,
+    /// While Last.fm is connected and a song is shown, not loading:
+    /// whether it's loved there, for the display's heart.
+    pub loved: Option<bool>,
     /// The sound comes from this phone: a song is loaded, and it's not
     /// the Spotify tab's queue playing on another device. A song shown
     /// paused with nothing loaded (as after a restart) isn't.
@@ -189,6 +194,7 @@ pub(crate) fn player(state: &State) -> Player {
             uri: track.uri.clone(),
             title: track.title.clone(),
             artists: track.artists.clone(),
+            main_artist: track.main_artist.clone(),
             album: track.album.clone(),
             duration_ms: track.duration_ms,
             cover_url: track.cover_url.clone(),
@@ -204,6 +210,11 @@ pub(crate) fn player(state: &State) -> Player {
             .or(state.transport.playback.playing().filter(|_| state.offline))
             .map(|id| id.0),
         offline: state.offline,
+        loved: snapshot
+            .track
+            .as_ref()
+            .filter(|_| lastfm_connected(state) && snapshot.status != engine::Status::Loading)
+            .map(|track| state.loved.playing(track)),
         here: state.waiting().is_none()
             && (!state.spotify_playing()
                 || state.spotify_starting.is_some()
@@ -325,6 +336,8 @@ pub enum SpotifyRow {
         entry: u64,
         track: Track,
         played: Played,
+        /// Loved on Last.fm.
+        loved: bool,
     },
 }
 
@@ -356,6 +369,7 @@ pub(crate) fn spotify(state: &State) -> Option<SpotifyView> {
             entry: SpotifyQueue::row_id(index).0,
             track: track.into(),
             played,
+            loved: state.loved.track(track),
         });
         index += 1;
     };
@@ -397,6 +411,8 @@ pub struct Song {
     pub header: Option<Header>,
     /// It follows a header's run without starting one: a line sets it off.
     pub set_off: bool,
+    /// Loved on Last.fm.
+    pub loved: bool,
 }
 
 /// A header over a run of songs.
@@ -448,6 +464,7 @@ pub(crate) fn playlist(state: &State, id: PlaylistId) -> Option<PlaylistView> {
                     }
                 }),
                 set_off: run_at(index).is_some_and(|run| !run.header && index > 0),
+                loved: state.loved.track(&entry.track),
             })
             .collect(),
         cursor: list.cursor().map(|id| id.0),
@@ -711,12 +728,13 @@ pub enum BrowsePage {
     },
 }
 
-/// Browse's two tabs: the catalogue, searched, and the account's own
-/// Spotify playlists.
+/// Browse's tabs: the catalogue, searched, the account's own Spotify
+/// playlists, and the songs loved on Last.fm.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum BrowseTab {
     Search,
     Spotify,
+    LastFm,
 }
 
 impl From<BrowseTab> for core_browse::BrowseTab {
@@ -724,8 +742,62 @@ impl From<BrowseTab> for core_browse::BrowseTab {
         match tab {
             BrowseTab::Search => Self::Search,
             BrowseTab::Spotify => Self::Spotify,
+            BrowseTab::LastFm => Self::LastFm,
         }
     }
+}
+
+/// A song loved on Last.fm, known there only by its artist and title.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct LovedSong {
+    pub artist: String,
+    pub title: String,
+    /// When it was loved, in Unix seconds (0: not known).
+    pub date: u64,
+}
+
+impl From<&CoreLovedSong> for LovedSong {
+    fn from(song: &CoreLovedSong) -> Self {
+        Self {
+            artist: song.artist.clone(),
+            title: song.title.clone(),
+            date: song.date,
+        }
+    }
+}
+
+impl From<LovedSong> for CoreLovedSong {
+    fn from(song: LovedSong) -> Self {
+        Self {
+            artist: song.artist,
+            title: song.title,
+            date: song.date,
+        }
+    }
+}
+
+/// LAST.FM: the songs loved there, by artist and then title.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct LovedSongs {
+    /// The Last.fm account.
+    pub user: String,
+    pub songs: Vec<LovedSong>,
+}
+
+fn lastfm_connected(state: &State) -> bool {
+    matches!(state.lastfm.status, LastFmStatus::Connected { .. })
+}
+
+/// LAST.FM, while it's there: Last.fm is connected, and search set up to
+/// find its songs on Spotify.
+fn loved_songs(state: &State) -> Option<LovedSongs> {
+    let LastFmStatus::Connected { user } = &state.lastfm.status else {
+        return None;
+    };
+    (state.search != backend::SearchState::NoApp).then(|| LovedSongs {
+        user: user.clone(),
+        songs: state.loved.songs().iter().map(Into::into).collect(),
+    })
 }
 
 /// One of the account's Spotify playlists, or Liked Songs.
@@ -847,11 +919,14 @@ pub struct BrowseView {
     pub your_spotify: YourSpotify,
     /// The page's find is open, with this typed in it.
     pub find: Option<String>,
+    /// LAST.FM, while it's there.
+    pub loved: Option<LovedSongs>,
 }
 
 pub(crate) fn browse(state: &State) -> BrowseView {
     let browse = &state.browse;
     let find = browse.finder();
+    let loved = loved_songs(state);
     let page = match browse.page() {
         Page::Home => BrowsePage::Home {
             searches: browse.recent_searches.clone(),
@@ -972,9 +1047,11 @@ pub(crate) fn browse(state: &State) -> BrowseView {
     BrowseView {
         open: browse.open,
         shown: match browse.shown {
-            // LAST.FM is the desktop's only.
-            core_browse::BrowseTab::Search | core_browse::BrowseTab::LastFm => BrowseTab::Search,
+            core_browse::BrowseTab::Search => BrowseTab::Search,
             core_browse::BrowseTab::Spotify => BrowseTab::Spotify,
+            // SEARCH in its place while it isn't there.
+            core_browse::BrowseTab::LastFm if loved.is_some() => BrowseTab::LastFm,
+            core_browse::BrowseTab::LastFm => BrowseTab::Search,
         },
         page,
         can_go_back: browse.can_go_back(),
@@ -988,6 +1065,7 @@ pub(crate) fn browse(state: &State) -> BrowseView {
         search: search_state(&state.search),
         your_spotify: your_spotify(state),
         find: browse.find.clone(),
+        loved,
     }
 }
 

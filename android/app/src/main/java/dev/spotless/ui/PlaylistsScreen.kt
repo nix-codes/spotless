@@ -67,6 +67,7 @@ import androidx.compose.ui.zIndex
 import dev.spotless.Core
 import dev.spotless.core.Action
 import dev.spotless.core.Header
+import dev.spotless.core.LastFm
 import dev.spotless.core.Played
 import dev.spotless.core.Song
 import dev.spotless.core.SpotifyRow
@@ -138,7 +139,7 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
         Tabs(core, { editing = it }, { adding = !adding })
         editing?.let { TabEditor(core, it) { editing = null } }
         if (adding && core.settings.spotifyTabClosed) AddBar(core) { adding = false }
-        Summary(core, queue, selected.size)
+        Summary(core, queue, selected)
         ErrorNote(core)
         if (queue != null) {
             QueueSongs(core, queue, selected, { picked = it }, Modifier.weight(1f))
@@ -229,6 +230,33 @@ private fun SelectBar(
             core.apply(Action.Remove(id, removable))
             done()
         }, Modifier.width(48.dp), enabled = removable.isNotEmpty())
+    }
+}
+
+/**
+ * While Last.fm is connected, LOVE beside the count of songs selected (the
+ * selection bar has no room): UNLOVE while they're all loved there.
+ */
+@Composable
+private fun Love(core: Core, queue: SpotifyView?, selected: List<ULong>) {
+    val songs = if (queue != null) {
+        queueSongs(queue).filter { it.entry in selected }.map { it.track to it.loved }
+    } else {
+        core.playlist?.songs?.filter { it.entry in selected }?.map { it.track to it.loved }.orEmpty()
+    }
+    val all = songs.all { it.second }
+    ChromeButton({
+        songs
+            .filter { it.second == all }
+            .map { (track, _) -> track.artists.firstOrNull()?.name.orEmpty() to track.title }
+            // Each song once, however often it's in the tab.
+            .distinctBy { (artist, title) -> artist.lowercase() to title.lowercase() }
+            .forEach { (artist, title) -> core.apply(Action.SetLoved(artist, title, !all)) }
+    }, Modifier.height(32.dp), description = if (all) "Unlove on Last.fm" else "Love on Last.fm") {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(12.dp).drawBehind { glyph(if (all) Glyph.Unloved else Glyph.Heart, Classic.chrome) })
+            BasicText(if (all) "UNLOVE" else "LOVE", style = label(11.sp, Classic.chrome))
+        }
     }
 }
 
@@ -607,12 +635,12 @@ private fun SpotifyTabEditor(core: Core, id: ULong, at: Int, done: () -> Unit) {
 }
 
 @Composable
-private fun Summary(core: Core, queue: SpotifyView?, selected: Int) {
+private fun Summary(core: Core, queue: SpotifyView?, selected: List<ULong>) {
     val list = core.playlist
     val tab = core.tabs.tabs.firstOrNull { it.id == core.tabs.viewed }
-    val selecting = selected > 0
+    val selecting = selected.isNotEmpty()
     val text = when {
-        selecting -> "$selected SELECTED"
+        selecting -> "${selected.size} SELECTED"
         queue != null && tab != null -> "${songs(queue.toCome.toInt())} TO COME · ${clock(tab.durationMs.toLong())}"
         list != null -> "${songs(list.songs.size)} · ${clock(list.durationMs.toLong())}" +
             // Counted up, as the time left of the song is.
@@ -634,11 +662,14 @@ private fun Summary(core: Core, queue: SpotifyView?, selected: Int) {
     ) {
         BasicText(text, style = label(12.sp, if (selecting) Classic.current else Classic.label, 0.06.em))
         if (selecting) {
+            // LOVE takes the room of the drag's hint.
+            val love = core.settings.lastfm is LastFm.Connected
             Line(
-                if (queue != null) "TAP ADD/DROP · HOLD RANGE" else "TAP ADD/DROP · HOLD RANGE · DRAG ≡ REORDERS",
+                if (queue != null || love) "TAP ADD/DROP · HOLD RANGE" else "TAP ADD/DROP · HOLD RANGE · DRAG ≡ REORDERS",
                 label(12.sp, Classic.label, 0.02.em).copy(textAlign = TextAlign.End),
                 Modifier.weight(1f),
             )
+            if (love) Love(core, queue, selected)
             return@Row
         }
         // Errors show in full below.
@@ -867,8 +898,8 @@ private fun RunHeader(header: Header, chosen: Boolean, tap: () -> Unit, hold: ()
 }
 
 /**
- * A song: its number (none in the queue), title, artists, Q mark and
- * length, and while selecting the handle that moves it (none where songs
+ * A song: its number (none in the queue), title, artists, Q mark, a
+ * heart if it's loved on Last.fm, and length, and while selecting the handle that moves it (none where songs
  * can't move). A song played already is [faded].
  */
 @Composable
@@ -922,6 +953,7 @@ private fun SongRow(
             Line(song.track.artists.joinToString(", ") { it.name }, body(13.sp, sub, FontWeight.Normal))
         }
         song.mark?.let { BasicText("Q$it", style = mono(13.sp, Classic.lcd)) }
+        if (song.loved) Box(Modifier.size(13.dp).drawBehind { glyph(Glyph.Heart, fg) })
         BasicText(clock(song.track.durationMs.toLong()), style = mono(color = fg))
         if (selecting && handle != null) {
             Box(
@@ -996,7 +1028,7 @@ private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, se
                         val chosen = row.entry in selected
                         val index = songs.indexOf(row)
                         SongRow(
-                            null, Song(row.entry, row.track, null, null, false),
+                            null, Song(row.entry, row.track, null, null, false, row.loved),
                             current = row.played == Played.NOW,
                             chosen = chosen,
                             selecting = selected.isNotEmpty(),
