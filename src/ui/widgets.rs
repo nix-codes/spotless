@@ -145,6 +145,11 @@ pub fn small_button_width(ui: &Ui, label: &str) -> f32 {
     label_width(ui, label, &FontId::monospace(10.0)) + 14.0
 }
 
+/// A text button's width, to leave room for one.
+pub fn text_button_width(ui: &Ui, label: &str) -> f32 {
+    label_width(ui, label, &FontId::monospace(11.0)) + 20.0
+}
+
 fn label_width(ui: &Ui, label: &str, font: &FontId) -> f32 {
     ui.painter()
         .layout_no_wrap(label.to_string(), font.clone(), egui::Color32::WHITE)

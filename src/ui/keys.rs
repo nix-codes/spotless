@@ -96,6 +96,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Delete", "Remove from the playlist"),
             ("Shift+Delete", "Delete / unfollow a playlist"),
             ("Ctrl+A", "Select all of a Spotify playlist"),
+            ("/", "Find in the results or the releases"),
             ("Ctrl+Z", "Undo a removal on Spotify"),
             ("Alt+1 … 5", "Release tabs, then Similar"),
             ("Ctrl+S", "Oldest / newest first"),
@@ -103,7 +104,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("C", "Pics on / off"),
             ("Ctrl+Tab, Ctrl+1 … 9", "The playlist + ADD adds to"),
             ("Backspace / Alt+←", "Back"),
-            ("Esc", "Back to the playlists, from a field too"),
+            ("Esc", "Close the find, else back to the playlists"),
         ],
     ),
 ];

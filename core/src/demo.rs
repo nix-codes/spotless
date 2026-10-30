@@ -96,6 +96,33 @@ pub fn discography() -> Discography {
     }
 }
 
+/// Each release's songs, by its URI, as Browse reads them: none for those
+/// the demo gives no songs.
+pub fn release_songs() -> Vec<(String, Vec<TrackRef>)> {
+    let releases = discography().releases;
+    releases
+        .into_iter()
+        .zip(DISCOGRAPHY)
+        .map(|(release, (_, _, _, _, songs))| {
+            let album = AlbumRef {
+                uri: release.uri.clone(),
+                name: release.title.clone(),
+            };
+            let tracks = (songs.iter().enumerate())
+                .map(|(n, (title, secs))| TrackRef {
+                    uri: format!("{}-{n}", release.uri.replace("album", "track")),
+                    title: (*title).into(),
+                    artists: vec![artist()],
+                    album: album.clone(),
+                    duration_ms: secs * 1000,
+                    source: None,
+                })
+                .collect();
+            (release.uri, tracks)
+        })
+        .collect()
+}
+
 /// The account's playlists on Spotify, as Browse lists them.
 pub fn spotify_playlists() -> Vec<SpotifyPlaylist> {
     let mut playlists: Vec<_> = [

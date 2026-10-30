@@ -8,7 +8,9 @@
 //! removes. Alt+1…4 pick the release tab, Alt+5 shows similar artists,
 //! Ctrl+S the order, Ctrl+E shows or hides all songs, C the pics. Esc goes
 //! back to the playlists, Backspace or Alt+Left back a page. Ctrl+F (in `keys.rs`) jumps to the
-//! search field.
+//! search field. / opens the page's find, under the search field: what's
+//! typed in it narrows the results or the discography shown, and Esc
+//! closes it.
 
 use std::collections::BTreeSet;
 
@@ -23,11 +25,12 @@ use super::settings_view::Category;
 use super::theme::{self, Palette};
 use super::widgets::{
     BUTTON_HEIGHT, SMALL_HEIGHT, field, share_menu, small_button, small_button_width, text_button,
+    text_button_width,
 };
 use super::{Inputs, View};
 use crate::action::{Action, Actions, Desktop};
 use crate::backend::SearchState;
-use crate::browse::{BrowseTab, Loadable, Page};
+use crate::browse::{BrowseTab, Find, Loadable, Page};
 use crate::lastfm;
 use crate::model::catalog::{Release, ReleaseTab};
 use crate::model::{ArtistRef, EntryId, Source, TrackRef, playlist::Playlist};
@@ -58,6 +61,7 @@ pub enum Cover {
 /// PageUp and PageDown move this many rows.
 const PAGE_ROWS: usize = 10;
 const SEARCH_ID: &str = "catalog-search";
+const FIND_ID: &str = "catalog-find";
 
 /// Where the keyboard is in Browse, kept between frames.
 #[derive(Default)]
@@ -76,6 +80,11 @@ pub struct Nav {
     act: Option<Act>,
     /// Ctrl+E, for the artist page.
     expand_all: bool,
+    /// What's typed in the page's find, and whether it should take the
+    /// keyboard; nothing on the page had it, last frame.
+    find: String,
+    focus_find: bool,
+    found_none: bool,
     /// The highlighted song in the slim column, and the one to scroll to.
     slim: Option<EntryId>,
     slim_reveal: Option<usize>,
@@ -102,6 +111,8 @@ pub struct Nav {
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum Area {
     Search,
+    /// The page's find, while it's open.
+    Find,
     /// YOUR SPOTIFY's list of playlists, with the field that finds one.
     Lists,
     #[default]
@@ -185,6 +196,16 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
         Some(uri) => format!("spotify-tab:{uri}"),
         None => "spotify-tab".into(),
     };
+    // The field shows the search shown, however it was made.
+    if inputs.nav.page != page_key
+        && let Page::Search(query) = page
+        && searching
+    {
+        inputs.query = query.clone();
+    }
+    if view.browse.find.is_none() {
+        inputs.nav.find.clear();
+    }
     let nav = &mut inputs.nav;
     // A new page starts at its top, highlighted only when the keyboard got
     // there (Enter on a search or an artist).
@@ -225,9 +246,13 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
             BrowseTab::Search => {}
         }
         search_bar(ui, view, inputs, actions);
+        if view.browse.find.is_some() {
+            find_bar(ui, view, inputs, actions);
+        }
         ui.add_space(PAD);
         let nav = &mut inputs.nav;
         nav.drawn = 0;
+        nav.found_none = false;
         let id = Id::new(("browse-scrollbar", page_id(page)));
         let area = ScrollArea::vertical().id_salt(page_id(page));
         scrollbar::show(ui, view, id, area, |area, ui| {
@@ -314,11 +339,16 @@ fn switch_area(ui: &Ui, view: &View, inputs: &mut Inputs) {
     let nav = &mut inputs.nav;
     nav.keyboard = true;
     // The search field is passed over while search isn't set up.
-    let areas: Vec<Area> = areas(shown(view))
+    let mut areas: Vec<Area> = areas(shown(view))
         .iter()
         .copied()
         .filter(|&a| a != Area::Search || searchable(view))
         .collect();
+    // The find comes after the search field, while it's open.
+    if view.browse.find.is_some() && shown(view) == BrowseTab::Search {
+        let at = areas.iter().position(|&a| a == Area::Results).unwrap_or(0);
+        areas.insert(at, Area::Find);
+    }
     let at = areas.iter().position(|&a| a == nav.area).unwrap_or(0) as isize;
     let to = areas[(at + inputs.tab).rem_euclid(areas.len() as isize) as usize];
     inputs.tab = 0;
@@ -334,7 +364,7 @@ fn move_panel(ui: &Ui, view: &View, inputs: &mut Inputs, step: isize) {
         .filter(|&a| a != Area::Search)
         .collect();
     let area = match inputs.nav.area {
-        Area::Search => Area::Results,
+        Area::Search | Area::Find => Area::Results,
         area => area,
     };
     let at = panels.iter().position(|&a| a == area).unwrap_or(0) as isize;
@@ -357,6 +387,11 @@ fn enter_area(ui: &Ui, inputs: &mut Inputs, area: Area) {
     } else {
         ui.ctx()
             .memory_mut(|m| m.surrender_focus(Id::new(SEARCH_ID)));
+    }
+    if nav.area == Area::Find {
+        nav.focus_find = true;
+    } else {
+        ui.ctx().memory_mut(|m| m.surrender_focus(Id::new(FIND_ID)));
     }
     if nav.area == Area::Lists {
         nav.focus_filter = true;
@@ -386,14 +421,27 @@ fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let searching = shown(view) == BrowseTab::Search;
     let artist_page = searching && matches!(view.browse.page(), Page::Artist(_));
     let to_field = searching && searchable(view);
+    let finding = searching && view.browse.find.is_some();
+    let findable = searching && findable(view);
     let nav = &mut inputs.nav;
     let focus_search = &mut inputs.focus_search;
     let mut up_to_field = false;
     let mut panel = 0;
     ui.input(|i| {
         let plain = i.modifiers.is_none();
+        // Esc closes the find first, then Browse.
         if i.key_pressed(Key::Escape) {
-            actions.push(Action::CloseBrowse);
+            actions.push(if finding {
+                Action::Find(None)
+            } else {
+                Action::CloseBrowse
+            });
+        }
+        if findable && !i.modifiers.command && !i.modifiers.alt && i.key_pressed(Key::Slash) {
+            actions.push(Action::Find(Some(nav.find.clone())));
+            nav.area = Area::Find;
+            nav.focus_find = true;
+            nav.keyboard = true;
         }
         let back = (i.modifiers.alt && i.key_pressed(Key::ArrowLeft))
             || (plain && i.key_pressed(Key::Backspace));
@@ -431,12 +479,18 @@ fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
         if nav.area != Area::Results || !plain {
             return;
         }
-        // ↑ from the first row goes back up to the search field.
-        if to_field && i.key_pressed(Key::ArrowUp) && nav.row.unwrap_or(0) == 0 {
-            nav.area = Area::Search;
+        // ↑ from the first row goes back up to the find, or the search
+        // field.
+        if (to_field || finding) && i.key_pressed(Key::ArrowUp) && nav.row.unwrap_or(0) == 0 {
+            if finding {
+                nav.area = Area::Find;
+                nav.focus_find = true;
+            } else {
+                nav.area = Area::Search;
+                *focus_search = true;
+            }
             nav.row = None;
             nav.keyboard = true;
-            *focus_search = true;
             up_to_field = true;
             return;
         }
@@ -490,7 +544,10 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actio
         } else {
             "Search isn't set up yet"
         };
-        let width = ui.available_width().max(80.0);
+        // FIND at the right end; the field takes what is left.
+        let open = view.browse.find.is_some();
+        let find_width = text_button_width(ui, "FIND") + ui.spacing().item_spacing.x;
+        let width = (ui.available_width() - find_width).max(80.0);
         let field = ui
             .add_enabled_ui(enabled, |ui| {
                 field(
@@ -527,7 +584,96 @@ fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actio
                 inputs.nav.keyboard = true;
             }
         }
+        let find = ui.add_enabled_ui(findable(view), |ui| {
+            text_button(ui, &palette, "FIND", open, true)
+        });
+        let find = super::widgets::tip(find.inner, "Find in the results or the songs here (/)");
+        if find.clicked() {
+            if open {
+                actions.push(Action::Find(None));
+            } else {
+                actions.push(Action::Find(Some(String::new())));
+                inputs.nav.area = Area::Find;
+                inputs.nav.focus_find = true;
+            }
+        }
     });
+}
+
+/// The page has something to find in: search results or a discography.
+fn findable(view: &View) -> bool {
+    matches!(view.browse.page(), Page::Search(_) | Page::Artist(_))
+}
+
+/// The page's find, under the search field while it is open. The page
+/// narrows as it is typed in; ↓ goes to what's left; Enter too, or, when
+/// nothing in a search's results has it, searches Spotify with it added.
+fn find_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
+    let palette = view.palette;
+    let hint = match view.browse.page() {
+        Page::Artist(_) => "Find a song or a release here",
+        _ => "Find in these results",
+    };
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        let close_width = text_button_width(ui, "CLOSE") + ui.spacing().item_spacing.x;
+        let nav = &mut inputs.nav;
+        let field = field(
+            ui,
+            TextEdit::singleline(&mut nav.find)
+                .id(Id::new(FIND_ID))
+                .hint_text(hint)
+                .desired_width((ui.available_width() - close_width).max(80.0))
+                .min_size(vec2(0.0, BUTTON_HEIGHT)),
+        );
+        if std::mem::take(&mut nav.focus_find) {
+            field.request_focus();
+        }
+        if field.changed() {
+            actions.push(Action::Find(Some(nav.find.clone())));
+        }
+        if field.has_focus() {
+            nav.area = Area::Find;
+            if nav.rows > 0 && ui.input(|i| i.modifiers.is_none() && i.key_pressed(Key::ArrowDown))
+            {
+                field.surrender_focus();
+                to_results(nav);
+            }
+        }
+        if field.lost_focus() {
+            let (enter, escape) =
+                ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
+            if escape {
+                actions.push(Action::Find(None));
+            } else if enter && nav.found_none {
+                if let Page::Search(query) = view.browse.page() {
+                    actions.push(Action::Search(wider(query, &nav.find)));
+                }
+            } else if enter && nav.rows > 0 {
+                to_results(nav);
+            }
+            if nav.area == Area::Find {
+                nav.area = Area::Results;
+            }
+        }
+        let close = text_button(ui, &palette, "CLOSE", false, true);
+        if super::widgets::tip(close, "Esc").clicked() {
+            actions.push(Action::Find(None));
+        }
+    });
+}
+
+/// The keyboard goes to the first of the results.
+fn to_results(nav: &mut Nav) {
+    nav.area = Area::Results;
+    nav.row = Some(0);
+    nav.keyboard = true;
+    nav.reveal = true;
+}
+
+/// A search with what's typed in the find added to it.
+fn wider(query: &str, find: &str) -> String {
+    format!("{query} {}", find.trim())
 }
 
 /// SEARCH and YOUR SPOTIFY on the left; PICS and the way back to the
@@ -685,21 +831,51 @@ fn search_page(
     if results.is_empty() {
         return note(ui, view, &format!("No matches for “{query}”."));
     }
-    if !results.artists.is_empty() {
+    // The find narrows them to what has every word typed in it.
+    let find = view.browse.finder();
+    let shows = |names: &[&str]| find.as_ref().is_none_or(|find| find.matches(names));
+    let artists: Vec<_> = (results.artists.iter())
+        .filter(|artist| shows(&[&artist.name]))
+        .collect();
+    let albums: Vec<_> = (results.albums.iter())
+        .filter(|release| shows(&[&release.title, &release.artists]))
+        .collect();
+    let songs: Vec<_> = (results.songs.iter().enumerate())
+        .filter(|(_, track)| find.as_ref().is_none_or(|find| find.track(track)))
+        .collect();
+    if find.is_some() && artists.is_empty() && albums.is_empty() && songs.is_empty() {
+        nav.found_none = true;
+        let typed = view.browse.find.as_deref().unwrap_or_default().trim();
+        note(ui, view, &format!("Nothing found here has “{typed}”."));
+        ui.add_space(6.0);
+        let wider = wider(query, typed);
+        let button = text_button(
+            ui,
+            &view.palette,
+            &format!("SEARCH SPOTIFY FOR “{wider}”"),
+            false,
+            true,
+        );
+        if super::widgets::tip(button, "Enter, in the find").clicked() {
+            actions.push(Action::Search(wider));
+        }
+        return;
+    }
+    if !artists.is_empty() {
         section(ui, view, "ARTISTS");
-        for artist in &results.artists {
+        for artist in artists {
             artist_row(ui, view, nav, artist, Some("ARTIST"), actions);
         }
     }
-    if !results.albums.is_empty() {
+    if !albums.is_empty() {
         section(ui, view, "ALBUMS & EPS");
-        for release in &results.albums {
-            album(ui, view, nav, release, true, actions);
+        for release in albums {
+            album(ui, view, nav, release, true, None, actions);
         }
     }
-    if !results.songs.is_empty() {
+    if !songs.is_empty() {
         section(ui, view, "SONGS");
-        for (i, track) in results.songs.iter().enumerate() {
+        for (i, track) in songs {
             song(ui, view, nav, i + 1, track, true, actions);
         }
         if results.reading_songs {
@@ -838,6 +1014,32 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
     if releases.is_empty() {
         note(ui, view, "Nothing here.");
     }
+    let find = browse.finder();
+    if let Some(find) = &find {
+        let unread = releases
+            .iter()
+            .filter(|r| matches!(browse.albums.get(&r.uri), None | Some(Loadable::Loading)))
+            .count();
+        if unread > 0 {
+            note(
+                ui,
+                view,
+                &format!("Reading the songs, {unread} releases to go…"),
+            );
+            ui.add_space(4.0);
+        }
+        let mut any = false;
+        for release in releases {
+            let by = browse.tab == ReleaseTab::AppearsOn;
+            any |= album(ui, view, nav, release, by, Some(find), actions);
+        }
+        if !any && unread == 0 {
+            nav.found_none = true;
+            let typed = browse.find.as_deref().unwrap_or_default().trim();
+            note(ui, view, &format!("No song or release here has “{typed}”."));
+        }
+        return;
+    }
     for release in releases {
         album(
             ui,
@@ -845,6 +1047,7 @@ fn artist_page(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut
             nav,
             release,
             browse.tab == ReleaseTab::AppearsOn,
+            None,
             actions,
         );
     }
@@ -934,17 +1137,34 @@ fn page_artist(view: &View) -> Option<ArtistRef> {
     }
 }
 
-/// An album row that opens to show its songs.
+/// An album row that opens to show its songs. With a find, only an album
+/// with it in its title or its songs' shows, with those songs open:
+/// whether it showed.
 fn album(
     ui: &mut Ui,
     view: &View,
     nav: &mut Nav,
     release: &Release,
     by: bool,
+    find: Option<&Find>,
     actions: &mut Actions,
-) {
+) -> bool {
     let palette = view.palette;
-    let expanded = view.browse.expanded.contains(&release.uri);
+    let read = match view.browse.albums.get(&release.uri) {
+        Some(Loadable::Ready(tracks)) => Some(tracks),
+        _ => None,
+    };
+    // The album is the row: its songs are found by their own names.
+    let found: Vec<(usize, &TrackRef)> = match (find, read) {
+        (Some(find), Some(tracks)) => (tracks.iter().enumerate())
+            .filter(|(_, track)| find.song(track))
+            .collect(),
+        _ => Vec::new(),
+    };
+    if find.is_some_and(|find| !find.matches(&[&release.title])) && found.is_empty() {
+        return false;
+    }
+    let expanded = view.browse.expanded.contains(&release.uri) || !found.is_empty();
     let year = if release.year > 0 {
         release.year.to_string()
     } else {
@@ -997,12 +1217,16 @@ fn album(
     }
     share(&row.response, "Copy album link", &release.uri, actions);
     if !expanded {
-        return;
+        return true;
     }
+    let tracks: Vec<(usize, &TrackRef)> = match (read, found.is_empty()) {
+        (Some(tracks), true) => tracks.iter().enumerate().collect(),
+        _ => found,
+    };
     match view.browse.albums.get(&release.uri) {
         None | Some(Loadable::Loading) => indented_note(ui, view, "Reading the songs…"),
         Some(Loadable::Failed(error)) => indented_note(ui, view, error),
-        Some(Loadable::Ready(tracks)) if covers => {
+        Some(Loadable::Ready(_)) if covers => {
             ui.add_space(4.0);
             ui.horizontal_top(|ui| {
                 ui.add_space(16.0);
@@ -1011,20 +1235,21 @@ fn album(
                 ui.add_space(8.0);
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
-                    for (i, track) in tracks.iter().enumerate() {
+                    for (i, track) in tracks {
                         song(ui, view, nav, i + 1, track, false, actions);
                     }
                 });
             });
             ui.add_space(8.0);
         }
-        Some(Loadable::Ready(tracks)) => {
-            for (i, track) in tracks.iter().enumerate() {
+        Some(Loadable::Ready(_)) => {
+            for (i, track) in tracks {
                 song(ui, view, nav, i + 1, track, false, actions);
             }
             ui.add_space(4.0);
         }
     }
+    true
 }
 
 /// Draws a cover or an artist's picture in `rect`, asking for it when it

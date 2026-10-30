@@ -120,6 +120,9 @@ pub enum Action {
     Search(String),
     /// Reads the search's next page of songs.
     MoreSongs(String),
+    /// Opens the page's find with this typed in it, or closes it with
+    /// None. On an artist's page it reads the songs of the tab's releases.
+    Find(Option<String>),
     /// Drops a search from the recent ones, or all of them with None.
     ForgetSearch(Option<String>),
     OpenArtist(ArtistRef),

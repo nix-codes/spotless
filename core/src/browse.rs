@@ -5,6 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use unicode_normalization::UnicodeNormalization;
+use unicode_normalization::char::is_combining_mark;
 
 use crate::model::catalog::{Discography, Place, ReleaseTab, SearchResults, SpotifyPlaylist};
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
@@ -73,6 +75,54 @@ impl Undo {
     }
 }
 
+/// What a find narrows a page to: names with every word typed in them,
+/// whatever their case and accents.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Find(Vec<String>);
+
+impl Find {
+    pub fn new(text: &str) -> Self {
+        Self(fold(text).split_whitespace().map(String::from).collect())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Every word is in one of these names, or across them.
+    pub fn matches(&self, names: &[&str]) -> bool {
+        let names = fold(&names.join(" "));
+        self.0.iter().all(|word| names.contains(word.as_str()))
+    }
+
+    /// Every word is in the song's name, its artists' or its album's.
+    pub fn track(&self, track: &TrackRef) -> bool {
+        let mut names = song_names(track);
+        names.push(&track.album.name);
+        self.matches(&names)
+    }
+
+    /// Every word is in the song's name or its artists': for songs shown
+    /// under their album.
+    pub fn song(&self, track: &TrackRef) -> bool {
+        self.matches(&song_names(track))
+    }
+}
+
+fn song_names(track: &TrackRef) -> Vec<&str> {
+    let mut names = vec![track.title.as_str()];
+    names.extend(track.artists.iter().map(|artist| artist.name.as_str()));
+    names
+}
+
+/// Lowercase, without accents.
+fn fold(text: &str) -> String {
+    text.nfkd()
+        .filter(|&c| !is_combining_mark(c))
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Loadable<T> {
     Loading,
@@ -121,6 +171,9 @@ pub struct Browse {
     pub flash: Vec<(EntryId, Instant)>,
     /// Covers show next to albums.
     pub show_covers: bool,
+    /// The page's find is open, with what is typed in it so far. A new
+    /// page closes it.
+    pub find: Option<String>,
 }
 
 impl Browse {
@@ -147,7 +200,17 @@ impl Browse {
             target,
             flash: Vec::new(),
             show_covers,
+            find: None,
         }
+    }
+
+    /// What the page shown is narrowed to, while something is typed in
+    /// its find.
+    pub fn finder(&self) -> Option<Find> {
+        self.find
+            .as_deref()
+            .map(Find::new)
+            .filter(|find| !find.is_empty())
     }
 
     pub fn page(&self) -> &Page {
@@ -161,6 +224,7 @@ impl Browse {
     pub fn back(&mut self) {
         if self.can_go_back() {
             self.history.pop();
+            self.find = None;
         }
     }
 
@@ -176,6 +240,7 @@ impl Browse {
             self.newest_first = false;
         }
         self.history.push(page);
+        self.find = None;
     }
 
     /// Puts an artist first among the recent ones, keeping the picture
@@ -244,6 +309,15 @@ impl Browse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_find_wants_every_word_in_the_names_whatever_the_case_and_accents() {
+        let find = Find::new("  beyonce   HALO ");
+        assert!(find.matches(&["Halo", "Beyoncé"]));
+        assert!(!find.matches(&["Halo", "Leona Lewis"]));
+        assert!(Find::new("bey").matches(&["BEYONCÉ"]));
+        assert!(Find::new(" ").is_empty());
+    }
 
     #[test]
     fn history_goes_back_to_home_and_no_further() {

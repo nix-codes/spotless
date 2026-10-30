@@ -1,5 +1,6 @@
 package dev.spotless.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,6 +35,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
@@ -116,8 +119,11 @@ private fun Catalog(core: Core, modifier: Modifier) {
     }
     val scroll = remember(key) { core.browseScroll.getOrPut(key) { LazyListState() } }
     Column(modifier) {
-        if (page !is BrowsePage.Artist) SearchField(core, (page as? BrowsePage.Search)?.query ?: "")
+        if (page !is BrowsePage.Artist) {
+            SearchField(core, (page as? BrowsePage.Search)?.query ?: "", findable = page is BrowsePage.Search)
+        }
         if (page is BrowsePage.Artist) ArtistBar(core, page)
+        if (core.browse.find != null) FindField(core, artist = page is BrowsePage.Artist)
         ScrollingList(
             scroll,
             Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp).lcd().padding(2.dp),
@@ -148,16 +154,23 @@ private fun BrowseTabs(core: Core) {
     }
 }
 
+/** FIND opens the page's find, or closes it. */
+private fun toggleFind(core: Core) = core.apply(Action.Find(if (core.browse.find != null) null else ""))
+
 @Composable
-private fun SearchField(core: Core, query: String) {
+private fun SearchField(core: Core, query: String, findable: Boolean) {
     var text by remember(query) { mutableStateOf(query) }
     val focus = LocalFocusManager.current
-    Box(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp)) {
+    Row(
+        Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         BasicTextField(
             text,
             { text = it },
             Modifier
-                .fillMaxWidth()
+                .weight(1f)
                 .height(48.dp)
                 .lcd()
                 .padding(horizontal = 12.dp, vertical = 13.dp)
@@ -175,6 +188,52 @@ private fun SearchField(core: Core, query: String) {
                 field()
             },
         )
+        if (findable) TextButton("FIND", { toggleFind(core) }, Modifier.height(48.dp), on = core.browse.find != null)
+    }
+}
+
+/**
+ * The page's find, open under the search field or the artist's tabs: what's
+ * typed narrows the results, or the releases and their songs, at once.
+ * CLOSE or Back closes it.
+ */
+@Composable
+private fun FindField(core: Core, artist: Boolean) {
+    var text by remember { mutableStateOf(core.browse.find.orEmpty()) }
+    val focus = remember { FocusRequester() }
+    val manager = LocalFocusManager.current
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    BackHandler { core.apply(Action.Find(null)) }
+    Row(
+        Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BasicTextField(
+            text,
+            {
+                text = it
+                core.apply(Action.Find(it))
+            },
+            Modifier
+                .weight(1f)
+                .height(48.dp)
+                .lcd()
+                .padding(horizontal = 12.dp, vertical = 13.dp)
+                .focusRequester(focus)
+                .semantics { contentDescription = "Find on this page" },
+            textStyle = body(16.sp, Classic.lcd),
+            singleLine = true,
+            cursorBrush = SolidColor(Classic.lcd),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { manager.clearFocus() }),
+            decorationBox = { field ->
+                val hint = if (artist) "Find a song or a release here" else "Find in these results"
+                if (text.isEmpty()) BasicText(hint, style = body(16.sp, Classic.dim))
+                field()
+            },
+        )
+        TextButton("CLOSE", { core.apply(Action.Find(null)) }, Modifier.height(48.dp))
     }
 }
 
@@ -218,8 +277,20 @@ private fun LazyListScope.search(core: Core, query: String, page: SearchPage) {
         SearchPage.Loading -> note("Searching…")
         is SearchPage.Failed -> note(page.message)
         is SearchPage.Ready -> {
+            val find = core.browse.find?.trim().orEmpty()
             if (page.artists.isEmpty() && page.albums.isEmpty() && page.songs.isEmpty()) {
-                note("Nothing found.")
+                if (find.isEmpty()) return note("Nothing found.")
+                // Not among the results read: Spotify is asked with it added.
+                note("Nothing found here has “$find”.")
+                val wider = "$query $find"
+                item {
+                    TextButton(
+                        "SEARCH SPOTIFY FOR “$wider”",
+                        { core.apply(Action.Search(wider)) },
+                        Modifier.padding(12.dp).height(36.dp),
+                    )
+                }
+                return
             }
             if (page.artists.isNotEmpty()) {
                 section("ARTISTS")
@@ -259,7 +330,14 @@ private fun LazyListScope.artist(core: Core, page: ArtistPage) {
                 similar(core, page.similar)
                 return
             }
-            if (page.releases.isEmpty()) note("Nothing on this tab.")
+            val find = core.browse.find?.trim().orEmpty()
+            if (page.unread > 0u) note("Reading the songs, ${page.unread} releases to go…")
+            if (page.releases.isEmpty()) {
+                when {
+                    find.isEmpty() -> note("Nothing on this tab.")
+                    page.unread == 0u -> note("No song or release here has “$find”.")
+                }
+            }
             releases(core, page.releases, withArtist = false)
         }
     }
@@ -337,6 +415,7 @@ private fun ArtistBar(core: Core, page: BrowsePage.Artist) {
                 )
             }
             Box(Modifier.weight(1f))
+            if (!similar) TextButton("FIND", { toggleFind(core) }, on = core.browse.find != null)
             if (ready?.similarOffered == true) {
                 TextButton("SIMILAR", { core.apply(Action.ShowSimilar(ready.artist)) }, on = similar)
             }
@@ -382,7 +461,7 @@ private fun LazyListScope.releases(core: Core, rows: List<ReleaseRow>, withArtis
                 AlbumSongs.NotRead, AlbumSongs.Loading -> note("Reading the songs…")
                 is AlbumSongs.Failed -> note(songs.message)
                 is AlbumSongs.Ready -> itemsIndexed(songs.tracks) { i, track ->
-                    TrackRow(core, track, i + 1, null)
+                    TrackRow(core, track, songs.numbers[i].toInt(), null)
                 }
             }
         }

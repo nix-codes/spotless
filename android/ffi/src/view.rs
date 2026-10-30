@@ -1,7 +1,7 @@
 //! What the screens show, read off the controller's state as plain records.
 
 use spotless_core::backend::{self, SessionState};
-use spotless_core::browse::{self as core_browse, Loadable, Page};
+use spotless_core::browse::{self as core_browse, Find, Loadable, Page};
 use spotless_core::controller::{State, SyncStatus};
 use spotless_core::lastfm::{self, LastFmStatus};
 use spotless_core::model::catalog::{self, ReleaseGroup as CoreGroup, ReleaseTab as CoreTab};
@@ -524,8 +524,14 @@ pub struct Release {
 pub enum AlbumSongs {
     NotRead,
     Loading,
-    Ready { tracks: Vec<Track> },
-    Failed { message: String },
+    Ready {
+        tracks: Vec<Track>,
+        /// Each song's number on the album: with a find, only some show.
+        numbers: Vec<u32>,
+    },
+    Failed {
+        message: String,
+    },
 }
 
 /// A release, with its songs when they are shown.
@@ -542,6 +548,7 @@ fn album_songs(state: &State, uri: &str) -> AlbumSongs {
         Some(Loadable::Loading) => AlbumSongs::Loading,
         Some(Loadable::Ready(list)) => AlbumSongs::Ready {
             tracks: tracks(&added_from(state, uri, list)),
+            numbers: (1..=list.len()).map(count).collect(),
         },
         Some(Loadable::Failed(message)) => AlbumSongs::Failed {
             message: message.clone(),
@@ -587,6 +594,26 @@ fn release_row(state: &State, release: &catalog::Release) -> ReleaseRow {
         expanded: browse.expanded.contains(&release.uri),
         songs: album_songs(state, &release.uri),
     }
+}
+
+/// A release as the find shows it: only with the find in its title or
+/// its songs' names, and then open, with those songs only.
+fn found_row(state: &State, release: &catalog::Release, find: &Find) -> Option<ReleaseRow> {
+    let mut row = release_row(state, release);
+    let titled = find.matches(&[&release.title]);
+    let Some(Loadable::Ready(list)) = state.browse.albums.get(&release.uri) else {
+        return titled.then_some(row);
+    };
+    let found: Vec<usize> = (0..list.len()).filter(|&i| find.song(&list[i])).collect();
+    if found.is_empty() {
+        return titled.then_some(row);
+    }
+    if let AlbumSongs::Ready { tracks, numbers } = &mut row.songs {
+        *tracks = found.iter().map(|&i| tracks[i].clone()).collect();
+        *numbers = found.iter().map(|&i| numbers[i]).collect();
+    }
+    row.expanded = true;
+    Some(row)
 }
 
 #[derive(Clone, Debug, PartialEq, uniffi::Enum)]
@@ -635,8 +662,12 @@ pub enum ArtistPage {
     Ready {
         artist: Artist,
         counts: TabCounts,
-        /// The tab's releases, in the order chosen.
+        /// The tab's releases, in the order chosen; with a find, those
+        /// with it.
         releases: Vec<ReleaseRow>,
+        /// With a find, the tab's releases whose songs are still being
+        /// read for it.
+        unread: u32,
         /// SIMILAR is offered: a Last.fm API key is saved.
         similar_offered: bool,
         similar: SimilarArtists,
@@ -795,10 +826,13 @@ pub struct BrowseView {
     pub covers: bool,
     pub search: SearchState,
     pub your_spotify: YourSpotify,
+    /// The page's find is open, with this typed in it.
+    pub find: Option<String>,
 }
 
 pub(crate) fn browse(state: &State) -> BrowseView {
     let browse = &state.browse;
+    let find = browse.finder();
     let page = match browse.page() {
         Page::Home => BrowsePage::Home {
             searches: browse.recent_searches.clone(),
@@ -809,13 +843,23 @@ pub(crate) fn browse(state: &State) -> BrowseView {
             page: match browse.searches.get(query) {
                 None | Some(Loadable::Loading) => SearchPage::Loading,
                 Some(Loadable::Ready(results)) => SearchPage::Ready {
-                    artists: results.artists.iter().map(Into::into).collect(),
-                    albums: results
-                        .albums
-                        .iter()
+                    artists: (results.artists.iter())
+                        .filter(|artist| find.as_ref().is_none_or(|f| f.matches(&[&artist.name])))
+                        .map(Into::into)
+                        .collect(),
+                    albums: (results.albums.iter())
+                        .filter(|release| {
+                            (find.as_ref())
+                                .is_none_or(|f| f.matches(&[&release.title, &release.artists]))
+                        })
                         .map(|release| release_row(state, release))
                         .collect(),
-                    songs: tracks(&results.songs),
+                    songs: tracks(
+                        &(results.songs.iter())
+                            .filter(|track| find.as_ref().is_none_or(|f| f.track(track)))
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                    ),
                     more_songs: results.more_songs,
                     reading_songs: results.reading_songs,
                 },
@@ -833,11 +877,27 @@ pub(crate) fn browse(state: &State) -> BrowseView {
                     let on = |tab: CoreTab| {
                         count(releases.iter().filter(|r| tab.includes(r.group)).count())
                     };
-                    let mut shown: Vec<ReleaseRow> = releases
-                        .iter()
-                        .filter(|release| browse.tab.includes(release.group))
-                        .map(|release| release_row(state, release))
-                        .collect();
+                    let of_tab =
+                        || (releases.iter()).filter(|release| browse.tab.includes(release.group));
+                    let mut shown: Vec<ReleaseRow> = match &find {
+                        Some(find) => of_tab()
+                            .filter_map(|release| found_row(state, release, find))
+                            .collect(),
+                        None => of_tab()
+                            .map(|release| release_row(state, release))
+                            .collect(),
+                    };
+                    let unread = match &find {
+                        Some(_) => of_tab()
+                            .filter(|release| {
+                                matches!(
+                                    browse.albums.get(&release.uri),
+                                    None | Some(Loadable::Loading)
+                                )
+                            })
+                            .count(),
+                        None => 0,
+                    };
                     if browse.newest_first {
                         shown.reverse();
                     }
@@ -850,6 +910,7 @@ pub(crate) fn browse(state: &State) -> BrowseView {
                             appears_on: on(CoreTab::AppearsOn),
                         },
                         releases: shown,
+                        unread: count(unread),
                         similar_offered: lastfm::api::is_key(&state.lastfm.api_key)
                             || browse.similar_artists.contains_key(uri),
                         similar: match browse.similar_artists.get(uri) {
@@ -887,6 +948,7 @@ pub(crate) fn browse(state: &State) -> BrowseView {
         covers: browse.show_covers,
         search: search_state(&state.search),
         your_spotify: your_spotify(state),
+        find: browse.find.clone(),
     }
 }
 

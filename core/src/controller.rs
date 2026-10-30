@@ -292,6 +292,9 @@ impl Controller {
             crate::demo::ARTIST_URI.into(),
             Loadable::Ready(crate::demo::discography()),
         );
+        for (uri, songs) in crate::demo::release_songs() {
+            state.browse.albums.insert(uri, Loadable::Ready(songs));
+        }
         state.browse.spotify_playlists = Some(Loadable::Ready(crate::demo::spotify_playlists()));
         // Late Trains, of the account's on Spotify, holds some of the
         // playing songs.
@@ -577,6 +580,7 @@ impl Controller {
                         Err(error) => Loadable::Failed(error),
                     };
                     self.state.browse.artists.insert(artist, loaded);
+                    self.read_for_find();
                 }
                 Event::SimilarArtists { artist, result } => {
                     let loaded = match result {
@@ -1187,6 +1191,11 @@ impl Controller {
             Action::SetTab(tab) => {
                 browse.tab = tab;
                 browse.similar = false;
+                self.read_for_find();
+            }
+            Action::Find(find) => {
+                browse.find = find;
+                self.read_for_find();
             }
             Action::ShowSimilar(artist) => {
                 browse.similar = true;
@@ -1663,6 +1672,30 @@ impl Controller {
     }
 
     /// Reads an album's songs unless they are read or being read.
+    /// With the find open on an artist's page, its tab's releases' songs
+    /// are read, for the find to look through.
+    fn read_for_find(&mut self) {
+        let browse = &self.state.browse;
+        let Page::Artist(uri) = browse.page() else {
+            return;
+        };
+        let Some(Loadable::Ready(discography)) = browse.artists.get(uri) else {
+            return;
+        };
+        if browse.find.is_none() {
+            return;
+        }
+        let albums: Vec<String> = discography
+            .releases
+            .iter()
+            .filter(|release| browse.tab.includes(release.group))
+            .map(|release| release.uri.clone())
+            .collect();
+        for album in albums {
+            self.read_album(album);
+        }
+    }
+
     fn read_album(&mut self, album: String) {
         if matches!(
             self.state.browse.albums.get(&album),
@@ -2455,6 +2488,53 @@ mod tests {
                 .iter()
                 .any(|c| matches!(c, Command::SpotifyPlaylists))
         );
+    }
+
+    #[test]
+    fn a_find_on_an_artist_page_reads_its_tabs_songs_and_a_new_page_closes_it() {
+        use crate::model::catalog::{ReleaseGroup, ReleaseTab};
+        let mut rig = Rig::new("find");
+        let discography = crate::demo::discography();
+        let uri = discography.artist.uri.clone();
+        let albums = |rig: &mut Rig| -> Vec<String> {
+            rig.sent()
+                .into_iter()
+                .filter_map(|c| match c {
+                    Command::Album(album) => Some(album),
+                    _ => None,
+                })
+                .collect()
+        };
+        rig.controller
+            .apply(Action::OpenArtist(discography.artist.clone()));
+        // Opened before the discography is read: read once it is.
+        rig.controller.apply(Action::Find(Some(String::new())));
+        assert!(albums(&mut rig).is_empty());
+        rig.tell(Event::Discography {
+            artist: uri.clone(),
+            result: Ok(discography.clone()),
+        });
+        let tab = rig.controller.state().browse.tab;
+        let of_tab: Vec<String> = discography
+            .releases
+            .iter()
+            .filter(|r| tab.includes(r.group))
+            .map(|r| r.uri.clone())
+            .collect();
+        assert_eq!(albums(&mut rig), of_tab);
+        // Another tab reads its own, those not read already.
+        rig.controller
+            .apply(Action::SetTab(ReleaseTab::SinglesAndEps));
+        let singles = albums(&mut rig);
+        assert!(!singles.is_empty());
+        assert!(singles.iter().all(|album| {
+            discography
+                .releases
+                .iter()
+                .any(|r| r.uri == *album && r.group == ReleaseGroup::Single)
+        }));
+        rig.controller.apply(Action::Search("x".into()));
+        assert_eq!(rig.controller.state().browse.find, None);
     }
 
     #[test]

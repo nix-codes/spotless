@@ -370,6 +370,10 @@ pub enum Action {
     MoreSongs {
         query: String,
     },
+    /// Opens the page's find with this typed in it, or closes it (None).
+    Find {
+        text: Option<String>,
+    },
     /// Drops a search from the recent ones, or all of them with None.
     ForgetSearch {
         query: Option<String>,
@@ -547,6 +551,7 @@ impl From<Action> for spotless_core::action::Action {
             Action::Back => Core::Back,
             Action::Search { query } => Core::Search(query),
             Action::MoreSongs { query } => Core::MoreSongs(query),
+            Action::Find { text } => Core::Find(text),
             Action::ForgetSearch { query } => Core::ForgetSearch(query),
             Action::OpenArtist { artist } => Core::OpenArtist(artist.into()),
             Action::ToggleAlbum { album } => Core::ToggleAlbum(album),
@@ -735,7 +740,7 @@ mod tests {
         });
         let yours = spotless.browse().your_spotify;
         assert_eq!(yours.open, Some(late_trains));
-        assert!(matches!(yours.songs, AlbumSongs::Ready { tracks } if tracks.len() == 12));
+        assert!(matches!(yours.songs, AlbumSongs::Ready { tracks, .. } if tracks.len() == 12));
         assert_eq!(yours.undo, None);
         let _ = std::fs::remove_dir_all(root);
     }
@@ -764,7 +769,7 @@ mod tests {
         spotless.apply(Action::OpenSpotifyPlaylist {
             uri: late_trains.uri.clone(),
         });
-        let AlbumSongs::Ready { tracks } = spotless.browse().your_spotify.songs else {
+        let AlbumSongs::Ready { tracks, .. } = spotless.browse().your_spotify.songs else {
             panic!("the demo's songs are read");
         };
         let from = Source {
@@ -876,6 +881,55 @@ mod tests {
         assert!(spotless.update().is_some_and(|ms| ms <= 1000));
         spotless.save();
         assert_eq!(spotless.update(), None);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_find_narrows_an_artist_page_to_its_releases_and_songs_with_it() {
+        let root = std::env::temp_dir().join(format!("spotless-ffi-find-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let spotless = Spotless::demo(
+            root.join("config").display().to_string(),
+            root.join("cache").display().to_string(),
+            Arc::new(Recorder::default()),
+        )
+        .unwrap();
+        spotless.apply(Action::OpenArtist {
+            artist: (&spotless_core::demo::artist()).into(),
+        });
+        spotless.apply(Action::Find {
+            text: Some("STATIC".into()),
+        });
+        let browse = spotless.browse();
+        assert_eq!(browse.find.as_deref(), Some("STATIC"));
+        let BrowsePage::Artist {
+            page: ArtistPage::Ready {
+                releases, unread, ..
+            },
+            ..
+        } = browse.page
+        else {
+            panic!("the demo artist's page");
+        };
+        assert_eq!(unread, 0);
+        let found: Vec<(&str, bool)> = (releases.iter())
+            .map(|row| (row.release.title.as_str(), row.expanded))
+            .collect();
+        // One by a song, open; one by its title.
+        assert_eq!(
+            found,
+            [
+                ("Weather for Machines", true),
+                ("Everything Is Static", false)
+            ]
+        );
+        let AlbumSongs::Ready { tracks, numbers } = &releases[0].songs else {
+            panic!("its songs are read");
+        };
+        let titles: Vec<&str> = tracks.iter().map(|t| t.title.as_str()).collect();
+        assert_eq!((titles, numbers.clone()), (vec!["Static Rain"], vec![4]));
+        spotless.apply(Action::Find { text: None });
+        assert_eq!(spotless.browse().find, None);
         let _ = std::fs::remove_dir_all(root);
     }
 }
