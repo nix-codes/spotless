@@ -279,7 +279,7 @@ pub async fn sync(session: &Session, job: Job) -> Result<Done> {
     let theirs = Position::decode(&remote.description);
     if let Some(position) = job.position {
         let newer = theirs.as_ref().is_none_or(|theirs| {
-            position.saved_at > theirs.saved_at && !position.same_place(theirs)
+            position.saved_at > theirs.saved_at && !position.same_song(theirs)
         });
         if newer {
             edits.push(Edit::Describe(position.encode()));

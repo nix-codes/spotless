@@ -1,7 +1,7 @@
 //! Do synced playlists sync? Two Spotless controllers, as two devices of
 //! the account, on folders of their own: A syncs a new "Spotless e2e"
 //! playlist, B finds it in the Spotless folder as it signs in, B removes
-//! a song, A marks one Q and renames it, each followed by the other, and B
+//! a song, A renames it, each followed by the other, and B
 //! stops syncing it, which deletes it from Spotify: B keeps it, and A, open
 //! all along, keeps it unsynced. Then A syncs another, and B, syncing one
 //! by the same name, is asked, and replaces it. Each step's time is
@@ -169,15 +169,6 @@ fn main() -> Result<()> {
         titles(a, list_a).len() == 2
     })?;
     println!("        A has {:?}", titles(&a, list_a));
-
-    // A marks its last song Q; B follows (A isn't playing: it's written).
-    let last = a.state().library.get(list_a).unwrap().entries()[1].id;
-    a.apply(Action::SelectPlaylist(list_a));
-    a.apply(Action::ToggleMarks(vec![last]));
-    until(&mut a, &mut b, "B sees A's Q mark", 30, |_, b| {
-        let list = b.state().library.get(list_b).unwrap();
-        list.play_next().len() == 1 && list.mark_number(list.entries()[1].id) == Some(1)
-    })?;
 
     // A renames it; B follows.
     a.apply(Action::RenamePlaylist(list_a, format!("{NAME} 2")));

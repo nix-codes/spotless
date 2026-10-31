@@ -431,46 +431,34 @@ impl Playlist {
         }
     }
 
-    /// Where it's up to, saved at `saved_at`; None while its song or a Q
-    /// marked one isn't on Spotify yet.
+    /// Where it's up to, saved at `saved_at`: its song, without Q marks,
+    /// which stay on the device. None while its song isn't on Spotify yet.
     pub fn position(&self, saved_at: u64) -> Option<Position> {
-        let item = |id: EntryId| self.get(id)?.item.clone();
         let song = match self.cursor {
-            Some(cursor) => Some(item(cursor)?),
+            Some(cursor) => Some(self.get(cursor)?.item.clone()?),
             None => None,
         };
-        let marks = self
-            .play_next
-            .iter()
-            .map(|&id| item(id))
-            .collect::<Option<_>>()?;
         Some(Position {
-            resume_s: if song.is_some() {
-                self.resume_ms / 1000
-            } else {
-                0
-            },
+            resume_s: 0,
             song,
             saved_at,
-            marks,
+            marks: Vec::new(),
         })
     }
 
-    /// Goes where `position` says, as far as it can: a song not here
-    /// leaves the cursor where it is, and its Q mark out.
+    /// Goes to `position`'s song, stopped, if it's here; the Q marks here
+    /// stay as they are.
     pub fn set_position(&mut self, position: &Position) {
-        let find = |item: &ItemId| {
-            self.entries
-                .iter()
-                .find(|entry| entry.item.as_ref() == Some(item))
-                .map(|entry| entry.id)
-        };
-        if let Some(cursor) = position.song.as_ref().and_then(find) {
+        let found = self
+            .entries
+            .iter()
+            .find(|entry| entry.item.is_some() && entry.item == position.song)
+            .map(|entry| entry.id);
+        if let Some(cursor) = found {
             self.cursor = Some(cursor);
             self.detached = false;
-            self.resume_ms = position.resume_s.saturating_mul(1000);
+            self.resume_ms = 0;
         }
-        self.play_next = position.marks.iter().filter_map(find).collect();
     }
 
     /// Takes these songs, in this order, in place of the ones it has, as

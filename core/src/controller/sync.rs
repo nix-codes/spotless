@@ -3,9 +3,10 @@
 //! found on Spotify.
 //!
 //! A synced playlist's changes are sent once they rest, as they're saved,
-//! a sync at a time per playlist. Its position is written when it isn't
-//! playing, as the app is left, and else at most every ten minutes, so a
-//! playlist sees a few writes a day.
+//! a sync at a time per playlist. Its position, the song alone, is
+//! written once a song has played a few seconds (skipping through songs
+//! writes only the one stopped at), as it's paused or stopped, and as the
+//! app is left; never when it's the song written last.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -17,9 +18,9 @@ use crate::model::{AlbumRef, Entry, EntryId, PlaylistId, TrackRef};
 use crate::playback::engine::Status;
 use crate::spotify::synced::{Changed, Done, Job};
 
-/// While a synced playlist plays, its position is written at most this
-/// often.
-const POSITION_EVERY: Duration = Duration::from_secs(600);
+/// While a synced playlist plays, its position is written once it has
+/// stayed the same this long.
+pub(super) const SETTLE: Duration = Duration::from_secs(10);
 
 /// A playlist made synced this recently may not be in the Spotless folder
 /// as read yet.
@@ -42,8 +43,9 @@ pub(super) struct Syncing {
     in_flight: bool,
     /// Another is due once it does.
     again: bool,
-    /// When its position was last written.
-    written: Option<Instant>,
+    /// A position not written yet as it plays, and since when it's been
+    /// the one.
+    pub(super) moved: Option<(Position, Instant)>,
     /// When it was made synced.
     pub(super) created: Option<Instant>,
 }
@@ -104,9 +106,6 @@ impl Controller {
             return;
         }
         syncing.in_flight = true;
-        if position.is_some() {
-            syncing.written = Some(Instant::now());
-        }
         let job = Job {
             uri: link.uri.clone(),
             base: link.base.clone(),
@@ -121,8 +120,35 @@ impl Controller {
         self.send(Command::Sync { list: id, job });
     }
 
+    /// Writes the positions that have played long enough to be due.
+    /// Returns how long until the next one is.
+    pub(super) fn settle_tick(&mut self) -> Option<Duration> {
+        let mut due = Vec::new();
+        let mut wait: Option<Duration> = None;
+        for (&id, syncing) in &self.syncing {
+            let Some((_, since)) = &syncing.moved else {
+                continue;
+            };
+            match SETTLE.checked_sub(since.elapsed()) {
+                Some(left) if !left.is_zero() => {
+                    wait = Some(wait.map_or(left, |wait| wait.min(left)));
+                }
+                _ => due.push(id),
+            }
+        }
+        for id in due {
+            self.sync_if_due(id, false, false);
+        }
+        wait
+    }
+
     /// Playlist `id`'s position, if it's to be written now.
-    fn position_due(&self, id: PlaylistId, leaving: bool) -> Option<Position> {
+    fn position_due(&mut self, id: PlaylistId, leaving: bool) -> Option<Position> {
+        // Kept again below only while it waits to be written.
+        let moved = self
+            .syncing
+            .get_mut(&id)
+            .and_then(|syncing| syncing.moved.take());
         let list = self.state.library.get(id)?;
         let link = list.sync.as_ref()?;
         // Not before Spotify's has been read: until then it isn't where
@@ -134,18 +160,25 @@ impl Controller {
         if link
             .position
             .as_ref()
-            .is_some_and(|known| known.same_place(&position))
+            .is_some_and(|known| known.same_song(&position))
         {
             return None;
         }
+        // A song still loading, as it's skipped to, waits as one playing.
         let playing = self.state.transport.playing_list() == Some(id)
-            && self.state.player.status == Status::Playing;
-        let lately = self
-            .syncing
-            .get(&id)
-            .and_then(|syncing| syncing.written)
-            .is_some_and(|at| at.elapsed() < POSITION_EVERY);
-        (leaving || !playing || !lately).then_some(position)
+            && matches!(self.state.player.status, Status::Playing | Status::Loading);
+        if leaving || !playing {
+            return Some(position);
+        }
+        let since = match moved {
+            Some((waiting, since)) if waiting.same_song(&position) => since,
+            _ => Instant::now(),
+        };
+        if since.elapsed() >= SETTLE {
+            return Some(position);
+        }
+        self.syncing.entry(id).or_default().moved = Some((position, since));
+        None
     }
 
     /// Takes in a sync's answer: the songs as Spotify has them now, with
@@ -270,8 +303,9 @@ impl Controller {
                 .is_none_or(|known| theirs.saved_at > known.saved_at);
             if newer {
                 link.position = Some(theirs.clone());
-                let ours = list.position(theirs.saved_at);
-                if !playing_here && ours.is_none_or(|ours| !ours.same_place(&theirs)) {
+                // Even at the same song: it shows stopped, not paused
+                // where it was here.
+                if !playing_here {
                     list.set_position(&theirs);
                 }
             }

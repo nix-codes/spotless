@@ -57,8 +57,8 @@ Spotify only allows playback in other apps for Premium accounts.
   by double-clicking it; reorder songs and tabs by dragging.
 - **Synced playlists.** A playlist stays on the device it's on, unless you
   sync it: *Sync* in its tab's menu (on Android, hold the tab) keeps it the
-  same on your other devices, its songs and where it's up to (the song,
-  where in it, and the Q marks). If a synced playlist by that name is
+  same on your other devices, its songs and the song it's up to (shown
+  stopped; Q marks stay on each device). If a synced playlist by that name is
   already on Spotify, it asks first: rename this one, or replace that
   one. Changes arrive within a second or two
   while both are open; ones made offline go once you're back. Spotless

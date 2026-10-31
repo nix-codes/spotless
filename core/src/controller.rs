@@ -799,7 +799,16 @@ impl Controller {
                 return self.mark_unsaved();
             }
             Action::MeasureStorage => return self.send(Command::MeasureStorage),
-            Action::NetworkBack => return self.send(Command::NetworkBack),
+            Action::NetworkBack => {
+                self.send(Command::NetworkBack);
+                // Spotify's word of changes made elsewhere meanwhile may
+                // not have reached this device: asleep, Android cuts the
+                // app's network without the session dropping.
+                if matches!(self.state.session, SessionState::Ready { .. }) {
+                    self.sync_on_reconnect();
+                }
+                return;
+            }
             Action::ListOutputs => return self.send(Command::ListOutputs),
             Action::SetOutput(output) => {
                 state.settings.audio_output = output.clone();
@@ -1950,8 +1959,9 @@ impl Controller {
         requests
     }
 
-    /// Saves once changes have rested for a moment, and gives up waiting
-    /// for the queue to come here. Returns how long until the next of
+    /// Saves once changes have rested for a moment, writes synced
+    /// playlists' positions once their song has played a few seconds, and
+    /// gives up waiting for the queue to come here. Returns how long until the next of
     /// those is due, while one is.
     pub fn tick(&mut self) -> Option<Duration> {
         let starting = self.state.spotify_starting.map(|at| {
@@ -1970,11 +1980,10 @@ impl Controller {
                 .is_some_and(|q| q.status == Status::Playing);
         }
         let starting = starting.filter(|wait| !wait.is_zero());
-        let saving = self.save_tick();
-        match (starting, saving) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        [starting, self.save_tick(), self.settle_tick()]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     fn save_tick(&mut self) -> Option<Duration> {
@@ -3766,8 +3775,10 @@ mod tests {
             let gym = rig.controller.state().library.get(list).unwrap();
             let cursor = gym.get(gym.cursor().unwrap()).unwrap();
             assert_eq!(cursor.track.title, "Song 3");
-            assert_eq!(gym.resume_ms, 30_000);
-            assert_eq!(gym.mark_number(gym.entries()[2].id), Some(1));
+            // Stopped, not paused where it was then.
+            assert_eq!(gym.resume_ms, 0);
+            // Q marks don't sync.
+            assert_eq!(gym.mark_number(gym.entries()[2].id), None);
             // Its own change, told back, isn't read again.
             let revision = vec![1, 3, 2];
             rig.tell(Event::PlaylistChanged(Changed {
@@ -3927,6 +3938,81 @@ mod tests {
                 c,
                 Command::CreateSynced { list: l, replace: true, .. } if *l == list
             )));
+        }
+
+        #[test]
+        fn a_song_playing_is_written_once_it_has_played_a_few_seconds() {
+            let mut rig = Rig::new("sync-settle");
+            let list = synced_gym(&mut rig);
+            jobs(&mut rig);
+            let second = rig.controller.state().library.get(list).unwrap().entries()[1].id;
+            // Still loading as it saves, it waits all the same.
+            rig.controller.apply(Action::PlayEntry(list, second));
+            assert_eq!(rig.controller.state().player.status, Status::Loading);
+            rig.controller.unsaved = Some(Instant::now() - SAVE_DELAY);
+            assert!(
+                rig.controller
+                    .tick()
+                    .is_some_and(|wait| wait <= sync::SETTLE)
+            );
+            assert!(jobs(&mut rig).is_empty(), "not as it starts");
+            rig.tell(Event::Player(PlayerSnapshot {
+                status: Status::Playing,
+                ..PlayerSnapshot::default()
+            }));
+            let syncing = rig.controller.syncing.get_mut(&list).unwrap();
+            syncing.moved.as_mut().unwrap().1 -= sync::SETTLE;
+            rig.controller.tick();
+            let job = jobs(&mut rig).pop().expect("written once settled");
+            assert_eq!(job.position.unwrap().song, Some(item(2)));
+            assert!(rig.controller.syncing[&list].moved.is_none());
+        }
+
+        #[test]
+        fn the_same_song_and_q_marks_alone_are_not_written() {
+            let mut rig = Rig::new("sync-same");
+            let list = synced_gym(&mut rig);
+            jobs(&mut rig);
+            let entries = rig
+                .controller
+                .state()
+                .library
+                .get(list)
+                .unwrap()
+                .entries()
+                .to_vec();
+            rig.controller.apply(Action::PlayEntry(list, entries[0].id));
+            rig.controller.apply(Action::Stop);
+            rig.controller
+                .apply(Action::ToggleMarks(vec![entries[1].id]));
+            rig.tell(Event::Player(PlayerSnapshot::default()));
+            rig.controller.unsaved = Some(Instant::now() - SAVE_DELAY);
+            rig.controller.tick();
+            assert!(jobs(&mut rig).iter().all(|job| job.position.is_none()));
+        }
+
+        #[test]
+        fn stopping_writes_the_song_at_once() {
+            let mut rig = Rig::new("sync-stop");
+            let list = synced_gym(&mut rig);
+            jobs(&mut rig);
+            let second = rig.controller.state().library.get(list).unwrap().entries()[1].id;
+            rig.controller.apply(Action::PlayEntry(list, second));
+            rig.controller.apply(Action::Stop);
+            rig.tell(Event::Player(PlayerSnapshot::default()));
+            rig.controller.unsaved = Some(Instant::now() - SAVE_DELAY);
+            rig.controller.tick();
+            let job = jobs(&mut rig).pop().expect("written as it stops");
+            assert_eq!(job.position.unwrap().song, Some(item(2)));
+        }
+
+        #[test]
+        fn coming_back_reads_the_synced_playlists_again() {
+            let mut rig = Rig::new("sync-back");
+            synced_gym(&mut rig);
+            rig.sent();
+            rig.controller.apply(Action::NetworkBack);
+            assert!(rig.sent().iter().any(|c| matches!(c, Command::SyncFolder)));
         }
 
         #[test]

@@ -1,8 +1,8 @@
 //! Synced playlists: kept on Spotify too, the same on every device.
 //!
 //! A synced playlist's songs are a private Spotify playlist's, each known
-//! by the ID Spotify gives it there ([`ItemId`]). Where it's up to (the
-//! song, the resume point, the Q marks) is written in that playlist's
+//! by the ID Spotify gives it there ([`ItemId`]). Where it's up to (its
+//! song; Q marks stay on each device) is written in that playlist's
 //! description ([`Position`]), as Spotify keeps no data of Spotless's
 //! own. Edits, here and on the other devices, meet in [`merge`]: what
 //! Spotify has now, with this device's changes since the songs were last
@@ -70,12 +70,15 @@ pub struct Link {
 pub struct Position {
     /// The cursor's song; None for an empty playlist.
     pub song: Option<ItemId>,
-    /// Where to resume it, in seconds.
+    /// Where to resume it, in seconds: always 0 now, as a song shows
+    /// stopped on the other device. Positions are written too seldom for
+    /// the time to be right; the field stays for the format.
     pub resume_s: u32,
     /// When it was saved, in seconds since [`EPOCH`]: the newer of two
     /// wins.
     pub saved_at: u64,
-    /// The Q marks, in the order they play.
+    /// Q marks, in the order they play: always none now, as they stay on
+    /// each device; the field stays for the format.
     pub marks: Vec<ItemId>,
 }
 
@@ -134,9 +137,10 @@ impl Position {
         })
     }
 
-    /// Whether it says the same as `other`, whenever each was saved.
-    pub fn same_place(&self, other: &Self) -> bool {
-        self.song == other.song && self.resume_s == other.resume_s && self.marks == other.marks
+    /// Whether it's at the same song as `other`: all a position syncs,
+    /// whenever each was saved.
+    pub fn same_song(&self, other: &Self) -> bool {
+        self.song == other.song
     }
 }
 
