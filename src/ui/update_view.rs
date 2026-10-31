@@ -25,9 +25,9 @@ pub struct Popup {
 
 /// The release the window is about, while it shows.
 pub fn shown<'a>(view: &View<'a>, popup: &Popup) -> Option<&'a Release> {
-    let skipped = view.settings.skipped_update.as_deref();
+    let skipped = view.desktop.skipped_update.as_deref();
     release(view.update).filter(|release| {
-        view.settings.update_notices
+        view.desktop.update_notices
             && !popup.hidden
             && skipped != Some(release.version.to_string().as_str())
     })
@@ -165,7 +165,7 @@ fn notes(ui: &mut Ui, palette: &Palette, markdown: &str) {
 /// The status bar's word on an update, whose button shows it in Settings.
 /// None when there is no update to tell of, or no telling is wanted.
 pub fn status_label(view: &View) -> Option<String> {
-    if !view.settings.update_notices {
+    if !view.desktop.update_notices {
         return None;
     }
     match view.update {

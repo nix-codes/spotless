@@ -1796,6 +1796,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("spotless-tabs-{}", std::process::id()));
         let paths = Paths::from_dirs(root.join("config"), root.join("cache")).unwrap();
         let settings = Settings::load(&paths);
+        let desktop = crate::settings::DesktopSettings::read(settings.extra());
         let player = PlayerSnapshot::default();
         let browse = Browse::new(PlaylistId::DEFAULT, false);
         let covers = HashMap::new();
@@ -1834,6 +1835,7 @@ mod tests {
             loved: &loved,
             web_client_id: None,
             settings: &settings,
+            desktop: &desktop,
             storage: None,
             outputs: &outputs,
             tray_shown: false,

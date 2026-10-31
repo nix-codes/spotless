@@ -66,7 +66,8 @@ fn main() -> Result<()> {
         .with_inner_size([960.0, 600.0])
         .with_min_inner_size(spotless::ui::MIN_WINDOW);
     // The window opens where it was left, as big.
-    if let Some(place) = spotless::store::Settings::load(&paths).window {
+    let settings = spotless::store::Settings::load(&paths);
+    if let Some(place) = spotless::settings::DesktopSettings::read(settings.extra()).window {
         viewport = viewport.with_inner_size(place.size);
         if let Some(position) = place.position {
             viewport = viewport.with_position(position);

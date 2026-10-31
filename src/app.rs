@@ -15,8 +15,8 @@ use crate::media::{EventHook, MediaControls, MediaEvent, NowPlaying};
 use crate::paths::Paths;
 use crate::phosphor::Phosphor;
 use crate::playback::engine::Status;
+use crate::settings::{DesktopSettings, WindowPlace, ZOOM_RANGE};
 use crate::skin::format;
-use crate::store;
 use crate::tray::{Tray, TrayState};
 use crate::ui::skin_paint::SkinPaint;
 use crate::ui::{
@@ -27,6 +27,8 @@ use crate::update::{self, Updater};
 
 pub struct App {
     controller: Controller,
+    /// The settings only the desktop has, kept in the core's.
+    desktop: DesktopSettings,
     palette: Palette,
     ctx: egui::Context,
     /// The skin's pieces, when it has any.
@@ -60,7 +62,8 @@ impl App {
             let ctx = cc.egui_ctx.clone();
             move || ctx.request_repaint()
         });
-        let settings = &controller.state().settings;
+        let desktop = DesktopSettings::read(controller.state().settings.extra());
+        let settings = &desktop;
         let palette = Palette::CLASSIC;
         palette.apply(&cc.egui_ctx);
         ui::deck::install_fonts(&cc.egui_ctx);
@@ -84,11 +87,12 @@ impl App {
             None
         };
         let inputs = Inputs {
-            volume: settings.volume,
+            volume: controller.state().settings.volume,
             ..Inputs::default()
         };
         let mut app = Self {
             controller,
+            desktop,
             palette,
             ctx: cc.egui_ctx.clone(),
             art: None,
@@ -111,11 +115,11 @@ impl App {
         };
         // A skin from the skins folder of an older Spotless is gone:
         // Spotless Classic takes its place.
-        let skin = app.controller.state().settings.skin.clone();
+        let skin = app.desktop.skin.clone();
         let skin = match skin.as_deref() {
             None | Some(format::built_in::WINAMP_CLASSIC_KEY) => skin,
             Some(_) => {
-                app.controller.settings_mut().skin = None;
+                app.change_desktop(|desktop| desktop.skin = None);
                 None
             }
         };
@@ -183,7 +187,7 @@ impl App {
         match action {
             Desktop::Quit => self.quitting = true,
             Desktop::SetTray(on) => {
-                self.controller.settings_mut().tray = on;
+                self.change_desktop(|desktop| desktop.tray = on);
                 self.tray = if on {
                     self.tray
                         .take()
@@ -195,21 +199,23 @@ impl App {
             Desktop::SetSkin(skin) => match self.use_skin(skin.as_deref()) {
                 Ok(()) => {
                     self.skin_error = None;
-                    self.controller.settings_mut().skin = skin;
+                    self.change_desktop(|desktop| desktop.skin = skin);
                 }
                 Err(error) => self.skin_error = Some(error),
             },
             Desktop::SetPhosphor(phosphor) => {
                 self.controller.apply(Action::SetPhosphor(phosphor));
-                let skin = self.controller.state().settings.skin.clone();
+                let skin = self.desktop.skin.clone();
                 if let Err(error) = self.use_skin(skin.as_deref()) {
                     self.skin_error = Some(error);
                 }
             }
-            Desktop::SetUpdates(on) => self.controller.settings_mut().updates = on,
-            Desktop::SetUpdateNotices(on) => self.controller.settings_mut().update_notices = on,
+            Desktop::SetUpdates(on) => self.change_desktop(|desktop| desktop.updates = on),
+            Desktop::SetUpdateNotices(on) => {
+                self.change_desktop(|desktop| desktop.update_notices = on);
+            }
             Desktop::SkipUpdate(version) => {
-                self.controller.settings_mut().skipped_update = Some(version)
+                self.change_desktop(|desktop| desktop.skipped_update = Some(version));
             }
             Desktop::CheckForUpdate => self.updater.check(),
             Desktop::Update => self.updater.install(),
@@ -325,13 +331,21 @@ impl App {
     /// Ctrl+plus and Ctrl+minus, within the range the settings allow.
     fn keep_zoom(&mut self, ctx: &egui::Context) {
         let zoom = ctx.zoom_factor();
-        let kept = zoom.clamp(*store::ZOOM_RANGE.start(), *store::ZOOM_RANGE.end());
+        let kept = zoom.clamp(*ZOOM_RANGE.start(), *ZOOM_RANGE.end());
         if kept != zoom {
             ctx.set_zoom_factor(kept);
         }
-        if (kept - self.controller.state().settings.zoom).abs() > 0.001 {
-            self.controller.settings_mut().zoom = kept;
+        if (kept - self.desktop.zoom).abs() > 0.001 {
+            self.change_desktop(|desktop| desktop.zoom = kept);
         }
+    }
+
+    /// Changes the settings only the desktop has; they are saved soon
+    /// after, with the core's.
+    fn change_desktop(&mut self, change: impl FnOnce(&mut DesktopSettings)) {
+        change(&mut self.desktop);
+        self.desktop
+            .write(self.controller.settings_mut().extra_mut());
     }
 
     /// Keeps where the window is and how big, to open it there next time.
@@ -349,9 +363,9 @@ impl App {
             return;
         }
         let zoom = ctx.zoom_factor();
-        let kept = self.controller.state().settings.window;
+        let kept = self.desktop.window;
         let size = ctx.content_rect().size();
-        let place = store::WindowPlace {
+        let place = WindowPlace {
             position: match (maximized, kept) {
                 (true, Some(kept)) => kept.position,
                 _ => outer.map(|outer| (outer.min.to_vec2() * zoom).into()),
@@ -363,7 +377,7 @@ impl App {
             maximized,
         };
         if kept != Some(place) {
-            self.controller.settings_mut().window = Some(place);
+            self.change_desktop(|desktop| desktop.window = Some(place));
         }
     }
 
@@ -474,7 +488,7 @@ impl eframe::App for App {
         if let Some(wait) = self.controller.tick() {
             ctx.request_repaint_after(wait);
         }
-        let daily = self.controller.state().settings.updates;
+        let daily = self.desktop.updates;
         if let Some(wait) = self.updater.tick(daily) {
             ctx.request_repaint_after(wait);
         }
@@ -517,6 +531,7 @@ impl eframe::App for App {
             loved: &state.loved,
             web_client_id: web_client_id.as_deref(),
             settings: &state.settings,
+            desktop: &self.desktop,
             storage: state.storage,
             outputs: &state.outputs,
             tray_shown: self.tray.as_ref().is_some_and(Tray::shown),

@@ -802,7 +802,7 @@ impl Controls<'_, '_> {
             );
         });
         row(ui, palette, "Skin", |ui| {
-            let chosen = self.view.settings.skin.as_deref();
+            let chosen = self.view.desktop.skin.as_deref();
             for (i, (skin, name)) in skin_rows().into_iter().enumerate() {
                 let on = skin.as_deref() == chosen;
                 let choice = radio(ui, palette, on, &name);
@@ -849,7 +849,7 @@ impl Controls<'_, '_> {
 
     fn window(&mut self, ui: &mut Ui) {
         let palette = self.palette;
-        let settings = self.view.settings;
+        let settings = self.view.desktop;
         row(ui, palette, "System tray", |ui| {
             let switch = toggle(ui, palette, settings.tray);
             self.ring(ui, Item::Tray, &switch);
@@ -897,7 +897,7 @@ impl Controls<'_, '_> {
             });
             return;
         }
-        let settings = self.view.settings;
+        let settings = self.view.desktop;
         row(ui, palette, "Look for updates", |ui| {
             let switch = toggle(ui, palette, settings.updates);
             self.ring(ui, Item::Updates, &switch);

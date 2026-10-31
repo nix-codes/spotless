@@ -77,6 +77,8 @@ pub struct View<'a> {
     /// The personal app search signs in with.
     pub web_client_id: Option<&'a str>,
     pub settings: &'a Settings,
+    /// The settings only the desktop has.
+    pub desktop: &'a crate::settings::DesktopSettings,
     /// What the caches hold, once measured.
     pub storage: Option<Storage>,
     /// The audio outputs, once listed; None when they can't be.

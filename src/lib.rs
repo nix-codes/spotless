@@ -12,6 +12,7 @@ pub mod action;
 pub mod app;
 pub mod focus;
 pub mod media;
+pub mod settings;
 pub mod skin;
 pub mod tray;
 pub mod ui;

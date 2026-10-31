@@ -19,6 +19,7 @@ use spotless::demo;
 use spotless::paths::Paths;
 use spotless::phosphor::Phosphor;
 use spotless::playback::analyser;
+use spotless::settings::DesktopSettings;
 use spotless::skin::format::built_in::WINAMP_CLASSIC_KEY;
 use spotless::store::{DeckMedia, DeckMeter, VuFace};
 use spotless::ui::{self, Cover, Inputs, View};
@@ -161,6 +162,8 @@ fn main() -> Result<()> {
 /// window's own state.
 struct Demo {
     controller: Controller,
+    /// The settings only the desktop has: the skin.
+    desktop: DesktopSettings,
     inputs: Inputs,
     /// The skin, loaded on the first frame, with the context.
     look: Option<Look>,
@@ -172,8 +175,9 @@ struct Demo {
 impl Demo {
     fn new(paths: Paths, shot: &Shot) -> Self {
         let mut controller = Controller::demo(paths);
+        let mut desktop = DesktopSettings::read(controller.state().settings.extra());
+        desktop.skin = shot.skin.map(String::from);
         let settings = controller.settings_mut();
-        settings.skin = shot.skin.map(String::from);
         settings.phosphor = shot.phosphor;
         settings.volume = 70;
         if let Some(media) = shot.deck {
@@ -205,6 +209,7 @@ impl Demo {
         }
         Self {
             controller,
+            desktop,
             inputs,
             look: None,
             covers: HashMap::new(),
@@ -216,12 +221,8 @@ impl Demo {
         let ctx = ui.ctx().clone();
         let state = self.controller.state();
         let look = self.look.get_or_insert_with(|| {
-            use_skin(
-                &ctx,
-                state.settings.skin.as_deref(),
-                state.settings.phosphor,
-            )
-            .expect("the built-in skins load")
+            use_skin(&ctx, self.desktop.skin.as_deref(), state.settings.phosphor)
+                .expect("the built-in skins load")
         });
         if self.covers.is_empty() {
             for url in demo::cover_urls() {
@@ -269,6 +270,7 @@ impl Demo {
             loved: &state.loved,
             web_client_id: None,
             settings: &state.settings,
+            desktop: &self.desktop,
             storage: None,
             outputs: &outputs,
             tray_shown: false,

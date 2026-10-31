@@ -42,20 +42,6 @@ pub struct Tabs {
     pub spotify_at: usize,
 }
 
-/// Where the desktop's window was and how big, to open it there again.
-/// In points at a zoom of 1.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct WindowPlace {
-    /// The window's outer top left corner; None where the desktop doesn't
-    /// tell (Wayland).
-    #[serde(default)]
-    pub position: Option<[f32; 2]>,
-    /// Its content's size, as tall as it is with the playlists showing.
-    pub size: [f32; 2],
-    #[serde(default)]
-    pub maximized: bool,
-}
-
 /// What the desktop's deck measures the music on, beside the device.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DeckMeter {
@@ -297,8 +283,9 @@ pub fn save_history(paths: &Paths, history: &History) -> Result<()> {
 /// future is weighed; its code stays.
 pub const SPOTIFY_TAB: bool = false;
 
-/// The settings. `web_client_id` goes through its own methods; keys
-/// Spotless doesn't know are kept as they are.
+/// The settings both apps share. `web_client_id` goes through its own
+/// methods; keys the core doesn't know are kept as they are, among them
+/// each app's own settings ([`Settings::extra`]).
 #[derive(Clone, Debug)]
 pub struct Settings {
     /// 0–100.
@@ -312,31 +299,18 @@ pub struct Settings {
     pub playlists: bool,
     /// Volume levelling (Spotify's normalisation).
     pub levelling: bool,
-    /// The interface's zoom, 1 at normal size.
-    pub zoom: f32,
     /// Songs played are kept on disk, up to `audio_cache_mb`.
     pub audio_cache: bool,
     pub audio_cache_mb: u64,
     /// The sound server's name for the chosen output; None follows the
     /// system's default.
     pub audio_output: Option<String>,
-    /// The tray icon, which closing the window hides Spotless in.
-    pub tray: bool,
-    /// The desktop app looks for a newer release of itself once a day.
-    pub updates: bool,
-    /// A newer release found is announced in a bar under the player.
-    pub update_notices: bool,
-    /// The release the user asked not to be told of again, by its version.
-    pub skipped_update: Option<String>,
     /// The Spotify tab can be used: off (as at first) in Settings, it is
     /// never shown and Spotless never joins Spotify Connect. Always off
     /// while [`SPOTIFY_TAB`] is.
     pub spotify_tab_enabled: bool,
     /// The Spotify tab is open, unless closed like any tab.
     pub spotify_tab: bool,
-    /// The skin the colours come from, by its name in the skins folder;
-    /// None is Classic.
-    pub skin: Option<String>,
     /// The colour of the lists and the display.
     pub phosphor: Phosphor,
     /// What the playlists' songs are put under headers by.
@@ -368,14 +342,11 @@ pub struct Settings {
     /// The time shows what's left of the song, after a minus, instead of
     /// what has played (Winamp's time display mode).
     pub time_left: bool,
-    /// The desktop's window, as it was left.
-    pub window: Option<WindowPlace>,
     raw: Map<String, Value>,
 }
 
 /// The audio cache's sizes to choose from, in MB.
 pub const AUDIO_CACHE_SIZES: [u64; 6] = [512, 1024, 2048, 4096, 8192, 16384];
-pub const ZOOM_RANGE: std::ops::RangeInclusive<f32> = 0.75..=2.5;
 
 impl Settings {
     pub fn load(paths: &Paths) -> Self {
@@ -409,6 +380,19 @@ impl Settings {
             .map(String::from)
     }
 
+    /// The file's keys as read, for the settings an app keeps of its own
+    /// (the desktop's window, skin and tray): the core keeps them, and
+    /// writes its own over them as it saves.
+    pub fn extra(&self) -> &Map<String, Value> {
+        &self.raw
+    }
+
+    /// The same, to change an app's own settings: they are saved with the
+    /// rest.
+    pub fn extra_mut(&mut self) -> &mut Map<String, Value> {
+        &mut self.raw
+    }
+
     /// Sets or, with None, removes the personal app.
     pub fn set_web_client_id(&mut self, id: Option<String>) {
         match id {
@@ -436,9 +420,6 @@ impl Settings {
                 .and_then(Value::as_bool)
                 .unwrap_or(true),
             levelling: flag("levelling"),
-            zoom: raw.get("zoom").and_then(Value::as_f64).map_or(1.0, |z| {
-                (z as f32).clamp(*ZOOM_RANGE.start(), *ZOOM_RANGE.end())
-            }),
             audio_cache: raw
                 .get("audio_cache")
                 .and_then(Value::as_bool)
@@ -448,16 +429,6 @@ impl Settings {
                 .and_then(Value::as_u64)
                 .filter(|mb| AUDIO_CACHE_SIZES.contains(mb))
                 .unwrap_or(2048),
-            tray: raw.get("tray").and_then(Value::as_bool).unwrap_or(true),
-            updates: raw.get("updates").and_then(Value::as_bool).unwrap_or(true),
-            update_notices: raw
-                .get("update_notices")
-                .and_then(Value::as_bool)
-                .unwrap_or(true),
-            skipped_update: raw
-                .get("skipped_update")
-                .and_then(Value::as_str)
-                .map(str::to_string),
             spotify_tab_enabled: SPOTIFY_TAB
                 && raw
                     .get("spotify_tab_enabled")
@@ -471,7 +442,6 @@ impl Settings {
                 .get("audio_output")
                 .and_then(Value::as_str)
                 .map(String::from),
-            skin: raw.get("skin").and_then(Value::as_str).map(String::from),
             phosphor: Phosphor::from_key(raw.get("phosphor").and_then(Value::as_str)),
             grouping: Grouping::from_key(raw.get("song_headers").and_then(Value::as_str)),
             equaliser: raw
@@ -507,15 +477,6 @@ impl Settings {
             reel_slow: flag("reel_slow"),
             cd_mini: flag("cd_mini"),
             time_left: flag("time_left"),
-            window: raw
-                .get("window")
-                .and_then(|value| WindowPlace::deserialize(value).ok())
-                .filter(|place| {
-                    place
-                        .size
-                        .iter()
-                        .all(|side| side.is_finite() && *side > 0.0)
-                }),
             raw: raw.clone(),
         }
     }
@@ -528,12 +489,8 @@ impl Settings {
         raw.insert("covers".into(), self.covers.into());
         raw.insert("playlists".into(), self.playlists.into());
         raw.insert("levelling".into(), self.levelling.into());
-        raw.insert("zoom".into(), self.zoom.into());
         raw.insert("audio_cache".into(), self.audio_cache.into());
         raw.insert("audio_cache_mb".into(), self.audio_cache_mb.into());
-        raw.insert("tray".into(), self.tray.into());
-        raw.insert("updates".into(), self.updates.into());
-        raw.insert("update_notices".into(), self.update_notices.into());
         raw.insert(
             "spotify_tab_enabled".into(),
             self.spotify_tab_enabled.into(),
@@ -542,14 +499,6 @@ impl Settings {
         match &self.audio_output {
             Some(output) => raw.insert("audio_output".into(), output.clone().into()),
             None => raw.remove("audio_output"),
-        };
-        match &self.skipped_update {
-            Some(version) => raw.insert("skipped_update".into(), version.clone().into()),
-            None => raw.remove("skipped_update"),
-        };
-        match &self.skin {
-            Some(skin) => raw.insert("skin".into(), skin.clone().into()),
-            None => raw.remove("skin"),
         };
         raw.insert("phosphor".into(), self.phosphor.key().into());
         raw.insert("song_headers".into(), self.grouping.key().into());
@@ -570,10 +519,6 @@ impl Settings {
         raw.insert("reel_slow".into(), self.reel_slow.into());
         raw.insert("cd_mini".into(), self.cd_mini.into());
         raw.insert("time_left".into(), self.time_left.into());
-        match self.window.map(serde_json::to_value) {
-            Some(Ok(window)) => raw.insert("window".into(), window),
-            _ => raw.remove("window"),
-        };
         raw
     }
 
@@ -678,34 +623,15 @@ mod tests {
     }
 
     #[test]
-    fn the_window_place_is_kept_and_a_broken_one_dropped() {
-        let paths = temporary_paths("window");
-        assert_eq!(Settings::load(&paths).window, None);
-        let place = WindowPlace {
-            position: Some([120.0, 80.0]),
-            size: [900.0, 640.0],
-            maximized: false,
-        };
-        let mut settings = Settings::load(&paths);
-        settings.window = Some(place);
-        settings.save(&paths).unwrap();
-        assert_eq!(Settings::load(&paths).window, Some(place));
-        std::fs::write(paths.settings(), br#"{"window":{"size":[0,600]}}"#).unwrap();
-        assert_eq!(Settings::load(&paths).window, None);
-    }
-
-    #[test]
     fn playback_and_storage_settings_default_and_stay_in_range() {
         let paths = temporary_paths("ranges");
         let settings = Settings::load(&paths);
         assert!(!settings.levelling);
-        assert_eq!(settings.zoom, 1.0);
         assert!(settings.audio_cache);
         assert_eq!(settings.audio_cache_mb, 2048);
 
-        std::fs::write(paths.settings(), br#"{"zoom":9,"audio_cache_mb":3}"#).unwrap();
+        std::fs::write(paths.settings(), br#"{"audio_cache_mb":3}"#).unwrap();
         let settings = Settings::load(&paths);
-        assert_eq!(settings.zoom, *ZOOM_RANGE.end());
         assert_eq!(settings.audio_cache_mb, 2048);
     }
 
