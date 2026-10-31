@@ -126,7 +126,7 @@ private fun Slot(at: Float, modifier: Modifier, enabled: Boolean, scrollTo: (Flo
 }
 
 /** Light top and left edges, dark bottom and right: raised, or sunk with the colours swapped. */
-private fun DrawScope.bevel(at: Offset, size: Size, w: Float, topLeft: Color, bottomRight: Color) {
+internal fun DrawScope.bevel(at: Offset, size: Size, w: Float, topLeft: Color, bottomRight: Color) {
     drawRect(topLeft, at, Size(size.width, w))
     drawRect(topLeft, at, Size(w, size.height))
     drawRect(bottomRight, Offset(at.x, at.y + size.height - w), Size(size.width, w))

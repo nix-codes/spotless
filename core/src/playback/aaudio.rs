@@ -12,6 +12,9 @@
 //! librespot pauses, and never fails `stop`. When the device goes (the
 //! earphones are disconnected), it opens the output again on whatever
 //! Android plays to now and goes on.
+//!
+//! The equaliser (`super::equaliser`) is applied to each piece of audio as
+//! it is written, so a change is heard once the buffer ahead has played.
 
 use std::thread;
 use std::time::{Duration, Instant};
@@ -25,6 +28,7 @@ use ndk::audio::{
     AudioStreamBuilder, AudioUsage,
 };
 
+use super::equaliser::Processor;
 use super::sink::{ErrorHook, NO_DEVICE, STALLED};
 
 /// The buffer asked for, about half a second of audio, as `super::sink`
@@ -38,6 +42,7 @@ const DRAIN_LIMIT: Duration = Duration::from_secs(1);
 pub struct AAudioSink {
     stream: Option<AudioStream>,
     on_error: ErrorHook,
+    equaliser: Processor,
 }
 
 impl AAudioSink {
@@ -46,6 +51,7 @@ impl AAudioSink {
         Self {
             stream: None,
             on_error,
+            equaliser: Processor::new(SAMPLE_RATE, NUM_CHANNELS.into()),
         }
     }
 
@@ -138,7 +144,8 @@ impl Sink for AAudioSink {
         let samples = packet
             .samples()
             .map_err(|e| SinkError::OnWrite(e.to_string()))?;
-        let samples = converter.f64_to_f32(samples);
+        let mut samples = converter.f64_to_f32(samples);
+        self.equaliser.process(&mut samples);
         self.write_all(&samples)
     }
 }

@@ -1,6 +1,6 @@
 //! The equaliser: a preamp and ten bands at Winamp's frequencies, each
-//! from -12 to +12 dB, applied by the desktop's audio output (`sink.rs`)
-//! as the audio plays.
+//! from -12 to +12 dB, applied by the audio outputs (`sink.rs`, and
+//! `aaudio.rs` on Android) as the audio plays.
 //!
 //! The settings are kept here for the output to read, as the chosen
 //! output is (`outputs.rs`). Each band is a peaking filter (Robert

@@ -10,7 +10,7 @@ use spotless_core::model::{
     AlbumRef, ArtistRef, Grouping, Playlist, PlaylistId, Source as CoreSource, TrackRef,
 };
 use spotless_core::phosphor::Phosphor;
-use spotless_core::playback::engine;
+use spotless_core::playback::{engine, equaliser as core_equaliser};
 use spotless_core::spotify::queue::SpotifyQueue;
 use spotless_core::store::AUDIO_CACHE_SIZES;
 
@@ -1122,6 +1122,9 @@ pub struct SettingsView {
     /// Search's personal app (empty: none).
     pub search_app: String,
     pub levelling: bool,
+    pub equaliser: Equaliser,
+    /// The equaliser is shown above the display (EQ).
+    pub equaliser_shown: bool,
     pub audio_cache: bool,
     pub audio_cache_mb: u64,
     /// The sizes to choose from, in MB.
@@ -1145,6 +1148,59 @@ pub struct SettingsView {
     pub spotify_tab_closed: bool,
     /// The time shows what's left of the song instead of what has played.
     pub time_left: bool,
+}
+
+/// The equaliser: on or off, the preamp and the ten bands in dB, from
+/// -12 to +12, at Winamp's frequencies (60 Hz to 16 kHz).
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct Equaliser {
+    pub on: bool,
+    pub preamp: f32,
+    pub bands: Vec<f32>,
+}
+
+impl From<core_equaliser::Equaliser> for Equaliser {
+    fn from(equaliser: core_equaliser::Equaliser) -> Self {
+        Self {
+            on: equaliser.on,
+            preamp: equaliser.preamp,
+            bands: equaliser.bands.to_vec(),
+        }
+    }
+}
+
+impl From<Equaliser> for core_equaliser::Equaliser {
+    /// Bands missing are flat; any over ten are dropped.
+    fn from(equaliser: Equaliser) -> Self {
+        let mut bands = [0.0; 10];
+        for (band, db) in bands.iter_mut().zip(equaliser.bands) {
+            *band = db;
+        }
+        Self {
+            on: equaliser.on,
+            preamp: equaliser.preamp,
+            bands,
+        }
+    }
+}
+
+/// Winamp's presets: a name and the ten bands it sets.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct EqualiserPreset {
+    pub name: String,
+    pub bands: Vec<f32>,
+}
+
+/// Winamp's presets, in the order the menu lists them.
+#[uniffi::export]
+pub fn equaliser_presets() -> Vec<EqualiserPreset> {
+    core_equaliser::PRESETS
+        .iter()
+        .map(|(name, bands)| EqualiserPreset {
+            name: (*name).into(),
+            bands: bands.to_vec(),
+        })
+        .collect()
 }
 
 /// A colour the lists and the display can take, with its shades as
@@ -1209,6 +1265,8 @@ pub(crate) fn settings(state: &State) -> SettingsView {
         search: search_state(&state.search),
         search_app: settings.web_client_id().unwrap_or_default(),
         levelling: settings.levelling,
+        equaliser: settings.equaliser.into(),
+        equaliser_shown: settings.equaliser_shown,
         audio_cache: settings.audio_cache,
         audio_cache_mb: settings.audio_cache_mb,
         audio_cache_sizes: AUDIO_CACHE_SIZES.to_vec(),

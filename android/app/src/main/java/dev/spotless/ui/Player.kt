@@ -175,6 +175,11 @@ fun PlayerPanel(core: Core) {
                 { core.apply(Action.SetRepeat(!player.repeat)) },
                 Modifier.weight(1f), lit = player.repeat,
             )
+            // Shows or hides the equaliser above the display; only its ON turns it off.
+            TextButton(
+                "EQ", { core.apply(Action.ToggleEqualiser) },
+                Modifier.weight(1f), lit = core.settings.equaliserShown,
+            )
         }
     }
 }

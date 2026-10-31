@@ -180,6 +180,10 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
         } else {
             Songs(core, selected, { picked = it }, Modifier.weight(1f))
         }
+        // The equaliser unrolls between the songs and the display (EQ).
+        AnimatedVisibility(core.settings.equaliserShown && !selecting, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            EqualiserPanel(core)
+        }
         if (selecting) {
             Box(Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 14.dp)) { MiniPlayer(core) }
         } else {

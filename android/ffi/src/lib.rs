@@ -263,6 +263,12 @@ pub enum Action {
     SetLevelling {
         on: bool,
     },
+    /// Shows or hides the equaliser above the display (EQ).
+    ToggleEqualiser,
+    /// The equaliser's switch, preamp and bands, as they are now.
+    SetEqualiser {
+        equaliser: Equaliser,
+    },
     /// The lists and the display in this colour, by its key.
     SetPhosphor {
         key: String,
@@ -523,6 +529,8 @@ impl From<Action> for spotless_core::action::Action {
             Action::SignOut => Core::SignOut,
             Action::SetSearchApp { client_id } => Core::SetSearchApp(client_id),
             Action::SetLevelling { on } => Core::SetLevelling(on),
+            Action::ToggleEqualiser => Core::ToggleEqualiser,
+            Action::SetEqualiser { equaliser } => Core::SetEqualiser(equaliser.into()),
             Action::SetPhosphor { key } => {
                 Core::SetPhosphor(spotless_core::phosphor::Phosphor::from_key(Some(&key)))
             }
