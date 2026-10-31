@@ -172,18 +172,14 @@ pub fn draw(c: &Canvas, height: f32, tape: &Tape) -> Rect {
     } else {
         c.circle(lx, ly, 2.5, rgb(0x4a2a24));
     }
-    // Auto reverse only plays a part on a mixtape.
+    // Auto reverse never plays a part: a mixtape is all on side A.
     c.text(
         "AUTO REVERSE",
         w - 14.0,
         h - 26.0,
         Face::Mono,
         7.0,
-        if tape.mixtape.is_some() {
-            rgb(0x8a8e96)
-        } else {
-            rgb(0x4c4f57)
-        },
+        rgb(0x4c4f57),
         Align2::RIGHT_CENTER,
     );
     c.text(

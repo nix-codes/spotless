@@ -152,7 +152,7 @@ Spotify only allows playback in other apps for Premium accounts.
   own. It changes what Spotless plays, not another device's playback.
 - **The deck** (desktop, VIS or `Alt+V`): the player's buttons become the
   keys of an '80s Walkman whose cassette turns as the song plays (or,
-  with its switch at MIX, holds the whole playlist, side A then side B),
+  with its switch at MIX, holds the whole playlist on side A),
   of a reel-to-reel deck whose tape winds from one reel to the other (at
   3¾ IPS, the whole playlist in one pass), of a portable CD player whose
   disc holds the whole playlist (or, at 8cm, a mini CD for each song), or

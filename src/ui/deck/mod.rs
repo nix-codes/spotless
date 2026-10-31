@@ -10,8 +10,8 @@
 //! The tape winds from the left reel to the right one as the song plays,
 //! and back fast when another starts; the reels turn only while it plays.
 //! The Walkman's switch (MIX) puts the whole playlist on the cassette
-//! instead: side A left to right, then auto reverse plays side B back; the
-//! reel deck's lever at 3¾ IPS puts it on the reels, in one pass at half
+//! instead, in one pass that runs out as the playlist ends; the reel
+//! deck's lever at 3¾ IPS puts it on the reels, in one pass at half
 //! the speed.
 //! The disc holds the whole playlist and turns while it plays, faster the
 //! nearer the centre the laser reads; at 8cm a mini CD holds the song,
@@ -124,14 +124,14 @@ pub struct Tape {
     pub cd_size: f32,
 }
 
-/// The playlist playing as a mixtape: its name, the cassette's length,
-/// and where the song playing is on it.
+/// The playlist playing as a mixtape, all on side A: its name, the
+/// cassette's length, and where the song playing is on it.
 pub struct Mixtape {
     pub name: String,
     /// Both sides, in minutes: C46, C60, C90 or C120.
     pub minutes: u32,
-    pub side: char,
-    /// The share of the tape on the right reel.
+    /// The share of the tape on the right reel: how far through the
+    /// playlist the song playing is.
     pub share: f32,
 }
 
@@ -258,10 +258,9 @@ impl Motion {
                 }
             }
             _ => {
-                // Side B of a mixtape plays back the other way; reels at
-                // 3¾ run at half the speed.
+                // Reels at 3¾ run at half the speed.
                 let (target, pace) = match (mixtape(view), slow_reel(view)) {
-                    (Some(mix), _) => (mix.share, if mix.side == 'B' { -1.0 } else { 1.0 }),
+                    (Some(mix), _) => (mix.share, 1.0),
                     (_, Some(album)) => (album.through(), 0.5),
                     _ => (target, 1.0),
                 };
@@ -558,7 +557,7 @@ impl Motion {
         Tape {
             progress: self.drawn.unwrap_or(0.0),
             angles: self.angles,
-            side: mixtape.as_ref().map_or(side, |mix| mix.side),
+            side: if mixtape.is_some() { 'A' } else { side },
             artist,
             title,
             playing: view.player.status == Status::Playing,
@@ -640,23 +639,17 @@ fn short_title(title: &str) -> &str {
     }
 }
 
-/// A playlist on a cassette: side A takes songs while they fit in half
-/// the playlist, so no song is cut in two, and side B the rest.
+/// A playlist on an LP: side A takes songs while they fit in half the
+/// playlist, so no song is cut in two, and side B the rest.
 #[derive(Debug, PartialEq)]
 struct Sides {
     /// The first song on side B.
     split: usize,
-    /// A side's length on the cassette, in ms.
-    side: u64,
-    /// Both sides, in minutes.
-    minutes: u32,
     /// The longer side's songs, in ms: as far as an LP's grooves reach.
     longer: u64,
 }
 
-/// The sides of a playlist of songs `lengths` ms long, on the shortest
-/// standard cassette that holds the longer one; past a C120, one just long
-/// enough.
+/// The sides of a playlist of songs `lengths` ms long.
 fn sides(lengths: &[u64]) -> Sides {
     let total: u64 = lengths.iter().sum();
     let (mut split, mut a) = (0, 0);
@@ -667,30 +660,19 @@ fn sides(lengths: &[u64]) -> Sides {
     if split == 0 && !lengths.is_empty() {
         (split, a) = (1, lengths[0]);
     }
-    let longer = a.max(total - a);
-    let minutes = CASSETTES
-        .into_iter()
-        .find(|minutes| u64::from(*minutes) * 30_000 >= longer)
-        .unwrap_or(longer.div_ceil(60_000) as u32 * 2);
     Sides {
         split,
-        side: u64::from(minutes) * 30_000,
-        minutes,
-        longer,
+        longer: a.max(total - a),
     }
 }
 
-/// Where song `index` is `position` ms in: its side, and the share of the
-/// tape on the right reel. Side A runs left to right, side B back.
-fn place(lengths: &[u64], sides: &Sides, index: usize, position: u64) -> (char, f32) {
-    let first = if index < sides.split { 0 } else { sides.split };
-    let into = lengths[first..index].iter().sum::<u64>() + position.min(lengths[index]);
-    let share = (into as f32 / sides.side.max(1) as f32).clamp(0.0, 1.0);
-    if index < sides.split {
-        ('A', share)
-    } else {
-        ('B', 1.0 - share)
-    }
+/// The shortest standard cassette, in minutes for both sides, whose side
+/// A holds a playlist `total` ms long; past a C120, one just long enough.
+fn cassette(total: u64) -> u32 {
+    CASSETTES
+        .into_iter()
+        .find(|minutes| u64::from(*minutes) * 30_000 >= total)
+        .unwrap_or(total.div_ceil(60_000) as u32 * 2)
 }
 
 /// The playlist playing laid out on two sides, as on a mixtape or an LP,
@@ -796,12 +778,10 @@ fn mixtape(view: &View) -> Option<Mixtape> {
         return None;
     }
     let album = album(view)?;
-    let (side, share) = place(&album.lengths, &album.sides, album.index, album.position);
     Some(Mixtape {
+        minutes: cassette(album.lengths.iter().sum()),
+        share: album.through(),
         name: album.name,
-        minutes: album.sides.minutes,
-        side,
-        share,
     })
 }
 
@@ -1240,33 +1220,24 @@ fn draw_levels(painter: &Painter, rect: Rect, view: &View, motion: &Motion) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Album, PlaylistId, Sides, place, short_title, sides};
+    use super::{Album, PlaylistId, Sides, cassette, short_title, sides};
 
     const MINUTE: u64 = 60_000;
 
     #[test]
-    fn a_mixtape_splits_between_songs() {
+    fn an_lp_splits_between_songs() {
         // 39 minutes: side A takes the first 19, the third song doesn't fit.
         let lengths = [9 * MINUTE, 10 * MINUTE, 8 * MINUTE, 12 * MINUTE];
-        let mix = sides(&lengths);
         assert_eq!(
-            mix,
+            sides(&lengths),
             Sides {
                 split: 2,
-                side: 23 * MINUTE,
-                minutes: 46,
                 longer: 20 * MINUTE,
             }
         );
-        assert_eq!(place(&lengths, &mix, 0, 0), ('A', 0.0));
-        let (side, share) = place(&lengths, &mix, 1, 0);
-        assert_eq!(side, 'A');
-        assert!((share - 9.0 / 23.0).abs() < 1e-6);
-        // Side B starts with all the tape on the right reel.
-        assert_eq!(place(&lengths, &mix, 2, 0), ('B', 1.0));
-        let (side, share) = place(&lengths, &mix, 3, MINUTE);
-        assert_eq!(side, 'B');
-        assert!((share - (1.0 - 9.0 / 23.0)).abs() < 1e-6);
+        // A song longer than half still goes on side A, alone.
+        assert_eq!(sides(&[30 * MINUTE, 5 * MINUTE, 5 * MINUTE]).split, 1);
+        assert_eq!(sides(&[3 * MINUTE]).split, 1);
     }
 
     #[test]
@@ -1299,17 +1270,14 @@ mod tests {
     }
 
     #[test]
-    fn a_mixtape_takes_the_cassette_it_fits() {
-        assert_eq!(sides(&[20 * MINUTE, 20 * MINUTE]).minutes, 46);
-        assert_eq!(sides(&[25 * MINUTE, 25 * MINUTE]).minutes, 60);
-        assert_eq!(sides(&[44 * MINUTE, 45 * MINUTE]).minutes, 90);
-        assert_eq!(sides(&[50 * MINUTE, 55 * MINUTE]).minutes, 120);
+    fn a_mixtape_takes_the_cassette_its_side_a_fits() {
+        assert_eq!(cassette(23 * MINUTE), 46);
+        assert_eq!(cassette(23 * MINUTE + 1), 60);
+        assert_eq!(cassette(45 * MINUTE), 90);
+        assert_eq!(cassette(60 * MINUTE), 120);
         // Longer than a C120: just long enough.
-        assert_eq!(sides(&[70 * MINUTE, 73 * MINUTE + 1]).minutes, 148);
-        // A song longer than half still goes on side A, alone.
-        let mix = sides(&[30 * MINUTE, 5 * MINUTE, 5 * MINUTE]);
-        assert_eq!((mix.split, mix.minutes), (1, 60));
-        assert_eq!(sides(&[3 * MINUTE]).split, 1);
+        assert_eq!(cassette(73 * MINUTE + 1), 148);
+        assert_eq!(cassette(74 * MINUTE + 1), 150);
     }
 
     #[test]
