@@ -109,6 +109,8 @@ pub struct Nav {
     focus_filter: bool,
     /// Its caret was at the end last frame: → leaves it for the songs.
     filter_at_end: bool,
+    /// How the LAST.FM tab's songs are sorted.
+    loved_order: lastfm_tab::Order,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]

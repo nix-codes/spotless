@@ -1,8 +1,8 @@
 //! Browse's LAST.FM tab, while Last.fm and search are connected: the
-//! songs loved on Last.fm, by artist, with when. They are selected as
-//! in a tab (click, Ctrl, Shift, Ctrl+A) and added, dragged to the slim
-//! column or played; Spotless finds them on Spotify first, by artist and
-//! title, and says which it couldn't.
+//! songs loved on Last.fm, by artist, title or when. They are selected as
+//! in a tab (click, Ctrl, Shift, Ctrl+A) and played, or, with [`ADDING`],
+//! added or dragged to the slim column; Spotless finds them on Spotify
+//! first, by artist and title, and says which it couldn't.
 
 use std::collections::BTreeSet;
 
@@ -11,10 +11,25 @@ use egui::{Align2, Id, Key, Rect, RichText, ScrollArea, Ui, pos2, vec2};
 use super::spotify::extend;
 use super::{Act, Area, CatalogDrag, Nav, TRACK_HEIGHT, body, mono, note, row, spans};
 use crate::action::{Action, Actions};
+use crate::lastfm::loved::name_key;
 use crate::lastfm::{LastFmStatus, LovedSong};
 use crate::ui::scrollbar;
 use crate::ui::widgets::small_button;
 use crate::ui::{View, theme};
+
+/// Adding loved songs to a playlist. Off while too many aren't found on
+/// Spotify, their names there being spelt otherwise.
+const ADDING: bool = false;
+
+/// How the songs are sorted.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum Order {
+    #[default]
+    Artist,
+    Title,
+    /// Loved last first.
+    Date,
+}
 
 pub(super) fn draw(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
     let palette = view.palette;
@@ -38,7 +53,13 @@ pub(super) fn draw(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Action
         }
     });
     ui.add_space(6.0);
-    let songs = view.loved.songs();
+    let mut songs: Vec<&LovedSong> = view.loved.songs().iter().collect();
+    match nav.loved_order {
+        Order::Artist => {}
+        Order::Title => songs.sort_by_cached_key(|song| name_key(&song.title)),
+        Order::Date => songs.sort_by_key(|song| std::cmp::Reverse(song.date)),
+    }
+    let songs = &songs[..];
     nav.marked.retain(|&i| i < songs.len());
     // Arrows move the selection with the highlight.
     if nav.reveal
@@ -57,17 +78,31 @@ pub(super) fn draw(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Action
     }
     // The selection, else the highlighted song.
     let chosen = match (nav.marked.is_empty(), nav.row) {
-        (false, _) => nav.marked.iter().filter_map(|&i| songs.get(i)).collect(),
-        (true, Some(row)) => songs.get(row).into_iter().collect(),
+        (false, _) => nav
+            .marked
+            .iter()
+            .filter_map(|&i| songs.get(i))
+            .copied()
+            .collect(),
+        (true, Some(row)) => songs.get(row).copied().into_iter().collect(),
         _ => Vec::new(),
     };
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-        let add = ui.add_enabled_ui(!chosen.is_empty(), |ui| {
+        let add = ui.add_enabled_ui(ADDING && !chosen.is_empty(), |ui| {
             small_button(ui, &palette, "+ ADD", false)
         });
-        let hint = "Finds the selected songs on Spotify and adds them (Insert or A)";
-        if add.inner.on_hover_text(hint).clicked() {
+        let hint = if ADDING {
+            "Finds the selected songs on Spotify and adds them (Insert or A)"
+        } else {
+            "Off for now: too many loved songs are spelt otherwise on Spotify"
+        };
+        if add
+            .inner
+            .on_disabled_hover_text(hint)
+            .on_hover_text(hint)
+            .clicked()
+        {
             actions.push(Action::AddLoved(chosen.into_iter().cloned().collect()));
         }
         ui.add_space(8.0);
@@ -82,6 +117,27 @@ pub(super) fn draw(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Action
                 .size(11.0)
                 .color(palette.dim),
         );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Right to left, so the last first.
+            for (order, label) in [
+                (Order::Date, "DATE"),
+                (Order::Title, "TITLE"),
+                (Order::Artist, "ARTIST"),
+            ] {
+                let on = nav.loved_order == order;
+                if small_button(ui, &palette, label, on).clicked() && !on {
+                    nav.loved_order = order;
+                    nav.marked.clear();
+                    nav.anchor = None;
+                }
+            }
+            ui.label(
+                RichText::new("SORT")
+                    .monospace()
+                    .size(10.0)
+                    .color(palette.dim),
+            );
+        });
     });
     ui.add_space(6.0);
     if songs.is_empty() {
@@ -116,7 +172,7 @@ fn loved_song(
     nav: &mut Nav,
     index: usize,
     song: &LovedSong,
-    songs: &[LovedSong],
+    songs: &[&LovedSong],
     actions: &mut Actions,
 ) {
     let palette = view.palette;
@@ -128,7 +184,7 @@ fn loved_song(
         &palette,
         nav,
         TRACK_HEIGHT,
-        Some("+"),
+        ADDING.then_some("+"),
         |painter, rect| {
             if marked {
                 painter.rect_filled(rect.expand2(vec2(4.0, 0.0)), 0.0, palette.selected_bg);
@@ -177,18 +233,18 @@ fn loved_song(
             nav.marked
                 .iter()
                 .filter_map(|&i| songs.get(i))
-                .cloned()
+                .map(|&song| song.clone())
                 .collect()
         } else {
             vec![song.clone()]
         }
     };
-    if response.drag_started() {
+    if ADDING && response.drag_started() {
         response.dnd_set_drag_payload(CatalogDrag::Loved(these(nav)));
     }
     if row.button {
         actions.push(Action::AddLoved(vec![song.clone()]));
-    } else if matches!(row.act, Some(Act::Add)) {
+    } else if ADDING && matches!(row.act, Some(Act::Add)) {
         actions.push(Action::AddLoved(these(nav)));
     } else if response.double_clicked() || matches!(row.act, Some(Act::Open)) {
         actions.push(Action::PlayLoved(song.clone()));
@@ -202,7 +258,7 @@ fn loved_song(
             let label = RichText::new(name).monospace().size(11.0);
             ui.add(egui::Button::new(label).frame_when_inactive(false))
         };
-        if item(ui, &format!("Add to {target}")).clicked() {
+        if ADDING && item(ui, &format!("Add to {target}")).clicked() {
             actions.push(Action::AddLoved(these(nav)));
         }
         if item(ui, "Play now").clicked() {
