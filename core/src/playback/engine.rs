@@ -575,7 +575,8 @@ fn apply(state: &mut PlayerSnapshot, event: PlayerEvent) -> bool {
         }
         PlayerEvent::AudioKeyUnavailable { .. } => {
             state.status = Status::Stopped;
-            state.error = Some("Spotify refused to play this song. Playback needs Premium.".into());
+            state.error =
+                Some("Spotify didn't give this song's key just now. Try again in a moment.".into());
         }
         _ => return false,
     }
