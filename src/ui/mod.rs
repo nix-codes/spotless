@@ -300,7 +300,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     };
     fit_sections(ui, &mut inputs.fit, sections, sections_height, collapsed);
     let status_top = below + 6.0;
-    fit_window(
+    let restored = fit_window(
         ui,
         full,
         &mut inputs.fit,
@@ -345,6 +345,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         full,
         &mut inputs.fit,
         body.top() + least_body + 6.0 + STATUS_HEIGHT - full.top(),
+        restored,
     );
     if let Some(form) = &mut inputs.settings {
         if settings_view::draw(ui, body, view, form, &mut inputs.tab, actions) {
@@ -377,8 +378,8 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
 
 /// Fits the window to the player alone, `height` points of the window's
 /// content `full`, and holds it there; with None, gives the playlists back
-/// the height the window had before.
-fn fit_window(ui: &Ui, full: Rect, fit: &mut Fit, height: Option<f32>) {
+/// the height the window had before, and returns it.
+fn fit_window(ui: &Ui, full: Rect, fit: &mut Fit, height: Option<f32>) -> Option<f32> {
     let ctx = ui.ctx();
     let screen = ctx.content_rect();
     let send = |command| ctx.send_viewport_cmd(command);
@@ -387,7 +388,7 @@ fn fit_window(ui: &Ui, full: Rect, fit: &mut Fit, height: Option<f32>) {
             let height = height + screen.height() - full.height();
             let wanted = (height, ctx.pixels_per_point());
             if fit.collapsed == Some(wanted) {
-                return;
+                return None;
             }
             if fit.collapsed.is_none() {
                 fit.expanded = Some(screen.height());
@@ -397,23 +398,26 @@ fn fit_window(ui: &Ui, full: Rect, fit: &mut Fit, height: Option<f32>) {
             send(ViewportCommand::MinInnerSize(vec2(MIN_WINDOW.x, height)));
             send(ViewportCommand::MaxInnerSize(vec2(16384.0, height)));
             send(ViewportCommand::InnerSize(vec2(screen.width(), height)));
+            None
         }
         None => {
-            if fit.collapsed.take().is_none() {
-                return;
-            }
+            fit.collapsed.take()?;
             let height = fit.expanded.unwrap_or(DEFAULT_HEIGHT);
             send(ViewportCommand::MaxInnerSize(egui::Vec2::INFINITY));
             send(ViewportCommand::InnerSize(vec2(screen.width(), height)));
+            Some(height)
         }
     }
 }
 
 /// Keeps the window at least `height` points of its content `full` tall
 /// (and MIN_WINDOW), while the playlists show; a shorter one grows.
-fn fit_least(ui: &Ui, full: Rect, fit: &mut Fit, height: f32) {
+/// `restored` is the height fit_window just gave back, which the window
+/// doesn't have yet this frame.
+fn fit_least(ui: &Ui, full: Rect, fit: &mut Fit, height: f32, restored: Option<f32>) {
     let ctx = ui.ctx();
     let screen = ctx.content_rect();
+    let current = restored.unwrap_or(screen.height());
     let height = height.max(MIN_WINDOW.y) + screen.height() - full.height();
     let wanted = (height, ctx.pixels_per_point());
     if fit.least == Some(wanted) {
@@ -421,7 +425,7 @@ fn fit_least(ui: &Ui, full: Rect, fit: &mut Fit, height: f32) {
     }
     fit.least = Some(wanted);
     ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(vec2(MIN_WINDOW.x, height)));
-    if screen.height() < height {
+    if current < height {
         ctx.send_viewport_cmd(ViewportCommand::InnerSize(vec2(screen.width(), height)));
     }
 }
