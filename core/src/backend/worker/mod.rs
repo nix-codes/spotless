@@ -530,7 +530,12 @@ mod tests {
             next(&backend, session),
             Some(Event::Session(SessionState::SigningIn))
         ));
-        std::thread::sleep(Duration::from_millis(300));
+        // Its page opens once it has the port, which a busy computer can
+        // take a while to give.
+        let until = std::time::Instant::now() + Duration::from_secs(5);
+        while *pages.lock().unwrap() < 2 && std::time::Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
         assert_eq!(*pages.lock().unwrap(), 2);
         let failed = |e: &Event| matches!(e, Event::Session(SessionState::Failed(_)));
         assert!(
