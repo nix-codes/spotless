@@ -346,7 +346,12 @@ impl Controller {
             self.state.player = PlayerSnapshot::default();
         }
         let ready = matches!(session, SessionState::Ready { .. });
+        let signed_out = matches!(session, SessionState::SignedOut)
+            && !matches!(self.state.session, SessionState::SignedOut);
         self.state.session = session;
+        if signed_out {
+            self.forget_account();
+        }
         if ready && self.state.browse.open {
             self.read_spotify_playlists();
         }

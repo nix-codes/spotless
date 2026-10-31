@@ -21,6 +21,7 @@ mod lastfm;
 mod persist;
 mod playback;
 mod playlists;
+mod session;
 mod spotify_lists;
 mod spotify_tab;
 mod sync;

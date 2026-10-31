@@ -8,6 +8,7 @@ use crate::backend::{Command, SessionState};
 use crate::browse::{Loadable, Removal, Undo, Unlisted};
 use crate::model::TrackRef;
 use crate::model::catalog::{Place, SpotifyPlaylist, SpotifyTarget};
+use crate::spotify::catalog::LIKED_SONGS;
 
 impl Controller {
     /// Reads, opens and edits the account's Spotify playlists.
@@ -86,6 +87,9 @@ impl Controller {
         undo: bool,
         result: Result<(), String>,
     ) {
+        if self.signed_out() {
+            return;
+        }
         match result {
             Ok(()) if undo => {
                 self.state.notice = Some(format!(
@@ -152,6 +156,9 @@ impl Controller {
     }
 
     pub(super) fn spotify_unlisted(&mut self, result: Result<Unlisted, String>, undo: bool) {
+        if self.signed_out() {
+            return;
+        }
         match result {
             Ok(unlisted) if undo => {
                 self.state.notice = Some(format!("Put “{}” back.", unlisted.name));
@@ -223,6 +230,25 @@ impl Controller {
         }
     }
 
+    /// Signed out: forgets what was read of the account, its playlists and
+    /// Liked Songs, and the UNDO of its last edit.
+    pub(super) fn forget_account(&mut self) {
+        let browse = &mut self.state.browse;
+        let theirs = |uri: &String| uri.starts_with("spotify:playlist:") || uri == LIKED_SONGS;
+        browse.spotify_playlists = None;
+        browse.spotify_open = None;
+        browse.undo = None;
+        browse.places.clear();
+        browse.albums.retain(|uri, _| !theirs(uri));
+        browse.expanded.retain(|uri| !theirs(uri));
+        self.mark_unsaved();
+    }
+
+    /// An answer about the account, from before it signed out, isn't kept.
+    fn signed_out(&self) -> bool {
+        matches!(self.state.session, SessionState::SignedOut)
+    }
+
     /// Reads the account's Spotify playlists again, as they may have
     /// changed on Spotify, still showing those read before meanwhile.
     pub(super) fn read_spotify_playlists(&mut self) {
@@ -242,6 +268,9 @@ impl Controller {
     /// those that may have changed: all but the ones shown, unless their
     /// number changed.
     pub(super) fn spotify_playlists_read(&mut self, result: Result<Vec<SpotifyPlaylist>, String>) {
+        if self.signed_out() {
+            return;
+        }
         let playlists = match result {
             Ok(playlists) => playlists,
             Err(error) => {
