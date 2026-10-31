@@ -281,14 +281,43 @@ pub fn save_history(paths: &Paths, history: &History) -> Result<()> {
 /// The Spotify tab is offered: built with the `spotify-tab` feature. While
 /// false it's never on, and Settings doesn't show it, as if it weren't
 /// there.
+/// Saves each of these by its `key`, and reads it back with `from_key`,
+/// which takes a key it doesn't know for the default.
+macro_rules! saved_by_key {
+    ($($kind:ty),*) => {$(
+        impl Serialize for $kind {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_str(self.key())
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $kind {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                String::deserialize(deserializer).map(|key| Self::from_key(Some(&key)))
+            }
+        }
+    )*};
+}
+
+saved_by_key!(
+    Phosphor,
+    Grouping,
+    DeckMedia,
+    DeckMeter,
+    VuFace,
+    VuCalibration
+);
+
 pub const SPOTIFY_TAB: bool = cfg!(feature = "spotify-tab");
 
-/// The settings both apps share. `web_client_id` goes through its own
-/// methods; keys the core doesn't know are kept as they are, among them
-/// each app's own settings ([`Settings::extra`]).
-#[derive(Clone, Debug)]
+/// The settings both apps share, as `settings.json` holds them. Keys the
+/// core doesn't know are kept as they are, among them each app's own
+/// settings ([`Settings::extra`]).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
     /// 0–100.
+    #[serde(deserialize_with = "percent")]
     pub volume: u8,
     pub repeat: bool,
     pub shuffle: bool,
@@ -304,6 +333,7 @@ pub struct Settings {
     pub audio_cache_mb: u64,
     /// The sound server's name for the chosen output; None follows the
     /// system's default.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub audio_output: Option<String>,
     /// The Spotify tab can be used: off (as at first) in Settings, it is
     /// never shown and Spotless never joins Spotify Connect. Always off
@@ -314,6 +344,7 @@ pub struct Settings {
     /// The colour of the lists and the display.
     pub phosphor: Phosphor,
     /// What the playlists' songs are put under headers by.
+    #[serde(rename = "song_headers")]
     pub grouping: Grouping,
     pub equaliser: Equaliser,
     /// The equaliser shows below the player (EQ).
@@ -342,7 +373,53 @@ pub struct Settings {
     /// The time shows what's left of the song, after a minus, instead of
     /// what has played (Winamp's time display mode).
     pub time_left: bool,
-    raw: Map<String, Value>,
+    /// The personal Spotify app search signs in with, through its own
+    /// methods.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    web_client_id: Option<String>,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            volume: 70,
+            repeat: false,
+            shuffle: false,
+            // On by default on phones, where the catalog is browsed by them.
+            covers: cfg!(target_os = "android"),
+            playlists: true,
+            levelling: false,
+            audio_cache: true,
+            audio_cache_mb: 2048,
+            audio_output: None,
+            spotify_tab_enabled: false,
+            spotify_tab: true,
+            phosphor: Phosphor::default(),
+            grouping: Grouping::default(),
+            equaliser: Equaliser::default(),
+            equaliser_shown: false,
+            equaliser_presets: Vec::new(),
+            deck_shown: false,
+            deck_media: DeckMedia::default(),
+            deck_meter: DeckMeter::default(),
+            vu_face: VuFace::default(),
+            vu_calibration: VuCalibration::default(),
+            cassette_mix: false,
+            vinyl_lp: false,
+            reel_slow: false,
+            cd_mini: false,
+            time_left: false,
+            web_client_id: None,
+            extra: Map::new(),
+        }
+    }
+}
+
+/// A percentage saved as any whole number, kept to 0–100.
+fn percent<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u8, D::Error> {
+    u64::deserialize(deserializer).map(|value| value.min(100) as u8)
 }
 
 /// The audio cache's sizes to choose from, in MB.
@@ -372,161 +449,80 @@ impl Settings {
 
     /// The personal Spotify app search signs in with.
     pub fn web_client_id(&self) -> Option<String> {
-        self.raw
-            .get("web_client_id")
-            .and_then(Value::as_str)
+        self.web_client_id
+            .as_deref()
             .map(str::trim)
             .filter(|id| !id.is_empty())
             .map(String::from)
     }
 
-    /// The file's keys as read, for the settings an app keeps of its own
-    /// (the desktop's window, skin and tray): the core keeps them, and
-    /// writes its own over them as it saves.
+    /// The file's keys the core doesn't know, for the settings an app
+    /// keeps of its own (the desktop's window, skin and tray).
     pub fn extra(&self) -> &Map<String, Value> {
-        &self.raw
+        &self.extra
     }
 
     /// The same, to change an app's own settings: they are saved with the
     /// rest.
     pub fn extra_mut(&mut self) -> &mut Map<String, Value> {
-        &mut self.raw
+        &mut self.extra
     }
 
     /// Sets or, with None, removes the personal app.
     pub fn set_web_client_id(&mut self, id: Option<String>) {
-        match id {
-            Some(id) => self.raw.insert("web_client_id".into(), id.into()),
-            None => self.raw.remove("web_client_id"),
-        };
+        self.web_client_id = id;
     }
 
+    /// The settings in `raw`. A value that can't be read (from a newer or
+    /// an older Spotless, or edited by hand) leaves only its own setting
+    /// as at first.
     fn from_raw(raw: Map<String, Value>) -> Self {
-        let flag = |key: &str| raw.get(key).and_then(Value::as_bool).unwrap_or(false);
-        Self {
-            volume: raw
-                .get("volume")
-                .and_then(Value::as_u64)
-                .map_or(70, |v| v.min(100) as u8),
-            repeat: flag("repeat"),
-            shuffle: flag("shuffle"),
-            // On by default on phones, where the catalog is browsed by them.
-            covers: raw
-                .get("covers")
-                .and_then(Value::as_bool)
-                .unwrap_or(cfg!(target_os = "android")),
-            playlists: raw
-                .get("playlists")
-                .and_then(Value::as_bool)
-                .unwrap_or(true),
-            levelling: flag("levelling"),
-            audio_cache: raw
-                .get("audio_cache")
-                .and_then(Value::as_bool)
-                .unwrap_or(true),
-            audio_cache_mb: raw
-                .get("audio_cache_mb")
-                .and_then(Value::as_u64)
-                .filter(|mb| AUDIO_CACHE_SIZES.contains(mb))
-                .unwrap_or(2048),
-            spotify_tab_enabled: SPOTIFY_TAB
-                && raw
-                    .get("spotify_tab_enabled")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-            spotify_tab: raw
-                .get("spotify_tab")
-                .and_then(Value::as_bool)
-                .unwrap_or(true),
-            audio_output: raw
-                .get("audio_output")
-                .and_then(Value::as_str)
-                .map(String::from),
-            phosphor: Phosphor::from_key(raw.get("phosphor").and_then(Value::as_str)),
-            grouping: Grouping::from_key(raw.get("song_headers").and_then(Value::as_str)),
-            equaliser: raw
-                .get("equaliser")
-                .and_then(|value| Equaliser::deserialize(value).ok())
-                .unwrap_or_default()
-                .clamped(),
-            equaliser_shown: flag("equaliser_shown"),
-            equaliser_presets: raw
-                .get("equaliser_presets")
-                .and_then(|value| Vec::<Preset>::deserialize(value).ok())
-                .unwrap_or_default()
-                .into_iter()
-                .map(|preset| Preset {
-                    bands: Equaliser {
-                        bands: preset.bands,
-                        ..Equaliser::OFF
-                    }
-                    .clamped()
-                    .bands,
-                    ..preset
-                })
-                .collect(),
-            deck_shown: flag("deck_shown"),
-            deck_media: DeckMedia::from_key(raw.get("deck_media").and_then(Value::as_str)),
-            deck_meter: DeckMeter::from_key(raw.get("deck_meter").and_then(Value::as_str)),
-            vu_face: VuFace::from_key(raw.get("vu_face").and_then(Value::as_str)),
-            vu_calibration: VuCalibration::from_key(
-                raw.get("vu_calibration").and_then(Value::as_str),
-            ),
-            cassette_mix: flag("cassette_mix"),
-            vinyl_lp: flag("vinyl_lp"),
-            reel_slow: flag("reel_slow"),
-            cd_mini: flag("cd_mini"),
-            time_left: flag("time_left"),
-            raw: raw.clone(),
-        }
+        let read = |raw: &Map<String, Value>| Self::deserialize(Value::Object(raw.clone()));
+        let settings = read(&raw).unwrap_or_else(|_| {
+            let mut readable = Map::new();
+            for (key, value) in raw {
+                readable.insert(key.clone(), value);
+                if read(&readable).is_err() {
+                    log::warn!("the setting {key} can't be read; it is as at first");
+                    readable.remove(&key);
+                }
+            }
+            read(&readable).unwrap_or_default()
+        });
+        settings.in_range()
     }
 
-    fn to_raw(&self) -> Map<String, Value> {
-        let mut raw = self.raw.clone();
-        raw.insert("volume".into(), self.volume.into());
-        raw.insert("repeat".into(), self.repeat.into());
-        raw.insert("shuffle".into(), self.shuffle.into());
-        raw.insert("covers".into(), self.covers.into());
-        raw.insert("playlists".into(), self.playlists.into());
-        raw.insert("levelling".into(), self.levelling.into());
-        raw.insert("audio_cache".into(), self.audio_cache.into());
-        raw.insert("audio_cache_mb".into(), self.audio_cache_mb.into());
-        raw.insert(
-            "spotify_tab_enabled".into(),
-            self.spotify_tab_enabled.into(),
-        );
-        raw.insert("spotify_tab".into(), self.spotify_tab.into());
-        match &self.audio_output {
-            Some(output) => raw.insert("audio_output".into(), output.clone().into()),
-            None => raw.remove("audio_output"),
+    /// The settings with each kept to what it can be.
+    fn in_range(self) -> Self {
+        let audio_cache_mb = if AUDIO_CACHE_SIZES.contains(&self.audio_cache_mb) {
+            self.audio_cache_mb
+        } else {
+            Self::default().audio_cache_mb
         };
-        raw.insert("phosphor".into(), self.phosphor.key().into());
-        raw.insert("song_headers".into(), self.grouping.key().into());
-        if let Ok(equaliser) = serde_json::to_value(self.equaliser) {
-            raw.insert("equaliser".into(), equaliser);
+        let equaliser_presets = self
+            .equaliser_presets
+            .into_iter()
+            .map(|preset| Preset {
+                bands: Equaliser {
+                    bands: preset.bands,
+                    ..Equaliser::OFF
+                }
+                .clamped()
+                .bands,
+                ..preset
+            })
+            .collect();
+        Self {
+            audio_cache_mb,
+            spotify_tab_enabled: SPOTIFY_TAB && self.spotify_tab_enabled,
+            equaliser: self.equaliser.clamped(),
+            equaliser_presets,
+            ..self
         }
-        raw.insert("equaliser_shown".into(), self.equaliser_shown.into());
-        if let Ok(presets) = serde_json::to_value(&self.equaliser_presets) {
-            raw.insert("equaliser_presets".into(), presets);
-        }
-        raw.insert("deck_shown".into(), self.deck_shown.into());
-        raw.insert("deck_media".into(), self.deck_media.key().into());
-        raw.insert("deck_meter".into(), self.deck_meter.key().into());
-        raw.insert("vu_face".into(), self.vu_face.key().into());
-        raw.insert("vu_calibration".into(), self.vu_calibration.key().into());
-        raw.insert("cassette_mix".into(), self.cassette_mix.into());
-        raw.insert("vinyl_lp".into(), self.vinyl_lp.into());
-        raw.insert("reel_slow".into(), self.reel_slow.into());
-        raw.insert("cd_mini".into(), self.cd_mini.into());
-        raw.insert("time_left".into(), self.time_left.into());
-        raw
     }
 
     pub fn save(&self, paths: &Paths) -> Result<()> {
-        write_atomically(
-            &paths.settings(),
-            &serde_json::to_vec_pretty(&self.to_raw())?,
-        )
+        write_atomically(&paths.settings(), &serde_json::to_vec_pretty(self)?)
     }
 }
 
@@ -622,6 +618,84 @@ mod tests {
         assert_eq!(raw["shuffle"], true);
     }
 
+    /// `settings.json` as Spotless wrote it before its settings were read
+    /// with serde, every setting away from where it starts, with two of
+    /// the desktop's own.
+    const WRITTEN_BEFORE: &str = r#"{
+        "audio_cache": false, "audio_cache_mb": 4096,
+        "audio_output": "alsa_output.usb", "cassette_mix": true,
+        "cd_mini": true, "covers": true, "deck_media": "vinyl",
+        "deck_meter": "vu", "deck_shown": true,
+        "equaliser": {"bands": [0.0, 3.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            "on": true, "preamp": -2.0},
+        "equaliser_presets": [{"bands": [0.0, 3.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            "name": "Mine"}],
+        "equaliser_shown": true, "levelling": true, "phosphor": "amber",
+        "playlists": false, "reel_slow": true, "repeat": true, "shuffle": true,
+        "song_headers": "album", "spotify_tab": false,
+        "spotify_tab_enabled": false, "time_left": true, "vinyl_lp": true,
+        "volume": 42, "vu_calibration": "-14", "vu_face": "cream",
+        "web_client_id": "abc", "window": {"x": 1}, "zoom": 1.5
+    }"#;
+
+    #[test]
+    fn a_file_written_before_reads_and_saves_back_the_same() {
+        let paths = temporary_paths("before");
+        std::fs::write(paths.settings(), WRITTEN_BEFORE).unwrap();
+        let settings = Settings::load(&paths);
+        assert_eq!(settings.volume, 42);
+        assert_eq!(settings.audio_output.as_deref(), Some("alsa_output.usb"));
+        assert_eq!(settings.phosphor, Phosphor::Amber);
+        assert_eq!(settings.grouping, Grouping::Album);
+        assert_eq!(settings.vu_calibration, VuCalibration::Minus14);
+        assert_eq!(settings.equaliser_presets[0].bands[1], 3.5);
+        assert_eq!(settings.web_client_id().as_deref(), Some("abc"));
+        assert_eq!(settings.extra().len(), 2, "only the desktop's are extra");
+        assert_eq!(settings.extra()["zoom"], 1.5);
+
+        settings.save(&paths).unwrap();
+        let saved: Value =
+            serde_json::from_slice(&std::fs::read(paths.settings()).unwrap()).unwrap();
+        let before: Value = serde_json::from_str(WRITTEN_BEFORE).unwrap();
+        assert_eq!(saved, before);
+    }
+
+    #[test]
+    fn a_value_that_cant_be_read_leaves_only_its_own_setting_as_at_first() {
+        let paths = temporary_paths("unreadable");
+        std::fs::write(
+            paths.settings(),
+            br#"{"volume": "loud", "phosphor": 5, "vu_face": "chrome",
+                "shuffle": true, "web_client_id": "abc", "zoom": 2}"#,
+        )
+        .unwrap();
+        let settings = Settings::load(&paths);
+        assert_eq!(settings.volume, 70);
+        assert_eq!(settings.phosphor, Phosphor::Green);
+        assert_eq!(
+            settings.vu_face,
+            VuFace::Display,
+            "a face this one doesn't know"
+        );
+        assert!(settings.shuffle);
+        assert_eq!(settings.web_client_id().as_deref(), Some("abc"));
+        assert_eq!(settings.extra()["zoom"], 2);
+        assert!(!paths.settings().with_extension("json.bad").exists());
+    }
+
+    #[test]
+    fn the_volume_and_the_spotify_tab_stay_in_range() {
+        let paths = temporary_paths("volume");
+        std::fs::write(
+            paths.settings(),
+            br#"{"volume": 300, "spotify_tab_enabled": true}"#,
+        )
+        .unwrap();
+        let settings = Settings::load(&paths);
+        assert_eq!(settings.volume, 100);
+        assert_eq!(settings.spotify_tab_enabled, SPOTIFY_TAB);
+    }
+
     #[test]
     fn playback_and_storage_settings_default_and_stay_in_range() {
         let paths = temporary_paths("ranges");
@@ -643,6 +717,8 @@ mod tests {
         assert!(!settings.equaliser_shown);
         let mut bands = [0.0; 10];
         bands[2] = -3.5;
+        // Not exact in binary: saved as 4.8, it reads back the same f32.
+        bands[5] = 4.8;
         settings.equaliser = Equaliser {
             on: true,
             preamp: -2.0,
