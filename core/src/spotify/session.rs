@@ -29,24 +29,45 @@ pub const CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
 pub const REDIRECT_URI: &str = "http://127.0.0.1:8898/login";
 pub const SCOPES: &[&str] = &["streaming"];
 
-/// The audio cache as the settings have it when the session starts: off, or
-/// up to its size.
-fn open_cache(paths: &Paths) -> Result<Cache> {
-    let settings = Settings::load(paths);
+/// The audio cache as the settings had it when Spotless started: changed
+/// since, it applies from the next start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AudioCache {
+    pub on: bool,
+    pub mb: u64,
+}
+
+impl From<&Settings> for AudioCache {
+    fn from(settings: &Settings) -> Self {
+        Self {
+            on: settings.audio_cache,
+            mb: settings.audio_cache_mb,
+        }
+    }
+}
+
+impl Default for AudioCache {
+    fn default() -> Self {
+        Self::from(&Settings::default())
+    }
+}
+
+/// The credential's cache, with the audio cache off or up to its size.
+fn open_cache(paths: &Paths, audio_cache: AudioCache) -> Result<Cache> {
     let audio = paths.audio_cache();
     Cache::new(
         Some(paths.config.as_path()),
         None,
-        settings.audio_cache.then_some(audio.as_path()),
-        Some(settings.audio_cache_mb * 1024 * 1024),
+        audio_cache.on.then_some(audio.as_path()),
+        Some(audio_cache.mb * 1024 * 1024),
     )
     .context("unable to open the playback cache")
 }
 
-fn new_session(paths: &Paths) -> Result<Session> {
+fn new_session(paths: &Paths, audio_cache: AudioCache) -> Result<Session> {
     Ok(Session::new(
         SessionConfig::default(),
-        Some(open_cache(paths)?),
+        Some(open_cache(paths, audio_cache)?),
     ))
 }
 
@@ -57,8 +78,12 @@ fn new_session(paths: &Paths) -> Result<Session> {
     not(feature = "probes"),
     allow(dead_code, reason = "only a probe uses it")
 )]
-pub fn unconnected(paths: &Paths, config: SessionConfig) -> Result<Option<(Session, Credentials)>> {
-    let cache = open_cache(paths)?;
+pub fn unconnected(
+    paths: &Paths,
+    audio_cache: AudioCache,
+    config: SessionConfig,
+) -> Result<Option<(Session, Credentials)>> {
+    let cache = open_cache(paths, audio_cache)?;
     let Some(credentials) = cache.credentials() else {
         return Ok(None);
     };
@@ -66,11 +91,11 @@ pub fn unconnected(paths: &Paths, config: SessionConfig) -> Result<Option<(Sessi
 }
 
 /// Reconnects with the saved credential, if there is one.
-pub async fn restore(paths: &Paths) -> Result<Option<Session>> {
-    let Some(credentials) = open_cache(paths)?.credentials() else {
+pub async fn restore(paths: &Paths, audio_cache: AudioCache) -> Result<Option<Session>> {
+    let Some(credentials) = open_cache(paths, audio_cache)?.credentials() else {
         return Ok(None);
     };
-    let session = new_session(paths)?;
+    let session = new_session(paths, audio_cache)?;
     session
         .connect(credentials, true)
         .await
@@ -88,7 +113,7 @@ pub fn refused(error: &anyhow::Error) -> bool {
 
 /// Opens Spotify's approval page, then connects and saves the reusable
 /// credential.
-pub async fn sign_in(paths: &Paths, browser: &Browser) -> Result<Session> {
+pub async fn sign_in(paths: &Paths, audio_cache: AudioCache, browser: &Browser) -> Result<Session> {
     let browser = Arc::clone(browser);
     let client = OAuthClientBuilder::new(CLIENT_ID, REDIRECT_URI, SCOPES.to_vec())
         .with_custom_message(&browser::oauth_message("Spotless is signed in."))
@@ -99,7 +124,7 @@ pub async fn sign_in(paths: &Paths, browser: &Browser) -> Result<Session> {
         .get_access_token_async()
         .await
         .map_err(|e| anyhow!("sign-in failed: {e}"))?;
-    let session = new_session(paths)?;
+    let session = new_session(paths, audio_cache)?;
     session
         .connect(Credentials::with_access_token(token.access_token), true)
         .await

@@ -27,6 +27,7 @@ use super::catalog;
 use super::queue::{Part, Queued, SpotifyQueue};
 use crate::model::{Source, TrackRef};
 use crate::paths::Paths;
+use crate::spotify::session::AudioCache;
 #[cfg(target_os = "android")]
 use crate::playback::aaudio::AAudioSink;
 use crate::playback::engine::Status;
@@ -65,6 +66,7 @@ impl Remote {
     /// changes.
     pub async fn start(
         paths: &Paths,
+        audio_cache: AudioCache,
         volume: u16,
         levelling: bool,
         link: Arc<AudioLink>,
@@ -74,7 +76,7 @@ impl Remote {
             device_id: device_id(paths),
             ..SessionConfig::default()
         };
-        let Some((session, credentials)) = super::session::unconnected(paths, config)? else {
+        let Some((session, credentials)) = super::session::unconnected(paths, audio_cache, config)? else {
             bail!("not signed in");
         };
         let mixer = mixer::find(Some("softvol")).context("soft volume mixer missing")?;

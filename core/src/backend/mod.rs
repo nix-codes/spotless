@@ -27,6 +27,7 @@ use crate::playback::link::AudioLink;
 use crate::playback::outputs::Output;
 use crate::playback::transport::Request;
 use crate::spotify::queue::SpotifyQueue;
+use crate::spotify::session::AudioCache;
 use crate::spotify::synced;
 use crate::spotify::webapi::SongsPage;
 
@@ -356,6 +357,8 @@ pub(crate) struct Start {
     pub spotify_tab: bool,
     /// The personal app search signs in with.
     pub search_app: Option<String>,
+    /// Every session's audio cache, until the next start.
+    pub audio_cache: AudioCache,
 }
 
 pub(crate) struct Backend {

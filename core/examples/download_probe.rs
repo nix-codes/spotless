@@ -18,6 +18,8 @@ use librespot_audio::AudioFile;
 use librespot_core::SpotifyUri;
 use librespot_metadata::audio::{AudioFileFormat, AudioItem};
 use spotless_core::paths::Paths;
+use spotless_core::settings::Settings;
+use spotless_core::spotify::session::AudioCache;
 use spotless_core::spotify::{catalog, session};
 
 /// Boards of Canada, Music Has the Right to Children.
@@ -30,7 +32,7 @@ async fn main() -> Result<()> {
         .nth(1)
         .unwrap_or_else(|| DEFAULT_ALBUM.into());
     let paths = Paths::new()?;
-    let Some(session) = session::restore(&paths).await? else {
+    let Some(session) = session::restore(&paths, audio_cache(&paths)).await? else {
         bail!("not signed in: start Spotless and sign in first");
     };
     let tracks = catalog::link_tracks(&session, &album).await?;
@@ -99,4 +101,9 @@ async fn main() -> Result<()> {
         }
         Ok(())
     })
+}
+
+/// The audio cache as the app's settings have it.
+fn audio_cache(paths: &Paths) -> AudioCache {
+    AudioCache::from(&Settings::load(paths))
 }

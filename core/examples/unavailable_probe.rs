@@ -30,6 +30,8 @@ use librespot_core::session::Session;
 use spotless_core::model::EntryId;
 use spotless_core::paths::Paths;
 use spotless_core::playback::engine::{Engine, EngineEvent, Status};
+use spotless_core::settings::Settings;
+use spotless_core::spotify::session::AudioCache;
 use spotless_core::spotify::{catalog, session};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -171,7 +173,8 @@ async fn connect(paths: &Paths, proxy: &Proxy) -> Result<Session> {
         proxy: Some(proxy.url.parse()?),
         ..SessionConfig::default()
     };
-    let Some((session, credentials)) = session::unconnected(paths, config)? else {
+    let Some((session, credentials)) = session::unconnected(paths, audio_cache(paths), config)?
+    else {
         bail!("not signed in: start Spotless and sign in first");
     };
     session.connect(credentials, true).await?;
@@ -392,4 +395,9 @@ async fn tunnel(
         task: task.abort_handle(),
     });
     Ok(())
+}
+
+/// The audio cache as the app's settings have it.
+fn audio_cache(paths: &Paths) -> AudioCache {
+    AudioCache::from(&Settings::load(paths))
 }

@@ -18,6 +18,8 @@
 use anyhow::{Context, Result, bail};
 use librespot_core::session::Session;
 use spotless_core::paths::Paths;
+use spotless_core::settings::Settings;
+use spotless_core::spotify::session::AudioCache;
 use spotless_core::spotify::{catalog, session};
 
 /// Boards of Canada.
@@ -37,7 +39,7 @@ async fn main() -> Result<()> {
     let query = args.next().unwrap_or_else(|| DEFAULT_QUERY.into());
 
     let paths = Paths::new()?;
-    let Some(session) = session::restore(&paths).await? else {
+    let Some(session) = session::restore(&paths, audio_cache(&paths)).await? else {
         bail!("not signed in: start Spotless and sign in first");
     };
     println!("Signed in as {}\n", session.username());
@@ -212,4 +214,9 @@ async fn search_with(token: &str, query: &str) -> Result<Answer> {
         }
     }
     Ok(Ok(lines))
+}
+
+/// The audio cache as the app's settings have it.
+fn audio_cache(paths: &Paths) -> AudioCache {
+    AudioCache::from(&Settings::load(paths))
 }

@@ -43,6 +43,7 @@ use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
 use crate::playback::link::AudioLink;
 use crate::playback::transport::Transport;
+use crate::spotify::session::AudioCache;
 use crate::store::{self, Settings};
 use lastfm::FoundFor;
 
@@ -99,6 +100,7 @@ impl Controller {
             levelling: settings.levelling,
             spotify_tab: settings.spotify_tab_shown(),
             search_app: settings.web_client_id(),
+            audio_cache: AudioCache::from(&settings),
         };
         let started = Backend::start(
             paths.clone(),
