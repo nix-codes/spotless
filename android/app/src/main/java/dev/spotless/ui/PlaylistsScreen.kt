@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,12 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -60,7 +67,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -89,6 +98,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import dev.spotless.core.Status
@@ -152,9 +162,18 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
             editing = it
             core.apply(Action.SelectPlaylist(it))
         }, { adding = !adding }, { if (it != editing) editing = null })
-        editing?.let { TabEditor(core, it, naming) { editing = null } }
+        // The editor unrolls from the tabs, and rolls back up; the last one
+        // stays drawn while it does.
+        var edited by remember { mutableStateOf<Pair<ULong, NameEdit?>?>(null) }
+        editing?.let { edited = it to naming }
+        AnimatedVisibility(editing != null, enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(), exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()) {
+            edited?.let { (id, name) -> TabEditor(core, id, name) { if (editing == id) editing = null } }
+        }
         if (adding && core.settings.spotifyTabClosed) AddBar(core) { adding = false }
-        Summary(core, queue, selected)
+        // Not under the tab editor, which it would pass for part of.
+        AnimatedVisibility(editing == null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            Summary(core, queue, selected)
+        }
         ErrorNote(core)
         if (queue != null) {
             QueueSongs(core, queue, selected, { picked = it }, Modifier.weight(1f))
@@ -335,8 +354,9 @@ private class TabDrag(val id: ULong, val from: Int, val lefts: List<Float>, val 
 }
 
 /**
- * The playlists' tabs. Holding one opens its editor, its name typed in the
- * tab itself; holding it and sliding moves it, the others making room.
+ * The playlists' tabs. Holding one or swiping down from it opens its
+ * editor, its name typed in the tab itself; holding it and sliding moves
+ * it, the others making room.
  */
 @Composable
 private fun Tabs(core: Core, naming: NameEdit?, edit: (ULong) -> Unit, add: () -> Unit, tapped: (ULong?) -> Unit) {
@@ -344,6 +364,8 @@ private fun Tabs(core: Core, naming: NameEdit?, edit: (ULong) -> Unit, add: () -
     val state = rememberLazyListState()
     var drag by remember { mutableStateOf<TabDrag?>(null) }
     val gap = with(LocalDensity.current) { 4.dp.toPx() }
+    // How far down a swipe on a tab opens its editor.
+    val pull = with(LocalDensity.current) { 24.dp.toPx() }
     val haptics = LocalHapticFeedback.current
     // The viewed tab in sight, or the one held: there already on opening,
     // glided to after.
@@ -394,6 +416,22 @@ private fun Tabs(core: Core, naming: NameEdit?, edit: (ULong) -> Unit, add: () -
                     .fillMaxHeight()
                     .zIndex(if (held != null) 1f else 0f)
                     .graphicsLayer { translationX = held?.dx ?: slide }
+                    // A swipe down opens its editor too, as holding it does.
+                    .pointerInput(tab.id) {
+                        var pulled = 0f
+                        detectVerticalDragGestures(
+                            onDragStart = { pulled = 0f },
+                            onVerticalDrag = { change, amount ->
+                                change.consume()
+                                val was = pulled
+                                pulled += amount
+                                if (was < pull && pulled >= pull) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    edit(tab.id)
+                                }
+                            },
+                        )
+                    }
                     .pointerInput(tab.id, index, tabs.size) {
                         detectDragGesturesAfterLongPress(
                             onDragStart = {
@@ -532,6 +570,43 @@ private fun AddBar(core: Core, done: () -> Unit) {
     }
 }
 
+/**
+ * A panel that a swipe up closes: it follows the finger and fades, and
+ * springs back if let go short of that. Screen readers offer Close.
+ */
+@Composable
+private fun Modifier.swipesUp(close: () -> Unit): Modifier {
+    val offset = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val far = with(LocalDensity.current) { 48.dp.toPx() }
+    return semantics { customActions = listOf(CustomAccessibilityAction("Close") { close(); true }) }.graphicsLayer {
+        translationY = offset.value
+        alpha = 1f - (-offset.value / (3 * far)).coerceIn(0f, 0.7f)
+    }.pointerInput(close) {
+        detectVerticalDragGestures(
+            onVerticalDrag = { change, amount ->
+                change.consume()
+                scope.launch { offset.snapTo((offset.value + amount).coerceAtMost(0f)) }
+            },
+            onDragEnd = { if (offset.value < -far) close() else scope.launch { offset.animateTo(0f) } },
+            onDragCancel = { scope.launch { offset.animateTo(0f) } },
+        )
+    }
+}
+
+/** The bar centred on a swipeable panel's bottom edge, where it's pushed up. */
+private fun Modifier.grabHandle() = drawWithContent {
+    drawContent()
+    val width = 36.dp.toPx()
+    val height = 4.dp.toPx()
+    drawRoundRect(
+        Classic.label,
+        Offset((size.width - width) / 2, size.height - 6.dp.toPx() - height),
+        Size(width, height),
+        CornerRadius(height / 2),
+    )
+}
+
 /** The held tab's name as typed: in the tab, kept by the editor. */
 private class NameEdit(val id: ULong, name: String) {
     var name by mutableStateOf(name)
@@ -607,7 +682,8 @@ private fun TabEditor(core: Core, id: ULong, naming: NameEdit?, done: () -> Unit
     val synced = tab.sync != null
     val signedIn = core.session is Session.Ready
     Column(
-        Modifier.fillMaxWidth().padding(8.dp).background(Classic.frame).bevel().padding(8.dp),
+        Modifier.swipesUp(done).fillMaxWidth().padding(8.dp).background(Classic.frame).bevel().grabHandle()
+            .padding(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 18.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (help) {
@@ -672,10 +748,6 @@ private fun TabEditor(core: Core, id: ULong, naming: NameEdit?, done: () -> Unit
                     GlyphButton(Glyph.Trash, "Delete the playlist", delete, Modifier.width(48.dp))
                 }
             }
-            GlyphButton(Glyph.Close, "Done", {
-                keep()
-                done()
-            }, Modifier.width(48.dp))
         }
         // Only what needs a look: changes not yet sent, or refused.
         when (val sync = tab.sync) {
@@ -726,6 +798,7 @@ private fun TabHelp(ok: () -> Unit) {
     Line({ Word("EXPORT…") }, "Makes a new playlist on Spotify with its songs, once. Changing the tab later doesn't change it.")
     Line({ Mark(Glyph.Trash) }, "Deletes the playlist. A synced one has CLOSE TAB instead: it stays on Spotify, and Browse's YOUR SPOTIFY opens it again.")
     Line({ Word("MOVE") }, "Hold a tab and slide it.")
+    Line({ Word("CLOSE") }, "Swipe this panel up, or go back.")
     Row {
         Box(Modifier.weight(1f))
         TextButton("OK", ok, Modifier.width(72.dp))
@@ -740,7 +813,8 @@ private fun TabHelp(ok: () -> Unit) {
 private fun SpotifyTabEditor(core: Core, id: ULong, at: Int, done: () -> Unit) {
     val tabs = core.tabs.tabs
     Column(
-        Modifier.fillMaxWidth().padding(8.dp).background(Classic.frame).bevel().padding(8.dp),
+        Modifier.swipesUp(done).fillMaxWidth().padding(8.dp).background(Classic.frame).bevel().grabHandle()
+            .padding(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 18.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         BasicText(
@@ -755,7 +829,6 @@ private fun SpotifyTabEditor(core: Core, id: ULong, at: Int, done: () -> Unit) {
                 core.apply(Action.ClosePlaylist(id))
                 done()
             })
-            GlyphButton(Glyph.Close, "Done", done, Modifier.width(48.dp))
         }
     }
 }
