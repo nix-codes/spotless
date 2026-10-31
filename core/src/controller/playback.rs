@@ -96,7 +96,7 @@ impl Controller {
             Action::PlayNow(track) => self.play_now(track, position),
             _ => return,
         };
-        self.changed(requests);
+        self.carry_out(requests);
     }
 
     /// What the engine tells of the player.
@@ -128,20 +128,20 @@ impl Controller {
             .state
             .transport
             .followed(&mut self.state.library, entry);
-        self.changed(requests);
+        self.carry_out(requests);
     }
 
     /// The engine finished a song with nothing to follow.
     pub(super) fn song_ended(&mut self) {
         let requests = self.state.transport.ended(&mut self.state.library);
-        self.changed(requests);
+        self.carry_out(requests);
     }
 
     /// The loaded song can't be played, and not for want of a connection.
     pub(super) fn song_unavailable(&mut self) {
         self.resuming = false;
         let requests = self.state.transport.unavailable(&mut self.state.library);
-        self.changed(requests);
+        self.carry_out(requests);
     }
 
     /// The playing song stopped at `position_ms`, or didn't load, for want
@@ -170,7 +170,7 @@ impl Controller {
             position_ms,
             ..PlayerSnapshot::default()
         };
-        self.changed(requests);
+        self.carry_out(requests);
     }
 
     /// Plays the song that waited offline, from where it stopped.
@@ -179,7 +179,7 @@ impl Controller {
         self.resuming = true;
         self.state.player.status = Status::Loading;
         let requests = self.state.transport.resume(&mut self.state.library);
-        self.changed(requests);
+        self.carry_out(requests);
     }
 
     /// Inserts `track` after the target playlist's current song and plays it.
@@ -208,7 +208,7 @@ impl Controller {
     }
 
     /// The model changed: send what the engine must do, and save soon.
-    pub(super) fn changed(&mut self, requests: Vec<Request>) {
+    pub(super) fn carry_out(&mut self, requests: Vec<Request>) {
         for request in requests {
             // Until the engine says more, the player shows the song
             // loading, not the one it had.

@@ -15,7 +15,7 @@ impl Controller {
         match SAVE_DELAY.checked_sub(since.elapsed()) {
             Some(wait) if !wait.is_zero() => Some(wait),
             _ => {
-                self.store();
+                self.write_files();
                 self.sync_all(false);
                 None
             }
@@ -29,11 +29,12 @@ impl Controller {
     /// Saves now, and sends the synced playlists' positions, as the app
     /// closes or goes to the background.
     pub fn save(&mut self) {
-        self.store();
+        self.write_files();
         self.sync_all(true);
     }
 
-    pub(super) fn store(&mut self) {
+    /// Writes the playlists, the settings and the history to their files.
+    pub(super) fn write_files(&mut self) {
         self.unsaved = None;
         let state = &mut self.state;
         state

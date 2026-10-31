@@ -104,7 +104,7 @@ impl Controller {
             Action::MoveTo(from, to, entries) => return self.move_tracks(from, to, entries),
             _ => return,
         };
-        self.changed(requests);
+        self.carry_out(requests);
     }
 
     /// Adds songs to a playlist before the row at `at`, or at the end. The
@@ -134,7 +134,7 @@ impl Controller {
         });
         state.browse.flash(ids);
         let requests = state.transport.edited(&mut state.library, playlist);
-        self.changed(requests);
+        self.carry_out(requests);
         true
     }
 
@@ -172,7 +172,7 @@ impl Controller {
             n => format!("Moved {n} songs to {name}"),
         });
         let requests = state.transport.edited(&mut state.library, from);
-        self.changed(requests);
+        self.carry_out(requests);
     }
 
     /// Copies songs to come of the account's queue to a playlist and takes

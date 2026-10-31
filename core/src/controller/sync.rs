@@ -324,7 +324,7 @@ impl Controller {
         }
 
         let requests = state.transport.edited(&mut state.library, id);
-        self.changed(requests);
+        self.carry_out(requests);
         self.state.sync.insert(id, SyncStatus::UpToDate);
         self.sync_if_due(id, false, again);
     }
