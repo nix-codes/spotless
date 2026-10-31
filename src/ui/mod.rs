@@ -528,6 +528,10 @@ fn body_contents(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Ac
             ui.label(dim(
                 "Approve Spotless in the Spotify page that opened, then come back here.",
             ));
+            // The page may have been closed: a new one takes its place.
+            if text_button(ui, &palette, "OPEN THE PAGE AGAIN", false, true).clicked() {
+                actions.push(Action::SignIn);
+            }
         }
         SessionState::Failed(message) => {
             ui.label(heading("Couldn't connect"));

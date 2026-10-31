@@ -68,6 +68,15 @@ pub(super) struct Worker {
     /// Where the watches tell, and where `run` hears it.
     devices: UnboundedSender<Option<Playing>>,
     device_reports: Option<UnboundedReceiver<Option<Playing>>>,
+    /// The sign-in waiting for the browser's approval, by its number: it
+    /// runs beside the commands, and a new one or signing out drops it.
+    signing_in: Option<(u64, tokio::task::JoinHandle<()>)>,
+    /// The number the last sign-in was given.
+    sign_ins: u64,
+    /// Where a sign-in tells how it went, by its number, and where `run`
+    /// hears it.
+    signed_in: UnboundedSender<(u64, anyhow::Result<Session>)>,
+    sign_in_reports: Option<UnboundedReceiver<(u64, anyhow::Result<Session>)>>,
     /// The Spotify tab's Connect device (`connect.rs`), with the
     /// `spotify-tab` feature.
     connect: Connect,
@@ -97,6 +106,7 @@ impl Worker {
         emit: Emit,
     ) -> Self {
         let (devices, device_reports) = unbounded_channel();
+        let (signed_in, sign_in_reports) = unbounded_channel();
         let found = Arc::new(tokio::sync::Mutex::new(lastfm::found::Found::load(&paths)));
         Self {
             paths,
@@ -114,6 +124,10 @@ impl Worker {
             elsewhere: None,
             devices,
             device_reports: Some(device_reports),
+            signing_in: None,
+            sign_ins: 0,
+            signed_in,
+            sign_in_reports: Some(sign_in_reports),
             web: None,
             search_approval: Arc::default(),
             found,
@@ -146,6 +160,7 @@ impl Worker {
         let mut check = tokio::time::interval(CHECK_SESSION);
         check.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut device_reports = self.device_reports.take().expect("run once");
+        let mut sign_in_reports = self.sign_in_reports.take().expect("run once");
         let mut remote_reports = self.connect.take_reports();
         loop {
             let connect_due = self.connect_due();
@@ -166,6 +181,7 @@ impl Worker {
                     self.restart_remote_if_needed();
                 }
                 Some(playing) = device_reports.recv() => self.elsewhere_changed(playing),
+                Some((number, result)) = sign_in_reports.recv() => self.signed_in(number, result),
                 Some(report) = remote_reports.recv() => self.remote_report(report),
                 () = tokio::time::sleep_until(connect_due.unwrap_or_else(tokio::time::Instant::now)),
                     if connect_due.is_some() => self.connect_step(),
@@ -342,23 +358,57 @@ impl Worker {
         }
     }
 
+    /// Opens the approval page and waits for it beside the commands. A
+    /// sign-in still waiting is given up first: its page may have been
+    /// closed, and this one opens a new page.
+    async fn sign_in(&mut self) {
+        self.give_up_sign_in().await;
+        self.retry.started();
+        (self.emit)(Event::Session(SessionState::SigningIn));
+        self.sign_ins += 1;
+        let number = self.sign_ins;
+        let paths = self.paths.clone();
+        let browser = Arc::clone(&self.browser);
+        let report = self.signed_in.clone();
+        let task = tokio::spawn(async move {
+            let _ = report.send((number, session::sign_in(&paths, &browser).await));
+        });
+        self.signing_in = Some((number, task));
+    }
+
+    /// Stops waiting for the sign-in's approval, if one is waited for. Its
+    /// port is free once this returns, for a new sign-in to listen on.
+    async fn give_up_sign_in(&mut self) {
+        if let Some((_, task)) = self.signing_in.take() {
+            task.abort();
+            let _ = task.await;
+        }
+    }
+
+    /// A sign-in finished; one given up since is let go.
+    fn signed_in(&mut self, number: u64, result: anyhow::Result<Session>) {
+        if self.signing_in.as_ref().is_none_or(|(n, _)| *n != number) {
+            if let Ok(session) = result {
+                session.shutdown();
+            }
+            return;
+        }
+        self.signing_in = None;
+        match result {
+            Ok(session) => {
+                self.ready(session);
+                // Search's approval follows at once, as one sign-in.
+                self.approve_search_now();
+            }
+            Err(error) => (self.emit)(Event::Session(SessionState::Failed(format!("{error:#}")))),
+        }
+    }
+
     async fn handle(&mut self, command: Command) {
         match command {
-            Command::SignIn => {
-                self.retry.started();
-                (self.emit)(Event::Session(SessionState::SigningIn));
-                match session::sign_in(&self.paths, &self.browser).await {
-                    Ok(session) => {
-                        self.ready(session);
-                        // Search's approval follows at once, as one sign-in.
-                        self.approve_search_now();
-                    }
-                    Err(error) => {
-                        (self.emit)(Event::Session(SessionState::Failed(format!("{error:#}"))))
-                    }
-                }
-            }
+            Command::SignIn => self.sign_in().await,
             Command::SignOut => {
+                self.give_up_sign_in().await;
                 session::sign_out(&self.paths);
                 self.drop_session(SessionState::SignedOut);
             }
@@ -411,5 +461,85 @@ impl Worker {
             Command::MeasureStorage | Command::ClearCache(_) => self.handle_storage(command),
             Command::SpotifyTab(_) | Command::Spotify(_) => self.handle_spotify_tab(command),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    use super::super::{Backend, Command, Event, SessionState};
+    use crate::paths::Paths;
+
+    /// The next event that `wanted` takes, within a few seconds.
+    fn next(backend: &Backend, wanted: impl Fn(&Event) -> bool) -> Option<Event> {
+        let until = std::time::Instant::now() + Duration::from_secs(5);
+        while let Some(wait) = until.checked_duration_since(std::time::Instant::now()) {
+            match backend.events.recv_timeout(wait) {
+                Ok(event) if wanted(&event) => return Some(event),
+                Ok(_) => {}
+                Err(_) => return None,
+            }
+        }
+        None
+    }
+
+    // One test: a sign-in listens on playback's port, which only one can.
+    #[test]
+    fn a_sign_in_waits_beside_the_commands_and_can_start_over_or_be_given_up() {
+        let root = std::env::temp_dir().join(format!("spotless-sign-in-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let paths = Paths::from_dirs(root.join("config"), root.join("cache")).unwrap();
+        let pages = std::sync::Arc::new(Mutex::new(0));
+        let opened = std::sync::Arc::clone(&pages);
+        // The browser opens nothing: as if its tab were closed.
+        let browser: crate::browser::Browser = std::sync::Arc::new(move |_: &str| {
+            *opened.lock().unwrap() += 1;
+        });
+        let backend = Backend::start(
+            paths,
+            0,
+            false,
+            false,
+            browser,
+            std::sync::Arc::default(),
+            || {},
+        )
+        .unwrap();
+        let session = |event: &Event| matches!(event, Event::Session(_));
+        let signed_out = |e: &Event| matches!(e, Event::Session(SessionState::SignedOut));
+        assert!(next(&backend, signed_out).is_some());
+
+        backend.send(Command::SignIn);
+        assert!(matches!(
+            next(&backend, session),
+            Some(Event::Session(SessionState::SigningIn))
+        ));
+        backend.send(Command::MeasureStorage);
+        assert!(
+            next(&backend, |e| matches!(e, Event::Storage(_))).is_some(),
+            "the commands go on while the sign-in waits"
+        );
+
+        // Signing in again opens a new page: the first gave its port up.
+        backend.send(Command::SignIn);
+        assert!(matches!(
+            next(&backend, session),
+            Some(Event::Session(SessionState::SigningIn))
+        ));
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(*pages.lock().unwrap(), 2);
+        let failed = |e: &Event| matches!(e, Event::Session(SessionState::Failed(_)));
+        assert!(
+            next(&backend, failed).is_none(),
+            "the second sign-in listens"
+        );
+
+        backend.send(Command::SignOut);
+        assert!(matches!(
+            next(&backend, session),
+            Some(Event::Session(SessionState::SignedOut))
+        ));
     }
 }

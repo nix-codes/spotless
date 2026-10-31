@@ -31,7 +31,9 @@ unicode-normalization = "0.1"
 # refuses an audio key), plus what the Android port needs: the
 # android-as-linux feature, OAuthClientBuilder::with_url_handler, and audio
 # keys asked for again when their answer is late; songs downloaded ahead
-# to their end, not just a few seconds ahead of playback; and, in Connect,
+# to their end, not just a few seconds ahead of playback; a sign-in that
+# waits for the browser without holding a thread, so it can be given up;
+# and, in Connect,
 # a song playing from the queue kept current when playback comes here
 # while shuffling, and play and pause shown as they happen, even in quick
 # succession. rustls everywhere, so there is one TLS stack and no OpenSSL.
@@ -40,15 +42,15 @@ unicode-normalization = "0.1"
 # src/playback/aaudio.rs), not librespot's, which panics when there is no
 # output device. Same rodio and
 # cpal versions as librespot's backend.
-librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false, features = ["rustls-tls-native-roots"] }
-librespot-playback = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false, features = ["rustls-tls-native-roots"] }
-librespot-metadata = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "4c73fb5b25c52d263f0e97a76e56342d3f0a36ef", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-playback = { git = "https://github.com/nix-codes/librespot", rev = "4c73fb5b25c52d263f0e97a76e56342d3f0a36ef", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-metadata = { git = "https://github.com/nix-codes/librespot", rev = "4c73fb5b25c52d263f0e97a76e56342d3f0a36ef", default-features = false, features = ["rustls-tls-native-roots"] }
 # Only for the Spotify tab (`spotify-tab`, below).
-librespot-connect = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
-librespot-oauth = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-connect = { git = "https://github.com/nix-codes/librespot", rev = "4c73fb5b25c52d263f0e97a76e56342d3f0a36ef", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
+librespot-oauth = { git = "https://github.com/nix-codes/librespot", rev = "4c73fb5b25c52d263f0e97a76e56342d3f0a36ef", default-features = false, features = ["rustls-tls-native-roots"] }
 # The metadata service's own messages, to read many albums or songs in one
 # request (librespot's Metadata::get asks for one at a time).
-librespot-protocol = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false }
+librespot-protocol = { git = "https://github.com/nix-codes/librespot", rev = "4c73fb5b25c52d263f0e97a76e56342d3f0a36ef", default-features = false }
 protobuf = "3.7"
 futures-util = "0.3"
 
@@ -67,13 +69,13 @@ required-features = ["spotify-tab"]
 # The probes in examples/ log to the terminal.
 env_logger.workspace = true
 # download_probe reads a song's file the way the player does.
-librespot-audio = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-audio = { git = "https://github.com/nix-codes/librespot", rev = "4c73fb5b25c52d263f0e97a76e56342d3f0a36ef", default-features = false, features = ["rustls-tls-native-roots"] }
 
 # On Android, librespot presents itself as the Linux desktop client, whose
 # credential Spotless signs in with: as the Android client, Spotify takes the
 # sign-in and then refuses every request.
 [target.'cfg(target_os = "android")'.dependencies]
-librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false, features = ["rustls-tls-native-roots", "android-as-linux"] }
+librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "4c73fb5b25c52d263f0e97a76e56342d3f0a36ef", default-features = false, features = ["rustls-tls-native-roots", "android-as-linux"] }
 # Audio goes straight to AAudio (src/playback/aaudio.rs), through the same
 # ndk crate cpal uses (API 28 for the usage and content type; the app needs
 # 29).

@@ -55,11 +55,16 @@ fun SignInScreen(core: Core) {
                 "to approve it; come back here when it says you're signed in.",
             style = body(15.sp, Classic.chrome, FontWeight.Normal).copy(lineHeight = 23.sp),
         )
+        // While waiting, the page may have been closed: a new one takes
+        // its place.
         TextButton(
-            if (session is Session.Failed) "SIGN IN AGAIN" else "SIGN IN WITH SPOTIFY",
+            when (session) {
+                Session.SigningIn -> "OPEN THE PAGE AGAIN"
+                is Session.Failed -> "SIGN IN AGAIN"
+                else -> "SIGN IN WITH SPOTIFY"
+            },
             { core.apply(Action.SignIn) },
             Modifier.fillMaxWidth().height(56.dp),
-            enabled = session != Session.SigningIn,
         )
     }
 }
