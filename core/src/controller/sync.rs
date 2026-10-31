@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::Controller;
+use crate::action::Action;
 use crate::backend::{Command, SessionState};
 use crate::model::sync::{EPOCH, ItemId, Link, Position, merge};
 use crate::model::{AlbumRef, Entry, EntryId, PlaylistId, TrackRef};
@@ -51,6 +52,17 @@ pub(super) struct Syncing {
 }
 
 impl Controller {
+    /// Syncs a playlist or stops, and opens the Spotless folder's.
+    pub(super) fn apply_sync(&mut self, action: Action) {
+        match action {
+            Action::SetSync(list, on) => self.set_sync(list, on, false),
+            Action::ReplaceSynced(list) => self.set_sync(list, true, true),
+            Action::DismissSyncNameTaken => self.state.sync_name_taken = None,
+            Action::OpenSynced(uri, name) => self.open_synced(uri, name),
+            _ => {}
+        }
+    }
+
     /// Sends the synced playlists' changes, and their positions when due.
     /// `leaving`: the app closes or goes to the background, so positions
     /// are written whatever plays.
