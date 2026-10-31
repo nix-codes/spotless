@@ -22,6 +22,36 @@ android/README.md is building the Android app.
 A change to `core/`, `Cargo.toml`, `Cargo.lock` or `rust-toolchain.toml`
 reaches both apps.
 
+## Architecture
+
+How the parts fit, to keep to as features are added:
+
+- The core has no interface. An app reads the controller's `State`,
+  hands it `Action`s and calls `receive` and `tick` when woken; it never
+  talks to the backend (`Command` and `Event` are the core's own).
+- The controller is a file per part under `core/src/controller/`
+  (playback, playlists, browse, sync…); `mod.rs` only routes. Its
+  `apply` and `receive` name every action and event, with no catch-all:
+  a new one goes in the router and in its part's file, tests in
+  `controller/tests/` beside the others.
+- Rules that decide something (what plays next, how a sync merges, when
+  to reconnect) are plain code that changes the model and returns what to
+  do, like `Transport` and `Retry`, tested without a network or a clock.
+  The worker (`backend/worker/`, a file per part) only carries them out.
+- No process-wide mutable state: what the controller and the audio share
+  is handed to them (`AudioLink`), so each controller, test and
+  screenshot has its own.
+- The core's `Settings` holds what both apps use; an app's own settings
+  are its own type, kept in the same file through `Settings::extra`
+  (the desktop's: `src/settings.rs`).
+- A new core action must be named in `android/ffi`'s `on_android`, as
+  one the app has or not yet; the tests don't compile otherwise. The
+  FFI's types are shaped for Kotlin, not copied from the core.
+- The Spotify tab's Connect device is built only with the `spotify-tab`
+  feature; CI checks it builds and passes both ways.
+- What the apps don't use stays private to the core, and no public type
+  is left unnameable outside it.
+
 ## Checks
 
 What CI runs (`.github/workflows/build.yml`), to run before committing:
