@@ -655,6 +655,300 @@ mod tests {
 
     use super::*;
 
+    /// Whether the app has a way to ask for this action of the core's. Every
+    /// one is named here, so an action new to the core doesn't compile (in
+    /// the tests, as CI builds them) until it's given an [`Action`] or put
+    /// among those the app doesn't have yet: new features come to the
+    /// desktop first.
+    fn on_android(action: &spotless_core::action::Action) -> bool {
+        use spotless_core::action::Action as Core;
+        match action {
+            Core::SignIn
+            | Core::SignOut
+            | Core::SetSearchApp(..)
+            | Core::SetLevelling(..)
+            | Core::SetPhosphor(..)
+            | Core::SetGrouping(..)
+            | Core::ConnectLastFm(..)
+            | Core::DisconnectLastFm
+            | Core::SetLoved { .. }
+            | Core::SetAudioCache(..)
+            | Core::SetAudioCacheSize(..)
+            | Core::MeasureStorage
+            | Core::NetworkBack
+            | Core::ClearCache(..)
+            | Core::AddLink(..)
+            | Core::Play
+            | Core::TogglePause
+            | Core::Stop
+            | Core::ToggleStopAfter
+            | Core::Release
+            | Core::Next
+            | Core::Previous
+            | Core::Seek(..)
+            | Core::Volume(..)
+            | Core::SetShuffle(..)
+            | Core::SetRepeat(..)
+            | Core::PlayEntry(..)
+            | Core::Remove(..)
+            | Core::ClearSpotify
+            | Core::TakeOverSpotify
+            | Core::OpenSpotifyTab
+            | Core::SetSpotifyTabEnabled(..)
+            | Core::Move(..)
+            | Core::ToggleMarks(..)
+            | Core::SelectPlaylist(..)
+            | Core::NewPlaylist
+            | Core::NewPlaylistWith(..)
+            | Core::ClosePlaylist(..)
+            | Core::RenamePlaylist(..)
+            | Core::MovePlaylist(..)
+            | Core::SetSync(..)
+            | Core::ReplaceSynced(..)
+            | Core::DismissSyncNameTaken
+            | Core::OpenSynced(..)
+            | Core::ToggleEqualiser
+            | Core::SetEqualiser(..)
+            | Core::ToggleTimeLeft
+            | Core::ToggleBrowse
+            | Core::CloseBrowse
+            | Core::Back
+            | Core::Search(..)
+            | Core::MoreSongs(..)
+            | Core::Find(..)
+            | Core::ForgetSearch(..)
+            | Core::OpenArtist(..)
+            | Core::ToggleAlbum(..)
+            | Core::ExpandAlbums(..)
+            | Core::SetTab(..)
+            | Core::ShowSimilar(..)
+            | Core::ShowPopular
+            | Core::OpenSimilar(..)
+            | Core::ToggleSort
+            | Core::SetTarget(..)
+            | Core::ToggleCovers
+            | Core::AddTracks(..)
+            | Core::AddAlbum(..)
+            | Core::AddAll
+            | Core::PlayNow(..)
+            | Core::AddLoved(..)
+            | Core::PlayLoved(..)
+            | Core::ShowBrowseTab(..)
+            | Core::OpenSpotifyPlaylist(..)
+            | Core::RemoveFromSpotify(..)
+            | Core::UnlistSpotifyPlaylist(..)
+            | Core::UndoSpotifyRemoval
+            | Core::ReadSpotifyPlaylists
+            | Core::CopyToSpotify(..)
+            | Core::CopyTo(..)
+            | Core::MoveTo(..) => true,
+            // Not in the app yet.
+            Core::ListOutputs
+            | Core::SetOutput(..)
+            | Core::TogglePlaylists
+            | Core::SaveEqualiserPreset(..)
+            | Core::DeleteEqualiserPreset(..)
+            | Core::ToggleDeck
+            | Core::SetDeckMedia(..)
+            | Core::SetDeckMeter(..)
+            | Core::SetVuFace(..)
+            | Core::SetVuCalibration(..)
+            | Core::SetCassetteMix(..)
+            | Core::SetVinylLp(..)
+            | Core::SetReelSlow(..)
+            | Core::SetCdMini(..)
+            | Core::AddAlbums(..)
+            | Core::DropTracks(..)
+            | Core::DropAlbum(..)
+            | Core::DropLoved(..) => false,
+        }
+    }
+
+    fn artist() -> Artist {
+        Artist {
+            uri: "spotify:artist:a".into(),
+            name: "An Artist".into(),
+            image: None,
+        }
+    }
+
+    fn track() -> Track {
+        Track {
+            uri: "spotify:track:t".into(),
+            title: "A Song".into(),
+            artists: vec![artist()],
+            album: Album {
+                uri: "spotify:album:b".into(),
+                name: "An Album".into(),
+            },
+            duration_ms: 1000,
+            source: None,
+        }
+    }
+
+    fn loved() -> LovedSong {
+        LovedSong {
+            artist: "An Artist".into(),
+            title: "A Song".into(),
+            date: 0,
+        }
+    }
+
+    #[test]
+    fn every_action_of_the_apps_is_one_the_core_has_for_android() {
+        let examples = [
+            Action::SignIn,
+            Action::SignOut,
+            Action::SetSearchApp {
+                client_id: "x".into(),
+            },
+            Action::SetLevelling { on: true },
+            Action::ToggleEqualiser,
+            Action::SetEqualiser {
+                equaliser: Equaliser {
+                    on: true,
+                    preamp: 0.0,
+                    bands: vec![0.0; 10],
+                },
+            },
+            Action::SetPhosphor { key: "x".into() },
+            Action::SetGrouping { key: "x".into() },
+            Action::ConnectLastFm {
+                api_key: "x".into(),
+                secret: "x".into(),
+            },
+            Action::DisconnectLastFm,
+            Action::SetLoved {
+                artist: "x".into(),
+                title: "x".into(),
+                loved: true,
+            },
+            Action::SetAudioCache { on: true },
+            Action::SetAudioCacheSize { mb: 1 },
+            Action::MeasureStorage,
+            Action::NetworkBack,
+            Action::ClearCache {
+                store: Store::Audio,
+            },
+            Action::AddLink { link: "x".into() },
+            Action::Play,
+            Action::TogglePause,
+            Action::Stop,
+            Action::ToggleStopAfter,
+            Action::ToggleTimeLeft,
+            Action::Release,
+            Action::Next,
+            Action::Previous,
+            Action::Seek { position_ms: 1 },
+            Action::Volume { percent: 50 },
+            Action::SetShuffle { on: true },
+            Action::SetRepeat { on: true },
+            Action::PlayEntry {
+                playlist: 1,
+                entry: 1,
+            },
+            Action::Remove {
+                playlist: 1,
+                entries: vec![1],
+            },
+            Action::Move {
+                entries: vec![1],
+                before: 1,
+            },
+            Action::ToggleMarks { entries: vec![1] },
+            Action::SelectPlaylist { playlist: 1 },
+            Action::NewPlaylist,
+            Action::NewPlaylistWith {
+                tracks: vec![track()],
+            },
+            Action::ClosePlaylist { playlist: 1 },
+            Action::RenamePlaylist {
+                playlist: 1,
+                name: "x".into(),
+            },
+            Action::MovePlaylist {
+                playlist: 1,
+                index: 1,
+            },
+            Action::OpenBrowse,
+            Action::CloseBrowse,
+            Action::Back,
+            Action::Search { query: "x".into() },
+            Action::MoreSongs { query: "x".into() },
+            Action::Find { text: None },
+            Action::ForgetSearch { query: None },
+            Action::OpenArtist { artist: artist() },
+            Action::ToggleAlbum { album: "x".into() },
+            Action::ExpandAlbums {
+                albums: vec!["x".into()],
+            },
+            Action::SetTab {
+                tab: ReleaseTab::All,
+            },
+            Action::ShowSimilar { artist: artist() },
+            Action::ShowPopular,
+            Action::AddAll,
+            Action::OpenSimilar { name: "x".into() },
+            Action::ToggleSort,
+            Action::ShowBrowseTab {
+                tab: BrowseTab::Search,
+            },
+            Action::ReadSpotifyPlaylists,
+            Action::OpenSpotifyPlaylist { uri: "x".into() },
+            Action::RemoveFromSpotify {
+                uri: "x".into(),
+                rows: vec![0],
+            },
+            Action::UnlistSpotifyPlaylist { uri: "x".into() },
+            Action::UndoSpotifyRemoval,
+            Action::SetSync {
+                playlist: 1,
+                on: true,
+            },
+            Action::ReplaceSynced { playlist: 1 },
+            Action::DismissSyncNameTaken,
+            Action::OpenSynced {
+                uri: "x".into(),
+                name: "x".into(),
+            },
+            Action::CopyToSpotify {
+                target: SpotifyTarget::New {
+                    name: "x".into(),
+                    private: false,
+                },
+                tracks: vec![track()],
+            },
+            Action::SetTarget { playlist: 1 },
+            Action::ToggleCovers,
+            Action::AddTracks {
+                tracks: vec![track()],
+            },
+            Action::AddAlbum { album: "x".into() },
+            Action::PlayNow { track: track() },
+            Action::AddLoved {
+                songs: vec![loved()],
+            },
+            Action::PlayLoved { song: loved() },
+            Action::CopyTo {
+                playlist: 1,
+                tracks: vec![track()],
+            },
+            Action::ClearSpotify,
+            Action::MoveTo {
+                from: 1,
+                to: 1,
+                entries: vec![1],
+            },
+            Action::TakeOverSpotify,
+            Action::OpenSpotifyTab,
+            Action::SetSpotifyTabEnabled { on: true },
+        ];
+        for action in examples {
+            let core = spotless_core::action::Action::from(action.clone());
+            assert!(on_android(&core), "{action:?} is {core:?}, not on Android");
+        }
+    }
+
     #[derive(Default)]
     struct Recorder {
         wakes: AtomicUsize,
