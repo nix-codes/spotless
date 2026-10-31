@@ -39,6 +39,10 @@ The deck (VIS), on each of its four players:
 </tr>
 </table>
 
+Clicking the spectrum or the levels shows a pair of needle VU meters instead, here on the cream face:
+
+![The deck as a Walkman beside two cream VU meters, their needles near 0 VU](screenshots/deck-vu.png)
+
 The settings, where the look and the colour are chosen:
 
 ![The settings' Display page, with the looks and the colours to choose from](screenshots/settings.png)

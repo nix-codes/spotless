@@ -20,7 +20,7 @@ use spotless::paths::Paths;
 use spotless::phosphor::Phosphor;
 use spotless::playback::analyser;
 use spotless::skin::format::built_in::WINAMP_CLASSIC_KEY;
-use spotless::store::DeckMedia;
+use spotless::store::{DeckMedia, DeckMeter, VuFace};
 use spotless::ui::{self, Cover, Inputs, View};
 
 /// The window's size, as Spotless opens at.
@@ -44,6 +44,8 @@ struct Shot {
     screen: Screen,
     /// The deck under the player (VIS), playing on this.
     deck: Option<DeckMedia>,
+    /// The deck's VU meters, on this face, instead of the spectrum.
+    vu: Option<VuFace>,
 }
 
 const fn shot(
@@ -58,6 +60,7 @@ const fn shot(
         phosphor,
         screen,
         deck: None,
+        vu: None,
     }
 }
 
@@ -69,9 +72,17 @@ const fn deck(file: &'static str, media: DeckMedia) -> Shot {
     }
 }
 
+/// The deck on `media`, with the VU meters on `face`.
+const fn vu(file: &'static str, media: DeckMedia, face: VuFace) -> Shot {
+    Shot {
+        vu: Some(face),
+        ..deck(file, media)
+    }
+}
+
 const WINAMP: Option<&str> = Some(WINAMP_CLASSIC_KEY);
 
-const SHOTS: [Shot; 10] = [
+const SHOTS: [Shot; 11] = [
     shot("playlist.png", None, Phosphor::Green, Screen::Playlists),
     shot("browse-winamp.png", WINAMP, Phosphor::Green, Screen::Browse),
     shot(
@@ -97,6 +108,7 @@ const SHOTS: [Shot; 10] = [
     deck("deck-reel.png", DeckMedia::Reel),
     deck("deck-cd.png", DeckMedia::Cd),
     deck("deck-vinyl.png", DeckMedia::Vinyl),
+    vu("deck-vu.png", DeckMedia::Cassette, VuFace::Cream),
 ];
 
 fn main() -> Result<()> {
@@ -167,6 +179,10 @@ impl Demo {
         if let Some(media) = shot.deck {
             settings.deck_shown = true;
             settings.deck_media = media;
+        }
+        if let Some(face) = shot.vu {
+            settings.deck_meter = DeckMeter::Vu;
+            settings.vu_face = face;
         }
         let mut inputs = Inputs {
             volume: 70,
