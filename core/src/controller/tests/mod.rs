@@ -3,6 +3,10 @@
 
 use super::persist::SAVE_DELAY;
 use super::*;
+use crate::action::{
+    BrowseAction, LastFmAction, PlaybackAction, PlaylistsAction, SettingsAction,
+    SpotifyListsAction, SpotifyTabAction, SyncAction, ViewAction,
+};
 use crate::backend::SpotifyRequest;
 use crate::browse::{Page, Unlisted};
 use crate::model::ArtistRef;

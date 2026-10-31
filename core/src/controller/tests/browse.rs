@@ -5,9 +5,10 @@ use super::*;
 #[test]
 fn an_album_dropped_before_it_is_read_lands_where_it_was_dropped() {
     let mut rig = Rig::new("drop");
-    rig.controller.apply(Action::AddTracks(tracks([1, 2])));
     rig.controller
-        .apply(Action::DropAlbum("spotify:album:a".into(), 1));
+        .apply(BrowseAction::AddTracks(tracks([1, 2])));
+    rig.controller
+        .apply(BrowseAction::DropAlbum("spotify:album:a".into(), 1));
     assert!(
         rig.sent()
             .iter()
@@ -46,7 +47,7 @@ fn songs_added_from_an_album_or_a_spotify_playlist_keep_where_from() {
         ("spotify:album:a", on_album([1, 2])),
         ("spotify:playlist:late", tracks([3, 4])),
     ] {
-        rig.controller.apply(Action::AddAlbum(uri.into()));
+        rig.controller.apply(BrowseAction::AddAlbum(uri.into()));
         rig.tell(Event::Album {
             album: uri.into(),
             result: Ok(songs(read)),
@@ -74,7 +75,8 @@ fn songs_added_from_an_album_or_a_spotify_playlist_keep_where_from() {
         .iter()
         .map(|e| e.track.clone())
         .collect();
-    rig.controller.apply(Action::NewPlaylistWith(copied));
+    rig.controller
+        .apply(PlaylistsAction::NewPlaylistWith(copied));
     let state = rig.controller.state();
     let list = state.library.get(state.viewed).unwrap();
     assert!(
@@ -82,7 +84,8 @@ fn songs_added_from_an_album_or_a_spotify_playlist_keep_where_from() {
             .iter()
             .all(|e| e.track.source.as_ref().map(|s| s.name.as_str()) == Some("Late Trains"))
     );
-    rig.controller.apply(Action::SetGrouping(Grouping::None));
+    rig.controller
+        .apply(SettingsAction::SetGrouping(Grouping::None));
     assert_eq!(rig.controller.state().settings.grouping, Grouping::None);
 }
 
@@ -97,7 +100,7 @@ fn albums_added_together_arrive_together_in_their_order_whenever_read() {
     let before = uris(&rig);
     let albums = ["spotify:album:a", "spotify:album:b", "spotify:album:c"];
     rig.controller
-        .apply(Action::AddAlbums(albums.map(String::from).to_vec()));
+        .apply(BrowseAction::AddAlbums(albums.map(String::from).to_vec()));
     // Read last first, one failing: nothing until all are answered.
     rig.tell(Event::Album {
         album: albums[2].into(),
@@ -136,9 +139,10 @@ fn a_find_on_an_artist_page_reads_its_tabs_songs_and_a_new_page_closes_it() {
             .collect()
     };
     rig.controller
-        .apply(Action::OpenArtist(discography.artist.clone()));
+        .apply(BrowseAction::OpenArtist(discography.artist.clone()));
     // Opened before the discography is read: read once it is.
-    rig.controller.apply(Action::Find(Some(String::new())));
+    rig.controller
+        .apply(BrowseAction::Find(Some(String::new())));
     assert!(albums(&mut rig).is_empty());
     rig.tell(Event::Discography {
         artist: uri.clone(),
@@ -154,7 +158,7 @@ fn a_find_on_an_artist_page_reads_its_tabs_songs_and_a_new_page_closes_it() {
     assert_eq!(albums(&mut rig), of_tab);
     // Another tab reads its own, those not read already.
     rig.controller
-        .apply(Action::SetTab(ReleaseTab::SinglesAndEps));
+        .apply(BrowseAction::SetTab(ReleaseTab::SinglesAndEps));
     let singles = albums(&mut rig);
     assert!(!singles.is_empty());
     assert!(singles.iter().all(|album| {
@@ -163,7 +167,7 @@ fn a_find_on_an_artist_page_reads_its_tabs_songs_and_a_new_page_closes_it() {
             .iter()
             .any(|r| r.uri == *album && r.group == ReleaseGroup::Single)
     }));
-    rig.controller.apply(Action::Search("x".into()));
+    rig.controller.apply(BrowseAction::Search("x".into()));
     assert_eq!(rig.controller.state().browse.find, None);
 }
 
@@ -176,8 +180,10 @@ fn a_similar_artist_opens_once_found_unless_the_user_moved_on() {
         image: None,
     };
     let page = |rig: &Rig| rig.controller.state().browse.page().clone();
-    rig.controller.apply(Action::OpenArtist(artist("boc")));
-    rig.controller.apply(Action::OpenSimilar("Tycho".into()));
+    rig.controller
+        .apply(BrowseAction::OpenArtist(artist("boc")));
+    rig.controller
+        .apply(BrowseAction::OpenSimilar("Tycho".into()));
     assert!(
         rig.sent()
             .iter()
@@ -189,8 +195,9 @@ fn a_similar_artist_opens_once_found_unless_the_user_moved_on() {
     });
     assert_eq!(page(&rig), Page::Artist("spotify:artist:tycho".into()));
 
-    rig.controller.apply(Action::OpenSimilar("Bibio".into()));
-    rig.controller.apply(Action::Back);
+    rig.controller
+        .apply(BrowseAction::OpenSimilar("Bibio".into()));
+    rig.controller.apply(BrowseAction::Back);
     rig.tell(Event::ArtistFound {
         name: "Bibio".into(),
         result: Ok(Some(artist("bibio"))),
@@ -199,7 +206,7 @@ fn a_similar_artist_opens_once_found_unless_the_user_moved_on() {
 
     // Spotify has nobody by that name: search for it instead.
     rig.controller
-        .apply(Action::OpenSimilar("Ulrich Schnauss".into()));
+        .apply(BrowseAction::OpenSimilar("Ulrich Schnauss".into()));
     rig.tell(Event::ArtistFound {
         name: "Ulrich Schnauss".into(),
         result: Ok(None),
@@ -212,7 +219,7 @@ fn more_songs_reads_the_next_page_once_and_adds_the_new_ones() {
     use crate::model::catalog::SearchResults;
     use crate::spotify::webapi::SongsPage;
     let mut rig = Rig::new("more-songs");
-    rig.controller.apply(Action::Search("boards".into()));
+    rig.controller.apply(BrowseAction::Search("boards".into()));
     rig.sent();
     rig.tell(Event::SearchResults {
         query: "boards".into(),
@@ -223,9 +230,11 @@ fn more_songs_reads_the_next_page_once_and_adds_the_new_ones() {
             ..SearchResults::default()
         }),
     });
-    rig.controller.apply(Action::MoreSongs("boards".into()));
+    rig.controller
+        .apply(BrowseAction::MoreSongs("boards".into()));
     // Pressed again while it reads: asked once.
-    rig.controller.apply(Action::MoreSongs("boards".into()));
+    rig.controller
+        .apply(BrowseAction::MoreSongs("boards".into()));
     let more: Vec<_> = rig
         .sent()
         .into_iter()
@@ -247,16 +256,19 @@ fn more_songs_reads_the_next_page_once_and_adds_the_new_ones() {
     assert_eq!(results.songs, tracks([1, 2, 3]));
     assert_eq!(results.songs_read, 20);
     assert!(!results.more_songs && !results.reading_songs);
-    rig.controller.apply(Action::MoreSongs("boards".into()));
+    rig.controller
+        .apply(BrowseAction::MoreSongs("boards".into()));
     assert!(rig.sent().is_empty());
 }
 
 #[test]
 fn searches_are_remembered_across_starts_but_links_are_not() {
     let mut rig = Rig::new("history");
-    rig.controller.apply(Action::Search(" boards ".into()));
-    rig.controller.apply(Action::Search("autechre".into()));
-    rig.controller.apply(Action::Search(
+    rig.controller
+        .apply(BrowseAction::Search(" boards ".into()));
+    rig.controller
+        .apply(BrowseAction::Search("autechre".into()));
+    rig.controller.apply(BrowseAction::Search(
         "spotify:track:4uLU6hMCjMI75M1A2tKUQC".into(),
     ));
     assert!(
@@ -265,8 +277,8 @@ fn searches_are_remembered_across_starts_but_links_are_not() {
             .any(|c| matches!(c, Command::Search(q) if q == "boards"))
     );
     rig.controller
-        .apply(Action::ForgetSearch(Some("autechre".into())));
-    rig.controller.apply(Action::Search("aphex".into()));
+        .apply(BrowseAction::ForgetSearch(Some("autechre".into())));
+    rig.controller.apply(BrowseAction::Search("aphex".into()));
     rig.controller.save();
     let history = store::load_history(&rig.controller.paths);
     assert_eq!(history.searches, ["aphex", "boards"]);

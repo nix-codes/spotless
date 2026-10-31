@@ -13,7 +13,7 @@ use egui::{
 use super::skin_paint::SkinPaint;
 use super::widgets::{field, small_button, text_button};
 use super::{Inputs, View, skinned_strip, theme};
-use crate::action::{Action, Actions};
+use crate::action::{Actions, ViewAction};
 use crate::skin::format::{Role, State};
 use spotless_core::playback::equaliser::{Equaliser, PRESETS, RANGE};
 
@@ -163,7 +163,7 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
     }
     if changed != equaliser {
         // A slider moved while off turns the equaliser on, to be heard.
-        actions.push(Action::SetEqualiser(Equaliser {
+        actions.push(ViewAction::SetEqualiser(Equaliser {
             on: true,
             ..changed
         }));
@@ -226,7 +226,7 @@ fn switches(
     };
     let on = button(ui, "equaliser.on", "ON", "Equaliser on / off", equaliser.on);
     if on.clicked() {
-        actions.push(Action::SetEqualiser(Equaliser {
+        actions.push(ViewAction::SetEqualiser(Equaliser {
             on: !equaliser.on,
             ..equaliser
         }));
@@ -241,7 +241,7 @@ fn switches(
         false,
     );
     if reset.clicked() {
-        actions.push(Action::SetEqualiser(Equaliser {
+        actions.push(ViewAction::SetEqualiser(Equaliser {
             preamp: 0.0,
             bands: [0.0; 10],
             ..equaliser
@@ -253,7 +253,7 @@ fn switches(
 fn presets_menu(button: &Response, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let equaliser = view.settings.equaliser;
     let choose = |actions: &mut Actions, bands: [f32; 10]| {
-        actions.push(Action::SetEqualiser(Equaliser {
+        actions.push(ViewAction::SetEqualiser(Equaliser {
             on: true,
             bands,
             ..equaliser
@@ -289,7 +289,7 @@ fn presets_menu(button: &Response, view: &View, inputs: &mut Inputs, actions: &m
                     }
                     let delete = item(ui, "×").on_hover_text("Delete this preset");
                     if delete.clicked() {
-                        actions.push(Action::DeleteEqualiserPreset(preset.name.clone()));
+                        actions.push(ViewAction::DeleteEqualiserPreset(preset.name.clone()));
                     }
                 });
             }
@@ -360,7 +360,7 @@ fn save_preset(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
         });
     match done {
         Some(true) => {
-            actions.push(Action::SaveEqualiserPreset(name.trim().to_string()));
+            actions.push(ViewAction::SaveEqualiserPreset(name.trim().to_string()));
             inputs.preset_name = None;
         }
         Some(false) => inputs.preset_name = None,

@@ -8,7 +8,7 @@ use egui::{
 
 use super::menu::item;
 use super::{RowDrag, SCROLL_EDGE};
-use crate::action::{Action, Actions, Desktop};
+use crate::action::{Actions, Desktop, PlaylistsAction, SpotifyTabAction, SyncAction};
 use crate::ui::dialog::{self, Answer};
 use crate::ui::skin_paint;
 use crate::ui::theme::{self, Palette};
@@ -203,7 +203,7 @@ pub(super) fn tab_bar(
                     {
                         DragAndDrop::clear_payload(ui.ctx());
                         if to != i {
-                            actions.push(Action::MovePlaylist(list.id, to));
+                            actions.push(PlaylistsAction::MovePlaylist(list.id, to));
                         }
                     }
                     drawn.push((list.id, rect.intersect(strip)));
@@ -214,7 +214,7 @@ pub(super) fn tab_bar(
             let plus = small_button(ui, &palette, "+", false);
             if !spotify_closed {
                 if plus.on_hover_text("New playlist (Ctrl+T)").clicked() {
-                    actions.push(Action::NewPlaylist);
+                    actions.push(PlaylistsAction::NewPlaylist);
                 }
             } else {
                 egui::Popup::menu(&plus).show(|ui| {
@@ -222,10 +222,10 @@ pub(super) fn tab_bar(
                         .on_hover_text("Ctrl+T")
                         .clicked()
                     {
-                        actions.push(Action::NewPlaylist);
+                        actions.push(PlaylistsAction::NewPlaylist);
                     }
                     if text_button(ui, &palette, "SPOTIFY", false, true).clicked() {
-                        actions.push(Action::OpenSpotifyTab);
+                        actions.push(SpotifyTabAction::OpenSpotifyTab);
                     }
                 });
             }
@@ -523,9 +523,9 @@ fn tab(
         let movable =
             from != PlaylistId::SPOTIFY || view.spotify.is_some_and(|queue| queue.movable(&rows.0));
         if ui.input(|i| i.modifiers.shift) && movable {
-            actions.push(Action::MoveTo(from, list.id, rows.0.clone()));
+            actions.push(PlaylistsAction::MoveTo(from, list.id, rows.0.clone()));
         } else {
-            actions.push(Action::CopyTo(list.id, tracks));
+            actions.push(PlaylistsAction::CopyTo(list.id, tracks));
         }
     }
 
@@ -533,7 +533,7 @@ fn tab(
         // Closing the Spotify tab loses nothing: the queue is the account's,
         // nor a synced one, which stays on Spotify.
         if list.count == 0 || !list.own || list.sync.is_some() {
-            actions.push(Action::ClosePlaylist(list.id));
+            actions.push(PlaylistsAction::ClosePlaylist(list.id));
         } else {
             inputs.closing = Some(list.id);
         }
@@ -552,7 +552,7 @@ fn tab(
                 (true, true) => "Stops syncing: it's deleted from Spotify and stays only here",
             };
             if item(ui, label, signed_in).on_hover_text(hint).clicked() {
-                actions.push(Action::SetSync(list.id, !synced));
+                actions.push(SyncAction::SetSync(list.id, !synced));
             }
             if item(ui, "Export to Spotify…", list.count > 0)
                 .on_hover_text("Copies its songs to a new playlist on Spotify")
@@ -575,7 +575,7 @@ fn tab(
     } else if response.double_clicked() && list.own {
         inputs.renaming = Some((list.id, list.name.to_string()));
     } else if response.clicked() {
-        actions.push(Action::SelectPlaylist(list.id));
+        actions.push(PlaylistsAction::SelectPlaylist(list.id));
     }
     if response.drag_started()
         && let Some(pointer) = response.interact_pointer_pos()
@@ -643,7 +643,7 @@ fn rename_field(
     );
     if field.lost_focus() {
         if !ui.input(|i| i.key_pressed(Key::Escape)) {
-            actions.push(Action::RenamePlaylist(id, name.trim().to_string()));
+            actions.push(PlaylistsAction::RenamePlaylist(id, name.trim().to_string()));
         }
         // Its Enter, not the list's too: that would play the song.
         ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
@@ -676,7 +676,7 @@ pub(super) fn confirm_close(ui: &Ui, view: &View, inputs: &mut Inputs, actions: 
         ui.label(RichText::new(songs).color(palette.chrome));
     });
     if answer == Answer::Chose(0) {
-        actions.push(Action::ClosePlaylist(list.id));
+        actions.push(PlaylistsAction::ClosePlaylist(list.id));
     }
     if answer != Answer::Waiting {
         inputs.closing = None;
@@ -721,9 +721,9 @@ pub(super) fn confirm_sync(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &
     });
     match answer {
         Answer::Chose(0) => inputs.renaming = Some((list.id, list.name.to_string())),
-        Answer::Chose(1) => actions.push(Action::ReplaceSynced(list.id)),
+        Answer::Chose(1) => actions.push(SyncAction::ReplaceSynced(list.id)),
         Answer::Waiting => {}
-        _ => actions.push(Action::DismissSyncNameTaken),
+        _ => actions.push(SyncAction::DismissSyncNameTaken),
     }
 }
 
@@ -734,7 +734,7 @@ mod tests {
     use egui::{Event, PointerButton, Pos2, RawInput, Vec2};
 
     use super::*;
-    use crate::action::AnyAction;
+    use crate::action::{Action, AnyAction};
     use spotless_core::backend::{SearchState, SessionState};
     use spotless_core::browse::{Browse, Loadable};
     use spotless_core::lastfm::LastFmState;
@@ -884,10 +884,19 @@ mod tests {
         let moved = |spotify, from, by| {
             drag_tab(&library, spotify, from, by)
                 .into_iter()
-                .filter(|a| matches!(a, AnyAction::Core(Action::MovePlaylist(..))))
+                .filter(|a| {
+                    matches!(
+                        a,
+                        AnyAction::Core(Action::Playlists(PlaylistsAction::MovePlaylist(..)))
+                    )
+                })
                 .collect::<Vec<_>>()
         };
-        let to = |id, at| vec![AnyAction::Core(Action::MovePlaylist(id, at))];
+        let to = |id, at| {
+            vec![AnyAction::Core(Action::Playlists(
+                PlaylistsAction::MovePlaylist(id, at),
+            ))]
+        };
         assert_eq!(
             moved(false, 20.0, vec2(150.0, 0.0)),
             to(PlaylistId::DEFAULT, 1)

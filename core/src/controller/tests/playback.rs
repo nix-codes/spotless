@@ -13,8 +13,9 @@ fn volume_spans_librespots_range() {
 fn losing_the_session_stops_the_queue() {
     let mut rig = Rig::new("session");
     rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
-    rig.controller.apply(Action::AddTracks(tracks([1, 2])));
-    rig.controller.apply(Action::Play);
+    rig.controller
+        .apply(BrowseAction::AddTracks(tracks([1, 2])));
+    rig.controller.apply(PlaybackAction::Play);
     assert!(
         rig.sent()
             .iter()
@@ -33,8 +34,9 @@ fn losing_the_session_stops_the_queue() {
 fn offline_waits_on_the_song_and_plays_it_once_reconnected() {
     let mut rig = Rig::new("offline");
     rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
-    rig.controller.apply(Action::AddTracks(tracks([1, 2, 3])));
-    rig.controller.apply(Action::Play);
+    rig.controller
+        .apply(BrowseAction::AddTracks(tracks([1, 2, 3])));
+    rig.controller.apply(PlaybackAction::Play);
     rig.sent();
     rig.tell(Event::Unavailable { offline: true });
     let sent = rig.sent();
@@ -61,8 +63,9 @@ fn offline_waits_on_the_song_and_plays_it_once_reconnected() {
 fn a_song_cut_offline_goes_on_where_it_stopped_once_reconnected() {
     let mut rig = Rig::new("cut");
     rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
-    rig.controller.apply(Action::AddTracks(tracks([1, 2, 3])));
-    rig.controller.apply(Action::Play);
+    rig.controller
+        .apply(BrowseAction::AddTracks(tracks([1, 2, 3])));
+    rig.controller.apply(PlaybackAction::Play);
     rig.sent();
     rig.tell(Event::Cut {
         position_ms: 95_000,
@@ -83,8 +86,9 @@ fn a_song_cut_offline_goes_on_where_it_stopped_once_reconnected() {
 fn a_song_waiting_offline_shows_paused_and_play_goes_on_from_there() {
     let mut rig = Rig::new("paused");
     rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
-    rig.controller.apply(Action::AddTracks(tracks([1, 2])));
-    rig.controller.apply(Action::Play);
+    rig.controller
+        .apply(BrowseAction::AddTracks(tracks([1, 2])));
+    rig.controller.apply(PlaybackAction::Play);
     rig.tell(Event::Cut {
         position_ms: 95_000,
     });
@@ -101,7 +105,7 @@ fn a_song_waiting_offline_shows_paused_and_play_goes_on_from_there() {
     assert_eq!(state.player.position_ms, 95_000);
     assert_eq!(state.player.track.as_ref().unwrap().title, "Song 1");
     rig.sent();
-    rig.controller.apply(Action::TogglePause);
+    rig.controller.apply(PlaybackAction::TogglePause);
     assert!(!rig.controller.state().offline);
     assert!(rig.sent().iter().any(|c| matches!(
         c,
@@ -134,8 +138,9 @@ fn a_song_waiting_offline_shows_paused_and_play_goes_on_from_there() {
 fn a_song_left_playing_shows_paused_there_after_a_restart() {
     let mut rig = Rig::new("restart-paused");
     rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
-    rig.controller.apply(Action::AddTracks(tracks([1, 2])));
-    rig.controller.apply(Action::Play);
+    rig.controller
+        .apply(BrowseAction::AddTracks(tracks([1, 2])));
+    rig.controller.apply(PlaybackAction::Play);
     rig.tell(Event::Player(PlayerSnapshot {
         status: Status::Playing,
         track: Some(TrackInfo::from(&entry(1).track)),
@@ -160,9 +165,9 @@ fn a_song_left_playing_shows_paused_there_after_a_restart() {
     assert_eq!(shown.status, Status::Paused);
     assert_eq!(shown.position_ms, 95_000);
     assert_eq!(shown.track.unwrap().title, "Song 1");
-    controller.apply(Action::Seek(60_000));
+    controller.apply(PlaybackAction::Seek(60_000));
     assert_eq!(controller.state().now_playing().position_ms, 60_000);
-    controller.apply(Action::TogglePause);
+    controller.apply(PlaybackAction::TogglePause);
     let sent: Vec<_> = std::iter::from_fn(|| commands.try_recv().ok()).collect();
     assert!(sent.iter().any(|c| matches!(
         c,
@@ -174,10 +179,11 @@ fn a_song_left_playing_shows_paused_there_after_a_restart() {
 fn a_stop_while_offline_stays_stopped_when_reconnected() {
     let mut rig = Rig::new("offline-stop");
     rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
-    rig.controller.apply(Action::AddTracks(tracks([1, 2])));
-    rig.controller.apply(Action::Play);
+    rig.controller
+        .apply(BrowseAction::AddTracks(tracks([1, 2])));
+    rig.controller.apply(PlaybackAction::Play);
     rig.tell(Event::Unavailable { offline: true });
-    rig.controller.apply(Action::Stop);
+    rig.controller.apply(PlaybackAction::Stop);
     rig.sent();
     rig.tell(Event::Reconnected);
     assert!(rig.sent().is_empty());
@@ -186,7 +192,8 @@ fn a_stop_while_offline_stays_stopped_when_reconnected() {
 #[test]
 fn after_a_restart_the_song_play_goes_on_with_is_shown() {
     let mut rig = Rig::new("restart");
-    rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+    rig.controller
+        .apply(BrowseAction::AddTracks(tracks([1, 2])));
     let second = rig
         .controller
         .state()
@@ -196,8 +203,8 @@ fn after_a_restart_the_song_play_goes_on_with_is_shown() {
         .entries()[1]
         .id;
     rig.controller
-        .apply(Action::PlayEntry(PlaylistId::DEFAULT, second));
-    rig.controller.apply(Action::Stop);
+        .apply(PlaybackAction::PlayEntry(PlaylistId::DEFAULT, second));
+    rig.controller.apply(PlaybackAction::Stop);
     rig.controller.save();
     let (backend, _, _) = Backend::detached();
     let paths = rig.controller.paths.clone();
@@ -215,7 +222,8 @@ fn after_a_restart_the_song_play_goes_on_with_is_shown() {
 #[test]
 fn stopped_the_player_shows_the_song_play_starts() {
     let mut rig = Rig::new("waiting");
-    rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+    rig.controller
+        .apply(BrowseAction::AddTracks(tracks([1, 2])));
     let entries: Vec<_> = rig
         .controller
         .state()
@@ -227,8 +235,8 @@ fn stopped_the_player_shows_the_song_play_starts() {
         .map(|entry| entry.id)
         .collect();
     rig.controller
-        .apply(Action::PlayEntry(PlaylistId::DEFAULT, entries[0]));
-    rig.controller.apply(Action::Stop);
+        .apply(PlaybackAction::PlayEntry(PlaylistId::DEFAULT, entries[0]));
+    rig.controller.apply(PlaybackAction::Stop);
     // The engine still has the stopped song.
     rig.tell(Event::Player(PlayerSnapshot {
         track: Some(TrackInfo::from(&entry(1).track)),
@@ -242,21 +250,25 @@ fn stopped_the_player_shows_the_song_play_starts() {
             .map(|track| track.title)
     };
     assert_eq!(title(&rig).as_deref(), Some("Song 1"));
-    rig.controller
-        .apply(Action::Remove(PlaylistId::DEFAULT, vec![entries[0]]));
+    rig.controller.apply(PlaylistsAction::Remove(
+        PlaylistId::DEFAULT,
+        vec![entries[0]],
+    ));
     assert_eq!(
         title(&rig).as_deref(),
         Some("Song 2"),
         "Play goes on with the next"
     );
-    rig.controller.apply(Action::Play);
+    rig.controller.apply(PlaybackAction::Play);
     assert_eq!(
         title(&rig).as_deref(),
         Some("Song 2"),
         "loading, before the engine says so"
     );
-    rig.controller.apply(Action::Stop);
-    rig.controller
-        .apply(Action::Remove(PlaylistId::DEFAULT, vec![entries[1]]));
+    rig.controller.apply(PlaybackAction::Stop);
+    rig.controller.apply(PlaylistsAction::Remove(
+        PlaylistId::DEFAULT,
+        vec![entries[1]],
+    ));
     assert_eq!(title(&rig), None, "an empty playlist plays nothing");
 }

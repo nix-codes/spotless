@@ -138,7 +138,7 @@ impl Spotless {
         if matches!(action, Action::OpenBrowse) && controller.state().browse.open {
             return;
         }
-        controller.apply(action.into());
+        controller.apply(spotless_core::action::Action::from(action));
     }
 
     /// Takes in the core's news, and saves once changes have rested. Returns
@@ -516,128 +516,158 @@ pub enum Action {
 
 impl From<Action> for spotless_core::action::Action {
     fn from(action: Action) -> Self {
-        use spotless_core::action::Action as Core;
+        use spotless_core::action::{
+            BrowseAction, LastFmAction, PlaybackAction, PlaylistsAction, SettingsAction,
+            SpotifyListsAction, SpotifyTabAction, SyncAction, ViewAction,
+        };
         match action {
-            Action::SignIn => Core::SignIn,
-            Action::SignOut => Core::SignOut,
-            Action::SetSearchApp { client_id } => Core::SetSearchApp(client_id),
-            Action::SetLevelling { on } => Core::SetLevelling(on),
-            Action::ToggleEqualiser => Core::ToggleEqualiser,
-            Action::SetEqualiser { equaliser } => Core::SetEqualiser(equaliser.into()),
+            Action::SignIn => SettingsAction::SignIn.into(),
+            Action::SignOut => SettingsAction::SignOut.into(),
+            Action::SetSearchApp { client_id } => SettingsAction::SetSearchApp(client_id).into(),
+            Action::SetLevelling { on } => SettingsAction::SetLevelling(on).into(),
+            Action::ToggleEqualiser => ViewAction::ToggleEqualiser.into(),
+            Action::SetEqualiser { equaliser } => ViewAction::SetEqualiser(equaliser.into()).into(),
             Action::SetPhosphor { key } => {
-                Core::SetPhosphor(spotless_core::phosphor::Phosphor::from_key(Some(&key)))
+                SettingsAction::SetPhosphor(spotless_core::phosphor::Phosphor::from_key(Some(&key)))
+                    .into()
             }
             Action::SetGrouping { key } => {
-                Core::SetGrouping(spotless_core::model::Grouping::from_key(Some(&key)))
+                SettingsAction::SetGrouping(spotless_core::model::Grouping::from_key(Some(&key)))
+                    .into()
             }
-            Action::ConnectLastFm { api_key, secret } => Core::ConnectLastFm(api_key, secret),
-            Action::DisconnectLastFm => Core::DisconnectLastFm,
+            Action::ConnectLastFm { api_key, secret } => {
+                LastFmAction::ConnectLastFm(api_key, secret).into()
+            }
+            Action::DisconnectLastFm => LastFmAction::DisconnectLastFm.into(),
             Action::SetLoved {
                 artist,
                 title,
                 loved,
-            } => Core::SetLoved {
+            } => LastFmAction::SetLoved {
                 artist,
                 title,
                 loved,
-            },
-            Action::SetAudioCache { on } => Core::SetAudioCache(on),
-            Action::SetAudioCacheSize { mb } => Core::SetAudioCacheSize(mb),
-            Action::MeasureStorage => Core::MeasureStorage,
-            Action::NetworkBack => Core::NetworkBack,
-            Action::ClearCache { store } => Core::ClearCache(store.into()),
-            Action::AddLink { link } => Core::AddLink(link),
-            Action::Play => Core::Play,
-            Action::TogglePause => Core::TogglePause,
-            Action::Stop => Core::Stop,
-            Action::ToggleStopAfter => Core::ToggleStopAfter,
-            Action::ToggleTimeLeft => Core::ToggleTimeLeft,
-            Action::Release => Core::Release,
-            Action::Next => Core::Next,
-            Action::Previous => Core::Previous,
-            Action::Seek { position_ms } => Core::Seek(position_ms),
-            Action::Volume { percent } => Core::Volume(percent),
-            Action::SetShuffle { on } => Core::SetShuffle(on),
-            Action::SetRepeat { on } => Core::SetRepeat(on),
+            }
+            .into(),
+            Action::SetAudioCache { on } => SettingsAction::SetAudioCache(on).into(),
+            Action::SetAudioCacheSize { mb } => SettingsAction::SetAudioCacheSize(mb).into(),
+            Action::MeasureStorage => SettingsAction::MeasureStorage.into(),
+            Action::NetworkBack => SettingsAction::NetworkBack.into(),
+            Action::ClearCache { store } => SettingsAction::ClearCache(store.into()).into(),
+            Action::AddLink { link } => PlaylistsAction::AddLink(link).into(),
+            Action::Play => PlaybackAction::Play.into(),
+            Action::TogglePause => PlaybackAction::TogglePause.into(),
+            Action::Stop => PlaybackAction::Stop.into(),
+            Action::ToggleStopAfter => PlaybackAction::ToggleStopAfter.into(),
+            Action::ToggleTimeLeft => ViewAction::ToggleTimeLeft.into(),
+            Action::Release => PlaybackAction::Release.into(),
+            Action::Next => PlaybackAction::Next.into(),
+            Action::Previous => PlaybackAction::Previous.into(),
+            Action::Seek { position_ms } => PlaybackAction::Seek(position_ms).into(),
+            Action::Volume { percent } => PlaybackAction::Volume(percent).into(),
+            Action::SetShuffle { on } => PlaybackAction::SetShuffle(on).into(),
+            Action::SetRepeat { on } => PlaybackAction::SetRepeat(on).into(),
             Action::PlayEntry { playlist, entry } => {
-                Core::PlayEntry(PlaylistId(playlist), EntryId(entry))
+                PlaybackAction::PlayEntry(PlaylistId(playlist), EntryId(entry)).into()
             }
             Action::Remove {
                 playlist,
                 entries: ids,
-            } => Core::Remove(PlaylistId(playlist), entries(ids)),
+            } => PlaylistsAction::Remove(PlaylistId(playlist), entries(ids)).into(),
             Action::Move {
                 entries: ids,
                 before,
-            } => Core::Move(entries(ids), before as usize),
-            Action::ToggleMarks { entries: ids } => Core::ToggleMarks(entries(ids)),
-            Action::SelectPlaylist { playlist } => Core::SelectPlaylist(PlaylistId(playlist)),
-            Action::NewPlaylist => Core::NewPlaylist,
-            Action::NewPlaylistWith { tracks } => {
-                Core::NewPlaylistWith(tracks.into_iter().map(Into::into).collect())
+            } => PlaylistsAction::Move(entries(ids), before as usize).into(),
+            Action::ToggleMarks { entries: ids } => {
+                PlaylistsAction::ToggleMarks(entries(ids)).into()
             }
-            Action::ClosePlaylist { playlist } => Core::ClosePlaylist(PlaylistId(playlist)),
+            Action::SelectPlaylist { playlist } => {
+                PlaylistsAction::SelectPlaylist(PlaylistId(playlist)).into()
+            }
+            Action::NewPlaylist => PlaylistsAction::NewPlaylist.into(),
+            Action::NewPlaylistWith { tracks } => {
+                PlaylistsAction::NewPlaylistWith(tracks.into_iter().map(Into::into).collect())
+                    .into()
+            }
+            Action::ClosePlaylist { playlist } => {
+                PlaylistsAction::ClosePlaylist(PlaylistId(playlist)).into()
+            }
             Action::RenamePlaylist { playlist, name } => {
-                Core::RenamePlaylist(PlaylistId(playlist), name)
+                PlaylistsAction::RenamePlaylist(PlaylistId(playlist), name).into()
             }
             Action::MovePlaylist { playlist, index } => {
-                Core::MovePlaylist(PlaylistId(playlist), index as usize)
+                PlaylistsAction::MovePlaylist(PlaylistId(playlist), index as usize).into()
             }
-            Action::OpenBrowse => Core::ToggleBrowse,
-            Action::CloseBrowse => Core::CloseBrowse,
-            Action::Back => Core::Back,
-            Action::Search { query } => Core::Search(query),
-            Action::MoreSongs { query } => Core::MoreSongs(query),
-            Action::Find { text } => Core::Find(text),
-            Action::ForgetSearch { query } => Core::ForgetSearch(query),
-            Action::OpenArtist { artist } => Core::OpenArtist(artist.into()),
-            Action::ToggleAlbum { album } => Core::ToggleAlbum(album),
-            Action::ExpandAlbums { albums } => Core::ExpandAlbums(albums),
-            Action::SetTab { tab } => Core::SetTab(tab.into()),
-            Action::ShowSimilar { artist } => Core::ShowSimilar(artist.into()),
-            Action::ShowPopular => Core::ShowPopular,
-            Action::AddAll => Core::AddAll,
-            Action::OpenSimilar { name } => Core::OpenSimilar(name),
-            Action::ToggleSort => Core::ToggleSort,
-            Action::ShowBrowseTab { tab } => Core::ShowBrowseTab(tab.into()),
-            Action::ReadSpotifyPlaylists => Core::ReadSpotifyPlaylists,
-            Action::OpenSpotifyPlaylist { uri } => Core::OpenSpotifyPlaylist(uri),
-            Action::RemoveFromSpotify { uri, rows } => {
-                Core::RemoveFromSpotify(uri, rows.into_iter().map(|row| row as usize).collect())
+            Action::OpenBrowse => BrowseAction::ToggleBrowse.into(),
+            Action::CloseBrowse => BrowseAction::CloseBrowse.into(),
+            Action::Back => BrowseAction::Back.into(),
+            Action::Search { query } => BrowseAction::Search(query).into(),
+            Action::MoreSongs { query } => BrowseAction::MoreSongs(query).into(),
+            Action::Find { text } => BrowseAction::Find(text).into(),
+            Action::ForgetSearch { query } => BrowseAction::ForgetSearch(query).into(),
+            Action::OpenArtist { artist } => BrowseAction::OpenArtist(artist.into()).into(),
+            Action::ToggleAlbum { album } => BrowseAction::ToggleAlbum(album).into(),
+            Action::ExpandAlbums { albums } => BrowseAction::ExpandAlbums(albums).into(),
+            Action::SetTab { tab } => BrowseAction::SetTab(tab.into()).into(),
+            Action::ShowSimilar { artist } => BrowseAction::ShowSimilar(artist.into()).into(),
+            Action::ShowPopular => BrowseAction::ShowPopular.into(),
+            Action::AddAll => BrowseAction::AddAll.into(),
+            Action::OpenSimilar { name } => BrowseAction::OpenSimilar(name).into(),
+            Action::ToggleSort => BrowseAction::ToggleSort.into(),
+            Action::ShowBrowseTab { tab } => BrowseAction::ShowBrowseTab(tab.into()).into(),
+            Action::ReadSpotifyPlaylists => SpotifyListsAction::ReadSpotifyPlaylists.into(),
+            Action::OpenSpotifyPlaylist { uri } => {
+                SpotifyListsAction::OpenSpotifyPlaylist(uri).into()
             }
-            Action::UnlistSpotifyPlaylist { uri } => Core::UnlistSpotifyPlaylist(uri),
-            Action::UndoSpotifyRemoval => Core::UndoSpotifyRemoval,
-            Action::SetSync { playlist, on } => Core::SetSync(PlaylistId(playlist), on),
-            Action::ReplaceSynced { playlist } => Core::ReplaceSynced(PlaylistId(playlist)),
-            Action::DismissSyncNameTaken => Core::DismissSyncNameTaken,
-            Action::OpenSynced { uri, name } => Core::OpenSynced(uri, name),
-            Action::CopyToSpotify { target, tracks } => {
-                Core::CopyToSpotify(target.into(), tracks.into_iter().map(Into::into).collect())
+            Action::RemoveFromSpotify { uri, rows } => SpotifyListsAction::RemoveFromSpotify(
+                uri,
+                rows.into_iter().map(|row| row as usize).collect(),
+            )
+            .into(),
+            Action::UnlistSpotifyPlaylist { uri } => {
+                SpotifyListsAction::UnlistSpotifyPlaylist(uri).into()
             }
-            Action::SetTarget { playlist } => Core::SetTarget(PlaylistId(playlist)),
-            Action::ToggleCovers => Core::ToggleCovers,
+            Action::UndoSpotifyRemoval => SpotifyListsAction::UndoSpotifyRemoval.into(),
+            Action::SetSync { playlist, on } => {
+                SyncAction::SetSync(PlaylistId(playlist), on).into()
+            }
+            Action::ReplaceSynced { playlist } => {
+                SyncAction::ReplaceSynced(PlaylistId(playlist)).into()
+            }
+            Action::DismissSyncNameTaken => SyncAction::DismissSyncNameTaken.into(),
+            Action::OpenSynced { uri, name } => SyncAction::OpenSynced(uri, name).into(),
+            Action::CopyToSpotify { target, tracks } => SpotifyListsAction::CopyToSpotify(
+                target.into(),
+                tracks.into_iter().map(Into::into).collect(),
+            )
+            .into(),
+            Action::SetTarget { playlist } => BrowseAction::SetTarget(PlaylistId(playlist)).into(),
+            Action::ToggleCovers => BrowseAction::ToggleCovers.into(),
             Action::AddTracks { tracks } => {
-                Core::AddTracks(tracks.into_iter().map(Into::into).collect())
+                BrowseAction::AddTracks(tracks.into_iter().map(Into::into).collect()).into()
             }
-            Action::AddAlbum { album } => Core::AddAlbum(album),
-            Action::PlayNow { track } => Core::PlayNow(track.into()),
+            Action::AddAlbum { album } => BrowseAction::AddAlbum(album).into(),
+            Action::PlayNow { track } => PlaybackAction::PlayNow(track.into()).into(),
             Action::AddLoved { songs } => {
-                Core::AddLoved(songs.into_iter().map(Into::into).collect())
+                LastFmAction::AddLoved(songs.into_iter().map(Into::into).collect()).into()
             }
-            Action::PlayLoved { song } => Core::PlayLoved(song.into()),
-            Action::CopyTo { playlist, tracks } => Core::CopyTo(
+            Action::PlayLoved { song } => LastFmAction::PlayLoved(song.into()).into(),
+            Action::CopyTo { playlist, tracks } => PlaylistsAction::CopyTo(
                 PlaylistId(playlist),
                 tracks.into_iter().map(Into::into).collect(),
-            ),
-            Action::ClearSpotify => Core::ClearSpotify,
+            )
+            .into(),
+            Action::ClearSpotify => SpotifyTabAction::ClearSpotify.into(),
             Action::MoveTo {
                 from,
                 to,
                 entries: ids,
-            } => Core::MoveTo(PlaylistId(from), PlaylistId(to), entries(ids)),
-            Action::TakeOverSpotify => Core::TakeOverSpotify,
-            Action::OpenSpotifyTab => Core::OpenSpotifyTab,
-            Action::SetSpotifyTabEnabled { on } => Core::SetSpotifyTabEnabled(on),
+            } => PlaylistsAction::MoveTo(PlaylistId(from), PlaylistId(to), entries(ids)).into(),
+            Action::TakeOverSpotify => SpotifyTabAction::TakeOverSpotify.into(),
+            Action::OpenSpotifyTab => SpotifyTabAction::OpenSpotifyTab.into(),
+            Action::SetSpotifyTabEnabled { on } => {
+                SpotifyTabAction::SetSpotifyTabEnabled(on).into()
+            }
         }
     }
 }
@@ -654,106 +684,129 @@ mod tests {
     /// among those the app doesn't have yet: new features come to the
     /// desktop first.
     fn on_android(action: &spotless_core::action::Action) -> bool {
-        use spotless_core::action::Action as Core;
+        use spotless_core::action::{
+            Action as Core, BrowseAction, LastFmAction, PlaybackAction, PlaylistsAction,
+            SettingsAction, SpotifyListsAction, SpotifyTabAction, SyncAction, ViewAction,
+        };
         match action {
-            Core::SignIn
-            | Core::SignOut
-            | Core::SetSearchApp(..)
-            | Core::SetLevelling(..)
-            | Core::SetPhosphor(..)
-            | Core::SetGrouping(..)
-            | Core::ConnectLastFm(..)
-            | Core::DisconnectLastFm
-            | Core::SetLoved { .. }
-            | Core::SetAudioCache(..)
-            | Core::SetAudioCacheSize(..)
-            | Core::MeasureStorage
-            | Core::NetworkBack
-            | Core::ClearCache(..)
-            | Core::AddLink(..)
-            | Core::Play
-            | Core::TogglePause
-            | Core::Stop
-            | Core::ToggleStopAfter
-            | Core::Release
-            | Core::Next
-            | Core::Previous
-            | Core::Seek(..)
-            | Core::Volume(..)
-            | Core::SetShuffle(..)
-            | Core::SetRepeat(..)
-            | Core::PlayEntry(..)
-            | Core::Remove(..)
-            | Core::ClearSpotify
-            | Core::TakeOverSpotify
-            | Core::OpenSpotifyTab
-            | Core::SetSpotifyTabEnabled(..)
-            | Core::Move(..)
-            | Core::ToggleMarks(..)
-            | Core::SelectPlaylist(..)
-            | Core::NewPlaylist
-            | Core::NewPlaylistWith(..)
-            | Core::ClosePlaylist(..)
-            | Core::RenamePlaylist(..)
-            | Core::MovePlaylist(..)
-            | Core::SetSync(..)
-            | Core::ReplaceSynced(..)
-            | Core::DismissSyncNameTaken
-            | Core::OpenSynced(..)
-            | Core::ToggleEqualiser
-            | Core::SetEqualiser(..)
-            | Core::ToggleTimeLeft
-            | Core::ToggleBrowse
-            | Core::CloseBrowse
-            | Core::Back
-            | Core::Search(..)
-            | Core::MoreSongs(..)
-            | Core::Find(..)
-            | Core::ForgetSearch(..)
-            | Core::OpenArtist(..)
-            | Core::ToggleAlbum(..)
-            | Core::ExpandAlbums(..)
-            | Core::SetTab(..)
-            | Core::ShowSimilar(..)
-            | Core::ShowPopular
-            | Core::OpenSimilar(..)
-            | Core::ToggleSort
-            | Core::SetTarget(..)
-            | Core::ToggleCovers
-            | Core::AddTracks(..)
-            | Core::AddAlbum(..)
-            | Core::AddAll
-            | Core::PlayNow(..)
-            | Core::AddLoved(..)
-            | Core::PlayLoved(..)
-            | Core::ShowBrowseTab(..)
-            | Core::OpenSpotifyPlaylist(..)
-            | Core::RemoveFromSpotify(..)
-            | Core::UnlistSpotifyPlaylist(..)
-            | Core::UndoSpotifyRemoval
-            | Core::ReadSpotifyPlaylists
-            | Core::CopyToSpotify(..)
-            | Core::CopyTo(..)
-            | Core::MoveTo(..) => true,
-            // Not in the app yet.
-            Core::ListOutputs
-            | Core::SetOutput(..)
-            | Core::TogglePlaylists
-            | Core::SaveEqualiserPreset(..)
-            | Core::DeleteEqualiserPreset(..)
-            | Core::ToggleDeck
-            | Core::SetDeckMedia(..)
-            | Core::SetDeckMeter(..)
-            | Core::SetVuFace(..)
-            | Core::SetVuCalibration(..)
-            | Core::SetCassetteMix(..)
-            | Core::SetVinylLp(..)
-            | Core::SetReelSlow(..)
-            | Core::SetCdMini(..)
-            | Core::AddAlbums(..)
-            | Core::DropTracks(..)
-            | Core::DropAlbum(..)
-            | Core::DropLoved(..) => false,
+            Core::Settings(action) => match action {
+                SettingsAction::SignIn
+                | SettingsAction::SignOut
+                | SettingsAction::SetSearchApp(..)
+                | SettingsAction::SetLevelling(..)
+                | SettingsAction::SetPhosphor(..)
+                | SettingsAction::SetGrouping(..)
+                | SettingsAction::SetAudioCache(..)
+                | SettingsAction::SetAudioCacheSize(..)
+                | SettingsAction::MeasureStorage
+                | SettingsAction::NetworkBack
+                | SettingsAction::ClearCache(..) => true,
+                // Not in the app yet.
+                SettingsAction::ListOutputs | SettingsAction::SetOutput(..) => false,
+            },
+            Core::LastFm(action) => match action {
+                LastFmAction::ConnectLastFm(..)
+                | LastFmAction::DisconnectLastFm
+                | LastFmAction::SetLoved { .. }
+                | LastFmAction::AddLoved(..)
+                | LastFmAction::PlayLoved(..) => true,
+                // Not in the app yet.
+                LastFmAction::DropLoved(..) => false,
+            },
+            Core::Playback(action) => match action {
+                PlaybackAction::Play
+                | PlaybackAction::TogglePause
+                | PlaybackAction::Stop
+                | PlaybackAction::ToggleStopAfter
+                | PlaybackAction::Release
+                | PlaybackAction::Next
+                | PlaybackAction::Previous
+                | PlaybackAction::Seek(..)
+                | PlaybackAction::Volume(..)
+                | PlaybackAction::SetShuffle(..)
+                | PlaybackAction::SetRepeat(..)
+                | PlaybackAction::PlayEntry(..)
+                | PlaybackAction::PlayNow(..) => true,
+            },
+            Core::Playlists(action) => match action {
+                PlaylistsAction::AddLink(..)
+                | PlaylistsAction::Remove(..)
+                | PlaylistsAction::Move(..)
+                | PlaylistsAction::ToggleMarks(..)
+                | PlaylistsAction::SelectPlaylist(..)
+                | PlaylistsAction::NewPlaylist
+                | PlaylistsAction::NewPlaylistWith(..)
+                | PlaylistsAction::ClosePlaylist(..)
+                | PlaylistsAction::RenamePlaylist(..)
+                | PlaylistsAction::MovePlaylist(..)
+                | PlaylistsAction::CopyTo(..)
+                | PlaylistsAction::MoveTo(..) => true,
+            },
+            Core::Sync(action) => match action {
+                SyncAction::SetSync(..)
+                | SyncAction::ReplaceSynced(..)
+                | SyncAction::DismissSyncNameTaken
+                | SyncAction::OpenSynced(..) => true,
+            },
+            Core::View(action) => match action {
+                ViewAction::ToggleEqualiser
+                | ViewAction::SetEqualiser(..)
+                | ViewAction::ToggleTimeLeft => true,
+                // Not in the app yet.
+                ViewAction::TogglePlaylists
+                | ViewAction::SaveEqualiserPreset(..)
+                | ViewAction::DeleteEqualiserPreset(..)
+                | ViewAction::ToggleDeck
+                | ViewAction::SetDeckMedia(..)
+                | ViewAction::SetDeckMeter(..)
+                | ViewAction::SetVuFace(..)
+                | ViewAction::SetVuCalibration(..)
+                | ViewAction::SetCassetteMix(..)
+                | ViewAction::SetVinylLp(..)
+                | ViewAction::SetReelSlow(..)
+                | ViewAction::SetCdMini(..) => false,
+            },
+            Core::Browse(action) => match action {
+                BrowseAction::ToggleBrowse
+                | BrowseAction::CloseBrowse
+                | BrowseAction::Back
+                | BrowseAction::Search(..)
+                | BrowseAction::MoreSongs(..)
+                | BrowseAction::Find(..)
+                | BrowseAction::ForgetSearch(..)
+                | BrowseAction::OpenArtist(..)
+                | BrowseAction::ToggleAlbum(..)
+                | BrowseAction::ExpandAlbums(..)
+                | BrowseAction::SetTab(..)
+                | BrowseAction::ShowSimilar(..)
+                | BrowseAction::ShowPopular
+                | BrowseAction::OpenSimilar(..)
+                | BrowseAction::ToggleSort
+                | BrowseAction::SetTarget(..)
+                | BrowseAction::ToggleCovers
+                | BrowseAction::AddTracks(..)
+                | BrowseAction::AddAlbum(..)
+                | BrowseAction::AddAll
+                | BrowseAction::ShowBrowseTab(..) => true,
+                // Not in the app yet.
+                BrowseAction::AddAlbums(..)
+                | BrowseAction::DropTracks(..)
+                | BrowseAction::DropAlbum(..) => false,
+            },
+            Core::SpotifyLists(action) => match action {
+                SpotifyListsAction::OpenSpotifyPlaylist(..)
+                | SpotifyListsAction::RemoveFromSpotify(..)
+                | SpotifyListsAction::UnlistSpotifyPlaylist(..)
+                | SpotifyListsAction::UndoSpotifyRemoval
+                | SpotifyListsAction::ReadSpotifyPlaylists
+                | SpotifyListsAction::CopyToSpotify(..) => true,
+            },
+            Core::SpotifyTab(action) => match action {
+                SpotifyTabAction::ClearSpotify
+                | SpotifyTabAction::TakeOverSpotify
+                | SpotifyTabAction::OpenSpotifyTab
+                | SpotifyTabAction::SetSpotifyTabEnabled(..) => true,
+            },
         }
     }
 

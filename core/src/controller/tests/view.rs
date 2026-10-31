@@ -7,7 +7,7 @@ fn equaliser_presets_are_saved_by_name_and_deleted() {
     let mut rig = Rig::new("equaliser");
     let mut bands = [0.0; 10];
     bands[0] = 3.0;
-    rig.controller.apply(Action::SetEqualiser(Equaliser {
+    rig.controller.apply(ViewAction::SetEqualiser(Equaliser {
         on: true,
         preamp: 40.0,
         bands,
@@ -15,16 +15,17 @@ fn equaliser_presets_are_saved_by_name_and_deleted() {
     let settings = |rig: &Rig| rig.controller.state().settings.clone();
     assert_eq!(settings(&rig).equaliser.preamp, 12.0);
     rig.controller
-        .apply(Action::SaveEqualiserPreset(" Mine ".into()));
-    rig.controller.apply(Action::SaveEqualiserPreset("".into()));
+        .apply(ViewAction::SaveEqualiserPreset(" Mine ".into()));
+    rig.controller
+        .apply(ViewAction::SaveEqualiserPreset("".into()));
     bands[0] = -3.0;
-    rig.controller.apply(Action::SetEqualiser(Equaliser {
+    rig.controller.apply(ViewAction::SetEqualiser(Equaliser {
         on: true,
         preamp: 0.0,
         bands,
     }));
     rig.controller
-        .apply(Action::SaveEqualiserPreset("Mine".into()));
+        .apply(ViewAction::SaveEqualiserPreset("Mine".into()));
     let presets = settings(&rig).equaliser_presets;
     assert_eq!(presets.len(), 1);
     assert_eq!(
@@ -32,9 +33,9 @@ fn equaliser_presets_are_saved_by_name_and_deleted() {
         ("Mine", -3.0)
     );
     rig.controller
-        .apply(Action::DeleteEqualiserPreset("Mine".into()));
+        .apply(ViewAction::DeleteEqualiserPreset("Mine".into()));
     assert!(settings(&rig).equaliser_presets.is_empty());
-    rig.controller.apply(Action::ToggleEqualiser);
+    rig.controller.apply(ViewAction::ToggleEqualiser);
     assert!(settings(&rig).equaliser_shown);
 }
 
@@ -42,33 +43,33 @@ fn equaliser_presets_are_saved_by_name_and_deleted() {
 fn the_deck_shows_and_changes_media() {
     let mut rig = Rig::new("deck");
     let settings = |rig: &Rig| rig.controller.state().settings.clone();
-    rig.controller.apply(Action::ToggleDeck);
+    rig.controller.apply(ViewAction::ToggleDeck);
     assert!(settings(&rig).deck_shown);
     rig.controller
-        .apply(Action::SetDeckMedia(crate::store::DeckMedia::Reel));
+        .apply(ViewAction::SetDeckMedia(crate::store::DeckMedia::Reel));
     assert_eq!(settings(&rig).deck_media, crate::store::DeckMedia::Reel);
     rig.controller
-        .apply(Action::SetDeckMeter(crate::store::DeckMeter::Vu));
+        .apply(ViewAction::SetDeckMeter(crate::store::DeckMeter::Vu));
     assert_eq!(settings(&rig).deck_meter, crate::store::DeckMeter::Vu);
     rig.controller
-        .apply(Action::SetVuFace(crate::store::VuFace::Blue));
+        .apply(ViewAction::SetVuFace(crate::store::VuFace::Blue));
     assert_eq!(settings(&rig).vu_face, crate::store::VuFace::Blue);
-    rig.controller.apply(Action::SetVuCalibration(
+    rig.controller.apply(ViewAction::SetVuCalibration(
         crate::store::VuCalibration::Minus18,
     ));
     assert_eq!(
         settings(&rig).vu_calibration,
         crate::store::VuCalibration::Minus18
     );
-    rig.controller.apply(Action::SetCassetteMix(true));
+    rig.controller.apply(ViewAction::SetCassetteMix(true));
     assert!(settings(&rig).cassette_mix);
-    rig.controller.apply(Action::SetVinylLp(true));
+    rig.controller.apply(ViewAction::SetVinylLp(true));
     assert!(settings(&rig).vinyl_lp);
-    rig.controller.apply(Action::SetReelSlow(true));
+    rig.controller.apply(ViewAction::SetReelSlow(true));
     assert!(settings(&rig).reel_slow);
-    rig.controller.apply(Action::SetCdMini(true));
+    rig.controller.apply(ViewAction::SetCdMini(true));
     assert!(settings(&rig).cd_mini);
-    rig.controller.apply(Action::ToggleDeck);
+    rig.controller.apply(ViewAction::ToggleDeck);
     assert!(!settings(&rig).deck_shown);
 }
 
@@ -77,8 +78,8 @@ fn the_time_shows_what_is_left_and_back() {
     let mut rig = Rig::new("time-left");
     let time_left = |rig: &Rig| rig.controller.state().settings.time_left;
     assert!(!time_left(&rig), "what has played to start with");
-    rig.controller.apply(Action::ToggleTimeLeft);
+    rig.controller.apply(ViewAction::ToggleTimeLeft);
     assert!(time_left(&rig));
-    rig.controller.apply(Action::ToggleTimeLeft);
+    rig.controller.apply(ViewAction::ToggleTimeLeft);
     assert!(!time_left(&rig));
 }

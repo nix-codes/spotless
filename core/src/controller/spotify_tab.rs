@@ -5,7 +5,7 @@
 use std::time::{Duration, Instant};
 
 use super::Controller;
-use crate::action::Action;
+use crate::action::{PlaybackAction, PlaylistsAction, SpotifyTabAction};
 use crate::backend::{Command, SpotifyRequest};
 use crate::model::{Playlist, PlaylistId, TrackRef};
 use crate::playback::engine::Status;
@@ -93,27 +93,120 @@ impl Controller {
         self.send(Command::SpotifyTab(shown));
     }
 
-    /// Does what the Spotify tab, or the player while the tab plays, asked
-    /// for. Hands back any other action.
-    pub(super) fn apply_spotify(&mut self, action: Action) -> Option<Action> {
+    /// The Spotify tab's own actions.
+    pub(super) fn apply_spotify_tab(&mut self, action: SpotifyTabAction) {
+        let state = &mut self.state;
+        let request = match action {
+            // Shown once its device has joined.
+            SpotifyTabAction::OpenSpotifyTab => {
+                state.settings.spotify_tab = true;
+                state.viewed = PlaylistId::SPOTIFY;
+                return self.spotify_tab_changed();
+            }
+            SpotifyTabAction::SetSpotifyTabEnabled(on) => {
+                state.settings.spotify_tab_enabled = on;
+                if on {
+                    state.settings.spotify_tab = true;
+                }
+                return self.spotify_tab_changed();
+            }
+            // Held elsewhere, the tab only shows the queue.
+            SpotifyTabAction::ClearSpotify => match &state.spotify {
+                Some(queue) if !queue.held_elsewhere() => SpotifyRequest::Clear,
+                _ => return,
+            },
+            // The player shows the queue, paused here once it comes.
+            SpotifyTabAction::TakeOverSpotify => match &state.spotify {
+                Some(queue) if queue.held_elsewhere() => {
+                    state.spotify_owns = true;
+                    SpotifyRequest::TakeOver
+                }
+                _ => return,
+            },
+        };
+        self.send_to_queue(request);
+    }
+
+    /// Does what the player's buttons asked of the queue while it's the
+    /// player's, or while the Spotify tab shows. Hands back what's the
+    /// local player's to do.
+    pub(super) fn queue_playback(&mut self, action: PlaybackAction) -> Option<PlaybackAction> {
+        let state = &mut self.state;
+        // The system wants the sound gone (Android): the queue playing
+        // here pauses, besides the local song letting go.
+        if action == PlaybackAction::Release {
+            if state.spotify_playing() && state.spotify.as_ref().is_some_and(|q| q.playing_here()) {
+                state.spotify_starting = None;
+                self.send(Command::Spotify(SpotifyRequest::Pause));
+            }
+            return Some(action);
+        }
+        // The player's buttons act on the queue, wherever it plays.
+        let here = state.spotify_playing();
+        let shown = state.viewed == PlaylistId::SPOTIFY;
+        let request = match action {
+            PlaybackAction::Play if here => SpotifyRequest::Play,
+            // The local song paused shows: Play goes on with it.
+            PlaybackAction::Play if shown && state.player.status == Status::Paused => {
+                return Some(PlaybackAction::TogglePause);
+            }
+            PlaybackAction::Play if shown => SpotifyRequest::PlayHere(None),
+            PlaybackAction::TogglePause if here => SpotifyRequest::TogglePause,
+            PlaybackAction::Stop if here => SpotifyRequest::Stop,
+            PlaybackAction::Next if here => SpotifyRequest::Next,
+            PlaybackAction::Previous if here => SpotifyRequest::Previous,
+            PlaybackAction::Seek(position) if here => {
+                if let Some(queue) = &mut state.spotify {
+                    queue.position_ms = position;
+                    queue.reported_at = Some(Instant::now());
+                    self.spotify_seeked = Some(Instant::now());
+                }
+                SpotifyRequest::Seek(position)
+            }
+            // Played here from that song: what played before can't be.
+            PlaybackAction::PlayEntry(PlaylistId::SPOTIFY, row) => {
+                match state.spotify.as_ref()?.row(row)? {
+                    Row::Now(_) => SpotifyRequest::PlayHere(None),
+                    Row::Next(song) => SpotifyRequest::PlayHere(Some(song.track.uri.clone())),
+                    Row::Before(_) => return None,
+                }
+            }
+            PlaybackAction::PlayNow(track) if state.browse.target == PlaylistId::SPOTIFY => {
+                self.insert_tracks(PlaylistId::SPOTIFY, None, vec![track]);
+                return None;
+            }
+            other => {
+                // Something else to play instead.
+                if matches!(
+                    other,
+                    PlaybackAction::Play
+                        | PlaybackAction::PlayEntry(..)
+                        | PlaybackAction::PlayNow(_)
+                ) {
+                    state.spotify_starting = None;
+                    state.spotify_owns = false;
+                }
+                return Some(other);
+            }
+        };
+        self.send_to_queue(request);
+        None
+    }
+
+    /// Does what an edit of the tabs or the songs asked of the Spotify
+    /// tab. Hands back what's the playlists' to do.
+    pub(super) fn queue_playlists(&mut self, action: PlaylistsAction) -> Option<PlaylistsAction> {
+        let state = &mut self.state;
+        let shown = state.viewed == PlaylistId::SPOTIFY;
         match action {
             // Closed, Spotless leaves Spotify Connect; the queue stays the
             // account's, to go on with elsewhere.
-            Action::ClosePlaylist(PlaylistId::SPOTIFY) => {
-                self.state.settings.spotify_tab = false;
+            PlaylistsAction::ClosePlaylist(PlaylistId::SPOTIFY) => {
+                state.settings.spotify_tab = false;
                 self.spotify_tab_changed();
-                return None;
-            }
-            // Shown once its device has joined.
-            Action::OpenSpotifyTab => {
-                self.state.settings.spotify_tab = true;
-                self.state.viewed = PlaylistId::SPOTIFY;
-                self.spotify_tab_changed();
-                return None;
             }
             // While the Spotify tab shows, the index counts it too.
-            Action::MovePlaylist(list, index) if self.state.spotify.is_some() => {
-                let state = &mut self.state;
+            PlaylistsAction::MovePlaylist(list, index) if state.spotify.is_some() => {
                 let mut tabs = state.tabs();
                 tabs.retain(|&id| id != list);
                 tabs.insert(index.min(tabs.len()), list);
@@ -125,79 +218,13 @@ impl Controller {
                     state.library.move_playlist(id, at);
                 }
                 self.mark_unsaved();
-                return None;
             }
-            // The system wants the sound gone (Android): the queue playing
-            // here pauses, besides the local song letting go.
-            Action::Release
-                if self.state.spotify_playing()
-                    && self
-                        .state
-                        .spotify
-                        .as_ref()
-                        .is_some_and(|q| q.playing_here()) =>
-            {
-                self.state.spotify_starting = None;
-                self.send(Command::Spotify(SpotifyRequest::Pause));
-                return Some(Action::Release);
-            }
-            Action::SetSpotifyTabEnabled(on) => {
-                self.state.settings.spotify_tab_enabled = on;
-                if on {
-                    self.state.settings.spotify_tab = true;
-                }
-                self.spotify_tab_changed();
-                return None;
-            }
-            _ => {}
-        }
-        let state = &mut self.state;
-        // The player's buttons act on the queue, wherever it plays.
-        let here = state.spotify_playing();
-        let shown = state.viewed == PlaylistId::SPOTIFY;
-        let request = match action {
-            Action::Play if here => SpotifyRequest::Play,
-            // The local song paused shows: Play goes on with it.
-            Action::Play if shown && state.player.status == Status::Paused => {
-                return Some(Action::TogglePause);
-            }
-            Action::Play if shown => SpotifyRequest::PlayHere(None),
-            Action::TogglePause if here => SpotifyRequest::TogglePause,
-            Action::Stop if here => SpotifyRequest::Stop,
-            Action::Next if here => SpotifyRequest::Next,
-            Action::Previous if here => SpotifyRequest::Previous,
-            Action::Seek(position) if here => {
-                if let Some(queue) = &mut state.spotify {
-                    queue.position_ms = position;
-                    queue.reported_at = Some(Instant::now());
-                    self.spotify_seeked = Some(Instant::now());
-                }
-                SpotifyRequest::Seek(position)
-            }
-            Action::SelectPlaylist(PlaylistId::SPOTIFY) => {
+            PlaylistsAction::SelectPlaylist(PlaylistId::SPOTIFY) => {
                 if state.spotify.is_some() {
                     state.viewed = PlaylistId::SPOTIFY;
                 }
-                return None;
             }
-            // Played here from that song: what played before can't be.
-            Action::PlayEntry(PlaylistId::SPOTIFY, row) => {
-                match state.spotify.as_ref()?.row(row)? {
-                    Row::Now(_) => SpotifyRequest::PlayHere(None),
-                    Row::Next(song) => SpotifyRequest::PlayHere(Some(song.track.uri.clone())),
-                    Row::Before(_) => return None,
-                }
-            }
-            // Held elsewhere, the tab only shows the queue.
-            Action::ClearSpotify if state.spotify.as_ref()?.held_elsewhere() => return None,
-            Action::ClearSpotify => SpotifyRequest::Clear,
-            // The player shows the queue, paused here once it comes.
-            Action::TakeOverSpotify if state.spotify.as_ref()?.held_elsewhere() => {
-                state.spotify_owns = true;
-                SpotifyRequest::TakeOver
-            }
-            Action::TakeOverSpotify => return None,
-            Action::Remove(PlaylistId::SPOTIFY, rows) => {
+            PlaylistsAction::Remove(PlaylistId::SPOTIFY, rows) => {
                 let queue = state.spotify.as_ref()?;
                 let songs = rows
                     .iter()
@@ -206,25 +233,18 @@ impl Controller {
                         _ => None,
                     })
                     .collect();
-                SpotifyRequest::Remove(songs)
+                self.send_to_queue(SpotifyRequest::Remove(songs));
             }
-            Action::Move(..) | Action::ToggleMarks(_) if shown => return None,
-            Action::PlayNow(track) if state.browse.target == PlaylistId::SPOTIFY => {
-                self.insert_tracks(PlaylistId::SPOTIFY, None, vec![track]);
-                return None;
-            }
-            other => {
-                // Something else to play instead.
-                if matches!(
-                    other,
-                    Action::Play | Action::PlayEntry(..) | Action::PlayNow(_)
-                ) {
-                    state.spotify_starting = None;
-                    state.spotify_owns = false;
-                }
-                return Some(other);
-            }
-        };
+            PlaylistsAction::Move(..) | PlaylistsAction::ToggleMarks(_) if shown => {}
+            other => return Some(other),
+        }
+        None
+    }
+
+    /// Sends the queue a request, and starts or ends the wait for it to
+    /// play here.
+    fn send_to_queue(&mut self, request: SpotifyRequest) {
+        let state = &mut self.state;
         let playing_here = state
             .spotify
             .as_ref()
@@ -240,7 +260,6 @@ impl Controller {
             state.spotify_starting = None;
         }
         self.send(Command::Spotify(request));
-        None
     }
 
     /// Adds songs to the end of the account's queue, while it takes them.

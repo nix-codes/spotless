@@ -25,7 +25,9 @@ use super::playlist_view::{self, Choice, Menu, RowDrag};
 use super::scrollbar;
 use super::widgets::{drag_ghost, row_heart, row_length, small_action, tip};
 use super::{Inputs, View};
-use crate::action::{Action, Actions, Desktop};
+use crate::action::{
+    Actions, BrowseAction, Desktop, PlaybackAction, PlaylistsAction, SpotifyTabAction,
+};
 use spotless_core::model::{EntryId, PlaylistId};
 use spotless_core::spotify::queue::{Row, SpotifyQueue};
 
@@ -133,24 +135,24 @@ pub fn draw(
                 .collect()
         };
         match choice {
-            Choice::Copy(Some(to)) => actions.push(Action::CopyTo(to, tracks())),
-            Choice::Copy(None) => actions.push(Action::NewPlaylistWith(tracks())),
+            Choice::Copy(Some(to)) => actions.push(PlaylistsAction::CopyTo(to, tracks())),
+            Choice::Copy(None) => actions.push(PlaylistsAction::NewPlaylistWith(tracks())),
             Choice::CopyToSpotify => actions.push(Desktop::PickSpotifyPlaylist {
                 tracks: tracks(),
                 name: view.playlist.name.clone(),
                 new: false,
             }),
-            Choice::Remove => actions.push(Action::Remove(
+            Choice::Remove => actions.push(PlaylistsAction::Remove(
                 PlaylistId::SPOTIFY,
                 removable(queue, selection),
             )),
             Choice::Move(Some(to)) => {
                 let rows = selection.iter().rev().copied().collect();
-                actions.push(Action::MoveTo(PlaylistId::SPOTIFY, to, rows));
+                actions.push(PlaylistsAction::MoveTo(PlaylistId::SPOTIFY, to, rows));
             }
             Choice::Move(None) => {
-                actions.push(Action::NewPlaylistWith(tracks()));
-                actions.push(Action::Remove(
+                actions.push(PlaylistsAction::NewPlaylistWith(tracks()));
+                actions.push(PlaylistsAction::Remove(
                     PlaylistId::SPOTIFY,
                     removable(queue, selection),
                 ));
@@ -250,7 +252,7 @@ fn draw_row(
         response.scroll_to_me(None);
     }
     if response.double_clicked() {
-        actions.push(Action::PlayEntry(PlaylistId::SPOTIFY, id));
+        actions.push(PlaybackAction::PlayEntry(PlaylistId::SPOTIFY, id));
     } else if response.clicked() {
         let modifiers = ui.input(|i| i.modifiers);
         if modifiers.shift
@@ -344,22 +346,22 @@ fn toolbar(
                 ))
                 .clicked()
         {
-            actions.push(Action::TakeOverSpotify);
+            actions.push(SpotifyTabAction::TakeOverSpotify);
         }
         let add = small_action(ui, &palette, "+ ADD", queue.takes_songs());
         let adding = tip(add, "Add songs from Browse (Ctrl+B)").clicked();
         if adding {
-            actions.push(Action::ToggleBrowse);
+            actions.push(BrowseAction::ToggleBrowse);
         }
         let can_remove = queue.takes_songs() && !removable.is_empty();
         let rem = small_action(ui, &palette, "REM", can_remove);
         if tip(rem, "Remove the selected songs (Delete)").clicked() {
-            actions.push(Action::Remove(PlaylistId::SPOTIFY, removable));
+            actions.push(PlaylistsAction::Remove(PlaylistId::SPOTIFY, removable));
         }
         let something = queue.now.is_some() || !queue.parts.is_empty();
         let can_clear = something && !queue.held_elsewhere();
         if small_action(ui, &palette, "CLEAR", can_clear).clicked() {
-            actions.push(Action::ClearSpotify);
+            actions.push(SpotifyTabAction::ClearSpotify);
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let songs = match queue.len() {
@@ -420,12 +422,12 @@ fn keyboard(
                 .cursor
                 .filter(|&id| queue.row(id).is_some())
                 .unwrap_or(SpotifyQueue::row_id(queue.before.len()));
-            actions.push(Action::PlayEntry(PlaylistId::SPOTIFY, row));
+            actions.push(PlaybackAction::PlayEntry(PlaylistId::SPOTIFY, row));
         }
         Key::Delete if queue.takes_songs() => {
             let rows = removable(queue, selection);
             if !rows.is_empty() {
-                actions.push(Action::Remove(PlaylistId::SPOTIFY, rows));
+                actions.push(PlaylistsAction::Remove(PlaylistId::SPOTIFY, rows));
             }
         }
         Key::A if modifiers.command => {

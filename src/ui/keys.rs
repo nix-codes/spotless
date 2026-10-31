@@ -13,7 +13,10 @@ use super::scrollbar::{self, Scrollbar};
 use super::theme::{self, Palette};
 use super::widgets::text_button;
 use super::{Inputs, View, browse_view, player_strip};
-use crate::action::{Action, Actions, Desktop};
+use crate::action::{
+    Action, Actions, BrowseAction, Desktop, PlaybackAction, PlaylistsAction, SpotifyListsAction,
+    ViewAction,
+};
 use spotless_core::backend::SessionState;
 use spotless_core::browse::BrowseTab;
 use spotless_core::model::PlaylistId;
@@ -124,7 +127,7 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
     if matches!(view.session, SessionState::Ready { .. }) {
         ui.input_mut(|i| {
             let mut show = |tab: BrowseTab| {
-                actions.push(Action::ShowBrowseTab(tab));
+                actions.push(BrowseAction::ShowBrowseTab(tab));
                 browse_view::focus_tab(tab, inputs);
             };
             if take(i, Modifiers::COMMAND, Key::F) || take(i, Modifiers::NONE, Key::F3) {
@@ -196,24 +199,26 @@ fn playback(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut 
             .map(|entry| entry.id)
             .find(|id| inputs.selection.rows.contains(id));
         actions.push(match (player.status, selected) {
-            (Status::Stopped, Some(row)) => Action::PlayEntry(list.id, row),
-            (Status::Stopped, None) => Action::Play,
-            _ => Action::TogglePause,
+            (Status::Stopped, Some(row)) => {
+                Action::Playback(PlaybackAction::PlayEntry(list.id, row))
+            }
+            (Status::Stopped, None) => Action::Playback(PlaybackAction::Play),
+            _ => Action::Playback(PlaybackAction::TogglePause),
         });
     }
     // Winamp's key for Stop.
     if take(i, Modifiers::NONE, Key::V) && player.status != Status::Stopped {
-        actions.push(Action::Stop);
+        actions.push(PlaybackAction::Stop);
     }
     if take(i, Modifiers::SHIFT, Key::V) {
-        actions.push(Action::ToggleStopAfter);
+        actions.push(PlaybackAction::ToggleStopAfter);
     }
     // Winamp's keys, with V.
     if take(i, Modifiers::NONE, Key::Z) {
-        actions.push(Action::Previous);
+        actions.push(PlaybackAction::Previous);
     }
     if take(i, Modifiers::NONE, Key::B) {
-        actions.push(Action::Next);
+        actions.push(PlaybackAction::Next);
     }
 
     let mut seek = 0;
@@ -227,7 +232,7 @@ fn playback(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut 
         && let Some(track) = &player.track
     {
         let to = (i64::from(player.position_now()) + seek).clamp(0, i64::from(track.duration_ms));
-        actions.push(Action::Seek(to as u32));
+        actions.push(PlaybackAction::Seek(to as u32));
     }
 
     // + is Shift+= on many layouts; = alone works too.
@@ -252,10 +257,10 @@ fn playback(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut 
     }
 
     if take(i, Modifiers::NONE, Key::S) {
-        actions.push(Action::SetShuffle(!view.shuffle));
+        actions.push(PlaybackAction::SetShuffle(!view.shuffle));
     }
     if take(i, Modifiers::NONE, Key::R) {
-        actions.push(Action::SetRepeat(!view.repeat));
+        actions.push(PlaybackAction::SetRepeat(!view.repeat));
     }
     if take(i, Modifiers::NONE, Key::J) {
         player_strip::jump_to_playing(view, inputs, actions);
@@ -273,9 +278,9 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     let lists = view.tabs;
     let choose = |list: PlaylistId| {
         if browsing {
-            Action::SetTarget(list)
+            Action::Browse(BrowseAction::SetTarget(list))
         } else {
-            Action::SelectPlaylist(list)
+            Action::Playlists(PlaylistsAction::SelectPlaylist(list))
         }
     };
     let at = lists.iter().position(|&id| id == current).unwrap_or(0);
@@ -307,11 +312,11 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     }
 
     if take(i, Modifiers::COMMAND, Key::T) {
-        actions.push(Action::CloseBrowse);
-        actions.push(Action::NewPlaylist);
+        actions.push(BrowseAction::CloseBrowse);
+        actions.push(PlaylistsAction::NewPlaylist);
     }
     if take(i, Modifiers::NONE, Key::F2) {
-        actions.push(Action::CloseBrowse);
+        actions.push(BrowseAction::CloseBrowse);
         inputs.renaming = Some((view.playlist.id, view.playlist.name.clone()));
     }
     if !browsing && take(i, Modifiers::COMMAND, Key::W) {
@@ -319,31 +324,31 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
             || view.playlist.sync.is_some()
             || current == PlaylistId::SPOTIFY
         {
-            actions.push(Action::ClosePlaylist(current));
+            actions.push(PlaylistsAction::ClosePlaylist(current));
         } else {
             inputs.closing = Some(current);
         }
     }
     // Winamp's key for its equaliser.
     if take(i, Modifiers::ALT, Key::G) {
-        actions.push(Action::ToggleEqualiser);
+        actions.push(ViewAction::ToggleEqualiser);
     }
     if take(i, Modifiers::ALT, Key::V) {
-        actions.push(Action::ToggleDeck);
+        actions.push(ViewAction::ToggleDeck);
     }
     // Winamp's is Ctrl+T, a new playlist here.
     if take(i, Modifiers::ALT, Key::T) {
-        actions.push(Action::ToggleTimeLeft);
+        actions.push(ViewAction::ToggleTimeLeft);
     }
     if super::undo_shown(view) && take(i, Modifiers::COMMAND, Key::Z) {
-        actions.push(Action::UndoSpotifyRemoval);
+        actions.push(SpotifyListsAction::UndoSpotifyRemoval);
     }
     // Insert opens Browse, to add to the playlist; in Browse it adds.
     if take(i, Modifiers::COMMAND, Key::B)
         || (!view.browse.open && take(i, Modifiers::NONE, Key::Insert))
     {
         browse_view::opening(view, inputs);
-        actions.push(Action::ToggleBrowse);
+        actions.push(BrowseAction::ToggleBrowse);
     }
 
     // Ctrl+V arrives as a paste. Text that isn't a Spotify link is left alone.
@@ -353,7 +358,7 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     }
     i.events.retain(|event| match event {
         Event::Paste(text) if spotless_core::spotify::catalog::parse_uri(text.trim()).is_ok() => {
-            actions.push(Action::AddLink(text.trim().to_string()));
+            actions.push(PlaylistsAction::AddLink(text.trim().to_string()));
             false
         }
         _ => true,
@@ -363,7 +368,7 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
 fn set_volume(inputs: &mut Inputs, volume: u8, actions: &mut Actions) {
     inputs.volume = volume;
     inputs.unmuted = None;
-    actions.push(Action::Volume(volume));
+    actions.push(PlaybackAction::Volume(volume));
 }
 
 /// Consumes one press of exactly this key and these modifiers, not a

@@ -16,7 +16,9 @@ use super::theme::{self, Palette, Phosphor};
 use super::update_view::{release, update_button};
 use super::widgets::{field, small_action, small_button, text_button};
 use super::{View, scrollbar};
-use crate::action::{Action, Actions, Desktop};
+use crate::action::{
+    Actions, BrowseAction, Desktop, LastFmAction, SettingsAction, SpotifyTabAction,
+};
 use crate::skin;
 use crate::update::{self, Status};
 use spotless_core::backend::{SearchState, SessionState, Store};
@@ -448,7 +450,7 @@ impl Controls<'_, '_> {
                     let button = small_button(ui, palette, "SIGN OUT", false);
                     self.ring(ui, Item::SignOut, &button);
                     if button.clicked() || (self.pressed)(Item::SignOut) {
-                        self.actions.push(Action::SignOut);
+                        self.actions.push(SettingsAction::SignOut);
                         *self.close = true;
                     }
                     note(ui, palette, "Signing in again asks your browser once.");
@@ -513,7 +515,8 @@ impl Controls<'_, '_> {
                     let button = small_button(ui, palette, "DISCONNECT", false);
                     self.ring(ui, Item::SearchConnect, &button);
                     if button.clicked() || (self.pressed)(Item::SearchConnect) {
-                        self.actions.push(Action::SetSearchApp(String::new()));
+                        self.actions
+                            .push(SettingsAction::SetSearchApp(String::new()));
                         self.form.client_id.clear();
                     }
                 } else {
@@ -522,7 +525,8 @@ impl Controls<'_, '_> {
                     if connectable
                         && (button.clicked() || (self.pressed)(Item::SearchConnect) || submitted)
                     {
-                        self.actions.push(Action::SetSearchApp(typed.clone()));
+                        self.actions
+                            .push(SettingsAction::SetSearchApp(typed.clone()));
                     }
                 }
             });
@@ -628,7 +632,7 @@ impl Controls<'_, '_> {
                     let button = small_button(ui, palette, "DISCONNECT", false);
                     self.ring(ui, Item::LastFmConnect, &button);
                     if button.clicked() || (self.pressed)(Item::LastFmConnect) {
-                        self.actions.push(Action::DisconnectLastFm);
+                        self.actions.push(LastFmAction::DisconnectLastFm);
                     }
                 } else {
                     let button = small_action(ui, palette, "CONNECT", ready);
@@ -637,7 +641,7 @@ impl Controls<'_, '_> {
                         && (button.clicked() || (self.pressed)(Item::LastFmConnect) || submitted)
                     {
                         self.actions
-                            .push(Action::ConnectLastFm(key.clone(), secret.clone()));
+                            .push(LastFmAction::ConnectLastFm(key.clone(), secret.clone()));
                     }
                 }
             });
@@ -712,7 +716,8 @@ impl Controls<'_, '_> {
             let switch = toggle(ui, palette, settings.levelling);
             self.ring(ui, Item::Levelling, &switch);
             if switch.clicked() || (self.pressed)(Item::Levelling) {
-                self.actions.push(Action::SetLevelling(!settings.levelling));
+                self.actions
+                    .push(SettingsAction::SetLevelling(!settings.levelling));
             }
             note(ui, palette, "Evens out loudness between songs and albums.");
         });
@@ -722,7 +727,8 @@ impl Controls<'_, '_> {
             let switch = toggle(ui, palette, on);
             self.ring(ui, Item::SpotifyTab, &switch);
             if switch.clicked() || (self.pressed)(Item::SpotifyTab) {
-                self.actions.push(Action::SetSpotifyTabEnabled(!on));
+                self.actions
+                    .push(SpotifyTabAction::SetSpotifyTabEnabled(!on));
             }
             note(
                 ui,
@@ -740,7 +746,7 @@ impl Controls<'_, '_> {
                     let choice = radio(ui, palette, chosen, name);
                     self.ring(ui, Item::Output(i), &choice);
                     if !chosen && (choice.clicked() || (self.pressed)(Item::Output(i))) {
-                        self.actions.push(Action::SetOutput(output.clone()));
+                        self.actions.push(SettingsAction::SetOutput(output.clone()));
                     }
                 }
             }
@@ -781,7 +787,7 @@ impl Controls<'_, '_> {
             let switch = toggle(ui, palette, self.view.browse.show_covers);
             self.ring(ui, Item::Covers, &switch);
             if switch.clicked() || (self.pressed)(Item::Covers) {
-                self.actions.push(Action::ToggleCovers);
+                self.actions.push(BrowseAction::ToggleCovers);
             }
             note(ui, palette, "Album covers and artist pictures in Browse.");
         });
@@ -792,7 +798,7 @@ impl Controls<'_, '_> {
                 let choice = radio(ui, palette, on, grouping.name());
                 self.ring(ui, Item::Grouping(i), &choice);
                 if !on && (choice.clicked() || (self.pressed)(Item::Grouping(i))) {
-                    self.actions.push(Action::SetGrouping(grouping));
+                    self.actions.push(SettingsAction::SetGrouping(grouping));
                 }
             }
             note(
@@ -997,7 +1003,7 @@ impl Controls<'_, '_> {
             self.ring(ui, Item::AudioCache, &switch);
             if switch.clicked() || (self.pressed)(Item::AudioCache) {
                 self.actions
-                    .push(Action::SetAudioCache(!settings.audio_cache));
+                    .push(SettingsAction::SetAudioCache(!settings.audio_cache));
             }
             note(ui, palette, "Songs played start faster the next time.");
         });
@@ -1012,14 +1018,14 @@ impl Controls<'_, '_> {
                 self.ring(ui, Item::CacheDown, &button);
                 if at > 0 && (button.clicked() || (self.pressed)(Item::CacheDown)) {
                     self.actions
-                        .push(Action::SetAudioCacheSize(AUDIO_CACHE_SIZES[at - 1]));
+                        .push(SettingsAction::SetAudioCacheSize(AUDIO_CACHE_SIZES[at - 1]));
                 }
                 value(ui, palette, &size(settings.audio_cache_mb * 1024 * 1024));
                 let button = small_action(ui, palette, "+", at < last);
                 self.ring(ui, Item::CacheUp, &button);
                 if at < last && (button.clicked() || (self.pressed)(Item::CacheUp)) {
                     self.actions
-                        .push(Action::SetAudioCacheSize(AUDIO_CACHE_SIZES[at + 1]));
+                        .push(SettingsAction::SetAudioCacheSize(AUDIO_CACHE_SIZES[at + 1]));
                 }
             });
             note(
@@ -1034,7 +1040,7 @@ impl Controls<'_, '_> {
                 let button = small_button(ui, palette, "CLEAR", false);
                 self.ring(ui, Item::ClearAudio, &button);
                 if button.clicked() || (self.pressed)(Item::ClearAudio) {
-                    self.actions.push(Action::ClearCache(Store::Audio));
+                    self.actions.push(SettingsAction::ClearCache(Store::Audio));
                 }
             });
         });
@@ -1044,7 +1050,7 @@ impl Controls<'_, '_> {
                 let button = small_button(ui, palette, "CLEAR", false);
                 self.ring(ui, Item::ClearCovers, &button);
                 if button.clicked() || (self.pressed)(Item::ClearCovers) {
-                    self.actions.push(Action::ClearCache(Store::Covers));
+                    self.actions.push(SettingsAction::ClearCache(Store::Covers));
                 }
             });
             note(ui, palette, "Both are kept in ~/.cache/spotless.");

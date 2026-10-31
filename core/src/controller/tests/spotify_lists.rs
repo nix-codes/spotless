@@ -11,7 +11,7 @@ fn spotify_playlists_are_read_again_whenever_browse_opens() {
             .filter(|c| matches!(c, Command::SpotifyPlaylists))
             .count()
     };
-    rig.controller.apply(Action::ToggleBrowse);
+    rig.controller.apply(BrowseAction::ToggleBrowse);
     assert_eq!(asked(&mut rig), 0, "not before signing in");
     rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));
     assert_eq!(asked(&mut rig), 1);
@@ -24,14 +24,14 @@ fn spotify_playlists_are_read_again_whenever_browse_opens() {
     };
     // Songs read before: one playlist shown, one not.
     for uri in ["spotify:playlist:shown", "spotify:playlist:hidden"] {
-        rig.controller.apply(Action::ToggleAlbum(uri.into()));
+        rig.controller.apply(BrowseAction::ToggleAlbum(uri.into()));
         rig.tell(Event::Album {
             album: uri.into(),
             result: Ok(songs(tracks([1, 2]))),
         });
     }
     rig.controller
-        .apply(Action::ToggleAlbum("spotify:playlist:hidden".into()));
+        .apply(BrowseAction::ToggleAlbum("spotify:playlist:hidden".into()));
     rig.tell(Event::SpotifyPlaylists(Ok(vec![
         playlist("spotify:playlist:shown", 2),
         playlist("spotify:playlist:hidden", 2),
@@ -41,8 +41,8 @@ fn spotify_playlists_are_read_again_whenever_browse_opens() {
     assert!(browse.albums.contains_key("spotify:playlist:shown"));
     assert!(!browse.albums.contains_key("spotify:playlist:hidden"));
 
-    rig.controller.apply(Action::ToggleBrowse);
-    rig.controller.apply(Action::ToggleBrowse);
+    rig.controller.apply(BrowseAction::ToggleBrowse);
+    rig.controller.apply(BrowseAction::ToggleBrowse);
     assert_eq!(asked(&mut rig), 1);
     // A song added on Spotify: the songs shown are read again.
     rig.tell(Event::SpotifyPlaylists(Ok(vec![playlist(
@@ -55,8 +55,8 @@ fn spotify_playlists_are_read_again_whenever_browse_opens() {
             .any(|c| matches!(c, Command::Album(a) if a == "spotify:playlist:shown"))
     );
     // A failed read keeps those read before.
-    rig.controller.apply(Action::ToggleBrowse);
-    rig.controller.apply(Action::ToggleBrowse);
+    rig.controller.apply(BrowseAction::ToggleBrowse);
+    rig.controller.apply(BrowseAction::ToggleBrowse);
     rig.tell(Event::SpotifyPlaylists(Err("offline".into())));
     let browse = &rig.controller.state().browse;
     assert!(matches!(&browse.spotify_playlists, Some(Loadable::Ready(p)) if p.len() == 1));
@@ -79,7 +79,7 @@ fn songs_removed_from_a_spotify_playlist_go_by_their_places_and_come_back() {
     ])));
     let uri = "spotify:playlist:mine".to_string();
     rig.controller
-        .apply(Action::OpenSpotifyPlaylist(uri.clone()));
+        .apply(SpotifyListsAction::OpenSpotifyPlaylist(uri.clone()));
     assert_eq!(
         rig.controller.state().browse.spotify_open.as_ref(),
         Some(&uri)
@@ -95,8 +95,10 @@ fn songs_removed_from_a_spotify_playlist_go_by_their_places_and_come_back() {
         }),
     });
     rig.sent();
-    rig.controller
-        .apply(Action::RemoveFromSpotify(uri.clone(), vec![3, 1]));
+    rig.controller.apply(SpotifyListsAction::RemoveFromSpotify(
+        uri.clone(),
+        vec![3, 1],
+    ));
     let shown = |rig: &Rig| match rig.controller.state().browse.albums.get(&uri) {
         Some(Loadable::Ready(tracks)) => tracks.iter().map(|t| t.title.clone()).collect(),
         _ => Vec::new(),
@@ -125,7 +127,7 @@ fn songs_removed_from_a_spotify_playlist_go_by_their_places_and_come_back() {
             .iter()
             .any(|c| matches!(c, Command::Album(a) if *a == uri))
     );
-    rig.controller.apply(Action::UndoSpotifyRemoval);
+    rig.controller.apply(SpotifyListsAction::UndoSpotifyRemoval);
     assert!(
         rig.sent()
             .iter()
@@ -144,7 +146,7 @@ fn songs_removed_from_a_spotify_playlist_go_by_their_places_and_come_back() {
         }),
     });
     rig.controller
-        .apply(Action::RemoveFromSpotify(theirs, vec![0]));
+        .apply(SpotifyListsAction::RemoveFromSpotify(theirs, vec![0]));
     assert!(rig.sent().is_empty());
 }
 
@@ -166,17 +168,21 @@ fn spotify_playlists_are_deleted_or_unfollowed_and_come_back() {
         playlist("spotify:playlist:mine", "Mine", None),
     ])));
     rig.controller
-        .apply(Action::OpenSpotifyPlaylist("spotify:playlist:mine".into()));
+        .apply(SpotifyListsAction::OpenSpotifyPlaylist(
+            "spotify:playlist:mine".into(),
+        ));
     rig.sent();
     // Liked Songs stays.
-    rig.controller.apply(Action::UnlistSpotifyPlaylist(
-        crate::spotify::catalog::LIKED_SONGS.into(),
-    ));
+    rig.controller
+        .apply(SpotifyListsAction::UnlistSpotifyPlaylist(
+            crate::spotify::catalog::LIKED_SONGS.into(),
+        ));
     assert!(rig.sent().is_empty());
 
-    rig.controller.apply(Action::UnlistSpotifyPlaylist(
-        "spotify:playlist:mine".into(),
-    ));
+    rig.controller
+        .apply(SpotifyListsAction::UnlistSpotifyPlaylist(
+            "spotify:playlist:mine".into(),
+        ));
     let browse = &rig.controller.state().browse;
     let listed = |browse: &Browse| match &browse.spotify_playlists {
         Some(Loadable::Ready(p)) => p.iter().map(|p| p.name.clone()).collect(),
@@ -219,7 +225,7 @@ fn spotify_playlists_are_deleted_or_unfollowed_and_come_back() {
             .iter()
             .any(|c| matches!(c, Command::SpotifyPlaylists))
     );
-    rig.controller.apply(Action::UndoSpotifyRemoval);
+    rig.controller.apply(SpotifyListsAction::UndoSpotifyRemoval);
     assert!(
         rig.sent()
             .iter()
@@ -228,9 +234,10 @@ fn spotify_playlists_are_deleted_or_unfollowed_and_come_back() {
     assert!(rig.controller.state().browse.undo.is_none());
 
     // Someone else's is unfollowed.
-    rig.controller.apply(Action::UnlistSpotifyPlaylist(
-        "spotify:playlist:theirs".into(),
-    ));
+    rig.controller
+        .apply(SpotifyListsAction::UnlistSpotifyPlaylist(
+            "spotify:playlist:theirs".into(),
+        ));
     assert!(rig.sent().iter().any(|c| matches!(
         c,
         Command::UnlistSpotifyPlaylist { notice, .. } if notice == "Unfollowed “Theirs”."
@@ -244,7 +251,10 @@ fn songs_copied_to_spotify_are_sent_once_signed_in() {
         name: "Garage".into(),
         private: true,
     };
-    let copy = Action::CopyToSpotify(target.clone(), tracks([1, 2]));
+    let copy = Action::SpotifyLists(SpotifyListsAction::CopyToSpotify(
+        target.clone(),
+        tracks([1, 2]),
+    ));
     rig.controller.apply(copy.clone());
     assert!(rig.controller.state().error.is_some());
     rig.tell(Event::Session(SessionState::Ready { user: "u".into() }));

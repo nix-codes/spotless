@@ -7,7 +7,7 @@ use egui::{
 };
 
 use super::{Area, CatalogDrag, Nav, PAGE_ROWS, spans};
-use crate::action::{Action, Actions};
+use crate::action::{Action, Actions, BrowseAction, LastFmAction, PlaybackAction, PlaylistsAction};
 use crate::ui::View;
 use crate::ui::scrollbar::Scrollbar;
 use crate::ui::theme;
@@ -55,7 +55,7 @@ pub(super) fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut
                         item.scroll_to_me(None);
                     }
                     if item.clicked() {
-                        actions.push(Action::SetTarget(list.id));
+                        actions.push(BrowseAction::SetTarget(list.id));
                     }
                 }
             });
@@ -152,7 +152,7 @@ fn box_keys(
         nav.keyboard = true;
     }
     if enter && let Some(&id) = at.and_then(|at| view.tabs.get(at)) {
-        actions.push(Action::SetTarget(id));
+        actions.push(BrowseAction::SetTarget(id));
         egui::Popup::close_id(ui.ctx(), popup);
         nav.box_open = false;
         nav.pick = None;
@@ -208,7 +208,7 @@ fn slim_keys(ui: &Ui, list: &Playlist, nav: &mut Nav, actions: &mut Actions) {
     }
     let Some(id) = nav.slim else { return };
     if enter {
-        actions.push(Action::PlayEntry(list.id, id));
+        actions.push(PlaybackAction::PlayEntry(list.id, id));
     }
     if delete && let Some(index) = list.index_of(id) {
         // The next song takes the highlight, or the one before the last.
@@ -217,7 +217,7 @@ fn slim_keys(ui: &Ui, list: &Playlist, nav: &mut Nav, actions: &mut Actions) {
             .get(index + 1)
             .or(index.checked_sub(1).and_then(|i| list.entries().get(i)));
         nav.slim = next.map(|entry| entry.id);
-        actions.push(Action::Remove(list.id, vec![id]));
+        actions.push(PlaylistsAction::Remove(list.id, vec![id]));
     }
 }
 
@@ -302,7 +302,7 @@ fn slim_rows(
                 nav.on_box = false;
             }
             if response.double_clicked() {
-                actions.push(Action::PlayEntry(list.id, entry.id));
+                actions.push(PlaybackAction::PlayEntry(list.id, entry.id));
             }
             if dragging.is_some()
                 && let Some(p) = pointer
@@ -381,9 +381,13 @@ fn drop(ui: &Ui, over: bool, index: usize, actions: &mut Actions) {
         return;
     };
     actions.push(match &*drag {
-        CatalogDrag::Tracks(tracks) => Action::DropTracks(tracks.clone(), index),
-        CatalogDrag::Album { uri, .. } => Action::DropAlbum(uri.clone(), index),
-        CatalogDrag::Loved(songs) => Action::DropLoved(songs.clone(), index),
+        CatalogDrag::Tracks(tracks) => {
+            Action::Browse(BrowseAction::DropTracks(tracks.clone(), index))
+        }
+        CatalogDrag::Album { uri, .. } => {
+            Action::Browse(BrowseAction::DropAlbum(uri.clone(), index))
+        }
+        CatalogDrag::Loved(songs) => Action::LastFm(LastFmAction::DropLoved(songs.clone(), index)),
     });
 }
 

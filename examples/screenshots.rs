@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use egui::{ColorImage, Key, UiBuilder, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use spotless::action::{Action, Actions};
+use spotless::action::{Actions, BrowseAction};
 use spotless::app::{Look, use_skin};
 use spotless::settings::DesktopSettings;
 use spotless::skin::format::built_in::WINAMP_CLASSIC_KEY;
@@ -201,8 +201,8 @@ impl Demo {
             Screen::Browse => {
                 // Found by a search, as it would be.
                 inputs.query = demo::ARTIST.to_lowercase();
-                controller.apply(Action::ToggleBrowse);
-                controller.apply(Action::OpenArtist(demo::artist()));
+                controller.apply(BrowseAction::ToggleBrowse);
+                controller.apply(BrowseAction::OpenArtist(demo::artist()));
             }
             Screen::Settings(_) => {}
         }

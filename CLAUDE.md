@@ -30,10 +30,14 @@ How the parts fit, to keep to as features are added:
   hands it `Action`s and calls `receive` and `tick` when woken; it never
   talks to the backend (`Command` and `Event` are the core's own).
 - The controller is a file per part under `core/src/controller/`
-  (playback, playlists, browse, sync…); `mod.rs` only routes. Its
-  `apply` and `receive` name every action and event, with no catch-all:
-  a new one goes in the router and in its part's file, tests in
-  `controller/tests/` beside the others.
+  (playback, playlists, browse, sync…); `mod.rs` only routes. An
+  action is of its part's kind (`PlaybackAction`… in `action.rs`), and
+  each part's `apply_*` names every one of its kind, with no catch-all;
+  `receive` names every event the same way. A new action goes in its
+  part's kind and file, a new event in the router and its part's file,
+  tests in `controller/tests/` beside the others. What the Spotify tab
+  or a song waiting offline takes from another part is the first thing
+  that part's `apply_*` does.
 - Rules that decide something (what plays next, how a sync merges, when
   to reconnect) are plain code that changes the model and returns what to
   do, like `Transport` and `Retry`, tested without a network or a clock.

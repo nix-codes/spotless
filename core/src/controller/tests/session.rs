@@ -23,7 +23,7 @@ fn spotify_playlists(rig: &Rig) -> Option<Vec<String>> {
 /// with its songs read, and an album's songs read.
 fn alice_reading(name: &str) -> Rig {
     let mut rig = Rig::new(name);
-    rig.controller.apply(Action::ToggleBrowse);
+    rig.controller.apply(BrowseAction::ToggleBrowse);
     rig.tell(Event::Session(SessionState::Ready {
         user: "alice".into(),
     }));
@@ -32,7 +32,7 @@ fn alice_reading(name: &str) -> Rig {
     )])));
     for uri in ["spotify:playlist:alices", "spotify:album:public"] {
         rig.controller
-            .apply(Action::OpenSpotifyPlaylist(uri.into()));
+            .apply(SpotifyListsAction::OpenSpotifyPlaylist(uri.into()));
         rig.tell(Event::Album {
             album: uri.into(),
             result: Ok(songs(tracks([1]))),
@@ -68,7 +68,7 @@ fn losing_the_network_forgets_nothing() {
 #[test]
 fn a_read_answered_after_signing_out_is_not_kept() {
     let mut rig = Rig::new("late-read");
-    rig.controller.apply(Action::ToggleBrowse);
+    rig.controller.apply(BrowseAction::ToggleBrowse);
     rig.tell(Event::Session(SessionState::Ready {
         user: "alice".into(),
     }));

@@ -2,7 +2,7 @@
 //! tells, and a song that waits offline for the connection to Spotify.
 
 use super::{Controller, volume_level};
-use crate::action::Action;
+use crate::action::PlaybackAction;
 use crate::backend::Command;
 use crate::model::TrackRef;
 use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
@@ -12,19 +12,19 @@ impl Controller {
     /// While a song waits offline, Play goes on with it, and playing or
     /// stopping anything else gives the wait up. True when that was all
     /// there was to do.
-    pub(super) fn offline_first(&mut self, action: &Action) -> bool {
+    fn offline_first(&mut self, action: &PlaybackAction) -> bool {
         if self.state.offline {
             match action {
                 // Shown paused: playing goes on where it stopped.
-                Action::Play | Action::TogglePause => {
+                PlaybackAction::Play | PlaybackAction::TogglePause => {
                     self.resume_offline();
                     return true;
                 }
-                Action::Stop
-                | Action::Release
-                | Action::Next
-                | Action::Previous
-                | Action::PlayEntry(..) => {
+                PlaybackAction::Stop
+                | PlaybackAction::Release
+                | PlaybackAction::Next
+                | PlaybackAction::Previous
+                | PlaybackAction::PlayEntry(..) => {
                     self.state.offline = false;
                     self.state.player = PlayerSnapshot::default();
                 }
@@ -33,19 +33,27 @@ impl Controller {
         }
         if matches!(
             action,
-            Action::Stop
-                | Action::Release
-                | Action::Next
-                | Action::Previous
-                | Action::PlayEntry(..)
+            PlaybackAction::Stop
+                | PlaybackAction::Release
+                | PlaybackAction::Next
+                | PlaybackAction::Previous
+                | PlaybackAction::PlayEntry(..)
         ) {
             self.resuming = false;
         }
         false
     }
 
-    /// The player's buttons, and songs played from a playlist or Browse.
-    pub(super) fn apply_playback(&mut self, action: Action) {
+    /// The player's buttons, and songs played from a playlist or Browse:
+    /// a song waiting offline first, then the queue while it's the
+    /// player's (`spotify_tab.rs`), then the local player.
+    pub(super) fn apply_playback(&mut self, action: PlaybackAction) {
+        if self.offline_first(&action) {
+            return;
+        }
+        let Some(action) = self.queue_playback(action) else {
+            return;
+        };
         let paused = self.state.player.status == Status::Paused;
         let position = self.state.player.position_now();
         // Nothing loaded, but a song shows paused: Pause plays it, and
@@ -58,43 +66,42 @@ impl Controller {
         let state = &mut self.state;
         let library = &mut state.library;
         let requests = match action {
-            Action::Seek(ms) if waiting_paused => {
+            PlaybackAction::Seek(ms) if waiting_paused => {
                 if let Some(list) = library.get_mut(viewed) {
                     // At 0 it would show stopped.
                     list.resume_ms = ms.max(1);
                 }
                 return self.mark_unsaved();
             }
-            Action::Seek(ms) => return self.send(Command::Seek(ms)),
-            Action::Volume(volume) => {
+            PlaybackAction::Seek(ms) => return self.send(Command::Seek(ms)),
+            PlaybackAction::Volume(volume) => {
                 state.settings.volume = volume;
                 self.mark_unsaved();
                 return self.send(Command::Volume(volume_level(volume)));
             }
-            Action::Play => state.transport.play(library, viewed, paused, position),
-            Action::TogglePause if waiting_paused => {
+            PlaybackAction::Play => state.transport.play(library, viewed, paused, position),
+            PlaybackAction::TogglePause if waiting_paused => {
                 state.transport.play(library, viewed, false, position)
             }
-            Action::TogglePause => state.transport.toggle_pause(paused),
-            Action::Stop => state.transport.stop(library),
-            Action::ToggleStopAfter => state.transport.toggle_stop_after(library),
-            Action::Release => state.transport.release(library, position),
-            Action::Next => state.transport.next(library, viewed),
-            Action::Previous => state.transport.prev(library, viewed, position),
-            Action::SetShuffle(on) => {
+            PlaybackAction::TogglePause => state.transport.toggle_pause(paused),
+            PlaybackAction::Stop => state.transport.stop(library),
+            PlaybackAction::ToggleStopAfter => state.transport.toggle_stop_after(library),
+            PlaybackAction::Release => state.transport.release(library, position),
+            PlaybackAction::Next => state.transport.next(library, viewed),
+            PlaybackAction::Previous => state.transport.prev(library, viewed, position),
+            PlaybackAction::SetShuffle(on) => {
                 state.settings.shuffle = on;
                 state.transport.set_shuffle(library, on)
             }
-            Action::SetRepeat(on) => {
+            PlaybackAction::SetRepeat(on) => {
                 state.settings.repeat = on;
                 state.transport.set_repeat(library, on)
             }
-            Action::PlayEntry(list, entry) => {
+            PlaybackAction::PlayEntry(list, entry) => {
                 state.error = None;
                 state.transport.play_entry(library, list, entry, position)
             }
-            Action::PlayNow(track) => self.play_now(track, position),
-            _ => return,
+            PlaybackAction::PlayNow(track) => self.play_now(track, position),
         };
         self.carry_out(requests);
     }

@@ -7,7 +7,7 @@ use super::album::{album, cover, share, song};
 use super::{
     Act, COVER_ROW_HEIGHT, Nav, PORTRAIT, ROW_HEIGHT, THUMB, body, note, row, shown, spans, tag,
 };
-use crate::action::{Action, Actions};
+use crate::action::{Actions, BrowseAction};
 use crate::ui::View;
 use crate::ui::widgets::{SMALL_HEIGHT, small_action, small_button, small_button_width};
 use spotless_core::browse::{AddAll, BrowseTab, Find, Loadable, Page};
@@ -75,7 +75,7 @@ pub(super) fn artist_page(
                 .on_hover_text(format!("Alt+{}", n + 1))
                 .clicked()
             {
-                actions.push(Action::SetTab(tab));
+                actions.push(BrowseAction::SetTab(tab));
             }
         }
         if similar_tab
@@ -83,14 +83,14 @@ pub(super) fn artist_page(
                 .on_hover_text("Artists Last.fm's listeners play alongside this one (Alt+5)")
                 .clicked()
         {
-            actions.push(Action::ShowSimilar(discography.artist.clone()));
+            actions.push(BrowseAction::ShowSimilar(discography.artist.clone()));
         }
         if !discography.popular.is_empty()
             && small_button(ui, &palette, "POPULAR", popular)
                 .on_hover_text("Its most played songs, as Spotify ranks them (Alt+6)")
                 .clicked()
         {
-            actions.push(Action::ShowPopular);
+            actions.push(BrowseAction::ShowPopular);
         }
         if similar || popular {
             return ui.cursor().min;
@@ -105,7 +105,7 @@ pub(super) fn artist_page(
             .on_hover_text("Oldest / newest first (Ctrl+S)")
             .clicked()
         {
-            actions.push(Action::ToggleSort);
+            actions.push(BrowseAction::ToggleSort);
         }
         let all_open =
             !releases.is_empty() && releases.iter().all(|r| browse.expanded.contains(&r.uri));
@@ -119,7 +119,7 @@ pub(super) fn artist_page(
             .clicked()
             || nav.expand_all
         {
-            actions.push(Action::ExpandAlbums(if all_open {
+            actions.push(BrowseAction::ExpandAlbums(if all_open {
                 Vec::new()
             } else {
                 releases.iter().map(|r| r.uri.clone()).collect()
@@ -235,7 +235,7 @@ pub(super) fn artist_row(
         spans(painter, text, &parts);
     });
     if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
-        actions.push(Action::OpenArtist(artist.clone()));
+        actions.push(BrowseAction::OpenArtist(artist.clone()));
     }
     share(&row.response, "Copy artist link", &artist.uri, actions);
 }
@@ -266,7 +266,7 @@ fn similar_artists(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: 
             );
         });
         if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
-            actions.push(Action::OpenSimilar(name.clone()));
+            actions.push(BrowseAction::OpenSimilar(name.clone()));
         }
     }
     ui.add_space(8.0);
@@ -349,7 +349,7 @@ fn add_all(ui: &mut Ui, view: &View, (end, pressed): (egui::Pos2, bool), actions
         format!("Adds {what}{to} (Shift+Insert)")
     };
     if crate::ui::widgets::tip(button, &tip).clicked() || (pressed && !reading) {
-        actions.push(Action::AddAll);
+        actions.push(BrowseAction::AddAll);
     }
 }
 

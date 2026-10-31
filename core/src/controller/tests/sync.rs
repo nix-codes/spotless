@@ -64,12 +64,12 @@ fn synced_gym(rig: &mut Rig) -> PlaylistId {
 fn synced_gym_named(rig: &mut Rig, uri: &str) -> PlaylistId {
     ready(rig);
     rig.controller
-        .apply(Action::NewPlaylistWith(tracks([1, 2])));
+        .apply(PlaylistsAction::NewPlaylistWith(tracks([1, 2])));
     let list = rig.controller.state().viewed;
     rig.controller
-        .apply(Action::RenamePlaylist(list, "Gym".into()));
+        .apply(PlaylistsAction::RenamePlaylist(list, "Gym".into()));
     rig.sent();
-    rig.controller.apply(Action::SetSync(list, true));
+    rig.controller.apply(SyncAction::SetSync(list, true));
     assert!(rig.sent().iter().any(
         |c| matches!(c, Command::CreateSynced { list: l, name, replace: false } if *l == list && name == "Gym")
     ));
@@ -167,7 +167,8 @@ fn edits_made_offline_wait_and_go_once_connected() {
     jobs(&mut rig);
     rig.tell(Event::Session(SessionState::Connecting));
     let first = rig.controller.state().library.get(list).unwrap().entries()[0].id;
-    rig.controller.apply(Action::Remove(list, vec![first]));
+    rig.controller
+        .apply(PlaylistsAction::Remove(list, vec![first]));
     rig.controller.save();
     assert!(jobs(&mut rig).is_empty());
     assert_eq!(
@@ -226,7 +227,7 @@ fn the_folder_opens_new_playlists_and_unsyncs_deleted_ones() {
     assert_eq!(road_jobs[0].position, None);
 
     // Closed here, it doesn't open again.
-    rig.controller.apply(Action::ClosePlaylist(road));
+    rig.controller.apply(PlaylistsAction::ClosePlaylist(road));
     rig.tell(Event::SyncFolder(Ok(vec![(
         "spotify:playlist:road".into(),
         "Road trip".into(),
@@ -246,7 +247,7 @@ fn renamed_here_or_there_the_name_follows() {
     let list = synced_gym(&mut rig);
     jobs(&mut rig);
     rig.controller
-        .apply(Action::RenamePlaylist(list, "Gym days".into()));
+        .apply(PlaylistsAction::RenamePlaylist(list, "Gym days".into()));
     rig.controller.save();
     let job = jobs(&mut rig).pop().expect("renamed");
     assert_eq!(job.rename.as_deref(), Some("Gym days"));
@@ -279,11 +280,11 @@ fn a_name_taken_in_the_folder_is_asked_about_then_replaced() {
     let mut rig = Rig::new("sync-taken");
     ready(&mut rig);
     rig.controller
-        .apply(Action::NewPlaylistWith(tracks([1, 2])));
+        .apply(PlaylistsAction::NewPlaylistWith(tracks([1, 2])));
     let list = rig.controller.state().viewed;
     rig.controller
-        .apply(Action::RenamePlaylist(list, "Gym".into()));
-    rig.controller.apply(Action::SetSync(list, true));
+        .apply(PlaylistsAction::RenamePlaylist(list, "Gym".into()));
+    rig.controller.apply(SyncAction::SetSync(list, true));
     rig.sent();
     rig.tell(Event::SyncNameTaken { list });
     let state = rig.controller.state();
@@ -292,7 +293,7 @@ fn a_name_taken_in_the_folder_is_asked_about_then_replaced() {
     assert_eq!(state.sync.get(&list), None);
     // Renamed, it's synced by its new name.
     rig.controller
-        .apply(Action::RenamePlaylist(list, "Leg day".into()));
+        .apply(PlaylistsAction::RenamePlaylist(list, "Leg day".into()));
     assert_eq!(rig.controller.state().sync_name_taken, None);
     assert!(rig.sent().iter().any(|c| matches!(
         c,
@@ -300,11 +301,11 @@ fn a_name_taken_in_the_folder_is_asked_about_then_replaced() {
     )));
     rig.tell(Event::SyncNameTaken { list });
     // Dismissed, nothing is sent; replaced, it's made anew.
-    rig.controller.apply(Action::DismissSyncNameTaken);
+    rig.controller.apply(SyncAction::DismissSyncNameTaken);
     assert_eq!(rig.controller.state().sync_name_taken, None);
     assert!(rig.sent().is_empty());
     rig.tell(Event::SyncNameTaken { list });
-    rig.controller.apply(Action::ReplaceSynced(list));
+    rig.controller.apply(SyncAction::ReplaceSynced(list));
     assert_eq!(rig.controller.state().sync_name_taken, None);
     assert!(rig.sent().iter().any(|c| matches!(
         c,
@@ -319,7 +320,8 @@ fn a_song_playing_is_written_once_it_has_played_a_few_seconds() {
     jobs(&mut rig);
     let second = rig.controller.state().library.get(list).unwrap().entries()[1].id;
     // Still loading as it saves, it waits all the same.
-    rig.controller.apply(Action::PlayEntry(list, second));
+    rig.controller
+        .apply(PlaybackAction::PlayEntry(list, second));
     assert_eq!(rig.controller.state().player.status, Status::Loading);
     rig.controller.unsaved = Some(Instant::now() - SAVE_DELAY);
     assert!(
@@ -353,10 +355,11 @@ fn the_same_song_and_q_marks_alone_are_not_written() {
         .unwrap()
         .entries()
         .to_vec();
-    rig.controller.apply(Action::PlayEntry(list, entries[0].id));
-    rig.controller.apply(Action::Stop);
     rig.controller
-        .apply(Action::ToggleMarks(vec![entries[1].id]));
+        .apply(PlaybackAction::PlayEntry(list, entries[0].id));
+    rig.controller.apply(PlaybackAction::Stop);
+    rig.controller
+        .apply(PlaylistsAction::ToggleMarks(vec![entries[1].id]));
     rig.tell(Event::Player(PlayerSnapshot::default()));
     rig.controller.unsaved = Some(Instant::now() - SAVE_DELAY);
     rig.controller.tick();
@@ -369,8 +372,9 @@ fn stopping_writes_the_song_at_once() {
     let list = synced_gym(&mut rig);
     jobs(&mut rig);
     let second = rig.controller.state().library.get(list).unwrap().entries()[1].id;
-    rig.controller.apply(Action::PlayEntry(list, second));
-    rig.controller.apply(Action::Stop);
+    rig.controller
+        .apply(PlaybackAction::PlayEntry(list, second));
+    rig.controller.apply(PlaybackAction::Stop);
     rig.tell(Event::Player(PlayerSnapshot::default()));
     rig.controller.unsaved = Some(Instant::now() - SAVE_DELAY);
     rig.controller.tick();
@@ -383,7 +387,7 @@ fn coming_back_reads_the_synced_playlists_again() {
     let mut rig = Rig::new("sync-back");
     synced_gym(&mut rig);
     rig.sent();
-    rig.controller.apply(Action::NetworkBack);
+    rig.controller.apply(SettingsAction::NetworkBack);
     assert!(rig.sent().iter().any(|c| matches!(c, Command::SyncFolder)));
 }
 
@@ -397,9 +401,9 @@ fn a_change_to_the_list_of_playlists_reads_the_folder() {
     // One being made here, in the folder before Spotify answered,
     // isn't opened as another tab.
     rig.controller
-        .apply(Action::NewPlaylistWith(tracks([1, 2])));
+        .apply(PlaylistsAction::NewPlaylistWith(tracks([1, 2])));
     let list = rig.controller.state().viewed;
-    rig.controller.apply(Action::SetSync(list, true));
+    rig.controller.apply(SyncAction::SetSync(list, true));
     let tabs = rig.controller.state().library.playlists().len();
     rig.tell(Event::SyncFolder(Ok(vec![(URI.into(), "Playlist".into())])));
     rig.tell(Event::SyncCreated {
@@ -416,7 +420,7 @@ fn stopped_it_goes_from_spotify_closed_it_stays_and_deleted_it_closes() {
     let mut rig = Rig::new("sync-stop");
     let list = synced_gym(&mut rig);
     rig.sent();
-    rig.controller.apply(Action::SetSync(list, false));
+    rig.controller.apply(SyncAction::SetSync(list, false));
     let gym = rig.controller.state().library.get(list).unwrap();
     assert!(gym.sync.is_none());
     assert_eq!(gym.len(), 2);
@@ -451,7 +455,7 @@ fn stopped_it_goes_from_spotify_closed_it_stays_and_deleted_it_closes() {
     assert_eq!(rig.controller.state().browse.undo, None);
 
     let list = {
-        rig.controller.apply(Action::SetSync(list, true));
+        rig.controller.apply(SyncAction::SetSync(list, true));
         rig.tell(Event::SyncCreated {
             list,
             result: Ok(URI.into()),
@@ -460,7 +464,7 @@ fn stopped_it_goes_from_spotify_closed_it_stays_and_deleted_it_closes() {
     };
     rig.sent();
     // Closed here, it's only gone from here.
-    rig.controller.apply(Action::ClosePlaylist(list));
+    rig.controller.apply(PlaylistsAction::ClosePlaylist(list));
     assert!(rig.controller.state().library.get(list).is_none());
     assert!(rig.sent().is_empty());
     // Deleted from Browse, its open tab closes too.
@@ -472,9 +476,10 @@ fn stopped_it_goes_from_spotify_closed_it_stays_and_deleted_it_closes() {
         owner: None,
         private: true,
     }])));
-    rig.controller.apply(Action::UnlistSpotifyPlaylist(
-        "spotify:playlist:road".into(),
-    ));
+    rig.controller
+        .apply(SpotifyListsAction::UnlistSpotifyPlaylist(
+            "spotify:playlist:road".into(),
+        ));
     let notice = rig
         .sent()
         .into_iter()

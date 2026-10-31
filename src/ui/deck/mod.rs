@@ -37,7 +37,7 @@ pub use canvas::install_fonts;
 use egui::{Align2, Color32, FontId, Painter, Rect, Sense, Ui, UiBuilder, pos2, vec2};
 
 use super::{Inputs, View, player_strip, theme, widgets};
-use crate::action::{Action, Actions};
+use crate::action::{Actions, ViewAction};
 use canvas::{Canvas, rgb};
 use spotless_core::model::{PlaylistId, TrackRef};
 use spotless_core::playback::analyser::{self, BANDS, Reading};
@@ -935,7 +935,7 @@ pub fn draw(
         .on_hover_text(other)
         .clicked()
     {
-        actions.push(Action::SetDeckMedia(media.next()));
+        actions.push(ViewAction::SetDeckMedia(media.next()));
     }
     if let Some(rect) = switch {
         let mix = view.settings.cassette_mix;
@@ -949,7 +949,7 @@ pub fn draw(
             .on_hover_text(tip)
             .clicked()
         {
-            actions.push(Action::SetCassetteMix(!mix));
+            actions.push(ViewAction::SetCassetteMix(!mix));
         }
     }
     if let Some(rect) = size {
@@ -964,7 +964,7 @@ pub fn draw(
             .on_hover_text(tip)
             .clicked()
         {
-            actions.push(Action::SetCdMini(!mini));
+            actions.push(ViewAction::SetCdMini(!mini));
         }
     }
     if let Some(rect) = lever {
@@ -979,7 +979,7 @@ pub fn draw(
             .on_hover_text(tip)
             .clicked()
         {
-            actions.push(Action::SetReelSlow(!slow));
+            actions.push(ViewAction::SetReelSlow(!slow));
         }
     }
     if let Some([lp, single]) = speeds {
@@ -993,7 +993,7 @@ pub fn draw(
                 .clicked()
                 && view.settings.vinyl_lp != on
             {
-                actions.push(Action::SetVinylLp(on));
+                actions.push(ViewAction::SetVinylLp(on));
             }
         }
     }
@@ -1047,7 +1047,7 @@ pub fn draw(
             .on_hover_text(other)
             .clicked()
         {
-            actions.push(Action::SetDeckMeter(meter.next()));
+            actions.push(ViewAction::SetDeckMeter(meter.next()));
         }
     }
     if moving {
@@ -1079,7 +1079,7 @@ fn face_buttons(ui: &mut Ui, row: Rect, view: &View, actions: &mut Actions) {
             .clicked()
             && !on
         {
-            actions.push(Action::SetVuFace(face));
+            actions.push(ViewAction::SetVuFace(face));
         }
     }
     // CAL, apart from the faces.
@@ -1103,7 +1103,7 @@ fn face_buttons(ui: &mut Ui, row: Rect, view: &View, actions: &mut Actions) {
         .on_hover_text(tip)
         .clicked()
     {
-        actions.push(Action::SetVuCalibration(calibration.next()));
+        actions.push(ViewAction::SetVuCalibration(calibration.next()));
     }
 }
 

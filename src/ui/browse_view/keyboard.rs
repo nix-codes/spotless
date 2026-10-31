@@ -6,7 +6,7 @@ use egui::{FocusDirection, Id, Key, Ui};
 use super::artist::{add_all_pressed, page_artist};
 use super::search::{findable, searchable};
 use super::{Act, Area, FIND_ID, PAGE_ROWS, SEARCH_ID, areas, shown};
-use crate::action::{Action, Actions};
+use crate::action::{Action, Actions, BrowseAction};
 use crate::ui::{Inputs, View};
 use spotless_core::browse::{BrowseTab, Page};
 use spotless_core::model::catalog::ReleaseTab;
@@ -113,13 +113,13 @@ pub(super) fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut 
         // Esc closes the find first, then Browse.
         if i.key_pressed(Key::Escape) {
             actions.push(if finding {
-                Action::Find(None)
+                Action::Browse(BrowseAction::Find(None))
             } else {
-                Action::CloseBrowse
+                Action::Browse(BrowseAction::CloseBrowse)
             });
         }
         if findable && !i.modifiers.command && !i.modifiers.alt && i.key_pressed(Key::Slash) {
-            actions.push(Action::Find(Some(nav.find.clone())));
+            actions.push(BrowseAction::Find(Some(nav.find.clone())));
             nav.area = Area::Find;
             nav.focus_find = true;
             nav.keyboard = true;
@@ -127,29 +127,29 @@ pub(super) fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut 
         let back = (i.modifiers.alt && i.key_pressed(Key::ArrowLeft))
             || (plain && i.key_pressed(Key::Backspace));
         if back && searching && view.browse.can_go_back() {
-            actions.push(Action::Back);
+            actions.push(BrowseAction::Back);
         }
         if plain && i.key_pressed(Key::C) {
-            actions.push(Action::ToggleCovers);
+            actions.push(BrowseAction::ToggleCovers);
         }
         if artist_page {
             let numbers = [Key::Num1, Key::Num2, Key::Num3, Key::Num4];
             for (tab, key) in ReleaseTab::ALL.into_iter().zip(numbers) {
                 if i.modifiers.alt && i.key_pressed(key) {
-                    actions.push(Action::SetTab(tab));
+                    actions.push(BrowseAction::SetTab(tab));
                 }
             }
             if i.modifiers.alt
                 && i.key_pressed(Key::Num5)
                 && let Some(artist) = page_artist(view)
             {
-                actions.push(Action::ShowSimilar(artist));
+                actions.push(BrowseAction::ShowSimilar(artist));
             }
             if i.modifiers.alt && i.key_pressed(Key::Num6) {
-                actions.push(Action::ShowPopular);
+                actions.push(BrowseAction::ShowPopular);
             }
             if i.modifiers.command && i.key_pressed(Key::S) {
-                actions.push(Action::ToggleSort);
+                actions.push(BrowseAction::ToggleSort);
             }
             if i.modifiers.command && i.key_pressed(Key::E) {
                 nav.expand_all = true;

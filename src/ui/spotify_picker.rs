@@ -8,7 +8,7 @@ use egui::{Align2, Id, Key, RichText, ScrollArea, Sense, Stroke, TextEdit, Ui, p
 
 use super::widgets::{field, small_button};
 use super::{Inputs, View};
-use crate::action::{Action, Actions};
+use crate::action::{Actions, SpotifyListsAction};
 use spotless_core::browse::Loadable;
 use spotless_core::model::TrackRef;
 use spotless_core::model::catalog::{SpotifyPlaylist, SpotifyTarget};
@@ -226,7 +226,10 @@ pub fn draw(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     }
     match chosen {
         Some(Some(target)) => {
-            actions.push(Action::CopyToSpotify(target, picker.tracks.clone()));
+            actions.push(SpotifyListsAction::CopyToSpotify(
+                target,
+                picker.tracks.clone(),
+            ));
             cancel = true;
         }
         Some(None) => {
@@ -328,7 +331,10 @@ fn name(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
             name: name.to_string(),
             private: picker.private,
         };
-        actions.push(Action::CopyToSpotify(target, picker.tracks.clone()));
+        actions.push(SpotifyListsAction::CopyToSpotify(
+            target,
+            picker.tracks.clone(),
+        ));
         cancel = true;
     }
     if cancel {

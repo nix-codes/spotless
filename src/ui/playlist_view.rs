@@ -17,7 +17,7 @@ use egui::{Align, Id, Layout, Rect, RichText, Ui, UiBuilder, pos2};
 use super::scrollbar::Scrollbar;
 use super::widgets::{Glyph, small_action, small_glyph, tip};
 use super::{Inputs, View, spotify_view};
-use crate::action::{Action, Actions};
+use crate::action::{Actions, BrowseAction, PlaylistsAction};
 use spotless_core::model::{EntryId, Playlist, PlaylistId};
 
 mod menu;
@@ -134,7 +134,7 @@ fn toolbar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
         let add = small_action(ui, &palette, "+ ADD", true);
         if tip(add, "Add songs from Browse (Ctrl+B)").clicked() {
             super::browse_view::opening(view, inputs);
-            actions.push(Action::ToggleBrowse);
+            actions.push(BrowseAction::ToggleBrowse);
         }
         let rem = small_action(ui, &palette, "REM", any);
         if tip(rem, "Remove the selected songs (Delete)").clicked() {
@@ -142,7 +142,7 @@ fn toolbar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
         }
         let next = small_action(ui, &palette, "Q NEXT", any);
         if tip(next, "Play the selected songs next, or not (Q)").clicked() {
-            actions.push(Action::ToggleMarks(selected.clone()));
+            actions.push(PlaylistsAction::ToggleMarks(selected.clone()));
         }
         let up = small_glyph(ui, &palette, Glyph::Up, any);
         if tip(up, "Move the selected songs up (Alt+↑)").clicked() {

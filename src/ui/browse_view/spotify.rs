@@ -19,7 +19,9 @@ use egui::{
 };
 
 use super::{Act, Area, CatalogDrag, Nav, PAD, TRACK_HEIGHT, body, mono, note, row, spans};
-use crate::action::{Action, Actions, Desktop};
+use crate::action::{
+    Action, Actions, BrowseAction, Desktop, PlaybackAction, SpotifyListsAction, SyncAction,
+};
 use crate::ui::scrollbar;
 use crate::ui::theme;
 use crate::ui::widgets::{field, share_menu, small_button, tip};
@@ -54,11 +56,11 @@ pub(super) fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut 
     match open {
         None => {
             if let Some(first) = playlists.first() {
-                actions.push(Action::OpenSpotifyPlaylist(first.uri.clone()));
+                actions.push(SpotifyListsAction::OpenSpotifyPlaylist(first.uri.clone()));
             }
         }
         Some(uri) if !view.browse.albums.contains_key(uri) => {
-            actions.push(Action::OpenSpotifyPlaylist(uri.to_string()));
+            actions.push(SpotifyListsAction::OpenSpotifyPlaylist(uri.to_string()));
         }
         Some(_) => {}
     }
@@ -84,11 +86,11 @@ pub(super) fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut 
         && let Some(playlist) = open.and_then(|uri| playlists.iter().find(|p| p.uri == uri))
         && view.library.synced_seen.contains(&playlist.uri)
     {
-        actions.push(Action::OpenSynced(
+        actions.push(SyncAction::OpenSynced(
             playlist.uri.clone(),
             playlist.name.clone(),
         ));
-        actions.push(Action::CloseBrowse);
+        actions.push(BrowseAction::CloseBrowse);
     }
     ui.scope_builder(UiBuilder::new().max_rect(list), |ui| {
         playlist_list(ui, view, nav, playlists, open, actions);
@@ -177,7 +179,7 @@ fn playlist_list(
         && let Some(uri) = open.filter(|uri| order.iter().any(|p| p.uri == *uri))
         && view.browse.unlistable(uri)
     {
-        actions.push(Action::UnlistSpotifyPlaylist(uri.to_string()));
+        actions.push(SpotifyListsAction::UnlistSpotifyPlaylist(uri.to_string()));
     }
     // The arrows and PgUp / PgDn in the field, or in the list after a
     // click took the keyboard from the field; Home / End too out of it.
@@ -213,7 +215,9 @@ fn playlist_list(
             }
         });
         if let Some(playlist) = next.and_then(|n| order.get(n.min(last))) {
-            actions.push(Action::OpenSpotifyPlaylist(playlist.uri.clone()));
+            actions.push(SpotifyListsAction::OpenSpotifyPlaylist(
+                playlist.uri.clone(),
+            ));
             nav.keyboard = true;
             reveal = Some(playlist.uri.as_str());
         }
@@ -320,15 +324,20 @@ fn playlist_list(
                         color,
                     );
                     if response.clicked() {
-                        actions.push(Action::OpenSpotifyPlaylist(playlist.uri.clone()));
+                        actions.push(SpotifyListsAction::OpenSpotifyPlaylist(
+                            playlist.uri.clone(),
+                        ));
                         nav.area = Area::Lists;
                     }
                     let unlistable = view.browse.unlistable(&playlist.uri);
                     let shareable = link(&playlist.uri).is_some();
                     let open_tab = || {
                         vec![
-                            Action::OpenSynced(playlist.uri.clone(), playlist.name.clone()),
-                            Action::CloseBrowse,
+                            Action::Sync(SyncAction::OpenSynced(
+                                playlist.uri.clone(),
+                                playlist.name.clone(),
+                            )),
+                            Action::Browse(BrowseAction::CloseBrowse),
                         ]
                     };
                     if synced && response.double_clicked() {
@@ -368,8 +377,9 @@ fn playlist_list(
                                     RichText::new(unlist_label(playlist)).monospace().size(11.0);
                                 let button = egui::Button::new(label).frame_when_inactive(false);
                                 if ui.add(button).clicked() {
-                                    actions
-                                        .push(Action::UnlistSpotifyPlaylist(playlist.uri.clone()));
+                                    actions.push(SpotifyListsAction::UnlistSpotifyPlaylist(
+                                        playlist.uri.clone(),
+                                    ));
                                 }
                             }
                         });
@@ -447,11 +457,11 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
                 .on_hover_text(hint)
                 .clicked()
             {
-                actions.push(Action::OpenSynced(
+                actions.push(SyncAction::OpenSynced(
                     playlist.uri.clone(),
                     playlist.name.clone(),
                 ));
-                actions.push(Action::CloseBrowse);
+                actions.push(BrowseAction::CloseBrowse);
             }
         }
         if let Some(playlist) = playlist.filter(|p| browse.unlistable(&p.uri)) {
@@ -471,7 +481,9 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
                 .on_hover_text(hint)
                 .clicked()
             {
-                actions.push(Action::UnlistSpotifyPlaylist(playlist.uri.clone()));
+                actions.push(SpotifyListsAction::UnlistSpotifyPlaylist(
+                    playlist.uri.clone(),
+                ));
             }
         }
     });
@@ -515,7 +527,7 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
         if small_button(ui, &palette, "+ ADD ALL", false).clicked() {
-            actions.push(Action::AddAlbum(uri.to_string()));
+            actions.push(BrowseAction::AddAlbum(uri.to_string()));
         }
         if editable {
             let rem = ui.add_enabled_ui(!chosen(nav).is_empty(), |ui| {
@@ -543,7 +555,10 @@ fn songs_pane(ui: &mut Ui, view: &View, nav: &mut Nav, uri: &str, actions: &mut 
     if remove {
         let rows = chosen(nav);
         if !rows.is_empty() {
-            actions.push(Action::RemoveFromSpotify(uri.to_string(), rows.clone()));
+            actions.push(SpotifyListsAction::RemoveFromSpotify(
+                uri.to_string(),
+                rows.clone(),
+            ));
             // The highlight stays where the first song was.
             nav.row = rows
                 .first()
@@ -706,11 +721,14 @@ fn playlist_song(
         response.dnd_set_drag_payload(CatalogDrag::Tracks(these(nav)));
     }
     if row.button {
-        actions.push(Action::AddTracks(from_source(vec![track.clone()], &source)));
+        actions.push(BrowseAction::AddTracks(from_source(
+            vec![track.clone()],
+            &source,
+        )));
     } else if matches!(row.act, Some(Act::Add)) {
-        actions.push(Action::AddTracks(these(nav)));
+        actions.push(BrowseAction::AddTracks(these(nav)));
     } else if response.double_clicked() || matches!(row.act, Some(Act::Open)) {
-        actions.push(Action::PlayNow(track.clone()));
+        actions.push(PlaybackAction::PlayNow(track.clone()));
     }
     let target = view
         .library
@@ -722,7 +740,7 @@ fn playlist_song(
             ui.add_enabled(enabled, egui::Button::new(label).frame_when_inactive(false))
         };
         if item(ui, &format!("Add to {target}"), true).clicked() {
-            actions.push(Action::AddTracks(these(nav)));
+            actions.push(BrowseAction::AddTracks(these(nav)));
         }
         let several = nav.marked.contains(&index) && nav.marked.len() > 1;
         let copy = if several {
@@ -742,7 +760,7 @@ fn playlist_song(
             } else {
                 vec![index]
             };
-            actions.push(Action::RemoveFromSpotify(uri.to_string(), rows));
+            actions.push(SpotifyListsAction::RemoveFromSpotify(uri.to_string(), rows));
             nav.marked.clear();
             nav.anchor = None;
         }

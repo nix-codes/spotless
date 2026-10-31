@@ -23,7 +23,9 @@ use std::collections::HashMap;
 
 use egui::{Align2, FontId, Rect, RichText, Ui, UiBuilder, ViewportCommand, vec2};
 
-use crate::action::{Action, Actions};
+use crate::action::{
+    Action, Actions, BrowseAction, PlaylistsAction, SettingsAction, SpotifyListsAction,
+};
 use crate::skin::format::State;
 pub use browse_view::Cover;
 pub use spotify_picker::Picker;
@@ -220,10 +222,10 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     let elsewhere = actions.core().any(|action| {
         matches!(
             action,
-            Action::ToggleBrowse
-                | Action::ShowBrowseTab(_)
-                | Action::SelectPlaylist(_)
-                | Action::NewPlaylist
+            Action::Browse(BrowseAction::ToggleBrowse)
+                | Action::Browse(BrowseAction::ShowBrowseTab(_))
+                | Action::Playlists(PlaylistsAction::SelectPlaylist(_))
+                | Action::Playlists(PlaylistsAction::NewPlaylist)
         )
     });
     if settings_open && (elsewhere || inputs.renaming.is_some() || inputs.focus_search) {
@@ -520,7 +522,7 @@ fn body_contents(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Ac
             ui.label(dim("Spotless plays through your Spotify Premium account. \
                  Your browser opens for Spotify's approval."));
             if text_button(ui, &palette, "SIGN IN WITH SPOTIFY", false, true).clicked() {
-                actions.push(Action::SignIn);
+                actions.push(SettingsAction::SignIn);
             }
         }
         SessionState::SigningIn => {
@@ -530,14 +532,14 @@ fn body_contents(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Ac
             ));
             // The page may have been closed: a new one takes its place.
             if text_button(ui, &palette, "OPEN THE PAGE AGAIN", false, true).clicked() {
-                actions.push(Action::SignIn);
+                actions.push(SettingsAction::SignIn);
             }
         }
         SessionState::Failed(message) => {
             ui.label(heading("Couldn't connect"));
             ui.label(RichText::new(message).color(palette.list_fg));
             if text_button(ui, &palette, "SIGN IN AGAIN", false, true).clicked() {
-                actions.push(Action::SignIn);
+                actions.push(SettingsAction::SignIn);
             }
         }
         SessionState::Ready { .. } => playlist_view::draw(ui, view, inputs, actions),
@@ -594,7 +596,7 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
         inputs.help = true;
     }
     if undo_shown(view) && button(ui, "UNDO", "Puts back what was removed (Ctrl+Z)") {
-        actions.push(Action::UndoSpotifyRemoval);
+        actions.push(SpotifyListsAction::UndoSpotifyRemoval);
     }
     if let Some(label) = update_view::status_label(view)
         && button(ui, &label, "")
@@ -615,9 +617,9 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
 /// Shows the settings in place of the playlists or Browse.
 pub(super) fn open_settings(view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     inputs.settings = Some(settings_view::open(view, inputs.settings_category));
-    actions.push(Action::CloseBrowse);
-    actions.push(Action::MeasureStorage);
-    actions.push(Action::ListOutputs);
+    actions.push(BrowseAction::CloseBrowse);
+    actions.push(SettingsAction::MeasureStorage);
+    actions.push(SettingsAction::ListOutputs);
 }
 
 /// Shows the settings at `category`, whether they are open or not.

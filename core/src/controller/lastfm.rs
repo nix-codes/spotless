@@ -2,17 +2,17 @@
 //! there found on Spotify, to add or play.
 
 use super::Controller;
-use crate::action::Action;
+use crate::action::{LastFmAction, PlaybackAction};
 use crate::backend::Command;
 use crate::lastfm::{LastFmState, LastFmStatus, LovedSong, api::Keys};
 use crate::model::{PlaylistId, TrackRef};
 
 impl Controller {
     /// Connects Last.fm or not, loves songs, and adds or plays songs loved.
-    pub(super) fn apply_lastfm(&mut self, action: Action) {
+    pub(super) fn apply_lastfm(&mut self, action: LastFmAction) {
         let state = &mut self.state;
         match action {
-            Action::ConnectLastFm(api_key, secret) => {
+            LastFmAction::ConnectLastFm(api_key, secret) => {
                 state.error = None;
                 state.notice = Some("Allow Spotless in the Last.fm page that opens.".into());
                 self.send(Command::LastFmConnect(Keys {
@@ -20,11 +20,11 @@ impl Controller {
                     secret: secret.trim().into(),
                 }));
             }
-            Action::DisconnectLastFm => {
+            LastFmAction::DisconnectLastFm => {
                 state.notice = Some("Last.fm disconnected.".into());
                 self.send(Command::LastFmDisconnect);
             }
-            Action::SetLoved {
+            LastFmAction::SetLoved {
                 artist,
                 title,
                 loved,
@@ -37,16 +37,15 @@ impl Controller {
                     loved,
                 });
             }
-            Action::AddLoved(songs) => {
+            LastFmAction::AddLoved(songs) => {
                 let target = self.state.browse.target;
                 self.find_loved(songs, FoundFor::Insert(target, None));
             }
-            Action::DropLoved(songs, at) => {
+            LastFmAction::DropLoved(songs, at) => {
                 let target = self.state.browse.target;
                 self.find_loved(songs, FoundFor::Insert(target, Some(at)));
             }
-            Action::PlayLoved(song) => self.find_loved(vec![song], FoundFor::Play),
-            _ => {}
+            LastFmAction::PlayLoved(song) => self.find_loved(vec![song], FoundFor::Play),
         }
     }
 
@@ -91,7 +90,7 @@ impl Controller {
         match then {
             FoundFor::Play => {
                 if let Some(track) = tracks.into_iter().next() {
-                    self.apply(Action::PlayNow(track));
+                    self.apply(PlaybackAction::PlayNow(track));
                 }
             }
             FoundFor::Insert(list, at) => {

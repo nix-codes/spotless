@@ -9,7 +9,7 @@ use egui::{Align2, Color32, DragAndDrop, FontId, Rect, ScrollArea, Sense, Stroke
 use super::menu::{Choice, Menu, all_loved, all_marked, row_menu, selected_tracks, send};
 use super::selection::{Selection, click};
 use super::{RowDrag, SCROLL_EDGE};
-use crate::action::{Action, Actions};
+use crate::action::{Actions, PlaybackAction, PlaylistsAction};
 use crate::ui::View;
 use crate::ui::scrollbar::Scrollbar;
 use crate::ui::theme::{self, Palette};
@@ -216,7 +216,7 @@ pub(super) fn draw_rows(
             if response.double_clicked() {
                 selection.select(entry.id, index);
                 selection.reveal = None;
-                actions.push(Action::PlayEntry(list.id, entry.id));
+                actions.push(PlaybackAction::PlayEntry(list.id, entry.id));
             } else if response.clicked() {
                 let modifiers = ui.input(|i| i.modifiers);
                 click(list, selection, entry.id, modifiers);
@@ -301,7 +301,7 @@ pub(super) fn draw_rows(
     if ui.input(|i| i.pointer.any_released())
         && let Some(rows) = DragAndDrop::take_payload::<RowDrag>(ui.ctx())
     {
-        actions.push(Action::Move(rows.0.clone(), index));
+        actions.push(PlaylistsAction::Move(rows.0.clone(), index));
     }
 }
 
@@ -360,7 +360,7 @@ fn header(
     if response.double_clicked() {
         selection.select(first, run.start);
         selection.reveal = None;
-        actions.push(Action::PlayEntry(list.id, first));
+        actions.push(PlaybackAction::PlayEntry(list.id, first));
         return (rect, None);
     }
     if response.secondary_clicked() && !chosen {

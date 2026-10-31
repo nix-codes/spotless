@@ -12,7 +12,9 @@ use egui::{
 
 use super::widgets::{Glyph, glyph_button, glyph_toggle, paint_glyph, paint_heart, small_button};
 use super::{Inputs, View, theme};
-use crate::action::{Action, Actions};
+use crate::action::{
+    Action, Actions, BrowseAction, LastFmAction, PlaybackAction, PlaylistsAction, ViewAction,
+};
 use spotless_core::backend::SessionState;
 use spotless_core::lastfm::LastFmStatus;
 use spotless_core::model::{EntryId, PlaylistId};
@@ -194,7 +196,7 @@ pub(super) fn time_clicked(ui: &Ui, rect: Rect, view: &View, actions: &mut Actio
         .on_hover_text(tip)
         .clicked()
     {
-        actions.push(Action::ToggleTimeLeft);
+        actions.push(ViewAction::ToggleTimeLeft);
     }
 }
 
@@ -261,7 +263,7 @@ pub(super) fn heart(ui: &Ui, rect: Rect, view: &View, color: Color32, actions: &
         .on_hover_text(tip)
         .clicked()
     {
-        actions.push(Action::SetLoved {
+        actions.push(LastFmAction::SetLoved {
             artist: track.main_artist.clone(),
             title: track.title.clone(),
             loved: !loved,
@@ -305,9 +307,9 @@ pub(super) fn stop_clicked(ui: &Ui, response: Response, actions: &mut Actions) {
         .clicked();
     if stop {
         actions.push(if ui.input(|i| i.modifiers.command) {
-            Action::ToggleStopAfter
+            Action::Playback(PlaybackAction::ToggleStopAfter)
         } else {
-            Action::Stop
+            Action::Playback(PlaybackAction::Stop)
         });
     }
 }
@@ -332,7 +334,7 @@ pub(super) fn follow_press(
     inputs: &mut Inputs,
     actions: &mut Actions,
 ) {
-    let pause = action == Action::TogglePause;
+    let pause = action == Action::Playback(PlaybackAction::TogglePause);
     let asked = match (pause, view.player.status) {
         (false, _) | (true, Status::Paused) => Some(Status::Playing),
         (true, Status::Playing | Status::Loading) => Some(Status::Paused),
@@ -428,7 +430,7 @@ pub fn eject_clicked(
     };
     if response.on_hover_text(tip).clicked() {
         super::browse_view::opening(view, inputs);
-        actions.push(Action::ToggleBrowse);
+        actions.push(BrowseAction::ToggleBrowse);
     }
 }
 
@@ -441,7 +443,7 @@ pub(super) fn pl_clicked(response: egui::Response, view: &View, actions: &mut Ac
         "Show the playlists"
     };
     if response.on_hover_text(tip).clicked() {
-        actions.push(Action::TogglePlaylists);
+        actions.push(ViewAction::TogglePlaylists);
     }
 }
 
@@ -479,11 +481,11 @@ pub(super) fn jump_to_playing(view: &View, inputs: &mut Inputs, actions: &mut Ac
     let Some((list, entry)) = playing_entry(view) else {
         return;
     };
-    actions.push(Action::CloseBrowse);
+    actions.push(BrowseAction::CloseBrowse);
     if !view.settings.playlists {
-        actions.push(Action::TogglePlaylists);
+        actions.push(ViewAction::TogglePlaylists);
     }
-    actions.push(Action::SelectPlaylist(list));
+    actions.push(PlaylistsAction::SelectPlaylist(list));
     inputs.jump = Some((list, entry));
 }
 
@@ -495,7 +497,7 @@ pub(super) fn eq_clicked(response: egui::Response, view: &View, actions: &mut Ac
         "Show the equaliser (Alt+G)"
     };
     if response.on_hover_text(tip).clicked() {
-        actions.push(Action::ToggleEqualiser);
+        actions.push(ViewAction::ToggleEqualiser);
     }
 }
 
@@ -507,7 +509,7 @@ pub(super) fn vis_clicked(response: egui::Response, view: &View, actions: &mut A
         "Show the deck: the music on a cassette, reels, a CD or a record, its spectrum and levels (Alt+V)"
     };
     if response.on_hover_text(tip).clicked() {
-        actions.push(Action::ToggleDeck);
+        actions.push(ViewAction::ToggleDeck);
     }
 }
 
@@ -538,7 +540,7 @@ fn info_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         let response = ui.add(Slider::new(&mut volume, 0..=100).show_value(false));
         if response.changed() {
             inputs.volume = volume;
-            actions.push(Action::Volume(volume));
+            actions.push(PlaybackAction::Volume(volume));
         }
         ui.label(label("VOL".into()));
     });
@@ -563,7 +565,7 @@ fn seek_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         inputs.seeking = Some(position);
     }
     if response.drag_stopped() || (response.changed() && !response.dragged()) {
-        actions.push(Action::Seek((position * 1000.0) as u32));
+        actions.push(PlaybackAction::Seek((position * 1000.0) as u32));
         inputs.seeking = None;
     }
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -594,20 +596,34 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
         .on_hover_text(PREVIOUS_TIP)
         .clicked()
     {
-        actions.push(Action::Previous);
+        actions.push(PlaybackAction::Previous);
     }
     let [playing, paused] = held(ui, view, inputs);
     let play = glyph_toggle(ui, &palette, Glyph::Play, playing, ready).on_hover_text(PLAY_TIP);
-    follow_press(ui, &play, Action::Play, view, inputs, actions);
+    follow_press(
+        ui,
+        &play,
+        Action::Playback(PlaybackAction::Play),
+        view,
+        inputs,
+        actions,
+    );
     let pause = glyph_toggle(ui, &palette, Glyph::Pause, paused, ready).on_hover_text(PAUSE_TIP);
-    follow_press(ui, &pause, Action::TogglePause, view, inputs, actions);
+    follow_press(
+        ui,
+        &pause,
+        Action::Playback(PlaybackAction::TogglePause),
+        view,
+        inputs,
+        actions,
+    );
     let stop = glyph_toggle(ui, &palette, Glyph::Stop, view.stop_after, ready);
     stop_clicked(ui, stop, actions);
     if glyph_button(ui, &palette, Glyph::Next, ready)
         .on_hover_text(NEXT_TIP)
         .clicked()
     {
-        actions.push(Action::Next);
+        actions.push(PlaybackAction::Next);
     }
     ui.add_space(6.0);
     let eject = glyph_toggle(ui, &palette, Glyph::Eject, view.browse.open, ready);
@@ -617,12 +633,12 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
         .on_hover_text(SHUFFLE_TIP)
         .clicked()
     {
-        actions.push(Action::SetShuffle(!view.shuffle));
+        actions.push(PlaybackAction::SetShuffle(!view.shuffle));
     }
     if glyph_toggle(ui, &palette, Glyph::Repeat, view.repeat, true)
         .on_hover_text(REPEAT_TIP)
         .clicked()
     {
-        actions.push(Action::SetRepeat(!view.repeat));
+        actions.push(PlaybackAction::SetRepeat(!view.repeat));
     }
 }

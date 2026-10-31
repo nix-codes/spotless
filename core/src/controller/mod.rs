@@ -4,7 +4,8 @@
 //! [`Controller::tick`] whenever the backend wakes it.
 //!
 //! This file hands each action and each of the backend's events to the
-//! part of the controller it belongs to, a file each: `playback`,
+//! part of the controller it belongs to, a file each (an action's kind
+//! names its part): `playback`,
 //! `playlists`, `browse`, `spotify_lists`, `lastfm`, `spotify_tab`,
 //! `sync`, `view` and `settings`; `persist` saves.
 //!
@@ -360,115 +361,19 @@ impl Controller {
         }
     }
 
-    /// Does what the interface asked for: the Spotify tab first, as it
-    /// takes the player's buttons while the queue is the player's, then
-    /// the part of the controller the action is for.
-    pub fn apply(&mut self, action: Action) {
-        if self.offline_first(&action) {
-            return;
-        }
-        let Some(action) = self.apply_spotify(action) else {
-            return;
-        };
-        match action {
-            Action::SignIn
-            | Action::SignOut
-            | Action::SetSearchApp(..)
-            | Action::SetLevelling(..)
-            | Action::SetPhosphor(..)
-            | Action::SetGrouping(..)
-            | Action::SetAudioCache(..)
-            | Action::SetAudioCacheSize(..)
-            | Action::MeasureStorage
-            | Action::NetworkBack
-            | Action::ClearCache(..)
-            | Action::ListOutputs
-            | Action::SetOutput(..) => self.apply_settings(action),
-            Action::ConnectLastFm(..)
-            | Action::DisconnectLastFm
-            | Action::SetLoved { .. }
-            | Action::AddLoved(..)
-            | Action::DropLoved(..)
-            | Action::PlayLoved(..) => self.apply_lastfm(action),
-            Action::Play
-            | Action::TogglePause
-            | Action::Stop
-            | Action::ToggleStopAfter
-            | Action::Release
-            | Action::Next
-            | Action::Previous
-            | Action::Seek(..)
-            | Action::Volume(..)
-            | Action::SetShuffle(..)
-            | Action::SetRepeat(..)
-            | Action::PlayEntry(..)
-            | Action::PlayNow(..) => self.apply_playback(action),
-            Action::AddLink(..)
-            | Action::Remove(..)
-            | Action::Move(..)
-            | Action::ToggleMarks(..)
-            | Action::SelectPlaylist(..)
-            | Action::NewPlaylist
-            | Action::NewPlaylistWith(..)
-            | Action::ClosePlaylist(..)
-            | Action::RenamePlaylist(..)
-            | Action::MovePlaylist(..)
-            | Action::CopyTo(..)
-            | Action::MoveTo(..) => self.apply_playlists(action),
-            Action::SetSync(..)
-            | Action::ReplaceSynced(..)
-            | Action::DismissSyncNameTaken
-            | Action::OpenSynced(..) => self.apply_sync(action),
-            Action::TogglePlaylists
-            | Action::ToggleEqualiser
-            | Action::SetEqualiser(..)
-            | Action::SaveEqualiserPreset(..)
-            | Action::DeleteEqualiserPreset(..)
-            | Action::ToggleDeck
-            | Action::SetDeckMedia(..)
-            | Action::SetDeckMeter(..)
-            | Action::SetVuFace(..)
-            | Action::SetVuCalibration(..)
-            | Action::SetCassetteMix(..)
-            | Action::SetVinylLp(..)
-            | Action::SetReelSlow(..)
-            | Action::SetCdMini(..)
-            | Action::ToggleTimeLeft => self.apply_view(action),
-            Action::ToggleBrowse
-            | Action::CloseBrowse
-            | Action::Back
-            | Action::Search(..)
-            | Action::MoreSongs(..)
-            | Action::Find(..)
-            | Action::ForgetSearch(..)
-            | Action::OpenArtist(..)
-            | Action::ToggleAlbum(..)
-            | Action::ExpandAlbums(..)
-            | Action::SetTab(..)
-            | Action::ShowSimilar(..)
-            | Action::ShowPopular
-            | Action::OpenSimilar(..)
-            | Action::ToggleSort
-            | Action::SetTarget(..)
-            | Action::ToggleCovers
-            | Action::AddTracks(..)
-            | Action::AddAlbum(..)
-            | Action::AddAlbums(..)
-            | Action::AddAll
-            | Action::DropTracks(..)
-            | Action::DropAlbum(..)
-            | Action::ShowBrowseTab(..) => self.apply_browse(action),
-            Action::ReadSpotifyPlaylists
-            | Action::OpenSpotifyPlaylist(..)
-            | Action::RemoveFromSpotify(..)
-            | Action::UnlistSpotifyPlaylist(..)
-            | Action::UndoSpotifyRemoval
-            | Action::CopyToSpotify(..) => self.apply_spotify_lists(action),
-            // The Spotify tab's own, done by apply_spotify.
-            Action::ClearSpotify
-            | Action::TakeOverSpotify
-            | Action::OpenSpotifyTab
-            | Action::SetSpotifyTabEnabled(..) => {}
+    /// Does what the interface asked for, in the part of the controller
+    /// the action is for.
+    pub fn apply(&mut self, action: impl Into<Action>) {
+        match action.into() {
+            Action::Settings(action) => self.apply_settings(action),
+            Action::LastFm(action) => self.apply_lastfm(action),
+            Action::Playback(action) => self.apply_playback(action),
+            Action::Playlists(action) => self.apply_playlists(action),
+            Action::Sync(action) => self.apply_sync(action),
+            Action::View(action) => self.apply_view(action),
+            Action::Browse(action) => self.apply_browse(action),
+            Action::SpotifyLists(action) => self.apply_spotify_lists(action),
+            Action::SpotifyTab(action) => self.apply_spotify_tab(action),
         }
     }
 

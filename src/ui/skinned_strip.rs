@@ -19,7 +19,7 @@ use super::player_strip::{
 };
 use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
-use crate::action::{Action, Actions};
+use crate::action::{Action, Actions, PlaybackAction};
 use crate::skin::format::{Role, State};
 use spotless_core::backend::SessionState;
 use spotless_core::playback::engine::Status;
@@ -43,11 +43,31 @@ const MARQUEE_STEP: u64 = 220;
 /// Each button's piece, name, action and tooltip (Stop's is
 /// `stop_clicked`'s).
 const TRANSPORT: [(&str, &str, Action, &str); 5] = [
-    ("previous", "Previous", Action::Previous, PREVIOUS_TIP),
-    ("play", "Play", Action::Play, PLAY_TIP),
-    ("pause", "Pause", Action::TogglePause, PAUSE_TIP),
-    ("stop", "Stop", Action::Stop, ""),
-    ("next", "Next", Action::Next, NEXT_TIP),
+    (
+        "previous",
+        "Previous",
+        Action::Playback(PlaybackAction::Previous),
+        PREVIOUS_TIP,
+    ),
+    (
+        "play",
+        "Play",
+        Action::Playback(PlaybackAction::Play),
+        PLAY_TIP,
+    ),
+    (
+        "pause",
+        "Pause",
+        Action::Playback(PlaybackAction::TogglePause),
+        PAUSE_TIP,
+    ),
+    ("stop", "Stop", Action::Playback(PlaybackAction::Stop), ""),
+    (
+        "next",
+        "Next",
+        Action::Playback(PlaybackAction::Next),
+        NEXT_TIP,
+    ),
 ];
 
 /// The strip's rows in image pixels, from the skin's pieces.
@@ -551,7 +571,7 @@ fn seek_bar(
     if (seek.drag_stopped() || seek.clicked())
         && let Some(seconds) = inputs.seeking.take()
     {
-        actions.push(Action::Seek((seconds * 1000.0) as u32));
+        actions.push(PlaybackAction::Seek((seconds * 1000.0) as u32));
     }
     let position = inputs
         .seeking
@@ -605,9 +625,12 @@ pub fn buttons_row(
         if !tip.is_empty() {
             response = response.on_hover_text(tip);
         }
-        if matches!(action, Action::Play | Action::TogglePause) {
+        if matches!(
+            action,
+            Action::Playback(PlaybackAction::Play) | Action::Playback(PlaybackAction::TogglePause)
+        ) {
             follow_press(ui, &response, action, view, inputs, actions);
-        } else if action == Action::Stop {
+        } else if action == Action::Playback(PlaybackAction::Stop) {
             stop_clicked(ui, response, actions);
         } else if response.clicked() {
             actions.push(action);
@@ -627,7 +650,7 @@ pub fn buttons_row(
     .on_hover_text(SHUFFLE_TIP)
     .clicked()
     {
-        actions.push(Action::SetShuffle(!view.shuffle));
+        actions.push(PlaybackAction::SetShuffle(!view.shuffle));
     }
     let at = place("repeat", 0.0);
     let state = toggle_state(view.repeat);
@@ -637,7 +660,7 @@ pub fn buttons_row(
     .on_hover_text(REPEAT_TIP)
     .clicked()
     {
-        actions.push(Action::SetRepeat(!view.repeat));
+        actions.push(PlaybackAction::SetRepeat(!view.repeat));
     }
 }
 
@@ -698,7 +721,7 @@ fn volume(
         let level = (fraction * 100.0).round() as u8;
         if level != inputs.volume {
             inputs.volume = level;
-            actions.push(Action::Volume(level));
+            actions.push(PlaybackAction::Volume(level));
         }
     }
     response.widget_info(|| WidgetInfo::slider(true, f64::from(inputs.volume), "Volume"));

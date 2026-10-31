@@ -5,13 +5,14 @@ use super::*;
 #[test]
 fn loved_songs_land_where_they_were_dropped_once_found() {
     let mut rig = Rig::new("loved");
-    rig.controller.apply(Action::AddTracks(tracks([1, 2])));
+    rig.controller
+        .apply(BrowseAction::AddTracks(tracks([1, 2])));
     let loved = |title: &str| LovedSong {
         artist: "A".into(),
         title: title.into(),
         date: 0,
     };
-    rig.controller.apply(Action::DropLoved(
+    rig.controller.apply(LastFmAction::DropLoved(
         vec![loved("Song 7"), loved("Gone"), loved("Song 8")],
         1,
     ));

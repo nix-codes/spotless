@@ -6,7 +6,7 @@ use super::{
     Act, BIG_COVER, COVER_ROW_HEIGHT, CatalogDrag, Cover, Nav, ROW_HEIGHT, THUMB, TRACK_HEIGHT,
     body, chevron, indented_note, mono, row, spans, tag,
 };
-use crate::action::{Action, Actions, Desktop};
+use crate::action::{Actions, BrowseAction, Desktop, PlaybackAction};
 use crate::ui::View;
 use crate::ui::widgets::share_menu;
 use spotless_core::browse::{Find, Loadable};
@@ -82,9 +82,9 @@ pub(super) fn album(
         });
     }
     if row.button || matches!(row.act, Some(Act::Add)) {
-        actions.push(Action::AddAlbum(release.uri.clone()));
+        actions.push(BrowseAction::AddAlbum(release.uri.clone()));
     } else if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
-        actions.push(Action::ToggleAlbum(release.uri.clone()));
+        actions.push(BrowseAction::ToggleAlbum(release.uri.clone()));
     }
     share(&row.response, "Copy album link", &release.uri, actions);
     if !expanded {
@@ -228,9 +228,9 @@ pub(super) fn song(
             .dnd_set_drag_payload(CatalogDrag::Tracks(added()));
     }
     if row.button || matches!(row.act, Some(Act::Add)) {
-        actions.push(Action::AddTracks(added()));
+        actions.push(BrowseAction::AddTracks(added()));
     } else if row.response.double_clicked() || matches!(row.act, Some(Act::Open)) {
-        actions.push(Action::PlayNow(track.clone()));
+        actions.push(PlaybackAction::PlayNow(track.clone()));
     }
     share(&row.response, "Copy song link", &track.uri, actions);
 }

@@ -2,18 +2,22 @@
 //! renaming and moving them, and adding, moving and removing their songs.
 
 use super::Controller;
-use crate::action::Action;
+use crate::action::PlaylistsAction;
 use crate::backend::Command;
 use crate::model::{EntryId, PlaylistId, TrackRef};
 
 impl Controller {
-    /// Makes, closes, renames or moves a playlist, or edits its songs.
-    pub(super) fn apply_playlists(&mut self, action: Action) {
+    /// Makes, closes, renames or moves a playlist, or edits its songs:
+    /// the Spotify tab's first (`spotify_tab.rs`).
+    pub(super) fn apply_playlists(&mut self, action: PlaylistsAction) {
+        let Some(action) = self.queue_playlists(action) else {
+            return;
+        };
         let viewed = self.state.local_viewed();
         let state = &mut self.state;
         let library = &mut state.library;
         let requests = match action {
-            Action::AddLink(text) => {
+            PlaylistsAction::AddLink(text) => {
                 state.error = None;
                 state.notice = Some("Reading the link…".into());
                 let playlist = if state.browse.open {
@@ -23,26 +27,26 @@ impl Controller {
                 };
                 return self.send(Command::AddLink { text, playlist });
             }
-            Action::SelectPlaylist(list) => {
+            PlaylistsAction::SelectPlaylist(list) => {
                 if library.get(list).is_some() {
                     state.viewed = list;
                     self.mark_unsaved();
                 }
                 return;
             }
-            Action::NewPlaylist => {
+            PlaylistsAction::NewPlaylist => {
                 let name = library.fresh_name();
                 state.viewed = library.create(name);
                 return self.mark_unsaved();
             }
-            Action::NewPlaylistWith(tracks) => {
+            PlaylistsAction::NewPlaylistWith(tracks) => {
                 let name = library.fresh_name();
                 let list = library.create(name);
                 state.viewed = list;
                 self.insert_tracks(list, None, tracks);
                 return self.mark_unsaved();
             }
-            Action::ClosePlaylist(list) => {
+            PlaylistsAction::ClosePlaylist(list) => {
                 let index = library.playlists().iter().position(|l| l.id == list);
                 let requests = state.transport.deleting(list);
                 if !library.delete(list) {
@@ -62,7 +66,7 @@ impl Controller {
                 self.finding.retain(|(_, _, then)| !then.goes_to(list));
                 requests
             }
-            Action::RenamePlaylist(list, name) => {
+            PlaylistsAction::RenamePlaylist(list, name) => {
                 library.rename(list, &name);
                 let to_sync = state.sync_name_taken == Some(list);
                 self.mark_unsaved();
@@ -73,23 +77,23 @@ impl Controller {
                 }
                 return;
             }
-            Action::MovePlaylist(list, index) => {
+            PlaylistsAction::MovePlaylist(list, index) => {
                 library.move_playlist(list, index);
                 return self.mark_unsaved();
             }
-            Action::Remove(list, entries) => {
+            PlaylistsAction::Remove(list, entries) => {
                 if let Some(playlist) = library.get_mut(list) {
                     playlist.remove(&entries);
                 }
                 state.transport.edited(library, list)
             }
-            Action::Move(entries, index) => {
+            PlaylistsAction::Move(entries, index) => {
                 if let Some(list) = library.get_mut(viewed) {
                     list.move_to(&entries, index);
                 }
                 state.transport.edited(library, viewed)
             }
-            Action::ToggleMarks(entries) => {
+            PlaylistsAction::ToggleMarks(entries) => {
                 if let Some(list) = library.get_mut(viewed) {
                     for entry in entries {
                         list.toggle_mark(entry);
@@ -97,12 +101,13 @@ impl Controller {
                 }
                 state.transport.edited(library, viewed)
             }
-            Action::CopyTo(list, tracks) => {
+            PlaylistsAction::CopyTo(list, tracks) => {
                 self.insert_tracks(list, None, tracks);
                 return;
             }
-            Action::MoveTo(from, to, entries) => return self.move_tracks(from, to, entries),
-            _ => return,
+            PlaylistsAction::MoveTo(from, to, entries) => {
+                return self.move_tracks(from, to, entries);
+            }
         };
         self.carry_out(requests);
     }
@@ -200,6 +205,6 @@ impl Controller {
                 n => format!("Moved {n} songs to {name}"),
             });
         }
-        self.apply_spotify(Action::Remove(PlaylistId::SPOTIFY, rows));
+        self.apply_playlists(PlaylistsAction::Remove(PlaylistId::SPOTIFY, rows));
     }
 }

@@ -3,7 +3,7 @@
 //! and copying songs to them.
 
 use super::Controller;
-use crate::action::Action;
+use crate::action::{PlaylistsAction, SpotifyListsAction};
 use crate::backend::{Command, SessionState};
 use crate::browse::{Loadable, Removal, Undo, Unlisted};
 use crate::model::TrackRef;
@@ -12,17 +12,17 @@ use crate::spotify::catalog::LIKED_SONGS;
 
 impl Controller {
     /// Reads, opens and edits the account's Spotify playlists.
-    pub(super) fn apply_spotify_lists(&mut self, action: Action) {
+    pub(super) fn apply_spotify_lists(&mut self, action: SpotifyListsAction) {
         match action {
-            Action::ReadSpotifyPlaylists => self.read_spotify_playlists(),
-            Action::OpenSpotifyPlaylist(uri) => {
+            SpotifyListsAction::ReadSpotifyPlaylists => self.read_spotify_playlists(),
+            SpotifyListsAction::OpenSpotifyPlaylist(uri) => {
                 self.state.browse.spotify_open = Some(uri.clone());
                 self.read_album(uri);
                 self.mark_unsaved();
             }
-            Action::RemoveFromSpotify(uri, rows) => self.remove_from_spotify(uri, rows),
-            Action::UnlistSpotifyPlaylist(uri) => self.unlist_spotify_playlist(uri),
-            Action::UndoSpotifyRemoval => match self.state.browse.undo.take() {
+            SpotifyListsAction::RemoveFromSpotify(uri, rows) => self.remove_from_spotify(uri, rows),
+            SpotifyListsAction::UnlistSpotifyPlaylist(uri) => self.unlist_spotify_playlist(uri),
+            SpotifyListsAction::UndoSpotifyRemoval => match self.state.browse.undo.take() {
                 Some(Undo::Songs(removal)) => {
                     self.state.notice =
                         Some(format!("Putting the songs back in “{}”…", removal.name));
@@ -34,8 +34,9 @@ impl Controller {
                 }
                 None => {}
             },
-            Action::CopyToSpotify(target, tracks) => self.copy_to_spotify(target, tracks),
-            _ => {}
+            SpotifyListsAction::CopyToSpotify(target, tracks) => {
+                self.copy_to_spotify(target, tracks)
+            }
         }
     }
 
@@ -171,7 +172,7 @@ impl Controller {
                 // A synced one open here closes: it's gone everywhere.
                 if let Some(list) = self.state.library.synced(&unlisted.playlist) {
                     let id = list.id;
-                    self.apply(Action::ClosePlaylist(id));
+                    self.apply(PlaylistsAction::ClosePlaylist(id));
                 }
                 self.state.browse.undo = Some(Undo::Playlist(unlisted));
             }

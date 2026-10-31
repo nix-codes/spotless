@@ -6,7 +6,7 @@ use super::*;
 fn changes_are_saved_once_they_rest() {
     let mut rig = Rig::new("save");
     assert_eq!(rig.controller.tick(), None);
-    rig.controller.apply(Action::AddTracks(tracks([1])));
+    rig.controller.apply(BrowseAction::AddTracks(tracks([1])));
     assert!(rig.controller.tick().is_some());
     rig.controller.unsaved = Some(Instant::now() - SAVE_DELAY);
     assert_eq!(rig.controller.tick(), None);

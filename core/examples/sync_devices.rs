@@ -18,7 +18,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
-use spotless_core::action::Action;
+use spotless_core::action::{PlaylistsAction, SpotifyListsAction, SyncAction};
 use spotless_core::backend::SessionState;
 use spotless_core::controller::{Controller, SyncStatus};
 use spotless_core::model::{AlbumRef, PlaylistId, TrackRef};
@@ -123,10 +123,10 @@ fn main() -> Result<()> {
     // A makes a playlist of three songs (titles filled in by A only) and
     // syncs it.
     let tracks: Vec<TrackRef> = (0..URIS.len()).map(track).collect();
-    a.apply(Action::NewPlaylistWith(tracks));
+    a.apply(PlaylistsAction::NewPlaylistWith(tracks));
     let list_a = a.state().viewed;
-    a.apply(Action::RenamePlaylist(list_a, NAME.into()));
-    a.apply(Action::SetSync(list_a, true));
+    a.apply(PlaylistsAction::RenamePlaylist(list_a, NAME.into()));
+    a.apply(SyncAction::SetSync(list_a, true));
     until(&mut a, &mut b, "A synced, songs with IDs", 60, |a, _| {
         up_to_date(a, list_a)
             && a.state()
@@ -164,14 +164,14 @@ fn main() -> Result<()> {
 
     // B removes the second song; A follows.
     let second = b.state().library.get(list_b).unwrap().entries()[1].id;
-    b.apply(Action::Remove(list_b, vec![second]));
+    b.apply(PlaylistsAction::Remove(list_b, vec![second]));
     until(&mut a, &mut b, "A sees B's removal", 30, |a, _| {
         titles(a, list_a).len() == 2
     })?;
     println!("        A has {:?}", titles(&a, list_a));
 
     // A renames it; B follows.
-    a.apply(Action::RenamePlaylist(list_a, format!("{NAME} 2")));
+    a.apply(PlaylistsAction::RenamePlaylist(list_a, format!("{NAME} 2")));
     until(&mut a, &mut b, "B sees A's rename", 30, |_, b| {
         b.state()
             .library
@@ -182,7 +182,7 @@ fn main() -> Result<()> {
     // B stops syncing it: it's deleted from Spotify, B keeps it, and A,
     // open all along, keeps it too, unsynced, as Spotify tells it the
     // list of playlists changed.
-    b.apply(Action::SetSync(list_b, false));
+    b.apply(SyncAction::SetSync(list_b, false));
     until(
         &mut a,
         &mut b,
@@ -201,7 +201,7 @@ fn main() -> Result<()> {
     }
     println!("        A: {:?}", a.state().notice);
     println!("        B: {:?}", b.state().notice);
-    b.apply(Action::ReadSpotifyPlaylists);
+    b.apply(SpotifyListsAction::ReadSpotifyPlaylists);
     until(
         &mut a,
         &mut b,
@@ -216,21 +216,24 @@ fn main() -> Result<()> {
     // A syncs another; B, syncing one by the same name, is asked, then
     // replaces it: A, open, keeps its own unsynced.
     let clash = format!("{NAME} clash");
-    a.apply(Action::NewPlaylistWith(vec![track(0)]));
+    a.apply(PlaylistsAction::NewPlaylistWith(vec![track(0)]));
     let first = a.state().viewed;
-    a.apply(Action::RenamePlaylist(first, clash.clone()));
-    a.apply(Action::SetSync(first, true));
+    a.apply(PlaylistsAction::RenamePlaylist(first, clash.clone()));
+    a.apply(SyncAction::SetSync(first, true));
     until(&mut a, &mut b, "A synced another", 60, |a, _| {
         up_to_date(a, first)
     })?;
-    b.apply(Action::NewPlaylistWith(vec![track(1), track(2)]));
+    b.apply(PlaylistsAction::NewPlaylistWith(vec![track(1), track(2)]));
     let second = b.state().viewed;
-    b.apply(Action::RenamePlaylist(second, clash.to_uppercase()));
-    b.apply(Action::SetSync(second, true));
+    b.apply(PlaylistsAction::RenamePlaylist(
+        second,
+        clash.to_uppercase(),
+    ));
+    b.apply(SyncAction::SetSync(second, true));
     until(&mut a, &mut b, "B asked: the name is taken", 30, |_, b| {
         b.state().sync_name_taken == Some(second)
     })?;
-    b.apply(Action::ReplaceSynced(second));
+    b.apply(SyncAction::ReplaceSynced(second));
     until(
         &mut a,
         &mut b,
@@ -245,7 +248,7 @@ fn main() -> Result<()> {
         },
     )?;
     println!("        A: {:?}", a.state().notice);
-    b.apply(Action::SetSync(second, false));
+    b.apply(SyncAction::SetSync(second, false));
     until(&mut a, &mut b, "B stopped syncing it: gone", 30, |_, b| {
         b.state()
             .notice

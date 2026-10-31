@@ -4,7 +4,7 @@
 use egui::{RichText, Ui};
 
 use super::selection::{Selection, remove, select_after, selected};
-use crate::action::{Action, Actions, Desktop};
+use crate::action::{Actions, Desktop, LastFmAction, PlaylistsAction};
 use crate::ui::View;
 use crate::ui::widgets::share_menu;
 use spotless_core::lastfm::{LastFmStatus, Loved};
@@ -155,22 +155,22 @@ pub(super) fn send(
             .collect()
     };
     match choice {
-        Choice::Copy(Some(to)) => actions.push(Action::CopyTo(to, tracks())),
-        Choice::Copy(None) => actions.push(Action::NewPlaylistWith(tracks())),
+        Choice::Copy(Some(to)) => actions.push(PlaylistsAction::CopyTo(to, tracks())),
+        Choice::Copy(None) => actions.push(PlaylistsAction::NewPlaylistWith(tracks())),
         Choice::CopyToSpotify => actions.push(Desktop::PickSpotifyPlaylist {
             tracks: tracks(),
             name: list.name.clone(),
             new: false,
         }),
         Choice::Move(Some(to)) => {
-            actions.push(Action::MoveTo(list.id, to, rows.clone()));
+            actions.push(PlaylistsAction::MoveTo(list.id, to, rows.clone()));
             select_after(list, selection, &rows);
         }
         Choice::Move(None) => {
-            actions.push(Action::NewPlaylistWith(tracks()));
+            actions.push(PlaylistsAction::NewPlaylistWith(tracks()));
             remove(list, selection, rows, actions);
         }
-        Choice::ToggleMarks => actions.push(Action::ToggleMarks(rows)),
+        Choice::ToggleMarks => actions.push(PlaylistsAction::ToggleMarks(rows)),
         Choice::Love(on) => love(loved, selected_tracks(list, selection), on, actions),
         Choice::Share => actions.push(Desktop::CopyLinks(
             rows.iter()
@@ -224,7 +224,7 @@ pub(crate) fn love<'a>(
     for track in tracks {
         let artist = track.artists.first().map_or("", |a| a.name.as_str());
         if loved.track(track) != love && sent.set(artist, &track.title, true) {
-            actions.push(Action::SetLoved {
+            actions.push(LastFmAction::SetLoved {
                 artist: artist.into(),
                 title: track.title.clone(),
                 loved: love,

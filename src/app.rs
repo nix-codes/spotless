@@ -7,7 +7,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::action::{Action, Actions, AnyAction, Desktop};
+use crate::action::{
+    Action, Actions, AnyAction, BrowseAction, Desktop, PlaybackAction, PlaylistsAction,
+    SettingsAction, SpotifyListsAction,
+};
 use crate::focus::Focus;
 use crate::media::{EventHook, MediaControls, MediaEvent, NowPlaying};
 use crate::settings::{DesktopSettings, WindowPlace, ZOOM_RANGE};
@@ -156,7 +159,7 @@ impl App {
             AnyAction::Core(action) => action,
         };
         match action {
-            Action::NewPlaylist => {
+            Action::Playlists(PlaylistsAction::NewPlaylist) => {
                 self.controller.apply(action);
                 // Its name is ready to be typed over.
                 let state = self.controller.state();
@@ -164,14 +167,14 @@ impl App {
                     self.inputs.renaming = Some((list.id, list.name.clone()));
                 }
             }
-            Action::Search(ref query)
+            Action::Browse(BrowseAction::Search(ref query))
                 if spotless_core::spotify::catalog::parse_uri(query.trim()).is_ok() =>
             {
                 // A pasted link adds its songs; the field is left empty.
                 self.inputs.query.clear();
                 self.controller.apply(action);
             }
-            Action::Search(ref query) => {
+            Action::Browse(BrowseAction::Search(ref query)) => {
                 // A recent search fills the field, as if typed.
                 self.inputs.query = query.trim().to_string();
                 self.controller.apply(action);
@@ -201,7 +204,7 @@ impl App {
                 Err(error) => self.skin_error = Some(error),
             },
             Desktop::SetPhosphor(phosphor) => {
-                self.controller.apply(Action::SetPhosphor(phosphor));
+                self.controller.apply(SettingsAction::SetPhosphor(phosphor));
                 let skin = self.desktop.skin.clone();
                 if let Err(error) = self.use_skin(skin.as_deref()) {
                     self.skin_error = Some(error);
@@ -226,7 +229,8 @@ impl App {
                 self.inputs.spotify_pick = Some(if new {
                     crate::ui::Picker::naming(tracks, name)
                 } else {
-                    self.controller.apply(Action::ReadSpotifyPlaylists);
+                    self.controller
+                        .apply(SpotifyListsAction::ReadSpotifyPlaylists);
                     crate::ui::Picker::new(tracks, name)
                 });
             }
@@ -262,28 +266,32 @@ impl App {
         for event in events {
             match event {
                 MediaEvent::Play => match status {
-                    Status::Paused => actions.push(Action::TogglePause),
-                    Status::Stopped => actions.push(Action::Play),
+                    Status::Paused => actions.push(PlaybackAction::TogglePause),
+                    Status::Stopped => actions.push(PlaybackAction::Play),
                     _ => {}
                 },
-                MediaEvent::Pause if status == Status::Playing => actions.push(Action::TogglePause),
+                MediaEvent::Pause if status == Status::Playing => {
+                    actions.push(PlaybackAction::TogglePause)
+                }
                 MediaEvent::Pause => {}
-                MediaEvent::PlayPause if status == Status::Stopped => actions.push(Action::Play),
-                MediaEvent::PlayPause => actions.push(Action::TogglePause),
-                MediaEvent::Stop => actions.push(Action::Stop),
-                MediaEvent::Next => actions.push(Action::Next),
-                MediaEvent::Previous => actions.push(Action::Previous),
+                MediaEvent::PlayPause if status == Status::Stopped => {
+                    actions.push(PlaybackAction::Play)
+                }
+                MediaEvent::PlayPause => actions.push(PlaybackAction::TogglePause),
+                MediaEvent::Stop => actions.push(PlaybackAction::Stop),
+                MediaEvent::Next => actions.push(PlaybackAction::Next),
+                MediaEvent::Previous => actions.push(PlaybackAction::Previous),
                 MediaEvent::SeekBy(us) => {
                     let to = (position + us / 1000).clamp(0, length.max(0));
-                    actions.push(Action::Seek(to as u32));
+                    actions.push(PlaybackAction::Seek(to as u32));
                 }
-                MediaEvent::SeekTo(us) => {
-                    actions.push(Action::Seek((us / 1000).clamp(0, length.max(0)) as u32))
-                }
+                MediaEvent::SeekTo(us) => actions.push(PlaybackAction::Seek(
+                    (us / 1000).clamp(0, length.max(0)) as u32,
+                )),
                 MediaEvent::Volume(level) => {
                     let percent = (level * 100.0).round() as u8;
                     self.inputs.volume = percent;
-                    actions.push(Action::Volume(percent));
+                    actions.push(PlaybackAction::Volume(percent));
                 }
                 MediaEvent::Raise => self.show_window(ctx),
                 MediaEvent::Quit => actions.push(Desktop::Quit),

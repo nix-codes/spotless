@@ -2,7 +2,7 @@
 //! albums, and the songs added from them to the target playlist.
 
 use super::Controller;
-use crate::action::Action;
+use crate::action::{BrowseAction, PlaylistsAction};
 use crate::backend::{Command, SearchState};
 use crate::browse::{AddAll, Loadable, Page};
 use crate::model::catalog::{Discography, SearchResults, Songs};
@@ -12,26 +12,26 @@ use crate::spotify::webapi::SongsPage;
 
 impl Controller {
     /// Opens Browse and moves through it, and adds what it shows.
-    pub(super) fn apply_browse(&mut self, action: Action) {
+    pub(super) fn apply_browse(&mut self, action: BrowseAction) {
         let browse = &mut self.state.browse;
         match action {
-            Action::ToggleBrowse => {
+            BrowseAction::ToggleBrowse => {
                 browse.open = !browse.open;
                 if browse.open {
                     browse.target = self.state.viewed;
                     self.read_spotify_playlists();
                 }
             }
-            Action::CloseBrowse => browse.open = false,
-            Action::Back => browse.back(),
-            Action::Search(query) => {
+            BrowseAction::CloseBrowse => browse.open = false,
+            BrowseAction::Back => browse.back(),
+            BrowseAction::Search(query) => {
                 let query = query.trim().to_string();
                 if query.is_empty() {
                     return;
                 }
                 // A pasted Spotify link adds its songs instead.
                 if crate::spotify::catalog::parse_uri(&query).is_ok() {
-                    return self.apply(Action::AddLink(query));
+                    return self.apply(PlaylistsAction::AddLink(query));
                 }
                 browse.go(Page::Search(query.clone()));
                 if self.state.search == SearchState::NoApp {
@@ -46,7 +46,7 @@ impl Controller {
                 }
                 self.mark_unsaved();
             }
-            Action::MoreSongs(query) => {
+            BrowseAction::MoreSongs(query) => {
                 if let Some(Loadable::Ready(results)) = browse.searches.get_mut(&query)
                     && results.more_songs
                     && !results.reading_songs
@@ -56,14 +56,14 @@ impl Controller {
                     self.send(Command::MoreSongs { query, offset });
                 }
             }
-            Action::ForgetSearch(query) => {
+            BrowseAction::ForgetSearch(query) => {
                 match query {
                     Some(query) => browse.forget_search(&query),
                     None => browse.recent_searches.clear(),
                 }
                 self.mark_unsaved();
             }
-            Action::OpenArtist(artist) => {
+            BrowseAction::OpenArtist(artist) => {
                 browse.go(Page::Artist(artist.uri.clone()));
                 match browse.artists.get(&artist.uri) {
                     Some(Loadable::Ready(_) | Loadable::Loading) => {
@@ -76,13 +76,13 @@ impl Controller {
                     }
                 }
             }
-            Action::ToggleAlbum(album) => {
+            BrowseAction::ToggleAlbum(album) => {
                 if !browse.expanded.remove(&album) {
                     browse.expanded.insert(album.clone());
                     self.read_album(album);
                 }
             }
-            Action::ExpandAlbums(albums) => {
+            BrowseAction::ExpandAlbums(albums) => {
                 if albums.is_empty() {
                     browse.expanded.clear();
                 }
@@ -91,21 +91,21 @@ impl Controller {
                     self.read_album(album);
                 }
             }
-            Action::SetTab(tab) => {
+            BrowseAction::SetTab(tab) => {
                 browse.tab = tab;
                 browse.similar = false;
                 browse.popular = false;
                 self.read_for_find();
             }
-            Action::ShowPopular => {
+            BrowseAction::ShowPopular => {
                 browse.popular = true;
                 browse.similar = false;
             }
-            Action::Find(find) => {
+            BrowseAction::Find(find) => {
                 browse.find = find;
                 self.read_for_find();
             }
-            Action::ShowSimilar(artist) => {
+            BrowseAction::ShowSimilar(artist) => {
                 browse.similar = true;
                 browse.popular = false;
                 if matches!(
@@ -127,10 +127,10 @@ impl Controller {
                     .insert(artist.uri.clone(), Loadable::Loading);
                 self.send(Command::SimilarArtists { artist, api_key });
             }
-            Action::OpenSimilar(name) => {
+            BrowseAction::OpenSimilar(name) => {
                 // Without search, the search page says how to set it up.
                 if self.state.search == SearchState::NoApp {
-                    return self.apply(Action::Search(name));
+                    return self.apply(BrowseAction::Search(name));
                 }
                 if browse.finding.as_ref().is_some_and(|(n, _)| *n == name) {
                     return;
@@ -138,26 +138,26 @@ impl Controller {
                 browse.finding = Some((name.clone(), browse.page().clone()));
                 self.send(Command::FindArtist(name));
             }
-            Action::ToggleSort => browse.newest_first = !browse.newest_first,
-            Action::SetTarget(list) => browse.target = list,
-            Action::ToggleCovers => {
+            BrowseAction::ToggleSort => browse.newest_first = !browse.newest_first,
+            BrowseAction::SetTarget(list) => browse.target = list,
+            BrowseAction::ToggleCovers => {
                 browse.show_covers = !browse.show_covers;
                 self.state.settings.covers = browse.show_covers;
                 self.mark_unsaved();
             }
-            Action::AddTracks(tracks) => {
+            BrowseAction::AddTracks(tracks) => {
                 self.insert_tracks(self.state.browse.target, None, tracks);
             }
-            Action::DropTracks(tracks, at) => {
+            BrowseAction::DropTracks(tracks, at) => {
                 self.insert_tracks(self.state.browse.target, Some(at), tracks);
             }
-            Action::AddAlbum(album) => self.add_album(album, None),
-            Action::AddAll => match self.state.browse.add_all() {
-                Some(AddAll::Releases(albums)) => self.apply(Action::AddAlbums(albums)),
-                Some(AddAll::Songs(songs)) => self.apply(Action::AddTracks(songs)),
+            BrowseAction::AddAlbum(album) => self.add_album(album, None),
+            BrowseAction::AddAll => match self.state.browse.add_all() {
+                Some(AddAll::Releases(albums)) => self.apply(BrowseAction::AddAlbums(albums)),
+                Some(AddAll::Songs(songs)) => self.apply(BrowseAction::AddTracks(songs)),
                 Some(AddAll::Reading) | None => {}
             },
-            Action::AddAlbums(albums) => {
+            BrowseAction::AddAlbums(albums) => {
                 let target = self.state.browse.target;
                 for album in &albums {
                     self.read_album(album.clone());
@@ -165,8 +165,8 @@ impl Controller {
                 self.pending_batches.push((albums, target));
                 self.add_batches_read();
             }
-            Action::DropAlbum(album, at) => self.add_album(album, Some(at)),
-            Action::ShowBrowseTab(tab) => {
+            BrowseAction::DropAlbum(album, at) => self.add_album(album, Some(at)),
+            BrowseAction::ShowBrowseTab(tab) => {
                 let browse = &mut self.state.browse;
                 browse.shown = tab;
                 if !browse.open {
@@ -176,7 +176,6 @@ impl Controller {
                 }
                 self.mark_unsaved();
             }
-            _ => {}
         }
     }
 
@@ -288,8 +287,8 @@ impl Controller {
             }
         }
         match result {
-            Ok(Some(artist)) => self.apply(Action::OpenArtist(artist)),
-            Ok(None) => self.apply(Action::Search(name)),
+            Ok(Some(artist)) => self.apply(BrowseAction::OpenArtist(artist)),
+            Ok(None) => self.apply(BrowseAction::Search(name)),
             Err(error) => self.state.error = Some(error),
         }
     }

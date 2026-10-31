@@ -2,7 +2,10 @@
 //! after the frame is drawn: the core's through the controller, the
 //! desktop's own itself.
 
-pub use spotless_core::action::Action;
+pub use spotless_core::action::{
+    Action, BrowseAction, LastFmAction, PlaybackAction, PlaylistsAction, SettingsAction,
+    SpotifyListsAction, SpotifyTabAction, SyncAction, ViewAction,
+};
 
 /// What only the desktop does, beside the core's [`Action`]s.
 #[derive(Clone, Debug, PartialEq)]
@@ -52,6 +55,60 @@ pub enum AnyAction {
 impl From<Action> for AnyAction {
     fn from(action: Action) -> Self {
         Self::Core(action)
+    }
+}
+
+impl From<SettingsAction> for AnyAction {
+    fn from(action: SettingsAction) -> Self {
+        Self::Core(action.into())
+    }
+}
+
+impl From<LastFmAction> for AnyAction {
+    fn from(action: LastFmAction) -> Self {
+        Self::Core(action.into())
+    }
+}
+
+impl From<PlaybackAction> for AnyAction {
+    fn from(action: PlaybackAction) -> Self {
+        Self::Core(action.into())
+    }
+}
+
+impl From<PlaylistsAction> for AnyAction {
+    fn from(action: PlaylistsAction) -> Self {
+        Self::Core(action.into())
+    }
+}
+
+impl From<SyncAction> for AnyAction {
+    fn from(action: SyncAction) -> Self {
+        Self::Core(action.into())
+    }
+}
+
+impl From<ViewAction> for AnyAction {
+    fn from(action: ViewAction) -> Self {
+        Self::Core(action.into())
+    }
+}
+
+impl From<BrowseAction> for AnyAction {
+    fn from(action: BrowseAction) -> Self {
+        Self::Core(action.into())
+    }
+}
+
+impl From<SpotifyListsAction> for AnyAction {
+    fn from(action: SpotifyListsAction) -> Self {
+        Self::Core(action.into())
+    }
+}
+
+impl From<SpotifyTabAction> for AnyAction {
+    fn from(action: SpotifyTabAction) -> Self {
+        Self::Core(action.into())
     }
 }
 

@@ -8,7 +8,7 @@ use super::{
     Act, Area, FIND_ID, Nav, ROW_HEIGHT, SEARCH_ID, TRACK_HEIGHT, body, mono, note, row, section,
     spans,
 };
-use crate::action::{Action, Actions};
+use crate::action::{Actions, BrowseAction};
 use crate::ui::widgets::{BUTTON_HEIGHT, field, text_button, text_button_width};
 use crate::ui::{Inputs, View};
 use spotless_core::backend::SearchState;
@@ -19,7 +19,7 @@ pub(super) fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions:
     ui.horizontal(|ui| {
         let back = text_button(ui, &palette, "BACK", false, view.browse.can_go_back());
         if crate::ui::widgets::tip(back, "Backspace or Alt+←").clicked() {
-            actions.push(Action::Back);
+            actions.push(BrowseAction::Back);
         }
         let enabled = searchable(view);
         let hint = if enabled {
@@ -63,7 +63,7 @@ pub(super) fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions:
         if field.lost_focus() {
             inputs.nav.area = Area::Results;
             if ui.input(|i| i.key_pressed(Key::Enter)) {
-                actions.push(Action::Search(inputs.query.clone()));
+                actions.push(BrowseAction::Search(inputs.query.clone()));
                 inputs.nav.keyboard = true;
             }
         }
@@ -73,9 +73,9 @@ pub(super) fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions:
         let find = crate::ui::widgets::tip(find.inner, "Find in the results or the songs here (/)");
         if find.clicked() {
             if open {
-                actions.push(Action::Find(None));
+                actions.push(BrowseAction::Find(None));
             } else {
-                actions.push(Action::Find(Some(String::new())));
+                actions.push(BrowseAction::Find(Some(String::new())));
                 inputs.nav.area = Area::Find;
                 inputs.nav.focus_find = true;
             }
@@ -113,7 +113,7 @@ pub(super) fn find_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &
             field.request_focus();
         }
         if field.changed() {
-            actions.push(Action::Find(Some(nav.find.clone())));
+            actions.push(BrowseAction::Find(Some(nav.find.clone())));
         }
         if field.has_focus() {
             nav.area = Area::Find;
@@ -127,10 +127,10 @@ pub(super) fn find_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &
             let (enter, escape) =
                 ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
             if escape {
-                actions.push(Action::Find(None));
+                actions.push(BrowseAction::Find(None));
             } else if enter && nav.found_none {
                 if let Page::Search(query) = view.browse.page() {
-                    actions.push(Action::Search(wider(query, &nav.find)));
+                    actions.push(BrowseAction::Search(wider(query, &nav.find)));
                 }
             } else if enter && nav.rows > 0 {
                 to_results(nav);
@@ -141,7 +141,7 @@ pub(super) fn find_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &
         }
         let close = text_button(ui, &palette, "CLOSE", false, true);
         if crate::ui::widgets::tip(close, "Esc").clicked() {
-            actions.push(Action::Find(None));
+            actions.push(BrowseAction::Find(None));
         }
     });
 }
@@ -183,9 +183,9 @@ pub(super) fn home(
                 },
             );
             if row.button {
-                actions.push(Action::ForgetSearch(Some(query.clone())));
+                actions.push(BrowseAction::ForgetSearch(Some(query.clone())));
             } else if row.response.clicked() || matches!(row.act, Some(Act::Open)) {
-                actions.push(Action::Search(query.clone()));
+                actions.push(BrowseAction::Search(query.clone()));
             }
         }
     }
@@ -246,7 +246,7 @@ pub(super) fn search_page(
         Some(Loadable::Failed(error)) => {
             note(ui, view, error);
             if text_button(ui, &view.palette, "TRY AGAIN", false, true).clicked() {
-                actions.push(Action::Search(query.to_string()));
+                actions.push(BrowseAction::Search(query.to_string()));
             }
             return;
         }
@@ -281,7 +281,7 @@ pub(super) fn search_page(
             true,
         );
         if crate::ui::widgets::tip(button, "Enter, in the find").clicked() {
-            actions.push(Action::Search(wider));
+            actions.push(BrowseAction::Search(wider));
         }
         return;
     }
@@ -325,6 +325,6 @@ fn more_songs(ui: &mut Ui, view: &View, nav: &mut Nav, query: &str, actions: &mu
     let open = matches!(row.act, Some(Act::Open));
     let tip = "The next songs Spotify found (Enter)";
     if row.response.on_hover_text(tip).clicked() || open {
-        actions.push(Action::MoreSongs(query.to_string()));
+        actions.push(BrowseAction::MoreSongs(query.to_string()));
     }
 }

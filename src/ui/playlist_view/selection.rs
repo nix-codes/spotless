@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use egui::{Key, Modifiers, Ui};
 
 use super::rows::Glide;
-use crate::action::{Action, Actions};
+use crate::action::{Actions, PlaybackAction, PlaylistsAction};
 use spotless_core::model::{EntryId, Playlist, PlaylistId};
 
 /// The editor's own state, kept between frames.
@@ -83,7 +83,7 @@ pub(super) fn remove(
     actions: &mut Actions,
 ) {
     if select_after(list, selection, &rows) {
-        actions.push(Action::Remove(list.id, rows));
+        actions.push(PlaylistsAction::Remove(list.id, rows));
     }
 }
 
@@ -117,10 +117,10 @@ pub(super) fn move_by(
         return;
     };
     if up && first > 0 {
-        actions.push(Action::Move(rows, first - 1));
+        actions.push(PlaylistsAction::Move(rows, first - 1));
         selection.reveal = Some(first - 1);
     } else if !up && last + 1 < list.len() {
-        actions.push(Action::Move(rows, last + 2));
+        actions.push(PlaylistsAction::Move(rows, last + 2));
         selection.reveal = Some(last + 1);
     }
 }
@@ -153,11 +153,11 @@ pub(super) fn keyboard(ui: &Ui, list: &Playlist, selection: &mut Selection, acti
     match key {
         Key::Enter => {
             if let Some(&first) = rows.first() {
-                actions.push(Action::PlayEntry(list.id, first));
+                actions.push(PlaybackAction::PlayEntry(list.id, first));
             }
         }
         Key::Delete if !rows.is_empty() => remove(list, selection, rows, actions),
-        Key::Q if !rows.is_empty() => actions.push(Action::ToggleMarks(rows)),
+        Key::Q if !rows.is_empty() => actions.push(PlaylistsAction::ToggleMarks(rows)),
         Key::A if modifiers.command => {
             selection.rows = list.entries().iter().map(|entry| entry.id).collect();
         }

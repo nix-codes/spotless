@@ -10,7 +10,7 @@ use egui::{Align2, Id, Key, Rect, RichText, ScrollArea, Ui, pos2, vec2};
 
 use super::spotify::extend;
 use super::{Act, Area, CatalogDrag, Nav, TRACK_HEIGHT, body, mono, note, row, spans};
-use crate::action::{Action, Actions};
+use crate::action::{Actions, LastFmAction};
 use crate::ui::scrollbar;
 use crate::ui::widgets::small_button;
 use crate::ui::{View, theme};
@@ -103,7 +103,9 @@ pub(super) fn draw(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Action
             .on_hover_text(hint)
             .clicked()
         {
-            actions.push(Action::AddLoved(chosen.into_iter().cloned().collect()));
+            actions.push(LastFmAction::AddLoved(
+                chosen.into_iter().cloned().collect(),
+            ));
         }
         ui.add_space(8.0);
         let count = match (songs.len(), nav.marked.len()) {
@@ -243,11 +245,11 @@ fn loved_song(
         response.dnd_set_drag_payload(CatalogDrag::Loved(these(nav)));
     }
     if row.button {
-        actions.push(Action::AddLoved(vec![song.clone()]));
+        actions.push(LastFmAction::AddLoved(vec![song.clone()]));
     } else if ADDING && matches!(row.act, Some(Act::Add)) {
-        actions.push(Action::AddLoved(these(nav)));
+        actions.push(LastFmAction::AddLoved(these(nav)));
     } else if response.double_clicked() || matches!(row.act, Some(Act::Open)) {
-        actions.push(Action::PlayLoved(song.clone()));
+        actions.push(LastFmAction::PlayLoved(song.clone()));
     }
     let target = view
         .library
@@ -259,14 +261,14 @@ fn loved_song(
             ui.add(egui::Button::new(label).frame_when_inactive(false))
         };
         if ADDING && item(ui, &format!("Add to {target}")).clicked() {
-            actions.push(Action::AddLoved(these(nav)));
+            actions.push(LastFmAction::AddLoved(these(nav)));
         }
         if item(ui, "Play now").clicked() {
-            actions.push(Action::PlayLoved(song.clone()));
+            actions.push(LastFmAction::PlayLoved(song.clone()));
         }
         if item(ui, "Unlove on Last.fm").clicked() {
             for song in these(nav) {
-                actions.push(Action::SetLoved {
+                actions.push(LastFmAction::SetLoved {
                     artist: song.artist,
                     title: song.title,
                     loved: false,

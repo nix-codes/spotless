@@ -3,68 +3,68 @@
 //! mode; and the equaliser's settings and presets.
 
 use super::Controller;
-use crate::action::Action;
+use crate::action::ViewAction;
 use crate::playback::equaliser::Preset;
 
 impl Controller {
     /// Shows or hides what's below the player, and sets how it shows.
-    pub(super) fn apply_view(&mut self, action: Action) {
+    pub(super) fn apply_view(&mut self, action: ViewAction) {
         match action {
-            Action::TogglePlaylists => {
+            ViewAction::TogglePlaylists => {
                 self.state.settings.playlists = !self.state.settings.playlists;
                 self.mark_unsaved();
             }
-            Action::ToggleEqualiser => {
+            ViewAction::ToggleEqualiser => {
                 self.state.settings.equaliser_shown = !self.state.settings.equaliser_shown;
                 self.mark_unsaved();
             }
-            Action::ToggleDeck => {
+            ViewAction::ToggleDeck => {
                 self.state.settings.deck_shown = !self.state.settings.deck_shown;
                 self.mark_unsaved();
             }
-            Action::SetDeckMedia(media) => {
+            ViewAction::SetDeckMedia(media) => {
                 self.state.settings.deck_media = media;
                 self.mark_unsaved();
             }
-            Action::SetDeckMeter(meter) => {
+            ViewAction::SetDeckMeter(meter) => {
                 self.state.settings.deck_meter = meter;
                 self.mark_unsaved();
             }
-            Action::SetVuFace(face) => {
+            ViewAction::SetVuFace(face) => {
                 self.state.settings.vu_face = face;
                 self.mark_unsaved();
             }
-            Action::SetVuCalibration(calibration) => {
+            ViewAction::SetVuCalibration(calibration) => {
                 self.state.settings.vu_calibration = calibration;
                 self.mark_unsaved();
             }
-            Action::SetCassetteMix(mix) => {
+            ViewAction::SetCassetteMix(mix) => {
                 self.state.settings.cassette_mix = mix;
                 self.mark_unsaved();
             }
-            Action::SetVinylLp(lp) => {
+            ViewAction::SetVinylLp(lp) => {
                 self.state.settings.vinyl_lp = lp;
                 self.mark_unsaved();
             }
-            Action::SetReelSlow(slow) => {
+            ViewAction::SetReelSlow(slow) => {
                 self.state.settings.reel_slow = slow;
                 self.mark_unsaved();
             }
-            Action::SetCdMini(mini) => {
+            ViewAction::SetCdMini(mini) => {
                 self.state.settings.cd_mini = mini;
                 self.mark_unsaved();
             }
-            Action::ToggleTimeLeft => {
+            ViewAction::ToggleTimeLeft => {
                 self.state.settings.time_left = !self.state.settings.time_left;
                 self.mark_unsaved();
             }
-            Action::SetEqualiser(equaliser) => {
+            ViewAction::SetEqualiser(equaliser) => {
                 let equaliser = equaliser.clamped();
                 self.state.settings.equaliser = equaliser;
                 self.audio.set_equaliser(equaliser);
                 self.mark_unsaved();
             }
-            Action::SaveEqualiserPreset(name) => {
+            ViewAction::SaveEqualiserPreset(name) => {
                 let name = name.trim().to_string();
                 if !name.is_empty() {
                     let presets = &mut self.state.settings.equaliser_presets;
@@ -76,14 +76,13 @@ impl Controller {
                     self.mark_unsaved();
                 }
             }
-            Action::DeleteEqualiserPreset(name) => {
+            ViewAction::DeleteEqualiserPreset(name) => {
                 self.state
                     .settings
                     .equaliser_presets
                     .retain(|preset| preset.name != name);
                 self.mark_unsaved();
             }
-            _ => {}
         }
     }
 }
