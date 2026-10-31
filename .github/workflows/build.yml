@@ -46,7 +46,11 @@ jobs:
       - name: Rust
         run: rustup show active-toolchain && rustup target add x86_64-pc-windows-gnullvm
 
+      # Only main's runs save a cache: a branch's would push main's out of
+      # GitHub's 10 GB, and branches read main's anyway.
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Format
         run: cargo fmt --all --check
@@ -104,11 +108,13 @@ jobs:
           tool: cargo-ndk
 
       # Shared with the Android Release workflow, which builds the same:
-      # one key for both jobs, without their names in it.
+      # one key for both jobs, without their names in it. Only main's runs
+      # save it: a branch's would push main's out of GitHub's 10 GB.
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: android
           add-job-id-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # 64-bit ARM phones, from Android 10 (API 29), as the spike targets.
       - name: Clippy
@@ -151,7 +157,11 @@ jobs:
       - name: Rust
         run: rustup show active-toolchain
 
+      # Only main's runs save a cache: a branch's would push main's out of
+      # GitHub's 10 GB, and branches read main's anyway.
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Clippy
         run: cargo clippy --workspace --release --all-targets -- -D warnings
