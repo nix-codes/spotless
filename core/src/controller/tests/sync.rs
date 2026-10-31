@@ -417,7 +417,7 @@ fn a_change_to_the_list_of_playlists_reads_the_folder() {
 
 #[test]
 fn stopped_it_goes_from_spotify_closed_it_stays_and_deleted_it_closes() {
-    let mut rig = Rig::new("sync-stop");
+    let mut rig = Rig::new("sync-stop-unlist");
     let list = synced_gym(&mut rig);
     rig.sent();
     rig.controller.apply(SyncAction::SetSync(list, false));
