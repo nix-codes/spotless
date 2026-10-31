@@ -124,6 +124,16 @@ jobs:
         working-directory: android
         run: ./gradlew --no-daemon assembleDebug
 
+      # The app's ScreenshotTest, on the core built for the runner, as
+      # packaging/screenshots.sh runs it. Without that core it would be
+      # skipped, so both screenshots must have been drawn.
+      - name: Screenshot test
+        run: |
+          cargo build --release -p spotless-ffi
+          (cd android && ./gradlew --no-daemon testDebugUnitTest --tests dev.spotless.ScreenshotTest)
+          test -f android/app/build/screenshots/android.png
+          test -f android/app/build/screenshots/android-browse.png
+
   windows:
     name: Windows
     runs-on: windows-2025

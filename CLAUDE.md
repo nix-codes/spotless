@@ -66,7 +66,10 @@ The Spotify tab is built only with the `spotify-tab` feature, off by
 default; CI also runs clippy and the tests with it
 (`--features spotless-core/spotify-tab`).
 
-For the Android app: `cd android && ./gradlew assembleDebug`.
+For the Android app: `cd android && ./gradlew assembleDebug`, and its
+`ScreenshotTest` on the core built for this computer:
+`cargo build --release -p spotless-ffi`, then
+`cd android && ./gradlew testDebugUnitTest --tests dev.spotless.ScreenshotTest`.
 
 ## Commits
 
