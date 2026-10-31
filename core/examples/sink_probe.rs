@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use librespot_playback::audio_backend::Sink;
 use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
-use spotless_core::playback::outputs;
 use spotless_core::playback::sink::RodioSink;
+use spotless_core::playback::{AudioLink, outputs};
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -30,22 +30,23 @@ fn main() {
         .or_else(|| listed.first().map(|o| o.name.clone()))
         .expect("an output to choose");
 
+    let link = std::sync::Arc::<AudioLink>::default();
     let mut sink = RodioSink::new(
         None,
         Box::new(|message| println!("error: {message}")),
         Box::new(librespot_playback::mixer::NoOpVolume),
-        std::sync::Arc::default(),
+        std::sync::Arc::clone(&link),
     );
     let mut converter = Converter::new(None);
     sink.start().expect("the default output opens");
     play_silence(&mut sink, &mut converter, Duration::from_secs(2));
 
     println!("choosing {target}");
-    outputs::choose(Some(target));
+    outputs::choose(&link, Some(target));
     play_silence(&mut sink, &mut converter, Duration::from_secs(2));
 
     println!("back to the default");
-    outputs::choose(None);
+    outputs::choose(&link, None);
     play_silence(&mut sink, &mut converter, Duration::from_secs(2));
     sink.stop().expect("stop never fails");
     println!("done");

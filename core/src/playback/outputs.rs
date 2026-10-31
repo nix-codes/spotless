@@ -12,7 +12,7 @@
 //! the choice changes. Elsewhere nothing is listed yet, and the system's
 //! sound settings decide.
 
-use std::sync::Mutex;
+use super::link::AudioLink;
 
 /// An output the sound server offers.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,34 +23,21 @@ pub struct Output {
     pub description: String,
 }
 
-/// The chosen output; None follows the system's choice.
-static CHOICE: Mutex<Option<String>> = Mutex::new(None);
-
-// What follows opens the chosen output for the rodio sink: Android plays
-// through AAudio, to the system's choice.
-#[cfg(not(target_os = "android"))]
-fn choice() -> Option<String> {
-    CHOICE.lock().unwrap_or_else(|p| p.into_inner()).clone()
-}
-
-/// The choice saved in the settings, at start: applied when a stream opens.
-pub fn restore(output: Option<String>) {
-    *CHOICE.lock().unwrap_or_else(|p| p.into_inner()) = output;
-}
-
 /// Chooses an output, moving a stream that is already open. None goes
 /// back to the system's default output.
-pub fn choose(output: Option<String>) {
-    restore(output.clone());
+pub fn choose(link: &AudioLink, output: Option<String>) {
+    link.set_output(output.clone());
     std::thread::spawn(move || imp::move_stream(output.as_deref().unwrap_or(imp::DEFAULT), 1));
 }
 
 /// Called when the audio output opens a stream: it goes to the chosen
 /// output. The stream takes a moment to appear, so this keeps looking a
 /// little while, on its own thread.
+// This and `device` open the chosen output for the rodio sink: Android
+// plays through AAudio, to the system's choice.
 #[cfg(not(target_os = "android"))]
-pub fn stream_opened() {
-    if let Some(output) = choice() {
+pub fn stream_opened(link: &AudioLink) {
+    if let Some(output) = link.output() {
         std::thread::spawn(move || imp::move_stream(&output, 20));
     }
 }
@@ -63,8 +50,8 @@ pub fn list() -> Option<Vec<Output>> {
 /// The device the audio output opens by name: the chosen one where the
 /// stream isn't moved for it (Windows), else None for the default device.
 #[cfg(not(target_os = "android"))]
-pub fn device() -> Option<String> {
-    if imp::OPENS_BY_NAME { choice() } else { None }
+pub fn device(link: &AudioLink) -> Option<String> {
+    if imp::OPENS_BY_NAME { link.output() } else { None }
 }
 
 #[cfg(target_os = "linux")]

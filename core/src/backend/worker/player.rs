@@ -31,7 +31,7 @@ impl Worker {
                 let emit = Arc::clone(&self.emit);
                 tokio::task::spawn_blocking(move || emit(Event::Outputs(outputs::list())));
             }
-            Command::Output(output) => outputs::choose(output),
+            Command::Output(output) => outputs::choose(&self.link, output),
             _ => {}
         }
     }

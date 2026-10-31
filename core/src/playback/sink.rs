@@ -89,7 +89,7 @@ impl RodioSink {
     /// Opens the testing device, else the chosen output, else (or if that
     /// one isn't connected) the default one.
     fn open(&mut self) -> Result<(), OpenError> {
-        let chosen = super::outputs::device();
+        let chosen = super::outputs::device(&self.link);
         let output = match (self.device.as_deref(), chosen.as_deref()) {
             (Some(device), _) => open(Some(device))?,
             (None, Some(name)) => open(Some(name)).or_else(|error| {
@@ -100,13 +100,13 @@ impl RodioSink {
         };
         self.output = Some(output);
         self.opened = chosen;
-        super::outputs::stream_opened();
+        super::outputs::stream_opened(&self.link);
         Ok(())
     }
 
     /// Whether the output was chosen anew since it opened.
     fn rechosen(&self) -> bool {
-        self.device.is_none() && self.output.is_some() && super::outputs::device() != self.opened
+        self.device.is_none() && self.output.is_some() && super::outputs::device(&self.link) != self.opened
     }
 }
 

@@ -11,7 +11,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use cpal::traits::HostTrait;
-use spotless_core::playback::outputs;
+use spotless_core::playback::{AudioLink, outputs};
 
 fn main() {
     let Some(listed) = outputs::list() else {
@@ -33,7 +33,8 @@ fn main() {
         .expect("a second output to move to");
 
     // Chosen first: the stream goes there as it opens.
-    outputs::restore(Some(target.clone()));
+    let link = AudioLink::default();
+    outputs::choose(&link, Some(target.clone()));
     let device = cpal::default_host().default_output_device().unwrap();
     let stream = rodio::OutputStreamBuilder::from_device(device)
         .unwrap()
@@ -41,12 +42,12 @@ fn main() {
         .unwrap();
     let sink = rodio::Sink::connect_new(stream.mixer());
     sink.append(rodio::source::Zero::new(2, 44100));
-    outputs::stream_opened();
+    outputs::stream_opened(&link);
     std::thread::sleep(Duration::from_secs(2));
     report("chosen before opening", &target);
 
     // Chosen while open: back to the default.
-    outputs::choose(None);
+    outputs::choose(&link, None);
     std::thread::sleep(Duration::from_secs(1));
     report("back to the default while open", &default);
 }

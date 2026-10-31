@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use egui::{ColorImage, Key, UiBuilder, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
-use spotless::action::{Actions, BrowseAction};
+use spotless::action::{Actions, BrowseAction, PlaybackAction, SettingsAction, ViewAction};
 use spotless::app::{Look, use_skin};
 use spotless::settings::DesktopSettings;
 use spotless::skin::format::built_in::WINAMP_CLASSIC_KEY;
@@ -176,16 +176,17 @@ impl Demo {
         let mut controller = Controller::demo(paths);
         let mut desktop = DesktopSettings::read(controller.state().settings.extra());
         desktop.skin = shot.skin.map(String::from);
-        let settings = controller.settings_mut();
-        settings.phosphor = shot.phosphor;
-        settings.volume = 70;
+        controller.apply(SettingsAction::SetPhosphor(shot.phosphor));
+        controller.apply(PlaybackAction::Volume(70));
         if let Some(media) = shot.deck {
-            settings.deck_shown = true;
-            settings.deck_media = media;
+            if !controller.state().settings.deck_shown {
+                controller.apply(ViewAction::ToggleDeck);
+            }
+            controller.apply(ViewAction::SetDeckMedia(media));
         }
         if let Some(face) = shot.vu {
-            settings.deck_meter = DeckMeter::Vu;
-            settings.vu_face = face;
+            controller.apply(ViewAction::SetDeckMeter(DeckMeter::Vu));
+            controller.apply(ViewAction::SetVuFace(face));
         }
         let mut inputs = Inputs {
             volume: 70,

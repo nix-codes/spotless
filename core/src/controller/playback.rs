@@ -5,7 +5,7 @@ use super::{Controller, volume_level};
 use crate::action::PlaybackAction;
 use crate::backend::Command;
 use crate::model::TrackRef;
-use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
+use crate::playback::engine::{PlayerSnapshot, Status};
 use crate::playback::transport::Request;
 
 impl Controller {
@@ -158,13 +158,10 @@ impl Controller {
     pub(super) fn wait_offline(&mut self, position_ms: u32) {
         self.resuming = false;
         let state = &mut self.state;
-        let track = state.transport.current(&state.library).map(|entry| {
-            match &state.player.track {
-                // The engine's has the cover.
-                Some(track) if track.uri == entry.track.uri => track.clone(),
-                _ => TrackInfo::from(&entry.track),
-            }
-        });
+        let track = state
+            .transport
+            .current(&state.library)
+            .map(|entry| state.player_track(&entry.track));
         let requests = state.transport.offline(&mut state.library, position_ms);
         if requests.is_empty() {
             return;
@@ -229,10 +226,7 @@ impl Controller {
                     .current(&state.library)
                     .filter(|current| current.id == *entry);
                 if let Some(current) = loading {
-                    let track = match state.player.track.take() {
-                        Some(track) if track.uri == current.track.uri => track,
-                        _ => TrackInfo::from(&current.track),
-                    };
+                    let track = state.player_track(&current.track);
                     state.player = PlayerSnapshot {
                         status: Status::Loading,
                         track: Some(track),

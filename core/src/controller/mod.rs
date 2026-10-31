@@ -32,7 +32,7 @@ pub use state::State;
 pub use sync::SyncStatus;
 
 use crate::action::Action;
-use crate::backend::{Backend, Command, Event, SearchState, SessionState};
+use crate::backend::{Backend, Command, Event, SearchState, SessionState, Start};
 use crate::browse::{Browse, Loadable};
 use crate::browser::{self, Browser};
 use crate::images::Cover;
@@ -93,12 +93,16 @@ impl Controller {
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Self {
         let settings = Settings::load(&paths);
-        let audio = Arc::new(AudioLink::default());
+        let audio = audio_link(&settings);
+        let start = Start {
+            volume: volume_level(settings.volume),
+            levelling: settings.levelling,
+            spotify_tab: settings.spotify_tab_shown(),
+            search_app: settings.web_client_id(),
+        };
         let started = Backend::start(
             paths.clone(),
-            volume_level(settings.volume),
-            settings.levelling,
-            settings.spotify_tab_shown(),
+            start,
             browser,
             Arc::clone(&audio),
             wake,
@@ -112,12 +116,9 @@ impl Controller {
     /// settings are those in `paths`; anything saved goes there too.
     pub fn demo(paths: Paths) -> Self {
         let settings = Settings::load(&paths);
-        let mut controller = Self::with_backend(
-            paths,
-            settings,
-            Arc::default(),
-            Err(anyhow::anyhow!("a demo")),
-        );
+        let audio = audio_link(&settings);
+        let mut controller =
+            Self::with_backend(paths, settings, audio, Err(anyhow::anyhow!("a demo")));
         let demo = crate::demo::Demo::new();
         let state = &mut controller.state;
         state.session = SessionState::Ready {
@@ -195,7 +196,6 @@ impl Controller {
             Ok(backend) => (Some(backend), SessionState::Connecting),
             Err(error) => (None, SessionState::Failed(format!("{error:#}"))),
         };
-        audio.set_equaliser(settings.equaliser);
         let mut browse = Browse::new(viewed, settings.covers);
         browse.recent_searches = history.searches;
         browse.recent = history.artists;
@@ -256,11 +256,12 @@ impl Controller {
         self.state.notice = Some(notice.into());
     }
 
-    /// The settings, for the ones only the interface knows about (the tray,
-    /// the skin, the zoom). They are saved soon after.
-    pub fn settings_mut(&mut self) -> &mut Settings {
+    /// The settings only the app has (the desktop's tray, skin and
+    /// zoom), kept in the core's file ([`Settings::extra`]). They are
+    /// saved soon after.
+    pub fn app_settings_mut(&mut self) -> &mut serde_json::Map<String, serde_json::Value> {
         self.mark_unsaved();
-        &mut self.state.settings
+        self.state.settings.extra_mut()
     }
 
     /// Takes in what the backend has sent since, and hands back what is
@@ -399,6 +400,15 @@ impl Controller {
             backend.send(command);
         }
     }
+}
+
+/// What the audio outputs use, as the settings have it: they may open
+/// as soon as the backend starts.
+fn audio_link(settings: &Settings) -> Arc<AudioLink> {
+    let audio = AudioLink::default();
+    audio.set_equaliser(settings.equaliser);
+    audio.set_output(settings.audio_output.clone());
+    Arc::new(audio)
 }
 
 /// The slider's 0–100 as librespot's 0–65535.

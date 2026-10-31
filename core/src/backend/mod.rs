@@ -346,6 +346,18 @@ pub(crate) enum Event {
     Error(String),
 }
 
+/// What the worker starts with, from the controller's settings.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Start {
+    /// librespot's 0–65535.
+    pub volume: u16,
+    pub levelling: bool,
+    /// Spotless joins Spotify Connect, for the Spotify tab.
+    pub spotify_tab: bool,
+    /// The personal app search signs in with.
+    pub search_app: Option<String>,
+}
+
 pub(crate) struct Backend {
     commands: UnboundedSender<Command>,
     pub(crate) events: mpsc::Receiver<Event>,
@@ -354,12 +366,10 @@ pub(crate) struct Backend {
 impl Backend {
     /// `wake` is called after every event, from the worker's thread.
     /// `browser` opens the approval pages; the audio outputs use `link`'s
-    /// equaliser and analyser.
+    /// equaliser, output and analyser.
     pub fn start(
         paths: Paths,
-        volume: u16,
-        levelling: bool,
-        spotify_tab: bool,
+        start: Start,
         browser: Browser,
         link: Arc<AudioLink>,
         wake: impl Fn() + Send + Sync + 'static,
@@ -378,8 +388,7 @@ impl Backend {
             .name("spotless-runtime".into())
             .spawn(move || {
                 runtime.block_on(
-                    Worker::new(paths, volume, levelling, spotify_tab, browser, link, emit)
-                        .run(receiver),
+                    Worker::new(paths, start, browser, link, emit).run(receiver),
                 );
             })?;
         Ok(Self { commands, events })

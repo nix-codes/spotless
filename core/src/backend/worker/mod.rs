@@ -26,17 +26,15 @@ mod spotify_lists;
 mod storage;
 mod sync;
 
-use super::{Command, Emit, Event, SessionState};
+use super::{Command, Emit, Event, SessionState, Start};
 use crate::browser::Browser;
 use crate::lastfm::{self, Scrobbler};
 use crate::paths::Paths;
 use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
 use crate::playback::link::AudioLink;
-use crate::playback::outputs;
 use crate::spotify::devices::{Playing, Watch};
 use crate::spotify::webapi::WebApi;
 use crate::spotify::{session, synced};
-use crate::store::Settings;
 use connect::Connect;
 use retry::Retry;
 
@@ -51,6 +49,9 @@ pub(super) struct Worker {
     paths: Paths,
     volume: u16,
     levelling: bool,
+    /// The personal app search signs in with, as at the start; `run` sets
+    /// it up.
+    search_app: Option<String>,
     browser: Browser,
     emit: Emit,
     session: Option<Session>,
@@ -98,9 +99,7 @@ pub(super) struct Worker {
 impl Worker {
     pub(super) fn new(
         paths: Paths,
-        volume: u16,
-        levelling: bool,
-        spotify_tab: bool,
+        start: Start,
         browser: Browser,
         link: Arc<AudioLink>,
         emit: Emit,
@@ -110,9 +109,10 @@ impl Worker {
         let found = Arc::new(tokio::sync::Mutex::new(lastfm::found::Found::load(&paths)));
         Self {
             paths,
-            volume,
-            levelling,
-            connect: Connect::new(spotify_tab),
+            volume: start.volume,
+            levelling: start.levelling,
+            search_app: start.search_app,
+            connect: Connect::new(start.spotify_tab),
             browser,
             emit,
             session: None,
@@ -139,9 +139,8 @@ impl Worker {
     }
 
     pub(super) async fn run(mut self, mut commands: UnboundedReceiver<Command>) {
-        let settings = Settings::load(&self.paths);
-        outputs::restore(settings.audio_output.clone());
-        self.set_search_app(settings.web_client_id());
+        let search_app = self.search_app.take();
+        self.set_search_app(search_app);
         let emit = Arc::clone(&self.emit);
         self.scrobbler = Some(lastfm::start(
             &self.paths,
@@ -499,9 +498,7 @@ mod tests {
         });
         let backend = Backend::start(
             paths,
-            0,
-            false,
-            false,
+            super::super::Start::default(),
             browser,
             std::sync::Arc::default(),
             || {},

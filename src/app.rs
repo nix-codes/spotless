@@ -349,8 +349,7 @@ impl App {
     /// after, with the core's.
     fn change_desktop(&mut self, change: impl FnOnce(&mut DesktopSettings)) {
         change(&mut self.desktop);
-        self.desktop
-            .write(self.controller.settings_mut().extra_mut());
+        self.desktop.write(self.controller.app_settings_mut());
     }
 
     /// Keeps where the window is and how big, to open it there next time.

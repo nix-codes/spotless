@@ -8,7 +8,7 @@ use super::SyncStatus;
 use crate::backend::{SearchState, SessionState, Storage};
 use crate::browse::{Browse, Loadable};
 use crate::lastfm::{LastFmState, Loved};
-use crate::model::{Library, Playlist, PlaylistId};
+use crate::model::{Library, Playlist, PlaylistId, TrackRef};
 use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
 use crate::playback::outputs::Output;
 use crate::playback::transport::Transport;
@@ -132,11 +132,7 @@ impl State {
         let list = self.library.get(self.viewed)?;
         let id = list.cursor().or(list.first())?;
         let entry = list.get(id)?;
-        let track = match &self.player.track {
-            // The engine's has the cover.
-            Some(track) if track.uri == entry.track.uri => track.clone(),
-            _ => TrackInfo::from(&entry.track),
-        };
+        let track = self.player_track(&entry.track);
         let position_ms = if list.cursor() == Some(id) {
             list.resume_ms
         } else {
@@ -196,6 +192,15 @@ impl State {
             self.spotify.as_ref().map(|_| &self.spotify_list)
         } else {
             self.library.get(id)
+        }
+    }
+
+    /// A playlist's song as the player shows it: the engine's, which has
+    /// the cover, while it's the engine's song.
+    pub(super) fn player_track(&self, track: &TrackRef) -> TrackInfo {
+        match &self.player.track {
+            Some(shown) if shown.uri == track.uri => shown.clone(),
+            _ => TrackInfo::from(track),
         }
     }
 
