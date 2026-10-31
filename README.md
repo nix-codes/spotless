@@ -14,7 +14,10 @@ account.
 <a href="#android"><img src="docs/download/android.png" width="300" alt="Download for Android"></a>
 </p>
 
-![Spotless playing a playlist, in the Spotless Classic look](docs/screenshots/playlist.png)
+<p align="center">
+<img src="docs/screenshots/playlist.png" width="640" alt="Spotless on the desktop playing a playlist, in the Spotless Classic look">
+<img src="docs/screenshots/android.png" width="180" alt="The Android app playing a playlist, with an album's name above its songs">
+</p>
 
 More in [Screenshots](docs/screenshots.md).
 

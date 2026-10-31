@@ -49,8 +49,8 @@ The body, when there is one, says why and how, in a short paragraph.
 
 ## Screenshots
 
-The screenshots (one at the top of the README, the rest in
-`docs/screenshots.md`) are drawn, never taken by hand, from the core's
+The screenshots (the desktop's and the Android app's side by side at
+the top of the README, the rest in `docs/screenshots.md`) are drawn, never taken by hand, from the core's
 made-up library (`core/src/demo.rs`, `Controller::demo`):
 `packaging/screenshots.sh` runs `examples/screenshots.rs` for the desktop
 and the Android app's `ScreenshotTest` (Robolectric, on the core built for
