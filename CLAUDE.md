@@ -32,6 +32,10 @@ cargo clippy --workspace --release --all-targets -- -D warnings
 cargo test --workspace --release
 ```
 
+The Spotify tab is built only with the `spotify-tab` feature, off by
+default; CI also runs clippy and the tests with it
+(`--features spotless-core/spotify-tab`).
+
 For the Android app: `cd android && ./gradlew assembleDebug`.
 
 ## Commits

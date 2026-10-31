@@ -15,6 +15,10 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::time::MissedTickBehavior;
 
 mod catalog;
+#[cfg(feature = "spotify-tab")]
+mod connect;
+#[cfg(not(feature = "spotify-tab"))]
+#[path = "connect_off.rs"]
 mod connect;
 mod player;
 mod retry;
@@ -30,12 +34,10 @@ use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
 use crate::playback::link::AudioLink;
 use crate::playback::outputs;
 use crate::spotify::devices::{Playing, Watch};
-use crate::spotify::queue::SpotifyQueue;
-use crate::spotify::remote::Remote;
 use crate::spotify::webapi::WebApi;
 use crate::spotify::{session, synced};
 use crate::store::Settings;
-use connect::{Adding, Clearing, PlayHere, RemoteReport, SEEK_GAP, TakingOver};
+use connect::Connect;
 use retry::Retry;
 
 /// How often the session is checked for having dropped. librespot notices
@@ -66,29 +68,9 @@ pub(super) struct Worker {
     /// Where the watches tell, and where `run` hears it.
     devices: UnboundedSender<Option<Playing>>,
     device_reports: Option<UnboundedReceiver<Option<Playing>>>,
-    /// The Spotify tab is open: its device runs while signed in.
-    spotify_tab: bool,
-    /// Spotless's Connect device for the Spotify tab, once started.
-    remote: Option<Remote>,
-    /// A remote is being started.
-    remote_starting: bool,
-    /// The queue as the remote last told.
-    queue: SpotifyQueue,
-    /// The queue asked to play here, done step by step as it reports.
-    play_here: Option<PlayHere>,
-    /// When the queue was asked to be cleared, while it comes here to be.
-    clearing: Option<Clearing>,
-    /// Songs to add once the queue, held by no device, comes here.
-    adding: Option<Adding>,
-    /// The queue asked to be taken over, while it comes here paused.
-    taking_over: Option<TakingOver>,
-    /// When the queue was last asked to seek, and the seek waiting for
-    /// seeking to pause.
-    seek_asked: Option<Instant>,
-    seek_waiting: Option<u32>,
-    /// Where remotes are handed over once started, and tell the queue.
-    remotes: UnboundedSender<RemoteReport>,
-    remote_reports: Option<UnboundedReceiver<RemoteReport>>,
+    /// The Spotify tab's Connect device (`connect.rs`), with the
+    /// `spotify-tab` feature.
+    connect: Connect,
     /// Shared with the searches running in the background.
     web: Option<Arc<tokio::sync::Mutex<WebApi>>>,
     /// Held while search's browser approval runs, so it runs once.
@@ -115,13 +97,12 @@ impl Worker {
         emit: Emit,
     ) -> Self {
         let (devices, device_reports) = unbounded_channel();
-        let (remotes, remote_reports) = unbounded_channel();
         let found = Arc::new(tokio::sync::Mutex::new(lastfm::found::Found::load(&paths)));
         Self {
             paths,
             volume,
             levelling,
-            spotify_tab,
+            connect: Connect::new(spotify_tab),
             browser,
             emit,
             session: None,
@@ -133,17 +114,6 @@ impl Worker {
             elsewhere: None,
             devices,
             device_reports: Some(device_reports),
-            remote: None,
-            remote_starting: false,
-            play_here: None,
-            clearing: None,
-            adding: None,
-            taking_over: None,
-            seek_asked: None,
-            seek_waiting: None,
-            queue: SpotifyQueue::default(),
-            remotes,
-            remote_reports: Some(remote_reports),
             web: None,
             search_approval: Arc::default(),
             found,
@@ -176,15 +146,9 @@ impl Worker {
         let mut check = tokio::time::interval(CHECK_SESSION);
         check.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut device_reports = self.device_reports.take().expect("run once");
-        let mut remote_reports = self.remote_reports.take().expect("run once");
+        let mut remote_reports = self.connect.take_reports();
         loop {
-            let seek_due = self
-                .seek_waiting
-                .and(self.seek_asked)
-                .map(|asked| tokio::time::Instant::from_std(asked + SEEK_GAP));
-            let clear_due = self.clear_due();
-            let add_due = self.add_due();
-            let take_over_due = self.take_over_due();
+            let connect_due = self.connect_due();
             tokio::select! {
                 command = commands.recv() => {
                     let Some(command) = command else { break };
@@ -203,14 +167,8 @@ impl Worker {
                 }
                 Some(playing) = device_reports.recv() => self.elsewhere_changed(playing),
                 Some(report) = remote_reports.recv() => self.remote_report(report),
-                () = tokio::time::sleep_until(seek_due.unwrap_or_else(tokio::time::Instant::now)),
-                    if seek_due.is_some() => self.send_seek(),
-                () = tokio::time::sleep_until(clear_due.unwrap_or_else(tokio::time::Instant::now)),
-                    if clear_due.is_some() => self.clear_next(),
-                () = tokio::time::sleep_until(add_due.unwrap_or_else(tokio::time::Instant::now)),
-                    if add_due.is_some() => self.add_next(),
-                () = tokio::time::sleep_until(take_over_due.unwrap_or_else(tokio::time::Instant::now)),
-                    if take_over_due.is_some() => self.take_over_next(),
+                () = tokio::time::sleep_until(connect_due.unwrap_or_else(tokio::time::Instant::now)),
+                    if connect_due.is_some() => self.connect_step(),
             }
         }
     }

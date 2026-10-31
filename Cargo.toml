@@ -33,6 +33,10 @@ repository.workspace = true
 description = "A minimal Spotify player in the spirit of Winamp"
 default-run = "spotless"
 
+[features]
+# The Spotify tab (see core/Cargo.toml).
+spotify-tab = ["spotless-core/spotify-tab"]
+
 [lib]
 name = "spotless"
 path = "src/lib.rs"

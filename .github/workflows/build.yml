@@ -57,6 +57,13 @@ jobs:
       - name: Tests
         run: cargo test --workspace --release
 
+      # The Spotify tab is built only with its feature: checked here too,
+      # so its code still builds and passes while it's left out.
+      - name: Clippy and tests, with the Spotify tab
+        run: |
+          cargo clippy --workspace --release --all-targets --features spotless-core/spotify-tab -- -D warnings
+          cargo test --workspace --release --features spotless-core/spotify-tab
+
       - name: llvm-mingw
         run: |
           name=llvm-mingw-$LLVM_MINGW_VERSION-ucrt-ubuntu-22.04-x86_64

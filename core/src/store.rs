@@ -278,10 +278,10 @@ pub fn save_history(paths: &Paths, history: &History) -> Result<()> {
     write_atomically(&paths.history(), &serde_json::to_vec(history)?)
 }
 
-/// The Spotify tab is offered: while false it's never on, and Settings
-/// doesn't show it, as if it weren't there. Kept off for now while its
-/// future is weighed; its code stays.
-pub const SPOTIFY_TAB: bool = false;
+/// The Spotify tab is offered: built with the `spotify-tab` feature. While
+/// false it's never on, and Settings doesn't show it, as if it weren't
+/// there.
+pub const SPOTIFY_TAB: bool = cfg!(feature = "spotify-tab");
 
 /// The settings both apps share. `web_client_id` goes through its own
 /// methods; keys the core doesn't know are kept as they are, among them

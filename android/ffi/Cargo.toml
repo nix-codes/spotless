@@ -20,6 +20,8 @@ required-features = ["bindgen"]
 
 [features]
 bindgen = ["uniffi/cli"]
+# The Spotify tab (see core/Cargo.toml).
+spotify-tab = ["spotless-core/spotify-tab"]
 
 [dependencies]
 spotless-core.workspace = true

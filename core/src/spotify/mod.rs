@@ -6,6 +6,7 @@ pub mod catalog;
 pub mod devices;
 pub mod playlists;
 pub mod queue;
+#[cfg(feature = "spotify-tab")]
 pub mod remote;
 pub mod session;
 pub mod synced;

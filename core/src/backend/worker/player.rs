@@ -19,9 +19,7 @@ impl Worker {
             Command::Volume(volume) => {
                 self.volume = volume;
                 self.with_engine(|e| e.set_volume(volume));
-                if let Some(remote) = &self.remote {
-                    remote.set_volume(volume);
-                }
+                self.set_remote_volume(volume);
             }
             Command::Levelling(on) => {
                 self.levelling = on;
@@ -98,19 +96,10 @@ impl Worker {
         self.elsewhere = playing;
     }
 
-    /// Pauses the other device playing, if one is, as Spotless starts. The
-    /// Spotify tab pauses but keeps the queue: let go, Spotify would still
-    /// show it here, paused, and playing it here again would find no one
-    /// to play it.
+    /// Pauses the other device playing, if one is, as Spotless starts (the
+    /// Spotify tab's, if that's the one: see `pause_remote_instead`).
     pub(super) fn pause_elsewhere(&self) {
-        if let Some(remote) = &self.remote
-            && (self.queue.playing_here()
-                || self
-                    .elsewhere
-                    .as_ref()
-                    .is_some_and(|o| self.is_remote(&o.device)))
-        {
-            remote.pause();
+        if self.pause_remote_instead() {
             return;
         }
         let (Some(other), Some(session)) = (self.elsewhere.clone(), self.session.clone()) else {

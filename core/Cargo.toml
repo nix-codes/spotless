@@ -43,13 +43,25 @@ unicode-normalization = "0.1"
 librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-playback = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-metadata = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false, features = ["rustls-tls-native-roots"] }
-librespot-connect = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false, features = ["rustls-tls-native-roots"] }
+# Only for the Spotify tab (`spotify-tab`, below).
+librespot-connect = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
 librespot-oauth = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false, features = ["rustls-tls-native-roots"] }
 # The metadata service's own messages, to read many albums or songs in one
 # request (librespot's Metadata::get asks for one at a time).
 librespot-protocol = { git = "https://github.com/nix-codes/librespot", rev = "9c7ae98589d19800ec00748740f44a9473f0f8aa", default-features = false }
 protobuf = "3.7"
 futures-util = "0.3"
+
+[features]
+# The Spotify tab: Spotless as a Spotify Connect device, showing and
+# changing the account's queue. Off: the tab can't be shown, and the
+# device and its librespot-connect aren't built (src/spotify/remote.rs,
+# src/backend/worker/connect.rs).
+spotify-tab = ["dep:librespot-connect"]
+
+[[example]]
+name = "connect_probe"
+required-features = ["spotify-tab"]
 
 [dev-dependencies]
 # The probes in examples/ log to the terminal.
