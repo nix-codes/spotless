@@ -44,7 +44,7 @@ More in [Screenshots](docs/screenshots.md).
 - **Two looks**, Spotless Classic and Winamp Classic, in green, amber and
   five more colours.
 - **An equaliser** and **the deck**, a Walkman, reel-to-reel, CD player or
-  turntable beside the music's spectrum (desktop).
+  turntable beside the music's spectrum or VU meters (desktop).
 - **Last.fm scrobbling**, media keys, and a tray icon.
 
 The whole list, and why Spotless exists, is in [About](docs/about.md).

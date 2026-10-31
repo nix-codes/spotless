@@ -159,7 +159,10 @@ Spotify only allows playback in other apps for Premium accounts.
   of a turntable that changes the single for each song (or, at 33, plays
   the whole playlist on an LP and turns it over for side B); click it to
   switch. Beside it, the music's spectrum and its left and right levels, as it
-  plays.
+  plays; click them for a pair of needle VU meters instead, whose face,
+  DISPLAY, CREAM or BLUE, the buttons above pick. CAL sets what reads
+  0 VU: AUTO follows the music, so any song swings round it; −18, −14
+  and −10 dBFS are fixed, to compare songs' loudness.
 - **Settings** (F10): account, search, Last.fm, audio output, volume levelling,
   interface size, skin and colour, tray, and the audio and cover caches.
 - **One window, one copy**: starting Spotless again brings the running one

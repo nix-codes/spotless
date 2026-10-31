@@ -56,6 +56,120 @@ pub struct WindowPlace {
     pub maximized: bool,
 }
 
+/// What the desktop's deck measures the music on, beside the device.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DeckMeter {
+    /// The spectrum's LED bars.
+    #[default]
+    Spectrum,
+    /// A needle VU meter for each channel.
+    Vu,
+}
+
+impl DeckMeter {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Spectrum => "spectrum",
+            Self::Vu => "vu",
+        }
+    }
+
+    pub fn from_key(key: Option<&str>) -> Self {
+        match key {
+            Some("vu") => Self::Vu,
+            _ => Self::Spectrum,
+        }
+    }
+
+    /// The next one, which clicking the meter switches to.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Spectrum => Self::Vu,
+            Self::Vu => Self::Spectrum,
+        }
+    }
+}
+
+/// The VU meters' face.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VuFace {
+    /// Black glass in the display's colour.
+    #[default]
+    Display,
+    /// A warm backlit cream face, '70s.
+    Cream,
+    /// A blue backlit face with an amber needle, '90s.
+    Blue,
+}
+
+impl VuFace {
+    pub const ALL: [Self; 3] = [Self::Display, Self::Cream, Self::Blue];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Display => "display",
+            Self::Cream => "cream",
+            Self::Blue => "blue",
+        }
+    }
+
+    pub fn from_key(key: Option<&str>) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|face| Some(face.key()) == key)
+            .unwrap_or_default()
+    }
+}
+
+/// What loudness the VU meters read as 0 VU: following the music, or
+/// fixed, in dBFS.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum VuCalibration {
+    /// The music's last few seconds read about −4 VU, whatever their
+    /// loudness.
+    #[default]
+    Auto,
+    Minus18,
+    Minus14,
+    Minus10,
+}
+
+impl VuCalibration {
+    pub const ALL: [Self; 4] = [Self::Auto, Self::Minus18, Self::Minus14, Self::Minus10];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Minus18 => "-18",
+            Self::Minus14 => "-14",
+            Self::Minus10 => "-10",
+        }
+    }
+
+    pub fn from_key(key: Option<&str>) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|calibration| Some(calibration.key()) == key)
+            .unwrap_or_default()
+    }
+
+    /// The fixed loudness (dBFS) that reads 0 VU; none for AUTO.
+    pub fn reference(self) -> Option<f32> {
+        match self {
+            Self::Auto => None,
+            Self::Minus18 => Some(-18.0),
+            Self::Minus14 => Some(-14.0),
+            Self::Minus10 => Some(-10.0),
+        }
+    }
+
+    /// The next one, which CAL switches to.
+    pub fn next(self) -> Self {
+        let at = Self::ALL.iter().position(|c| *c == self).unwrap_or(0);
+        Self::ALL[(at + 1) % Self::ALL.len()]
+    }
+}
+
 /// What the desktop's deck plays the music on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DeckMedia {
@@ -236,6 +350,9 @@ pub struct Settings {
     /// reels, its spectrum and its levels.
     pub deck_shown: bool,
     pub deck_media: DeckMedia,
+    pub deck_meter: DeckMeter,
+    pub vu_face: VuFace,
+    pub vu_calibration: VuCalibration,
     /// The deck's cassette holds the whole playlist, on side A then side
     /// B (MIX), instead of the song playing (SINGLE).
     pub cassette_mix: bool,
@@ -380,6 +497,11 @@ impl Settings {
                 .collect(),
             deck_shown: flag("deck_shown"),
             deck_media: DeckMedia::from_key(raw.get("deck_media").and_then(Value::as_str)),
+            deck_meter: DeckMeter::from_key(raw.get("deck_meter").and_then(Value::as_str)),
+            vu_face: VuFace::from_key(raw.get("vu_face").and_then(Value::as_str)),
+            vu_calibration: VuCalibration::from_key(
+                raw.get("vu_calibration").and_then(Value::as_str),
+            ),
             cassette_mix: flag("cassette_mix"),
             vinyl_lp: flag("vinyl_lp"),
             reel_slow: flag("reel_slow"),
@@ -440,6 +562,9 @@ impl Settings {
         }
         raw.insert("deck_shown".into(), self.deck_shown.into());
         raw.insert("deck_media".into(), self.deck_media.key().into());
+        raw.insert("deck_meter".into(), self.deck_meter.key().into());
+        raw.insert("vu_face".into(), self.vu_face.key().into());
+        raw.insert("vu_calibration".into(), self.vu_calibration.key().into());
         raw.insert("cassette_mix".into(), self.cassette_mix.into());
         raw.insert("vinyl_lp".into(), self.vinyl_lp.into());
         raw.insert("reel_slow".into(), self.reel_slow.into());
@@ -615,6 +740,9 @@ mod tests {
         let mut settings = Settings::load(&paths);
         assert!(!settings.deck_shown);
         assert_eq!(settings.deck_media, DeckMedia::Cassette);
+        assert_eq!(settings.deck_meter, DeckMeter::Spectrum);
+        assert_eq!(settings.vu_face, VuFace::Display);
+        assert_eq!(settings.vu_calibration, VuCalibration::Auto);
         assert!(!settings.cassette_mix, "a song a tape to start with");
         assert!(!settings.vinyl_lp, "a single a song to start with");
         assert!(!settings.reel_slow, "a song a reel to start with");
@@ -622,6 +750,9 @@ mod tests {
         assert!(!settings.time_left);
         settings.deck_shown = true;
         settings.deck_media = DeckMedia::Reel;
+        settings.deck_meter = DeckMeter::Vu;
+        settings.vu_face = VuFace::Cream;
+        settings.vu_calibration = VuCalibration::Minus10;
         settings.cassette_mix = true;
         settings.vinyl_lp = true;
         settings.reel_slow = true;
@@ -632,6 +763,9 @@ mod tests {
         assert!(read.deck_shown);
         assert!(read.time_left);
         assert_eq!(read.deck_media, DeckMedia::Reel);
+        assert_eq!(read.deck_meter, DeckMeter::Vu);
+        assert_eq!(read.vu_face, VuFace::Cream);
+        assert_eq!(read.vu_calibration, VuCalibration::Minus10);
         assert!(read.cassette_mix);
         assert!(read.vinyl_lp);
         assert!(read.reel_slow);
@@ -645,6 +779,19 @@ mod tests {
         ] {
             assert_eq!(DeckMedia::from_key(Some(media.key())), media);
         }
+        for meter in [DeckMeter::Spectrum, DeckMeter::Vu] {
+            assert_eq!(DeckMeter::from_key(Some(meter.key())), meter);
+        }
+        for face in VuFace::ALL {
+            assert_eq!(VuFace::from_key(Some(face.key())), face);
+        }
+        for calibration in VuCalibration::ALL {
+            assert_eq!(
+                VuCalibration::from_key(Some(calibration.key())),
+                calibration
+            );
+        }
+        assert_eq!(VuCalibration::Minus10.next(), VuCalibration::Auto);
         for grouping in Grouping::ALL {
             assert_eq!(Grouping::from_key(Some(grouping.key())), grouping);
         }

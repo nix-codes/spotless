@@ -1,5 +1,5 @@
 //! What the music playing sounds like right now: its spectrum in bands and
-//! each channel's peak, for the desktop's deck to draw.
+//! each channel's peak and loudness, for the desktop's deck to draw.
 //!
 //! The desktop's audio output (`sink.rs`) feeds each piece of audio here as
 //! it starts playing, after the equaliser, with the volume taken back out
@@ -27,18 +27,21 @@ const FRESH: Duration = Duration::from_millis(120);
 /// Audio is fed only while the deck has read this recently.
 const WATCHED: Duration = Duration::from_secs(1);
 
-/// The bands in dB, a full-scale sine filling one band reading 0, and the
-/// left and right peaks in dBFS.
+/// The bands in dB, a full-scale sine filling one band reading 0, the
+/// left and right peaks in dBFS, and their loudness (RMS) in dBFS, a
+/// full-scale square wave reading 0.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Reading {
     pub bands: [f32; BANDS],
     pub peaks: [f32; 2],
+    pub rms: [f32; 2],
 }
 
 impl Reading {
     pub const SILENCE: Self = Self {
         bands: [SILENT; BANDS],
         peaks: [SILENT; 2],
+        rms: [SILENT; 2],
     };
 }
 
@@ -135,6 +138,9 @@ fn measure(left: &[f32], right: &[f32], rate: f32) -> Reading {
             .fold(0.0f32, |peak, sample| peak.max(sample.abs()));
         decibels(peak * peak)
     };
+    let rms = |channel: &[f32]| {
+        decibels(channel.iter().map(|sample| sample * sample).sum::<f32>() / channel.len() as f32)
+    };
     let window = window();
     let mut re: Vec<f32> = left
         .iter()
@@ -160,6 +166,7 @@ fn measure(left: &[f32], right: &[f32], rate: f32) -> Reading {
     Reading {
         bands,
         peaks: [peak(left), peak(right)],
+        rms: [rms(left), rms(right)],
     }
 }
 
@@ -234,6 +241,8 @@ mod tests {
         assert!((reading.bands[band] + 6.0).abs() < 0.5, "{reading:?}");
         assert!(reading.bands[0] < -60.0, "{reading:?}");
         assert!((reading.peaks[0] + 6.0).abs() < 0.1);
+        // A sine's RMS is 3 dB under its peak.
+        assert!((reading.rms[0] + 9.0).abs() < 0.1, "{reading:?}");
     }
 
     #[test]

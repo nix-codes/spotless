@@ -116,6 +116,11 @@ pub enum Action {
     ToggleDeck,
     /// What the deck plays the music on.
     SetDeckMedia(crate::store::DeckMedia),
+    /// What the deck measures the music on: the spectrum or VU meters.
+    SetDeckMeter(crate::store::DeckMeter),
+    SetVuFace(crate::store::VuFace),
+    /// What loudness the VU meters read as 0 VU (CAL).
+    SetVuCalibration(crate::store::VuCalibration),
     /// The cassette holds the whole playlist (MIX) or the song (SINGLE).
     SetCassetteMix(bool),
     /// The turntable plays the whole playlist on an LP (33) or a single

@@ -19,24 +19,29 @@
 //! holds one song, and is
 //! changed for the next one's when the song changes; at 33 an LP holds
 //! the whole playlist, and is turned over for side B.
+//!
+//! Clicking the spectrum or the levels switches to the next meter: the
+//! spectrum or VU meters, whose face (DISPLAY, CREAM or BLUE) the buttons
+//! above them pick.
 
 mod canvas;
 mod cassette;
 mod cd;
 mod reel;
 mod vinyl;
+mod vu;
 mod walkman;
 
 pub use canvas::install_fonts;
 
-use egui::{Align2, Color32, FontId, Painter, Rect, Sense, Ui, pos2, vec2};
+use egui::{Align2, Color32, FontId, Painter, Rect, Sense, Ui, UiBuilder, pos2, vec2};
 
-use super::{Inputs, View, player_strip, theme};
+use super::{Inputs, View, player_strip, theme, widgets};
 use crate::action::{Action, Actions};
 use crate::model::{PlaylistId, TrackRef};
 use crate::playback::analyser::{self, BANDS, Reading};
 use crate::playback::engine::Status;
-use crate::store::DeckMedia;
+use crate::store::{DeckMedia, DeckMeter, VuCalibration, VuFace};
 use canvas::{Canvas, rgb};
 
 /// Points round the keys, beside them and above and below.
@@ -144,6 +149,14 @@ pub struct Motion {
     levels: [f32; 2],
     level_tops: [f32; 2],
     level_holds: [f32; 2],
+    /// The VU meters' needles along their scale, how fast they swing, and
+    /// how long their PEAK lights stay lit.
+    needles: [f32; 2],
+    swings: [f32; 2],
+    peak_lights: [f32; 2],
+    /// The music's loudness of late, for the VU meters' AUTO (dBFS); none
+    /// before the first frame.
+    loudness: Option<f32>,
     disc_angle: f32,
     /// The disc in the CD player (mini, and its song), the one before it
     /// as it was last drawn, the change between them, and how far it's
@@ -291,8 +304,25 @@ impl Motion {
                 dt,
             );
         }
+        let loudness = self.loudness.get_or_insert(vu::AUTO_START);
+        vu::follow(loudness, reading.rms, dt);
+        let reference = vu::reference(view.settings.vu_calibration, *loudness);
+        let mut swinging = false;
+        for side in 0..2 {
+            let target = vu::target(reading.rms[side], reference);
+            vu::swing(&mut self.needles[side], &mut self.swings[side], target, dt);
+            swinging |=
+                (self.needles[side] - target).abs() > 0.001 || self.swings[side].abs() > 0.01;
+            self.peak_lights[side] = if reading.peaks[side] >= vu::PEAK {
+                0.35
+            } else {
+                (self.peak_lights[side] - dt).max(0.0)
+            };
+        }
         playing
             || moving
+            || swinging
+            || self.peak_lights.iter().any(|light| *light > 0.0)
             || self.winding
             || self
                 .tops
@@ -990,23 +1020,111 @@ pub fn draw(
     let row = Rect::from_min_size(pos2(left + SIDE, keys_top), vec2(keys.width, keys.height));
     player_strip::draw_keys(ui, row, &keys, view, inputs, actions);
 
-    let zone = Rect::from_min_max(
-        pos2(left + width + GAP, spectrum_top),
-        pos2(strip.right(), bottom),
+    // The VU meters' face buttons go right of the keys, or above the
+    // meters beside the reel deck, whose keys are at its bottom.
+    let meter = view.settings.deck_meter;
+    let row = Rect::from_min_max(
+        pos2(left + width + GAP, top),
+        pos2(strip.right(), top + band),
     );
+    let meters_top = match meter {
+        DeckMeter::Vu => spectrum_top.max(row.bottom()),
+        DeckMeter::Spectrum => spectrum_top,
+    };
+    let zone = Rect::from_min_max(pos2(row.left(), meters_top), pos2(strip.right(), bottom));
     if zone.width() > 60.0 {
-        let spectrum = Rect::from_min_max(
+        let meters = Rect::from_min_max(
             zone.min,
             pos2(zone.right(), zone.bottom() - LEVELS_HEIGHT - 6.0),
         );
         let levels = Rect::from_min_max(pos2(zone.left(), zone.bottom() - LEVELS_HEIGHT), zone.max);
-        draw_spectrum(&painter, spectrum, view, &inputs.deck);
-        draw_levels(&painter, levels, view, &inputs.deck);
+        let motion = &inputs.deck;
+        match meter {
+            DeckMeter::Spectrum => draw_spectrum(&painter, meters, view, motion),
+            DeckMeter::Vu => {
+                vu::draw(
+                    &painter,
+                    meters,
+                    view.settings.vu_face,
+                    view.palette.lcd,
+                    motion.needles,
+                    motion.peak_lights.map(|light| light > 0.0),
+                    vu::reference(
+                        view.settings.vu_calibration,
+                        motion.loudness.unwrap_or(vu::AUTO_START),
+                    ),
+                );
+                face_buttons(ui, row, view, actions);
+            }
+        }
+        draw_levels(&painter, levels, view, motion);
+        let other = match meter {
+            DeckMeter::Spectrum => "Show VU meters",
+            DeckMeter::Vu => "Show the spectrum",
+        };
+        if ui
+            .interact(zone, ui.id().with("deck meter"), Sense::click())
+            .on_hover_text(other)
+            .clicked()
+        {
+            actions.push(Action::SetDeckMeter(meter.next()));
+        }
     }
     if moving {
         ui.ctx().request_repaint();
     }
     bottom
+}
+
+/// DISPLAY, CREAM and BLUE, right-aligned in `row`, the face shown lit,
+/// and CAL before them, which steps through the calibrations.
+fn face_buttons(ui: &mut Ui, row: Rect, view: &View, actions: &mut Actions) {
+    let mut right = row.right();
+    for face in VuFace::ALL.into_iter().rev() {
+        let (label, tip) = match face {
+            VuFace::Display => ("DISPLAY", "Black glass in the display's colour"),
+            VuFace::Cream => ("CREAM", "A warm cream face, '70s"),
+            VuFace::Blue => ("BLUE", "A blue face with an amber needle, '90s"),
+        };
+        let width = widgets::small_button_width(ui, label);
+        let at = Rect::from_center_size(
+            pos2(right - width / 2.0, row.center().y),
+            vec2(width, widgets::SMALL_HEIGHT),
+        );
+        right -= width + 4.0;
+        let mut child = ui.new_child(UiBuilder::new().max_rect(at));
+        let on = view.settings.vu_face == face;
+        if widgets::small_button(&mut child, &view.palette, label, on)
+            .on_hover_text(tip)
+            .clicked()
+            && !on
+        {
+            actions.push(Action::SetVuFace(face));
+        }
+    }
+    // CAL, apart from the faces.
+    let calibration = view.settings.vu_calibration;
+    let label = match calibration {
+        VuCalibration::Auto => "CAL AUTO".to_string(),
+        fixed => format!("CAL {}", fixed.key()),
+    };
+    let tip = match calibration.next() {
+        VuCalibration::Auto => "Let 0 VU follow the music (AUTO)".to_string(),
+        next => format!("Read {} dBFS as 0 VU", next.key()),
+    };
+    let width = widgets::small_button_width(ui, &label);
+    right -= 6.0;
+    let at = Rect::from_center_size(
+        pos2(right - width / 2.0, row.center().y),
+        vec2(width, widgets::SMALL_HEIGHT),
+    );
+    let mut child = ui.new_child(UiBuilder::new().max_rect(at));
+    if widgets::small_button(&mut child, &view.palette, &label, false)
+        .on_hover_text(tip)
+        .clicked()
+    {
+        actions.push(Action::SetVuCalibration(calibration.next()));
+    }
 }
 
 /// An LED's colour, lit or not, `place` of the way up its column (0–1).

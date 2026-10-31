@@ -1283,6 +1283,18 @@ impl Controller {
                 self.state.settings.deck_media = media;
                 self.mark_unsaved();
             }
+            Action::SetDeckMeter(meter) => {
+                self.state.settings.deck_meter = meter;
+                self.mark_unsaved();
+            }
+            Action::SetVuFace(face) => {
+                self.state.settings.vu_face = face;
+                self.mark_unsaved();
+            }
+            Action::SetVuCalibration(calibration) => {
+                self.state.settings.vu_calibration = calibration;
+                self.mark_unsaved();
+            }
             Action::SetCassetteMix(mix) => {
                 self.state.settings.cassette_mix = mix;
                 self.mark_unsaved();
@@ -2228,6 +2240,19 @@ mod tests {
         rig.controller
             .apply(Action::SetDeckMedia(crate::store::DeckMedia::Reel));
         assert_eq!(settings(&rig).deck_media, crate::store::DeckMedia::Reel);
+        rig.controller
+            .apply(Action::SetDeckMeter(crate::store::DeckMeter::Vu));
+        assert_eq!(settings(&rig).deck_meter, crate::store::DeckMeter::Vu);
+        rig.controller
+            .apply(Action::SetVuFace(crate::store::VuFace::Blue));
+        assert_eq!(settings(&rig).vu_face, crate::store::VuFace::Blue);
+        rig.controller.apply(Action::SetVuCalibration(
+            crate::store::VuCalibration::Minus18,
+        ));
+        assert_eq!(
+            settings(&rig).vu_calibration,
+            crate::store::VuCalibration::Minus18
+        );
         rig.controller.apply(Action::SetCassetteMix(true));
         assert!(settings(&rig).cassette_mix);
         rig.controller.apply(Action::SetVinylLp(true));
