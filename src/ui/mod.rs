@@ -396,7 +396,10 @@ fn fit_window(ui: &Ui, full: Rect, fit: &mut Fit, height: Option<f32>) -> Option
             fit.collapsed = Some(wanted);
             fit.least = None;
             send(ViewportCommand::MinInnerSize(vec2(MIN_WINDOW.x, height)));
-            send(ViewportCommand::MaxInnerSize(vec2(16384.0, height)));
+            // A point of play: with the least and most height the same, the
+            // window manager takes the window as not resizable and redraws
+            // its frame, moving the whole window for a moment.
+            send(ViewportCommand::MaxInnerSize(vec2(16384.0, height + 1.0)));
             send(ViewportCommand::InnerSize(vec2(screen.width(), height)));
             None
         }
