@@ -35,7 +35,7 @@ mod worker;
 use worker::Worker;
 
 #[derive(Debug)]
-pub enum Command {
+pub(crate) enum Command {
     SignIn,
     SignOut,
     /// Reads the songs of a track, album or artist link for a playlist.
@@ -101,7 +101,13 @@ pub enum Command {
     Levelling(bool),
     /// The Spotify tab opened or closed: Spotless joins Spotify Connect, or
     /// leaves it, stopping the queue if it plays here.
-    SpotifyTab(bool),
+    SpotifyTab(
+        #[cfg_attr(
+            not(feature = "spotify-tab"),
+            allow(dead_code, reason = "read by the Spotify tab's device, not built")
+        )]
+        bool,
+    ),
     /// How much the caches hold; answered with `Event::Storage`.
     MeasureStorage,
     /// The system has a network again: a dropped session reconnects now,
@@ -123,7 +129,13 @@ pub enum Command {
         loved: bool,
     },
     /// For the Spotify tab.
-    Spotify(SpotifyRequest),
+    Spotify(
+        #[cfg_attr(
+            not(feature = "spotify-tab"),
+            allow(dead_code, reason = "read by the Spotify tab's device, not built")
+        )]
+        SpotifyRequest,
+    ),
     /// Syncs a synced playlist; answered with `Event::Synced`.
     Sync {
         list: PlaylistId,
@@ -144,7 +156,11 @@ pub enum Command {
 
 /// What the Spotify tab asks of the account's queue.
 #[derive(Debug)]
-pub enum SpotifyRequest {
+#[cfg_attr(
+    not(feature = "spotify-tab"),
+    allow(dead_code, reason = "read by the Spotify tab's device, not built")
+)]
+pub(crate) enum SpotifyRequest {
     Play,
     Pause,
     /// Pauses at the song's start: Spotify has no stop, and a song paused
@@ -208,7 +224,7 @@ pub enum SessionState {
 }
 
 #[derive(Debug)]
-pub enum Event {
+pub(crate) enum Event {
     Session(SessionState),
     Player(PlayerSnapshot),
     /// The engine started the followed song by itself.
@@ -222,6 +238,10 @@ pub enum Event {
     PausedElsewhere(String),
     /// The account's queue, for the Spotify tab; None while Spotless isn't
     /// in Spotify Connect.
+    #[cfg_attr(
+        not(feature = "spotify-tab"),
+        allow(dead_code, reason = "sent by the Spotify tab's device, not built")
+    )]
     Spotify(Option<SpotifyQueue>),
     /// The loaded song can't be played; `offline`: for want of a
     /// connection.
@@ -326,9 +346,9 @@ pub enum Event {
     Error(String),
 }
 
-pub struct Backend {
+pub(crate) struct Backend {
     commands: UnboundedSender<Command>,
-    pub events: mpsc::Receiver<Event>,
+    pub(crate) events: mpsc::Receiver<Event>,
 }
 
 impl Backend {

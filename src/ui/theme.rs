@@ -33,9 +33,9 @@ pub struct Palette {
     pub button_lo: Color32,
 }
 
-pub use crate::phosphor::Phosphor;
+pub use spotless_core::phosphor::Phosphor;
 
-fn rgb([r, g, b]: crate::phosphor::Rgb) -> Color32 {
+fn rgb([r, g, b]: spotless_core::phosphor::Rgb) -> Color32 {
     Color32::from_rgb(r, g, b)
 }
 

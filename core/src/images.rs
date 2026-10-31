@@ -27,6 +27,14 @@ pub struct CoverImage {
     pub rgba: Vec<u8>,
 }
 
+/// A cover asked for with [`crate::controller::Controller::load_cover`],
+/// read: its pixels, or why it couldn't be.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Cover {
+    pub url: String,
+    pub image: Result<CoverImage, String>,
+}
+
 /// The cover at `url`, from the cache or downloaded into it, at
 /// [`COVER_SIZE`].
 pub async fn cover(http: &reqwest::Client, dir: &Path, url: &str) -> Result<CoverImage> {

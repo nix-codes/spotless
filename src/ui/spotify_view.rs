@@ -26,8 +26,8 @@ use super::scrollbar;
 use super::widgets::{drag_ghost, row_heart, row_length, small_action, tip};
 use super::{Inputs, View};
 use crate::action::{Action, Actions, Desktop};
-use crate::model::{EntryId, PlaylistId};
-use crate::spotify::queue::{Row, SpotifyQueue};
+use spotless_core::model::{EntryId, PlaylistId};
+use spotless_core::spotify::queue::{Row, SpotifyQueue};
 
 const ROW_HEIGHT: f32 = 18.0;
 const HEADING_HEIGHT: f32 = 24.0;

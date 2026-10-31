@@ -31,7 +31,7 @@ use windows::Win32::UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWindow
 use windows::core::{HSTRING, Ref, w};
 
 use super::{EventHook, MediaEvent, NowPlaying};
-use crate::playback::engine::Status;
+use spotless_core::playback::engine::Status;
 
 /// The event a second start signals. `Local\`: one Spotless per signed-in
 /// Windows user.

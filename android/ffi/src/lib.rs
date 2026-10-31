@@ -8,7 +8,6 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use spotless_core::backend::{Command, Event};
 use spotless_core::controller::Controller;
 use spotless_core::model::{EntryId, PlaylistId};
 use spotless_core::paths::Paths;
@@ -146,20 +145,14 @@ impl Spotless {
     /// the milliseconds after which to call it again, while a save is due.
     pub fn update(&self) -> Option<u64> {
         let mut controller = self.lock();
-        let arrived = controller
-            .receive()
-            .into_iter()
-            .filter_map(|event| match event {
-                Event::Cover { url, result } => Some(Cover {
-                    url,
-                    image: result.ok().map(|image| CoverImage {
-                        width: image.width,
-                        height: image.height,
-                        rgba: image.rgba,
-                    }),
-                }),
-                _ => None,
-            });
+        let arrived = controller.receive().into_iter().map(|read| Cover {
+            url: read.url,
+            image: read.image.ok().map(|image| CoverImage {
+                width: image.width,
+                height: image.height,
+                rgba: image.rgba,
+            }),
+        });
         self.covers
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -171,7 +164,7 @@ impl Spotless {
     /// back in [`Spotless::take_covers`] after a wake. Ask once per URL.
     pub fn load_cover(&self, url: String) {
         let Some(host) = &self.demo else {
-            return self.lock().send(Command::Cover(url));
+            return self.lock().load_cover(url);
         };
         let image = spotless_core::demo::cover(&url).map(|image| CoverImage {
             width: image.width,

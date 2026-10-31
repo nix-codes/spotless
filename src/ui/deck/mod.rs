@@ -38,11 +38,11 @@ use egui::{Align2, Color32, FontId, Painter, Rect, Sense, Ui, UiBuilder, pos2, v
 
 use super::{Inputs, View, player_strip, theme, widgets};
 use crate::action::{Action, Actions};
-use crate::model::{PlaylistId, TrackRef};
-use crate::playback::analyser::{self, BANDS, Reading};
-use crate::playback::engine::Status;
-use crate::store::{DeckMedia, DeckMeter, VuCalibration, VuFace};
 use canvas::{Canvas, rgb};
+use spotless_core::model::{PlaylistId, TrackRef};
+use spotless_core::playback::analyser::{self, BANDS, Reading};
+use spotless_core::playback::engine::Status;
+use spotless_core::store::{DeckMedia, DeckMeter, VuCalibration, VuFace};
 
 /// Points round the keys, beside them and above and below.
 const SIDE: f32 = 4.0;

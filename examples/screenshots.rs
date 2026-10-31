@@ -1,5 +1,5 @@
 //! Draws the README's desktop screenshots from the core's made-up
-//! library and artist (`spotless::demo`), so no account, and nothing of
+//! library and artist (`spotless_core::demo`), so no account, and nothing of
 //! anyone's, is ever in them.
 //!
 //! `cargo run --release --example screenshots -- docs/screenshots`
@@ -13,15 +13,15 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use spotless::action::{Action, Actions};
 use spotless::app::{Look, use_skin};
-use spotless::browse::Loadable;
-use spotless::controller::Controller;
-use spotless::demo;
-use spotless::paths::Paths;
-use spotless::phosphor::Phosphor;
 use spotless::settings::DesktopSettings;
 use spotless::skin::format::built_in::WINAMP_CLASSIC_KEY;
-use spotless::store::{DeckMedia, DeckMeter, VuFace};
 use spotless::ui::{self, Cover, Inputs, View};
+use spotless_core::browse::Loadable;
+use spotless_core::controller::Controller;
+use spotless_core::demo;
+use spotless_core::paths::Paths;
+use spotless_core::phosphor::Phosphor;
+use spotless_core::store::{DeckMedia, DeckMeter, VuFace};
 
 /// The window's size, as Spotless opens at.
 const SIZE: egui::Vec2 = vec2(960.0, 600.0);
@@ -157,7 +157,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Spotless with the core's made-up library (`spotless::demo`), and the
+/// Spotless with the core's made-up library (`spotless_core::demo`), and the
 /// window's own state.
 struct Demo {
     controller: Controller,

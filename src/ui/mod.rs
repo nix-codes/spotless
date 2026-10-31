@@ -24,16 +24,16 @@ use std::collections::HashMap;
 use egui::{Align2, FontId, Rect, RichText, Ui, UiBuilder, ViewportCommand, vec2};
 
 use crate::action::{Action, Actions};
-use crate::backend::{SearchState, SessionState, Storage};
-use crate::browse::{Browse, Loadable};
-use crate::model::{EntryId, Library, Playlist, PlaylistId};
-use crate::playback::engine::PlayerSnapshot;
-use crate::playback::outputs::Output;
 use crate::skin::format::State;
-use crate::spotify::queue::SpotifyQueue;
-use crate::store::Settings;
 pub use browse_view::Cover;
 pub use spotify_picker::Picker;
+use spotless_core::backend::{SearchState, SessionState, Storage};
+use spotless_core::browse::{Browse, Loadable};
+use spotless_core::model::{EntryId, Library, Playlist, PlaylistId};
+use spotless_core::playback::engine::PlayerSnapshot;
+use spotless_core::playback::outputs::Output;
+use spotless_core::spotify::queue::SpotifyQueue;
+use spotless_core::store::Settings;
 use theme::Palette;
 use widgets::text_button;
 
@@ -56,7 +56,7 @@ pub struct View<'a> {
     pub stop_after: bool,
     pub library: &'a Library,
     /// How each synced playlist stands.
-    pub sync: &'a HashMap<PlaylistId, crate::controller::SyncStatus>,
+    pub sync: &'a HashMap<PlaylistId, spotless_core::controller::SyncStatus>,
     /// A playlist not synced because the Spotless folder has its name.
     pub sync_name_taken: Option<PlaylistId>,
     /// The tabs in order, the Spotify tab's included while it shows.
@@ -71,16 +71,16 @@ pub struct View<'a> {
     /// The album covers fetched or being fetched, by image URL.
     pub covers: &'a HashMap<String, Cover>,
     pub search: &'a SearchState,
-    pub lastfm: &'a crate::lastfm::LastFmState,
+    pub lastfm: &'a spotless_core::lastfm::LastFmState,
     /// The songs loved on Last.fm, for their hearts.
-    pub loved: &'a crate::lastfm::Loved,
+    pub loved: &'a spotless_core::lastfm::Loved,
     /// The personal app search signs in with.
     pub web_client_id: Option<&'a str>,
     pub settings: &'a Settings,
     /// The settings only the desktop has.
     pub desktop: &'a crate::settings::DesktopSettings,
     /// What the music playing sounds like, for the deck.
-    pub analyser: &'a crate::playback::analyser::Analyser,
+    pub analyser: &'a spotless_core::playback::analyser::Analyser,
     /// What the caches hold, once measured.
     pub storage: Option<Storage>,
     /// The audio outputs, once listed; None when they can't be.
@@ -442,7 +442,7 @@ fn fit_least(ui: &Ui, full: Rect, fit: &mut Fit, height: f32, restored: Option<f
 struct Sections {
     equaliser: bool,
     /// The deck, and what it plays on.
-    deck: Option<crate::store::DeckMedia>,
+    deck: Option<spotless_core::store::DeckMedia>,
 }
 
 /// Grows or shrinks the window by the change in height when EQ or VIS

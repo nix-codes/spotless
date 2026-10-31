@@ -8,13 +8,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::action::{Action, Actions, AnyAction, Desktop};
-use crate::backend::{Command, Event};
-use crate::controller::Controller;
 use crate::focus::Focus;
 use crate::media::{EventHook, MediaControls, MediaEvent, NowPlaying};
-use crate::paths::Paths;
-use crate::phosphor::Phosphor;
-use crate::playback::engine::Status;
 use crate::settings::{DesktopSettings, WindowPlace, ZOOM_RANGE};
 use crate::skin::format;
 use crate::tray::{Tray, TrayState};
@@ -24,6 +19,10 @@ use crate::ui::{
     theme::{self, Palette},
 };
 use crate::update::{self, Updater};
+use spotless_core::controller::Controller;
+use spotless_core::paths::Paths;
+use spotless_core::phosphor::Phosphor;
+use spotless_core::playback::engine::Status;
 
 pub struct App {
     controller: Controller,
@@ -133,21 +132,19 @@ impl App {
 
     /// Takes in the backend's news; covers become textures here.
     fn receive(&mut self, ctx: &egui::Context) {
-        for event in self.controller.receive() {
-            if let Event::Cover { url, result } = event {
-                let cover = match result {
-                    Ok(image) => Cover::Ready(ctx.load_texture(
-                        &url,
-                        egui::ColorImage::from_rgba_unmultiplied(
-                            [image.width as usize, image.height as usize],
-                            &image.rgba,
-                        ),
-                        egui::TextureOptions::LINEAR,
-                    )),
-                    Err(_) => Cover::Failed,
-                };
-                self.covers.insert(url, cover);
-            }
+        for read in self.controller.receive() {
+            let cover = match read.image {
+                Ok(image) => Cover::Ready(ctx.load_texture(
+                    &read.url,
+                    egui::ColorImage::from_rgba_unmultiplied(
+                        [image.width as usize, image.height as usize],
+                        &image.rgba,
+                    ),
+                    egui::TextureOptions::LINEAR,
+                )),
+                Err(_) => Cover::Failed,
+            };
+            self.covers.insert(read.url, cover);
         }
     }
 
@@ -168,7 +165,7 @@ impl App {
                 }
             }
             Action::Search(ref query)
-                if crate::spotify::catalog::parse_uri(query.trim()).is_ok() =>
+                if spotless_core::spotify::catalog::parse_uri(query.trim()).is_ok() =>
             {
                 // A pasted link adds its songs; the field is left empty.
                 self.inputs.query.clear();
@@ -234,7 +231,7 @@ impl App {
                 });
             }
             Desktop::CopyLinks(uris) => {
-                let links = crate::spotify::links(uris.iter().map(String::as_str));
+                let links = spotless_core::spotify::links(uris.iter().map(String::as_str));
                 let notice = match links.lines().count() {
                     0 => "Local files have no link to share.".to_string(),
                     1 => "Copied the link.".to_string(),
@@ -248,7 +245,7 @@ impl App {
             Desktop::LoadCover(url) => {
                 if !self.covers.contains_key(&url) {
                     self.covers.insert(url.clone(), Cover::Loading);
-                    self.controller.send(Command::Cover(url));
+                    self.controller.load_cover(url);
                 }
             }
         }

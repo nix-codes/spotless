@@ -20,16 +20,16 @@ use egui::{
 
 use super::{Act, Area, CatalogDrag, Nav, PAD, TRACK_HEIGHT, body, mono, note, row, spans};
 use crate::action::{Action, Actions, Desktop};
-use crate::browse::Loadable;
-use crate::model::catalog::SpotifyPlaylist;
-use crate::model::playlist::from_source;
-use crate::model::{Source, TrackRef};
-use crate::spotify::catalog::LIKED_SONGS;
-use crate::spotify::link;
 use crate::ui::scrollbar;
 use crate::ui::theme;
 use crate::ui::widgets::{field, share_menu, small_button, tip};
 use crate::ui::{Inputs, View};
+use spotless_core::browse::Loadable;
+use spotless_core::model::catalog::SpotifyPlaylist;
+use spotless_core::model::playlist::from_source;
+use spotless_core::model::{Source, TrackRef};
+use spotless_core::spotify::catalog::LIKED_SONGS;
+use spotless_core::spotify::link;
 
 pub(super) const FILTER_ID: &str = "spotify-filter";
 /// The list of playlists at its widest.

@@ -13,10 +13,10 @@ use egui::{
 use super::widgets::{Glyph, glyph_button, glyph_toggle, paint_glyph, paint_heart, small_button};
 use super::{Inputs, View, theme};
 use crate::action::{Action, Actions};
-use crate::backend::SessionState;
-use crate::lastfm::LastFmStatus;
-use crate::model::{EntryId, PlaylistId};
-use crate::playback::engine::{Status, TrackInfo};
+use spotless_core::backend::SessionState;
+use spotless_core::lastfm::LastFmStatus;
+use spotless_core::model::{EntryId, PlaylistId};
+use spotless_core::playback::engine::{Status, TrackInfo};
 
 pub const HEIGHT: f32 = 122.0;
 /// The LCD and the song's display beside it, with the volume row below.

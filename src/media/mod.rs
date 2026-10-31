@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::playback::engine::{PlayerSnapshot, Status};
+use spotless_core::playback::engine::{PlayerSnapshot, Status};
 
 #[cfg(target_os = "linux")]
 mod mpris;

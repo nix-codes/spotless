@@ -34,6 +34,7 @@ use crate::action::Action;
 use crate::backend::{Backend, Command, Event, SearchState, SessionState};
 use crate::browse::{Browse, Loadable};
 use crate::browser::{self, Browser};
+use crate::images::Cover;
 use crate::lastfm::{LastFmState, Loved, LovedSong};
 use crate::model::catalog::Place;
 use crate::model::{Playback, Playlist, PlaylistId, TrackRef};
@@ -261,9 +262,9 @@ impl Controller {
         &mut self.state.settings
     }
 
-    /// Takes in what the backend has sent since, and hands back the events
-    /// that are the interface's to deal with: the covers.
-    pub fn receive(&mut self) -> Vec<Event> {
+    /// Takes in what the backend has sent since, and hands back what is
+    /// the interface's to deal with: the covers read.
+    pub fn receive(&mut self) -> Vec<Cover> {
         let Some(backend) = &self.backend else {
             return Vec::new();
         };
@@ -329,7 +330,7 @@ impl Controller {
                 Event::PlaylistChanged(changed) => self.playlist_changed(changed),
                 Event::PlaylistsChanged => self.sync_on_connect(),
                 Event::Error(message) => self.state.error = Some(message),
-                Event::Cover { .. } => theirs.push(event),
+                Event::Cover { url, result } => theirs.push(Cover { url, image: result }),
             }
         }
         theirs
@@ -477,7 +478,13 @@ impl Controller {
             .min()
     }
 
-    pub fn send(&self, command: Command) {
+    /// Reads a cover, from the disk cache or downloaded into it: it comes
+    /// back from [`Self::receive`] once read. Ask once per URL.
+    pub fn load_cover(&self, url: String) {
+        self.send(Command::Cover(url));
+    }
+
+    fn send(&self, command: Command) {
         if let Some(backend) = &self.backend {
             backend.send(command);
         }

@@ -31,11 +31,11 @@ use super::widgets::{
 };
 use super::{Inputs, View};
 use crate::action::{Action, Actions, Desktop};
-use crate::backend::SearchState;
-use crate::browse::{AddAll, BrowseTab, Find, Loadable, Page};
-use crate::lastfm;
-use crate::model::catalog::{Discography, Release, ReleaseTab};
-use crate::model::{ArtistRef, EntryId, Source, TrackRef, playlist::Playlist};
+use spotless_core::backend::SearchState;
+use spotless_core::browse::{AddAll, BrowseTab, Find, Loadable, Page};
+use spotless_core::lastfm;
+use spotless_core::model::catalog::{Discography, Release, ReleaseTab};
+use spotless_core::model::{ArtistRef, EntryId, Source, TrackRef, playlist::Playlist};
 
 mod lastfm_tab;
 mod spotify;
@@ -1467,7 +1467,7 @@ fn song(
 
 /// A right-click menu of only Share, for what has a Spotify link.
 fn share(response: &Response, copy: &str, uri: &str, actions: &mut Actions) {
-    if crate::spotify::link(uri).is_none() {
+    if spotless_core::spotify::link(uri).is_none() {
         return;
     }
     response.context_menu(|ui| {

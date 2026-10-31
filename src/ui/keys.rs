@@ -14,10 +14,10 @@ use super::theme::{self, Palette};
 use super::widgets::text_button;
 use super::{Inputs, View, browse_view, player_strip};
 use crate::action::{Action, Actions, Desktop};
-use crate::backend::SessionState;
-use crate::browse::BrowseTab;
-use crate::model::PlaylistId;
-use crate::playback::engine::Status;
+use spotless_core::backend::SessionState;
+use spotless_core::browse::BrowseTab;
+use spotless_core::model::PlaylistId;
+use spotless_core::playback::engine::Status;
 
 /// Ctrl+← and →; with Shift too, the far step.
 const SEEK_MS: i64 = 5_000;
@@ -352,7 +352,7 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
         return;
     }
     i.events.retain(|event| match event {
-        Event::Paste(text) if crate::spotify::catalog::parse_uri(text.trim()).is_ok() => {
+        Event::Paste(text) if spotless_core::spotify::catalog::parse_uri(text.trim()).is_ok() => {
             actions.push(Action::AddLink(text.trim().to_string()));
             false
         }

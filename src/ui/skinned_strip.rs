@@ -20,9 +20,9 @@ use super::player_strip::{
 use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
 use crate::action::{Action, Actions};
-use crate::backend::SessionState;
-use crate::playback::engine::Status;
 use crate::skin::format::{Role, State};
+use spotless_core::backend::SessionState;
+use spotless_core::playback::engine::Status;
 
 /// Gaps, in image pixels: between groups of controls, between the
 /// display's two lines, and between the rows.

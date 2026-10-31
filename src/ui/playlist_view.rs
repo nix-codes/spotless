@@ -30,11 +30,11 @@ use super::widgets::{
 };
 use super::{Inputs, View, spotify_view};
 use crate::action::{Action, Actions, Desktop};
-use crate::backend::SessionState;
-use crate::controller::SyncStatus;
-use crate::lastfm::{LastFmStatus, Loved};
-use crate::model::{EntryId, Playlist, PlaylistId, Run, TrackRef};
-use crate::playback::engine::Status;
+use spotless_core::backend::SessionState;
+use spotless_core::controller::SyncStatus;
+use spotless_core::lastfm::{LastFmStatus, Loved};
+use spotless_core::model::{EntryId, Playlist, PlaylistId, Run, TrackRef};
+use spotless_core::playback::engine::Status;
 
 const ROW_HEIGHT: f32 = 18.0;
 /// The longest a jump to the playing song glides, in screens: further, it
@@ -1780,14 +1780,14 @@ mod tests {
 
     use super::*;
     use crate::action::AnyAction;
-    use crate::backend::{SearchState, SessionState};
-    use crate::browse::{Browse, Loadable};
-    use crate::lastfm::LastFmState;
-    use crate::model::Library;
-    use crate::paths::Paths;
-    use crate::playback::engine::PlayerSnapshot;
-    use crate::spotify::queue::SpotifyQueue;
-    use crate::store::Settings;
+    use spotless_core::backend::{SearchState, SessionState};
+    use spotless_core::browse::{Browse, Loadable};
+    use spotless_core::lastfm::LastFmState;
+    use spotless_core::model::Library;
+    use spotless_core::paths::Paths;
+    use spotless_core::playback::engine::PlayerSnapshot;
+    use spotless_core::spotify::queue::SpotifyQueue;
+    use spotless_core::store::Settings;
 
     /// Drags from `from` on the tab bar by `by`, in steps, and releases:
     /// the actions the tab bar pushed meanwhile. With `spotify`, the
@@ -1797,12 +1797,12 @@ mod tests {
         let paths = Paths::from_dirs(root.join("config"), root.join("cache")).unwrap();
         let settings = Settings::load(&paths);
         let desktop = crate::settings::DesktopSettings::read(settings.extra());
-        let analyser = crate::playback::analyser::Analyser::default();
+        let analyser = spotless_core::playback::analyser::Analyser::default();
         let player = PlayerSnapshot::default();
         let browse = Browse::new(PlaylistId::DEFAULT, false);
         let covers = HashMap::new();
         let lastfm = LastFmState::default();
-        let loved = crate::lastfm::Loved::default();
+        let loved = spotless_core::lastfm::Loved::default();
         let outputs = Loadable::Loading;
         let spotify_list = Playlist::new(PlaylistId::SPOTIFY, "Spotify");
         let queue = SpotifyQueue::default();

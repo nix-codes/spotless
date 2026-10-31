@@ -2,8 +2,8 @@
 //! Spotify, no audio, no UI.
 
 pub mod catalog;
-pub mod library;
-pub mod playback;
+pub(crate) mod library;
+pub(crate) mod playback;
 pub mod playlist;
 pub mod sync;
 

@@ -17,7 +17,7 @@
 //! read again in full now and then and their newest more often.
 
 pub mod api;
-pub mod found;
+pub(crate) mod found;
 pub mod listen;
 pub mod loved;
 mod scrobbler;
