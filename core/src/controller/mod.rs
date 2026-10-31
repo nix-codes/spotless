@@ -12,6 +12,7 @@
 //! textures) stays with the interface, in `app.rs`.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 mod browse;
@@ -38,7 +39,7 @@ use crate::model::catalog::Place;
 use crate::model::{Playback, Playlist, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
-use crate::playback::equaliser;
+use crate::playback::link::AudioLink;
 use crate::playback::transport::Transport;
 use crate::store::{self, Settings};
 use lastfm::FoundFor;
@@ -46,6 +47,8 @@ use lastfm::FoundFor;
 pub struct Controller {
     paths: Paths,
     backend: Option<Backend>,
+    /// The equaliser the audio outputs apply, and the analyser they feed.
+    audio: Arc<AudioLink>,
     state: State,
     /// When the first unsaved change was made.
     unsaved: Option<Instant>,
@@ -88,15 +91,17 @@ impl Controller {
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Self {
         let settings = Settings::load(&paths);
+        let audio = Arc::new(AudioLink::default());
         let started = Backend::start(
             paths.clone(),
             volume_level(settings.volume),
             settings.levelling,
             settings.spotify_tab_shown(),
             browser,
+            Arc::clone(&audio),
             wake,
         );
-        Self::with_backend(paths, settings, started)
+        Self::with_backend(paths, settings, audio, started)
     }
 
     /// Spotless as its screenshots show it ([`crate::demo`]): signed in,
@@ -105,7 +110,12 @@ impl Controller {
     /// settings are those in `paths`; anything saved goes there too.
     pub fn demo(paths: Paths) -> Self {
         let settings = Settings::load(&paths);
-        let mut controller = Self::with_backend(paths, settings, Err(anyhow::anyhow!("a demo")));
+        let mut controller = Self::with_backend(
+            paths,
+            settings,
+            Arc::default(),
+            Err(anyhow::anyhow!("a demo")),
+        );
         let demo = crate::demo::Demo::new();
         let state = &mut controller.state;
         state.session = SessionState::Ready {
@@ -164,7 +174,12 @@ impl Controller {
         controller
     }
 
-    fn with_backend(paths: Paths, settings: Settings, started: anyhow::Result<Backend>) -> Self {
+    fn with_backend(
+        paths: Paths,
+        settings: Settings,
+        audio: Arc<AudioLink>,
+        started: anyhow::Result<Backend>,
+    ) -> Self {
         let (mut library, tabs) = store::load_library(&paths);
         let history = store::load_history(&paths);
         let viewed = tabs.viewed.or(tabs.playing).unwrap_or(library.first());
@@ -178,7 +193,7 @@ impl Controller {
             Ok(backend) => (Some(backend), SessionState::Connecting),
             Err(error) => (None, SessionState::Failed(format!("{error:#}"))),
         };
-        equaliser::set(settings.equaliser);
+        audio.set_equaliser(settings.equaliser);
         let mut browse = Browse::new(viewed, settings.covers);
         browse.recent_searches = history.searches;
         browse.recent = history.artists;
@@ -187,6 +202,7 @@ impl Controller {
         Self {
             paths,
             backend,
+            audio,
             state: State {
                 session,
                 player: PlayerSnapshot::default(),
@@ -225,6 +241,11 @@ impl Controller {
 
     pub fn state(&self) -> &State {
         &self.state
+    }
+
+    /// The audio playing, for the deck to measure ([`AudioLink::analyser`]).
+    pub fn audio(&self) -> &AudioLink {
+        &self.audio
     }
 
     /// Shows this in the notice line, for what only the interface does

@@ -2,13 +2,11 @@
 //! from -12 to +12 dB, applied by the audio outputs (`sink.rs`, and
 //! `aaudio.rs` on Android) as the audio plays.
 //!
-//! The settings are kept here for the output to read, as the chosen
-//! output is (`outputs.rs`). Each band is a peaking filter (Robert
+//! The settings are kept in the controller's [`super::link::AudioLink`]
+//! for the output to read. Each band is a peaking filter (Robert
 //! Bristow-Johnson's), one per band and channel; the output reads the
 //! settings again for each piece of audio it plays, so a slider is heard
 //! moving at once.
-
-use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
@@ -154,17 +152,6 @@ pub const PRESETS: [(&str, [f32; 10]); 18] = [
     ),
 ];
 
-static SETTINGS: Mutex<Equaliser> = Mutex::new(Equaliser::OFF);
-
-/// What the audio output applies from now on.
-pub fn set(equaliser: Equaliser) {
-    *SETTINGS.lock().unwrap_or_else(|p| p.into_inner()) = equaliser;
-}
-
-fn current() -> Equaliser {
-    *SETTINGS.lock().unwrap_or_else(|p| p.into_inner())
-}
-
 /// A band's filter: its coefficients, normalised.
 #[derive(Clone, Copy, Debug, Default)]
 struct Coefficients {
@@ -224,13 +211,9 @@ impl Processor {
         }
     }
 
-    /// Applies the settings in use now to `samples`, interleaved and
-    /// starting on the first channel.
-    pub fn process(&mut self, samples: &mut [f32]) {
-        self.process_with(current(), samples);
-    }
-
-    fn process_with(&mut self, equaliser: Equaliser, samples: &mut [f32]) {
+    /// Applies `equaliser` to `samples`, interleaved and starting on the
+    /// first channel.
+    pub fn process(&mut self, equaliser: Equaliser, samples: &mut [f32]) {
         if !equaliser.on {
             self.applied = None;
             return;
@@ -308,7 +291,7 @@ mod tests {
     fn equalised(equaliser: Equaliser, frequency: f32) -> f32 {
         let input = sine(frequency);
         let mut samples = input.clone();
-        Processor::new(RATE, 2).process_with(equaliser, &mut samples);
+        Processor::new(RATE, 2).process(equaliser, &mut samples);
         gain(&samples, &input)
     }
 
@@ -323,7 +306,7 @@ mod tests {
         };
         let input = sine(60.0);
         let mut samples = input.clone();
-        Processor::new(RATE, 2).process_with(equaliser, &mut samples);
+        Processor::new(RATE, 2).process(equaliser, &mut samples);
         assert_eq!(samples, input);
     }
 
@@ -361,7 +344,7 @@ mod tests {
             bands: [12.0; 10],
         };
         let mut samples = sine(1000.0);
-        Processor::new(RATE, 2).process_with(equaliser, &mut samples);
+        Processor::new(RATE, 2).process(equaliser, &mut samples);
         assert!(samples.iter().all(|s| s.abs() <= 1.0));
     }
 

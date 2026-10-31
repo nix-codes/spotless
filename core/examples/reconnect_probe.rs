@@ -46,6 +46,7 @@ async fn main() -> Result<()> {
         &old,
         0,
         false,
+        Arc::default(),
         Arc::new(move |event| {
             let _ = sender.send(event);
         }),

@@ -79,6 +79,8 @@ pub struct View<'a> {
     pub settings: &'a Settings,
     /// The settings only the desktop has.
     pub desktop: &'a crate::settings::DesktopSettings,
+    /// What the music playing sounds like, for the deck.
+    pub analyser: &'a crate::playback::analyser::Analyser,
     /// What the caches hold, once measured.
     pub storage: Option<Storage>,
     /// The audio outputs, once listed; None when they can't be.

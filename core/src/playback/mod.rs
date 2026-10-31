@@ -5,6 +5,7 @@ pub mod aaudio;
 pub mod analyser;
 pub mod engine;
 pub mod equaliser;
+pub mod link;
 pub mod outputs;
 pub mod sink;
 pub mod transport;

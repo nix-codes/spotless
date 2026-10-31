@@ -1797,6 +1797,7 @@ mod tests {
         let paths = Paths::from_dirs(root.join("config"), root.join("cache")).unwrap();
         let settings = Settings::load(&paths);
         let desktop = crate::settings::DesktopSettings::read(settings.extra());
+        let analyser = crate::playback::analyser::Analyser::default();
         let player = PlayerSnapshot::default();
         let browse = Browse::new(PlaylistId::DEFAULT, false);
         let covers = HashMap::new();
@@ -1836,6 +1837,7 @@ mod tests {
             web_client_id: None,
             settings: &settings,
             desktop: &desktop,
+            analyser: &analyser,
             storage: None,
             outputs: &outputs,
             tray_shown: false,

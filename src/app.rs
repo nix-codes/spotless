@@ -532,6 +532,7 @@ impl eframe::App for App {
             web_client_id: web_client_id.as_deref(),
             settings: &state.settings,
             desktop: &self.desktop,
+            analyser: &self.controller.audio().analyser,
             storage: state.storage,
             outputs: &state.outputs,
             tray_shown: self.tray.as_ref().is_some_and(Tray::shown),

@@ -42,7 +42,7 @@ impl Rig {
         let paths = Paths::from_dirs(root.join("config"), root.join("cache")).unwrap();
         let (backend, commands, events) = Backend::detached();
         let settings = Settings::load(&paths);
-        let controller = Controller::with_backend(paths, settings, Ok(backend));
+        let controller = Controller::with_backend(paths, settings, Arc::default(), Ok(backend));
         Self {
             controller,
             commands,

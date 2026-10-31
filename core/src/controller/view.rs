@@ -4,7 +4,7 @@
 
 use super::Controller;
 use crate::action::Action;
-use crate::playback::equaliser::{self, Preset};
+use crate::playback::equaliser::Preset;
 
 impl Controller {
     /// Shows or hides what's below the player, and sets how it shows.
@@ -61,7 +61,7 @@ impl Controller {
             Action::SetEqualiser(equaliser) => {
                 let equaliser = equaliser.clamped();
                 self.state.settings.equaliser = equaliser;
-                equaliser::set(equaliser);
+                self.audio.set_equaliser(equaliser);
                 self.mark_unsaved();
             }
             Action::SaveEqualiserPreset(name) => {

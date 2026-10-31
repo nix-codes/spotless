@@ -884,7 +884,7 @@ pub fn draw(
     let top = keys.row.center().y - band / 2.0;
     let left = strip.left();
 
-    let reading = analyser::read();
+    let reading = view.analyser.read();
     let dt = ui.input(|i| i.stable_dt).min(0.1);
     let moving = inputs.deck.step(view, &reading, dt);
     let tape = inputs.deck.tape(view);

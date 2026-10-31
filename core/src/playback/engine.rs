@@ -28,6 +28,7 @@ use librespot_playback::player::{Player, PlayerEvent};
 
 #[cfg(target_os = "android")]
 use super::aaudio::AAudioSink;
+use super::link::AudioLink;
 #[cfg(not(target_os = "android"))]
 use super::sink::RodioSink;
 use crate::model::{EntryId, TrackRef};
@@ -121,6 +122,8 @@ pub struct Engine {
 /// song ends on a dropped session.
 struct Shared {
     mixer: Arc<dyn Mixer>,
+    /// The equaliser and analyser the players' outputs use.
+    link: Arc<AudioLink>,
     notify: Notify,
     /// The song to start when the playing one ends.
     follow: Mutex<Option<(EntryId, SpotifyUri)>>,
@@ -151,7 +154,14 @@ type Load = (SpotifyUri, bool, u32);
 
 impl Engine {
     /// Must be called on the tokio runtime: the event fold runs on it.
-    pub fn new(session: &Session, volume: u16, levelling: bool, notify: Notify) -> Result<Self> {
+    /// Its outputs apply `link`'s equaliser and feed its analyser.
+    pub fn new(
+        session: &Session,
+        volume: u16,
+        levelling: bool,
+        link: Arc<AudioLink>,
+        notify: Notify,
+    ) -> Result<Self> {
         let mixer =
             mixer::find(Some("softvol")).ok_or_else(|| anyhow!("soft volume mixer missing"))?;
         // librespot's default curve puts half the slider below -30 dB. The
@@ -169,10 +179,11 @@ impl Engine {
                     session: session.clone(),
                     waiting: None,
                     levelling,
-                    player: start_player(shared, session, &mixer, levelling, &live, &notify),
+                    player: start_player(shared, session, &mixer, &link, levelling, &live, &notify),
                     live,
                 }),
                 mixer,
+                link,
                 notify,
                 follow: Mutex::default(),
                 state: Mutex::default(),
@@ -307,6 +318,7 @@ impl Shared {
                 &Arc::downgrade(self),
                 &current.session,
                 &self.mixer,
+                &self.link,
                 current.levelling,
                 &current.live,
                 &self.notify,
@@ -326,6 +338,7 @@ fn start_player(
     shared: &Weak<Shared>,
     session: &Session,
     mixer: &Arc<dyn Mixer>,
+    link: &Arc<AudioLink>,
     levelling: bool,
     live: &Arc<AtomicBool>,
     notify: &Notify,
@@ -345,6 +358,7 @@ fn start_player(
             }
         })
     };
+    let link = Arc::clone(link);
     let config = PlayerConfig {
         bitrate: Bitrate::Bitrate320,
         gapless: true,
@@ -359,9 +373,9 @@ fn start_player(
         session.clone(),
         mixer.get_soft_volume(),
         #[cfg(not(target_os = "android"))]
-        move || Box::new(RodioSink::new(device, on_error, soft_volume)),
+        move || Box::new(RodioSink::new(device, on_error, soft_volume, link)),
         #[cfg(target_os = "android")]
-        move || Box::new(AAudioSink::new(on_error)),
+        move || Box::new(AAudioSink::new(on_error, link)),
     );
     // Subscribed before the first load, so its events are seen.
     let events = player.get_player_event_channel();

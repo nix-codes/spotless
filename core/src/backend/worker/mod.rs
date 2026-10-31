@@ -27,6 +27,7 @@ use crate::browser::Browser;
 use crate::lastfm::{self, Scrobbler};
 use crate::paths::Paths;
 use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
+use crate::playback::link::AudioLink;
 use crate::playback::outputs;
 use crate::spotify::devices::{Playing, Watch};
 use crate::spotify::queue::SpotifyQueue;
@@ -99,6 +100,8 @@ pub(super) struct Worker {
     cover_slots: Arc<tokio::sync::Semaphore>,
     /// When to connect to Spotify, at the start and after a drop.
     retry: Retry,
+    /// The equaliser and analyser the audio outputs use.
+    link: Arc<AudioLink>,
 }
 
 impl Worker {
@@ -108,6 +111,7 @@ impl Worker {
         levelling: bool,
         spotify_tab: bool,
         browser: Browser,
+        link: Arc<AudioLink>,
         emit: Emit,
     ) -> Self {
         let (devices, device_reports) = unbounded_channel();
@@ -146,6 +150,7 @@ impl Worker {
             http: reqwest::Client::new(),
             cover_slots: Arc::new(tokio::sync::Semaphore::new(6)),
             retry: Retry::new(),
+            link,
         }
     }
 
@@ -348,6 +353,7 @@ impl Worker {
             &session,
             self.volume,
             self.levelling,
+            Arc::clone(&self.link),
             Arc::new(move |event| {
                 emit(match event {
                     EngineEvent::Snapshot(snapshot) => {

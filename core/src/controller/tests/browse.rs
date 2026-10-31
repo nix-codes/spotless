@@ -273,6 +273,6 @@ fn searches_are_remembered_across_starts_but_links_are_not() {
     let (backend, _, _) = Backend::detached();
     let paths = rig.controller.paths.clone();
     let settings = Settings::load(&paths);
-    let again = Controller::with_backend(paths, settings, Ok(backend));
+    let again = Controller::with_backend(paths, settings, Arc::default(), Ok(backend));
     assert_eq!(again.state().browse.recent_searches, ["aphex", "boards"]);
 }

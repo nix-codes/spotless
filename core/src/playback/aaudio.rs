@@ -16,6 +16,7 @@
 //! The equaliser (`super::equaliser`) is applied to each piece of audio as
 //! it is written, so a change is heard once the buffer ahead has played.
 
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -29,6 +30,7 @@ use ndk::audio::{
 };
 
 use super::equaliser::Processor;
+use super::link::AudioLink;
 use super::sink::{ErrorHook, NO_DEVICE, STALLED};
 
 /// The buffer asked for, about half a second of audio, as `super::sink`
@@ -43,15 +45,17 @@ pub struct AAudioSink {
     stream: Option<AudioStream>,
     on_error: ErrorHook,
     equaliser: Processor,
+    link: Arc<AudioLink>,
 }
 
 impl AAudioSink {
     /// Opens nothing yet: the output is opened by `start`.
-    pub fn new(on_error: ErrorHook) -> Self {
+    pub fn new(on_error: ErrorHook, link: Arc<AudioLink>) -> Self {
         Self {
             stream: None,
             on_error,
             equaliser: Processor::new(SAMPLE_RATE, NUM_CHANNELS.into()),
+            link,
         }
     }
 
@@ -145,7 +149,7 @@ impl Sink for AAudioSink {
             .samples()
             .map_err(|e| SinkError::OnWrite(e.to_string()))?;
         let mut samples = converter.f64_to_f32(samples);
-        self.equaliser.process(&mut samples);
+        self.equaliser.process(self.link.equaliser(), &mut samples);
         self.write_all(&samples)
     }
 }

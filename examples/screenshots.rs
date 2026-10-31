@@ -18,7 +18,6 @@ use spotless::controller::Controller;
 use spotless::demo;
 use spotless::paths::Paths;
 use spotless::phosphor::Phosphor;
-use spotless::playback::analyser;
 use spotless::settings::DesktopSettings;
 use spotless::skin::format::built_in::WINAMP_CLASSIC_KEY;
 use spotless::store::{DeckMedia, DeckMeter, VuFace};
@@ -240,7 +239,7 @@ impl Demo {
         }
         // The song as it sounds now, as the audio output would feed it.
         if let Some(sound) = &self.sound {
-            analyser::feed(sound, 1.0);
+            self.controller.audio().analyser.feed(sound, 1.0);
         }
         let player = state.now_playing();
         let tabs = state.tabs();
@@ -271,6 +270,7 @@ impl Demo {
             web_client_id: None,
             settings: &state.settings,
             desktop: &self.desktop,
+            analyser: &self.controller.audio().analyser,
             storage: None,
             outputs: &outputs,
             tray_shown: false,

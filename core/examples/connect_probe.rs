@@ -69,6 +69,7 @@ async fn main() -> Result<()> {
                 None,
                 Box::new(|e| eprintln!("output: {e}")),
                 Box::new(librespot_playback::mixer::NoOpVolume),
+                std::sync::Arc::default(),
             ))
         },
     );

@@ -147,7 +147,7 @@ fn a_song_left_playing_shows_paused_there_after_a_restart() {
     let paths = rig.controller.paths.clone();
     let (backend, mut commands, events) = Backend::detached();
     let settings = Settings::load(&paths);
-    let mut controller = Controller::with_backend(paths, settings, Ok(backend));
+    let mut controller = Controller::with_backend(paths, settings, Arc::default(), Ok(backend));
     events
         .send(Event::Session(SessionState::Connecting))
         .unwrap();
@@ -202,7 +202,7 @@ fn after_a_restart_the_song_play_goes_on_with_is_shown() {
     let (backend, _, _) = Backend::detached();
     let paths = rig.controller.paths.clone();
     let settings = Settings::load(&paths);
-    let again = Controller::with_backend(paths, settings, Ok(backend));
+    let again = Controller::with_backend(paths, settings, Arc::default(), Ok(backend));
     let shown = again.state().now_playing();
     assert_eq!(shown.status, Status::Stopped);
     assert_eq!(shown.track.unwrap().title, "Song 2");

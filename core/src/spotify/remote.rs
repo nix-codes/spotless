@@ -30,6 +30,7 @@ use crate::paths::Paths;
 #[cfg(target_os = "android")]
 use crate::playback::aaudio::AAudioSink;
 use crate::playback::engine::Status;
+use crate::playback::link::AudioLink;
 use crate::playback::sink::ErrorHook;
 #[cfg(not(target_os = "android"))]
 use crate::playback::sink::RodioSink;
@@ -59,12 +60,14 @@ pub struct Remote {
 }
 
 impl Remote {
-    /// Joins Connect as "Spotless" on a session of its own. `report` is
-    /// told the queue whenever it changes.
+    /// Joins Connect as "Spotless" on a session of its own, playing
+    /// through `link`'s equaliser. `report` is told the queue whenever it
+    /// changes.
     pub async fn start(
         paths: &Paths,
         volume: u16,
         levelling: bool,
+        link: Arc<AudioLink>,
         report: impl Fn(SpotifyQueue) + Send + Sync + 'static,
     ) -> Result<Self> {
         let config = SessionConfig {
@@ -99,9 +102,9 @@ impl Remote {
             session.clone(),
             mixer.get_soft_volume(),
             #[cfg(not(target_os = "android"))]
-            move || Box::new(RodioSink::new(device, on_error, soft_volume)),
+            move || Box::new(RodioSink::new(device, on_error, soft_volume, link)),
             #[cfg(target_os = "android")]
-            move || Box::new(AAudioSink::new(on_error)),
+            move || Box::new(AAudioSink::new(on_error, link)),
         );
         let connect = ConnectConfig {
             name: "Spotless".into(),

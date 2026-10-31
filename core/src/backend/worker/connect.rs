@@ -10,6 +10,7 @@ use crate::spotify::devices;
 use crate::spotify::queue::SpotifyQueue;
 use crate::spotify::remote::Remote;
 use anyhow::Result;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// The queue asked to play here: since `asked`, from `song` if given;
@@ -105,13 +106,14 @@ impl Worker {
         self.remote_starting = true;
         let paths = self.paths.clone();
         let (volume, levelling) = (self.volume, self.levelling);
+        let link = Arc::clone(&self.link);
         let remotes = self.remotes.clone();
         tokio::spawn(async move {
             let queues = remotes.clone();
             let report = move |queue| {
                 let _ = queues.send(RemoteReport::Queue(queue));
             };
-            let started = Remote::start(&paths, volume, levelling, report).await;
+            let started = Remote::start(&paths, volume, levelling, link, report).await;
             let _ = remotes.send(RemoteReport::Started(started));
         });
     }

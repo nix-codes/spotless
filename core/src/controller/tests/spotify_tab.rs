@@ -111,7 +111,8 @@ fn the_spotify_tab_moves_like_any_tab_and_keeps_its_place() {
     rig.controller.save();
     let paths = rig.controller.paths.clone();
     let settings = Settings::load(&paths);
-    let mut again = Controller::with_backend(paths, settings, Ok(Backend::detached().0));
+    let mut again =
+        Controller::with_backend(paths, settings, Arc::default(), Ok(Backend::detached().0));
     assert_eq!(again.state().spotify_at, 2);
     again.state.spotify = Some(SpotifyQueue::default());
     assert_eq!(again.state().tabs(), [second, PlaylistId::DEFAULT, spotify]);

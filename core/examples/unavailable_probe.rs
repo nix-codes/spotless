@@ -60,6 +60,7 @@ async fn main() -> Result<()> {
         &session,
         0,
         false,
+        Arc::default(),
         Arc::new(move |event| {
             let _ = sender.send(event);
         }),

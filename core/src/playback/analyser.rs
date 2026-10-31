@@ -1,8 +1,8 @@
 //! What the music playing sounds like right now: its spectrum in bands and
 //! each channel's peak and loudness, for the desktop's deck to draw.
 //!
-//! The desktop's audio output (`sink.rs`) feeds each piece of audio here as
-//! it starts playing, after the equaliser, with the volume taken back out
+//! The desktop's audio output (`sink.rs`) feeds each piece of audio to the
+//! [`Analyser`] of its [`super::link::AudioLink`] as it starts playing, after the equaliser, with the volume taken back out
 //! so the meters don't shrink with the volume slider. Reading measures
 //! the last moments of it; audio stops being fed when nobody has read for
 //! a while, so a hidden deck costs nothing.
@@ -55,56 +55,69 @@ struct Recent {
     read: Option<Instant>,
 }
 
-static RECENT: Mutex<Recent> = Mutex::new(Recent {
-    left: Vec::new(),
-    right: Vec::new(),
-    next: 0,
-    fed: None,
-    read: None,
-});
-
-/// Keeps a piece of interleaved stereo audio as it starts playing. `gain`
-/// undoes the volume it was played at. Skipped while nobody reads, and
-/// rather than wait for a reader, so audio never waits.
-pub fn feed(samples: &[f32], gain: f32) {
-    let Ok(mut recent) = RECENT.try_lock() else {
-        return;
-    };
-    if !recent.read.is_some_and(|at| at.elapsed() < WATCHED) {
-        return;
-    }
-    if recent.left.len() != FRAMES {
-        recent.left = vec![0.0; FRAMES];
-        recent.right = vec![0.0; FRAMES];
-        recent.next = 0;
-    }
-    for frame in samples.as_chunks::<2>().0 {
-        let at = recent.next;
-        recent.left[at] = frame[0] * gain;
-        recent.right[at] = frame[1] * gain;
-        recent.next = (at + 1) % FRAMES;
-    }
-    recent.fed = Some(Instant::now());
+/// What one audio output plays, for one deck to read.
+pub struct Analyser {
+    recent: Mutex<Recent>,
 }
 
-/// The music as it sounds now; silence when nothing has played lately.
-pub fn read() -> Reading {
-    let (left, right) = {
-        let mut recent = RECENT.lock().unwrap_or_else(|p| p.into_inner());
-        recent.read = Some(Instant::now());
-        if !recent.fed.is_some_and(|at| at.elapsed() < FRESH) {
-            return Reading::SILENCE;
+impl Default for Analyser {
+    fn default() -> Self {
+        Self {
+            recent: Mutex::new(Recent {
+                left: Vec::new(),
+                right: Vec::new(),
+                next: 0,
+                fed: None,
+                read: None,
+            }),
         }
-        let mut left = Vec::with_capacity(FRAMES);
-        let mut right = Vec::with_capacity(FRAMES);
-        let next = recent.next;
-        left.extend_from_slice(&recent.left[next..]);
-        left.extend_from_slice(&recent.left[..next]);
-        right.extend_from_slice(&recent.right[next..]);
-        right.extend_from_slice(&recent.right[..next]);
-        (left, right)
-    };
-    measure(&left, &right, librespot_playback::SAMPLE_RATE as f32)
+    }
+}
+
+impl Analyser {
+    /// Keeps a piece of interleaved stereo audio as it starts playing. `gain`
+    /// undoes the volume it was played at. Skipped while nobody reads, and
+    /// rather than wait for a reader, so audio never waits.
+    pub fn feed(&self, samples: &[f32], gain: f32) {
+        let Ok(mut recent) = self.recent.try_lock() else {
+            return;
+        };
+        if !recent.read.is_some_and(|at| at.elapsed() < WATCHED) {
+            return;
+        }
+        if recent.left.len() != FRAMES {
+            recent.left = vec![0.0; FRAMES];
+            recent.right = vec![0.0; FRAMES];
+            recent.next = 0;
+        }
+        for frame in samples.as_chunks::<2>().0 {
+            let at = recent.next;
+            recent.left[at] = frame[0] * gain;
+            recent.right[at] = frame[1] * gain;
+            recent.next = (at + 1) % FRAMES;
+        }
+        recent.fed = Some(Instant::now());
+    }
+
+    /// The music as it sounds now; silence when nothing has played lately.
+    pub fn read(&self) -> Reading {
+        let (left, right) = {
+            let mut recent = self.recent.lock().unwrap_or_else(|p| p.into_inner());
+            recent.read = Some(Instant::now());
+            if !recent.fed.is_some_and(|at| at.elapsed() < FRESH) {
+                return Reading::SILENCE;
+            }
+            let mut left = Vec::with_capacity(FRAMES);
+            let mut right = Vec::with_capacity(FRAMES);
+            let next = recent.next;
+            left.extend_from_slice(&recent.left[next..]);
+            left.extend_from_slice(&recent.left[..next]);
+            right.extend_from_slice(&recent.right[next..]);
+            right.extend_from_slice(&recent.right[..next]);
+            (left, right)
+        };
+        measure(&left, &right, librespot_playback::SAMPLE_RATE as f32)
+    }
 }
 
 /// The middle of a band, in Hz.
@@ -253,9 +266,20 @@ mod tests {
 
     #[test]
     fn audio_is_kept_only_while_read() {
-        feed(&[0.5; 64], 1.0);
-        assert_eq!(read(), Reading::SILENCE);
-        feed(&[0.5; 64], 2.0);
-        assert!((read().peaks[0]).abs() < 0.1);
+        let analyser = Analyser::default();
+        analyser.feed(&[0.5; 64], 1.0);
+        assert_eq!(analyser.read(), Reading::SILENCE);
+        analyser.feed(&[0.5; 64], 2.0);
+        assert!((analyser.read().peaks[0]).abs() < 0.1);
+    }
+
+    #[test]
+    fn each_analyser_hears_only_its_own_audio() {
+        let (heard, other) = (Analyser::default(), Analyser::default());
+        heard.read();
+        other.read();
+        heard.feed(&[0.5; 64], 2.0);
+        assert!((heard.read().peaks[0]).abs() < 0.1);
+        assert_eq!(other.read(), Reading::SILENCE);
     }
 }

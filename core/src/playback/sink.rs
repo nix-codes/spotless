@@ -17,7 +17,8 @@
 //! The equaliser (`super::equaliser`) is applied to each piece of audio as
 //! it starts playing rather than when it is queued, so its sliders are
 //! heard at once, not half a second later. The deck's analyser
-//! (`super::analyser`) is fed it then too, with the volume taken out.
+//! (`super::analyser`) is fed it then too, with the volume taken out. Both
+//! are the [`AudioLink`]'s the output was made with.
 
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -30,8 +31,8 @@ use librespot_playback::decoder::AudioPacket;
 use librespot_playback::mixer::VolumeGetter;
 use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
 
-use super::analyser;
 use super::equaliser::Processor;
+use super::link::AudioLink;
 
 /// Told why the output failed, in words for the status bar.
 pub type ErrorHook = Box<dyn Fn(String) + Send>;
@@ -54,6 +55,7 @@ pub struct RodioSink {
     opened: Option<String>,
     on_error: ErrorHook,
     equaliser: Arc<Mutex<Processor>>,
+    link: Arc<AudioLink>,
     /// The volume the player turned the audio down by.
     volume: Box<dyn VolumeGetter + Send>,
 }
@@ -69,6 +71,7 @@ impl RodioSink {
         device: Option<String>,
         on_error: ErrorHook,
         volume: Box<dyn VolumeGetter + Send>,
+        link: Arc<AudioLink>,
     ) -> Self {
         Self {
             device,
@@ -76,6 +79,7 @@ impl RodioSink {
             opened: None,
             on_error,
             equaliser: Arc::new(Mutex::new(Processor::new(SAMPLE_RATE, NUM_CHANNELS.into()))),
+            link,
             volume,
         }
     }
@@ -153,7 +157,7 @@ impl Sink for RodioSink {
         output.sink.append(Equalised {
             samples: converter.f64_to_f32(samples),
             at: 0,
-            equaliser: Some(Arc::clone(&self.equaliser)),
+            equaliser: Some((Arc::clone(&self.equaliser), Arc::clone(&self.link))),
             unattenuate: if attenuation > 0.001 {
                 attenuation.recip()
             } else {
@@ -176,8 +180,9 @@ impl Sink for RodioSink {
 struct Equalised {
     samples: Vec<f32>,
     at: usize,
-    /// Until it has been applied.
-    equaliser: Option<Arc<Mutex<Processor>>>,
+    /// Until it has been applied: the output's equaliser, and the link
+    /// its settings and analyser are on.
+    equaliser: Option<(Arc<Mutex<Processor>>, Arc<AudioLink>)>,
     /// Undoes the volume, for the analyser.
     unattenuate: f32,
 }
@@ -186,12 +191,12 @@ impl Iterator for Equalised {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        if let Some(equaliser) = self.equaliser.take() {
+        if let Some((equaliser, link)) = self.equaliser.take() {
             equaliser
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
-                .process(&mut self.samples);
-            analyser::feed(&self.samples, self.unattenuate);
+                .process(link.equaliser(), &mut self.samples);
+            link.analyser.feed(&self.samples, self.unattenuate);
         }
         let sample = self.samples.get(self.at).copied();
         self.at += 1;

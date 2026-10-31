@@ -34,6 +34,7 @@ fn main() {
         None,
         Box::new(|message| println!("error: {message}")),
         Box::new(librespot_playback::mixer::NoOpVolume),
+        std::sync::Arc::default(),
     );
     let mut converter = Converter::new(None);
     sink.start().expect("the default output opens");

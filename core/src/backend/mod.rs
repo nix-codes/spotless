@@ -23,6 +23,7 @@ use crate::model::catalog::{Discography, SearchResults, Songs, SpotifyPlaylist, 
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::PlayerSnapshot;
+use crate::playback::link::AudioLink;
 use crate::playback::outputs::Output;
 use crate::playback::transport::Request;
 use crate::spotify::queue::SpotifyQueue;
@@ -332,13 +333,15 @@ pub struct Backend {
 
 impl Backend {
     /// `wake` is called after every event, from the worker's thread.
-    /// `browser` opens the approval pages.
+    /// `browser` opens the approval pages; the audio outputs use `link`'s
+    /// equaliser and analyser.
     pub fn start(
         paths: Paths,
         volume: u16,
         levelling: bool,
         spotify_tab: bool,
         browser: Browser,
+        link: Arc<AudioLink>,
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Result<Self> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -355,7 +358,8 @@ impl Backend {
             .name("spotless-runtime".into())
             .spawn(move || {
                 runtime.block_on(
-                    Worker::new(paths, volume, levelling, spotify_tab, browser, emit).run(receiver),
+                    Worker::new(paths, volume, levelling, spotify_tab, browser, link, emit)
+                        .run(receiver),
                 );
             })?;
         Ok(Self { commands, events })
