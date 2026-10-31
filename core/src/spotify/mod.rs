@@ -2,15 +2,21 @@
 //! the account's playlists, the account's other devices, and the Spotify
 //! tab's queue.
 
-pub mod catalog;
-pub mod devices;
-pub mod playlists;
-pub mod queue;
-#[cfg(feature = "spotify-tab")]
-pub mod remote;
-pub mod session;
-pub mod synced;
-pub mod webapi;
+internal! {
+    mod catalog;
+    mod devices;
+    mod playlists;
+    mod queue;
+    #[cfg(feature = "spotify-tab")]
+    mod remote;
+    mod session;
+    mod synced;
+    mod webapi;
+}
+
+pub use catalog::{LIKED_SONGS, parse_uri};
+pub use queue::{Part, Queued, Row, SpotifyQueue};
+pub use webapi::REDIRECT_URI;
 
 /// The web link that opens this song, album, artist or playlist in
 /// Spotify, to share it as the Spotify app does. None for what has none:

@@ -16,12 +16,12 @@ use spotless::app::{Look, use_skin};
 use spotless::settings::DesktopSettings;
 use spotless::skin::format::built_in::WINAMP_CLASSIC_KEY;
 use spotless::ui::{self, Cover, Inputs, View};
+use spotless_core::Controller;
+use spotless_core::Paths;
 use spotless_core::browse::Loadable;
-use spotless_core::controller::Controller;
 use spotless_core::demo;
-use spotless_core::paths::Paths;
-use spotless_core::phosphor::Phosphor;
-use spotless_core::store::{DeckMedia, DeckMeter, VuFace};
+use spotless_core::settings::Phosphor;
+use spotless_core::settings::{DeckMedia, DeckMeter, VuFace};
 
 /// The window's size, as Spotless opens at.
 const SIZE: egui::Vec2 = vec2(960.0, 600.0);
@@ -252,8 +252,8 @@ impl Demo {
             notice: None,
             playlist: state.list(state.viewed).expect("the demo's"),
             left_ms: state.left_ms(state.viewed),
-            shuffle: state.transport.playback.shuffle(),
-            repeat: state.transport.playback.repeat,
+            shuffle: state.settings.shuffle,
+            repeat: state.settings.repeat,
             stop_after: false,
             library: &state.library,
             sync: &state.sync,

@@ -60,10 +60,79 @@ futures-util = "0.3"
 # device and its librespot-connect aren't built (src/spotify/remote.rs,
 # src/backend/worker/connect.rs).
 spotify-tab = ["dep:librespot-connect"]
+# The internals made public, for the live probes in examples/ only: the
+# apps see just what lib.rs shows.
+probes = []
 
+# The live probes reach into the internals (the `probes` feature):
+#   cargo run -p spotless-core --features probes --example follow_probe
 [[example]]
 name = "connect_probe"
-required-features = ["spotify-tab"]
+required-features = ["spotify-tab", "probes"]
+
+[[example]]
+name = "catalog_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "download_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "follow_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "levelling_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "listen_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "output_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "playlists_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "playlist_write_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "reconnect_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "signin_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "sink_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "sync_devices"
+required-features = ["probes"]
+
+[[example]]
+name = "sync_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "takeover_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "top_tracks_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "unavailable_probe"
+required-features = ["probes"]
 
 [dev-dependencies]
 # The probes in examples/ log to the terminal.

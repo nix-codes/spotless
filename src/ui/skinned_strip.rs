@@ -21,8 +21,8 @@ use super::skin_paint::SkinPaint;
 use super::{Inputs, View, theme};
 use crate::action::{Action, Actions, PlaybackAction};
 use crate::skin::format::{Role, State};
-use spotless_core::backend::SessionState;
-use spotless_core::playback::engine::Status;
+use spotless_core::playback::Status;
+use spotless_core::session::SessionState;
 
 /// Gaps, in image pixels: between groups of controls, between the
 /// display's two lines, and between the rows.

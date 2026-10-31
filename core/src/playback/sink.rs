@@ -33,12 +33,7 @@ use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
 
 use super::equaliser::Processor;
 use super::link::AudioLink;
-
-/// Told why the output failed, in words for the status bar.
-pub type ErrorHook = Box<dyn Fn(String) + Send>;
-
-pub const NO_DEVICE: &str = "No audio output was found. Connect or enable one, then press Play.";
-pub const STALLED: &str = "The audio output stopped working. Press Play to try again.";
+use super::{ErrorHook, NO_DEVICE, STALLED};
 
 /// Queued chunks before `write` waits, about half a second of audio.
 const QUEUE_LIMIT: usize = 26;

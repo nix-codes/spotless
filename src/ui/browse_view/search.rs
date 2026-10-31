@@ -11,8 +11,8 @@ use super::{
 use crate::action::{Actions, BrowseAction};
 use crate::ui::widgets::{BUTTON_HEIGHT, field, text_button, text_button_width};
 use crate::ui::{Inputs, View};
-use spotless_core::backend::SearchState;
 use spotless_core::browse::{Loadable, Page};
+use spotless_core::session::SearchState;
 
 pub(super) fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;

@@ -58,11 +58,14 @@ jobs:
         run: cargo test --workspace --release
 
       # The Spotify tab is built only with its feature: checked here too,
-      # so its code still builds and passes while it's left out.
-      - name: Clippy and tests, with the Spotify tab
+      # so its code still builds and passes while it's left out. The live
+      # probes need the core's internals (`probes`): they're checked to
+      # build too.
+      - name: Clippy and tests, with the Spotify tab, and the probes
         run: |
           cargo clippy --workspace --release --all-targets --features spotless-core/spotify-tab -- -D warnings
           cargo test --workspace --release --features spotless-core/spotify-tab
+          cargo clippy -p spotless-core --release --examples --features spotify-tab,probes -- -D warnings
 
       - name: llvm-mingw
         run: |

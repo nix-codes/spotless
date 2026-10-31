@@ -4,7 +4,7 @@
 //! session for a while, then reconnects with the credential that sign-in
 //! saved and watches that session the same way, to compare the two.
 //!
-//!   cargo run -p spotless-core --example signin_probe -- <folder> [seconds]
+//!   cargo run -p spotless-core --features probes --example signin_probe -- <folder> [seconds]
 //!
 //! The folder should be new or empty: the app's own credential is not used.
 //! Close spotifast first, which signs in on the same port.

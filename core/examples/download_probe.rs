@@ -4,7 +4,7 @@
 //! plays, saying each second whether the rest of the file is in. Once it is,
 //! the song plays to its end without a connection.
 //!
-//!   cargo run -p spotless-core --example download_probe -- [album link]
+//!   cargo run -p spotless-core --features probes --example download_probe -- [album link]
 //!
 //! It reads the album's longest song.
 //!

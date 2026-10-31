@@ -17,10 +17,10 @@ use crate::action::{
     Action, Actions, BrowseAction, Desktop, PlaybackAction, PlaylistsAction, SpotifyListsAction,
     ViewAction,
 };
-use spotless_core::backend::SessionState;
 use spotless_core::browse::BrowseTab;
 use spotless_core::model::PlaylistId;
-use spotless_core::playback::engine::Status;
+use spotless_core::playback::Status;
+use spotless_core::session::SessionState;
 
 /// Ctrl+← and →; with Shift too, the far step.
 const SEEK_MS: i64 = 5_000;
@@ -320,10 +320,7 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
         inputs.renaming = Some((view.playlist.id, view.playlist.name.clone()));
     }
     if !browsing && take(i, Modifiers::COMMAND, Key::W) {
-        if view.playlist.is_empty()
-            || view.playlist.sync.is_some()
-            || current == PlaylistId::SPOTIFY
-        {
+        if view.playlist.is_empty() || view.playlist.synced() || current == PlaylistId::SPOTIFY {
             actions.push(PlaylistsAction::ClosePlaylist(current));
         } else {
             inputs.closing = Some(current);
@@ -357,7 +354,7 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
         return;
     }
     i.events.retain(|event| match event {
-        Event::Paste(text) if spotless_core::spotify::catalog::parse_uri(text.trim()).is_ok() => {
+        Event::Paste(text) if spotless_core::spotify::parse_uri(text.trim()).is_ok() => {
             actions.push(PlaylistsAction::AddLink(text.trim().to_string()));
             false
         }

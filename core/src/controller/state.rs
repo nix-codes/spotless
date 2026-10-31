@@ -25,7 +25,7 @@ pub struct State {
     pub error: Option<String>,
     pub notice: Option<String>,
     pub library: Library,
-    pub transport: Transport,
+    pub(crate) transport: Transport,
     /// The playlist shown in the editor.
     pub viewed: PlaylistId,
     pub settings: Settings,
@@ -167,6 +167,18 @@ impl State {
         } else {
             self.transport.playing_list()
         }
+    }
+
+    /// Playback stops once the playing song ends (Winamp's Stop after
+    /// current).
+    pub fn stop_after(&self) -> bool {
+        self.transport.stop_after()
+    }
+
+    /// The playlist whose song waits, paused, for the connection to
+    /// Spotify.
+    pub fn offline_list(&self) -> Option<PlaylistId> {
+        self.transport.playback.playing().filter(|_| self.offline)
     }
 
     /// The tabs in order, the Spotify tab's included while it shows.

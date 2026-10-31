@@ -11,7 +11,7 @@ use crate::action::{Action, Actions, BrowseAction, LastFmAction, PlaybackAction,
 use crate::ui::View;
 use crate::ui::scrollbar::Scrollbar;
 use crate::ui::theme;
-use spotless_core::model::playlist::Playlist;
+use spotless_core::model::Playlist;
 
 pub(super) fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut Actions) {
     let palette = view.palette;

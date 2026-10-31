@@ -14,7 +14,7 @@ use crate::action::{Actions, LastFmAction};
 use crate::ui::scrollbar;
 use crate::ui::widgets::small_button;
 use crate::ui::{View, theme};
-use spotless_core::lastfm::loved::name_key;
+use spotless_core::lastfm::name_key;
 use spotless_core::lastfm::{LastFmStatus, LovedSong};
 
 /// Adding loved songs to a playlist. Off while too many aren't found on

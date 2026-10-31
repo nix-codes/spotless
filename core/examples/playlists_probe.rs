@@ -2,7 +2,7 @@
 //! first, owners by name), then the songs of Liked Songs and of the
 //! biggest playlist, with timings. Reads only; changes nothing.
 //!
-//!   cargo run -p spotless-core --example playlists_probe
+//!   cargo run -p spotless-core --features probes --example playlists_probe
 //!
 //! Sign in through the app first: this reuses its saved credential.
 

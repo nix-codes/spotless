@@ -26,6 +26,9 @@ pub struct Output {
 /// The chosen output; None follows the system's choice.
 static CHOICE: Mutex<Option<String>> = Mutex::new(None);
 
+// What follows opens the chosen output for the rodio sink: Android plays
+// through AAudio, to the system's choice.
+#[cfg(not(target_os = "android"))]
 fn choice() -> Option<String> {
     CHOICE.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
@@ -45,6 +48,7 @@ pub fn choose(output: Option<String>) {
 /// Called when the audio output opens a stream: it goes to the chosen
 /// output. The stream takes a moment to appear, so this keeps looking a
 /// little while, on its own thread.
+#[cfg(not(target_os = "android"))]
 pub fn stream_opened() {
     if let Some(output) = choice() {
         std::thread::spawn(move || imp::move_stream(&output, 20));
@@ -58,6 +62,7 @@ pub fn list() -> Option<Vec<Output>> {
 
 /// The device the audio output opens by name: the chosen one where the
 /// stream isn't moved for it (Windows), else None for the default device.
+#[cfg(not(target_os = "android"))]
 pub fn device() -> Option<String> {
     if imp::OPENS_BY_NAME { choice() } else { None }
 }
@@ -185,6 +190,7 @@ mod imp {
 
     pub const DEFAULT: &str = "";
 
+    #[cfg(not(target_os = "android"))]
     pub const OPENS_BY_NAME: bool = false;
 
     pub fn list() -> Option<Vec<Output>> {

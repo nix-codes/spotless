@@ -1,18 +1,18 @@
 //! What the screens show, read off the controller's state as plain records.
 
-use spotless_core::backend::{self, SessionState};
 use spotless_core::browse::{self as core_browse, Find, Loadable, Page};
-use spotless_core::controller::{State, SyncStatus};
 use spotless_core::lastfm::{self, LastFmStatus, LovedSong as CoreLovedSong};
 use spotless_core::model::catalog::{self, ReleaseGroup as CoreGroup, ReleaseTab as CoreTab};
-use spotless_core::model::playlist::from_source;
+use spotless_core::model::from_source;
 use spotless_core::model::{
     AlbumRef, ArtistRef, Grouping, Playlist, PlaylistId, Source as CoreSource, TrackRef,
 };
-use spotless_core::phosphor::Phosphor;
-use spotless_core::playback::{engine, equaliser as core_equaliser};
-use spotless_core::spotify::queue::SpotifyQueue;
-use spotless_core::store::AUDIO_CACHE_SIZES;
+use spotless_core::playback;
+use spotless_core::session::{SearchState as CoreSearchState, SessionState};
+use spotless_core::settings::AUDIO_CACHE_SIZES;
+use spotless_core::settings::Phosphor;
+use spotless_core::spotify::SpotifyQueue;
+use spotless_core::{State, SyncStatus};
 
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct Artist {
@@ -185,10 +185,10 @@ pub(crate) fn player(state: &State) -> Player {
     let snapshot = &state.now_playing();
     Player {
         status: match snapshot.status {
-            engine::Status::Stopped => Status::Stopped,
-            engine::Status::Loading => Status::Loading,
-            engine::Status::Playing => Status::Playing,
-            engine::Status::Paused => Status::Paused,
+            playback::Status::Stopped => Status::Stopped,
+            playback::Status::Loading => Status::Loading,
+            playback::Status::Playing => Status::Playing,
+            playback::Status::Paused => Status::Paused,
         },
         track: snapshot.track.as_ref().map(|track| NowPlaying {
             uri: track.uri.clone(),
@@ -202,18 +202,18 @@ pub(crate) fn player(state: &State) -> Player {
         position_ms: snapshot.position_now(),
         shuffle: state.settings.shuffle,
         repeat: state.settings.repeat,
-        stop_after: state.transport.stop_after(),
+        stop_after: state.stop_after(),
         volume: state.settings.volume,
         playlist: state
             .playing_list()
             .or(state.waiting().map(|(list, _)| list))
-            .or(state.transport.playback.playing().filter(|_| state.offline))
+            .or(state.offline_list())
             .map(|id| id.0),
         offline: state.offline,
         loved: snapshot
             .track
             .as_ref()
-            .filter(|_| lastfm_connected(state) && snapshot.status != engine::Status::Loading)
+            .filter(|_| lastfm_connected(state) && snapshot.status != playback::Status::Loading)
             .map(|track| state.loved.playing(track)),
         here: state.waiting().is_none()
             && (!state.spotify_playing()
@@ -297,7 +297,7 @@ pub(crate) fn tabs(state: &State) -> Tabs {
                     songs: count(list.len()),
                     duration_ms: duration(list),
                     spotify: false,
-                    sync: list.sync.as_ref().map(|_| match state.sync.get(&id) {
+                    sync: list.synced().then(|| match state.sync.get(&id) {
                         Some(SyncStatus::Waiting) => TabSync::Waiting,
                         Some(SyncStatus::Failed(reason)) => TabSync::Failed {
                             reason: reason.clone(),
@@ -798,7 +798,7 @@ fn loved_songs(state: &State) -> Option<LovedSongs> {
     let LastFmStatus::Connected { user } = &state.lastfm.status else {
         return None;
     };
-    (state.search != backend::SearchState::NoApp).then(|| LovedSongs {
+    (state.search != CoreSearchState::NoApp).then(|| LovedSongs {
         user: user.clone(),
         songs: state.loved.songs().iter().map(Into::into).collect(),
     })
@@ -874,7 +874,7 @@ fn your_spotify(state: &State) -> YourSpotify {
                 name: p.name.clone(),
                 songs: count(p.tracks),
                 owner: p.owner.clone(),
-                liked: p.uri == spotless_core::spotify::catalog::LIKED_SONGS,
+                liked: p.uri == spotless_core::spotify::LIKED_SONGS,
                 private: p.private,
                 synced: state.library.synced_seen.contains(&p.uri),
                 open: state.library.synced(&p.uri).is_some(),
@@ -1028,7 +1028,7 @@ pub(crate) fn browse(state: &State) -> BrowseView {
                         },
                         releases: shown,
                         unread: count(unread),
-                        similar_offered: lastfm::api::is_key(&state.lastfm.api_key)
+                        similar_offered: lastfm::is_key(&state.lastfm.api_key)
                             || browse.similar_artists.contains_key(uri),
                         similar: match browse.similar_artists.get(uri) {
                             None => SimilarArtists::NotRead,
@@ -1082,12 +1082,12 @@ pub enum SearchState {
     Ready,
 }
 
-fn search_state(search: &backend::SearchState) -> SearchState {
+fn search_state(search: &CoreSearchState) -> SearchState {
     match search {
-        backend::SearchState::NoApp => SearchState::NoApp,
-        backend::SearchState::SignedOut => SearchState::SignedOut,
-        backend::SearchState::SigningIn => SearchState::SigningIn,
-        backend::SearchState::Ready => SearchState::Ready,
+        CoreSearchState::NoApp => SearchState::NoApp,
+        CoreSearchState::SignedOut => SearchState::SignedOut,
+        CoreSearchState::SigningIn => SearchState::SigningIn,
+        CoreSearchState::Ready => SearchState::Ready,
     }
 }
 
@@ -1097,7 +1097,7 @@ pub enum Store {
     Covers,
 }
 
-impl From<Store> for backend::Store {
+impl From<Store> for spotless_core::settings::Store {
     fn from(store: Store) -> Self {
         match store {
             Store::Audio => Self::Audio,
@@ -1159,8 +1159,8 @@ pub struct Equaliser {
     pub bands: Vec<f32>,
 }
 
-impl From<core_equaliser::Equaliser> for Equaliser {
-    fn from(equaliser: core_equaliser::Equaliser) -> Self {
+impl From<playback::Equaliser> for Equaliser {
+    fn from(equaliser: playback::Equaliser) -> Self {
         Self {
             on: equaliser.on,
             preamp: equaliser.preamp,
@@ -1169,7 +1169,7 @@ impl From<core_equaliser::Equaliser> for Equaliser {
     }
 }
 
-impl From<Equaliser> for core_equaliser::Equaliser {
+impl From<Equaliser> for playback::Equaliser {
     /// Bands missing are flat; any over ten are dropped.
     fn from(equaliser: Equaliser) -> Self {
         let mut bands = [0.0; 10];
@@ -1194,7 +1194,7 @@ pub struct EqualiserPreset {
 /// Winamp's presets, in the order the menu lists them.
 #[uniffi::export]
 pub fn equaliser_presets() -> Vec<EqualiserPreset> {
-    core_equaliser::PRESETS
+    playback::PRESETS
         .iter()
         .map(|(name, bands)| EqualiserPreset {
             name: (*name).into(),
@@ -1282,7 +1282,7 @@ pub(crate) fn settings(state: &State) -> SettingsView {
         phosphor: settings.phosphor.key().into(),
         song_headers: settings.grouping.key().into(),
         spotify_tab_enabled: settings.spotify_tab_enabled,
-        spotify_tab_offered: spotless_core::store::SPOTIFY_TAB,
+        spotify_tab_offered: spotless_core::settings::SPOTIFY_TAB,
         spotify_tab_closed: settings.spotify_tab_enabled && !settings.spotify_tab,
         time_left: settings.time_left,
     }

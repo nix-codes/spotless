@@ -13,7 +13,7 @@
 //! signal is back, the session's own connection drops and the rest stay
 //! stuck on the old network. Plays at volume 0, so nothing is heard.
 //!
-//!   cargo run -p spotless-core --example unavailable_probe
+//!   cargo run -p spotless-core --features probes --example unavailable_probe
 //!
 //! Sign in through the app first: this reuses its saved credential. Run it
 //! with XDG_CACHE_HOME set to an empty directory, or the audio cache

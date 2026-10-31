@@ -26,14 +26,14 @@
 //! The playlist is kept for the next experiments; `clean` takes every
 //! "Spotless test" playlist out of the account's list.
 //!
-//!   cargo run -p spotless-core --example sync_probe -- list
-//!   cargo run -p spotless-core --example sync_probe -- songs
-//!   cargo run -p spotless-core --example sync_probe -- description
-//!   cargo run -p spotless-core --example sync_probe -- push
-//!   cargo run -p spotless-core --example sync_probe -- synced
-//!   cargo run -p spotless-core --example sync_probe -- folder
-//!   cargo run -p spotless-core --example sync_probe -- control spotify:playlist:…
-//!   cargo run -p spotless-core --example sync_probe -- clean
+//!   cargo run -p spotless-core --features probes --example sync_probe -- list
+//!   cargo run -p spotless-core --features probes --example sync_probe -- songs
+//!   cargo run -p spotless-core --features probes --example sync_probe -- description
+//!   cargo run -p spotless-core --features probes --example sync_probe -- push
+//!   cargo run -p spotless-core --features probes --example sync_probe -- synced
+//!   cargo run -p spotless-core --features probes --example sync_probe -- folder
+//!   cargo run -p spotless-core --features probes --example sync_probe -- control spotify:playlist:…
+//!   cargo run -p spotless-core --features probes --example sync_probe -- clean
 //!
 //! Sign in through the app first: this reuses its saved credential.
 

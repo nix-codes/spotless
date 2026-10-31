@@ -16,14 +16,17 @@
 //! reached again. The songs loved there are kept in `lastfm-loved.json`,
 //! read again in full now and then and their newest more often.
 
-pub mod api;
-pub(crate) mod found;
-pub mod listen;
-pub mod loved;
+internal! {
+    mod api;
+    mod found;
+    mod listen;
+    mod loved;
+}
 mod scrobbler;
 
-pub use loved::{Loved, LovedSong};
-pub use scrobbler::{Report, Scrobbler, start};
+pub use api::is_key;
+pub use loved::{Loved, LovedSong, name_key};
+pub(crate) use scrobbler::{Report, Scrobbler, start};
 
 /// Where Last.fm stands, as Settings shows it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

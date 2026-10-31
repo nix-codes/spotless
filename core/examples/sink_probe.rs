@@ -4,7 +4,7 @@
 //! outputs are chosen by device (Windows), the sink reopens on each new
 //! choice; the log says which device it opened.
 //!
-//!   RUST_LOG=info cargo run -p spotless-core --example sink_probe -- [output name]
+//!   RUST_LOG=info cargo run -p spotless-core --features probes --example sink_probe -- [output name]
 //!
 //! Without a name it chooses the first output listed.
 

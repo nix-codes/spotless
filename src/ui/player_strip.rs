@@ -15,10 +15,10 @@ use super::{Inputs, View, theme};
 use crate::action::{
     Action, Actions, BrowseAction, LastFmAction, PlaybackAction, PlaylistsAction, ViewAction,
 };
-use spotless_core::backend::SessionState;
 use spotless_core::lastfm::LastFmStatus;
 use spotless_core::model::{EntryId, PlaylistId};
-use spotless_core::playback::engine::{Status, TrackInfo};
+use spotless_core::playback::{Status, TrackInfo};
+use spotless_core::session::SessionState;
 
 pub const HEIGHT: f32 = 122.0;
 /// The LCD and the song's display beside it, with the volume row below.

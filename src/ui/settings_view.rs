@@ -21,13 +21,14 @@ use crate::action::{
 };
 use crate::skin;
 use crate::update::{self, Status};
-use spotless_core::backend::{SearchState, SessionState, Store};
 use spotless_core::browse::Loadable;
 use spotless_core::lastfm::LastFmStatus;
-use spotless_core::lastfm::api::is_key;
+use spotless_core::lastfm::is_key;
 use spotless_core::model::Grouping;
-use spotless_core::spotify::webapi::REDIRECT_URI;
-use spotless_core::store::{AUDIO_CACHE_SIZES, SPOTIFY_TAB};
+use spotless_core::session::{SearchState, SessionState};
+use spotless_core::settings::Store;
+use spotless_core::settings::{AUDIO_CACHE_SIZES, SPOTIFY_TAB};
+use spotless_core::spotify::REDIRECT_URI;
 
 const DASHBOARD: &str = "https://developer.spotify.com/dashboard";
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");

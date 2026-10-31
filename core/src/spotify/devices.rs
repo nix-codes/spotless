@@ -127,6 +127,10 @@ pub async fn command(
 
 /// Asks `device` to skip ahead to this song to come, by URI, as tapping a
 /// song in the queue of Spotify's apps does: the songs before it go.
+#[cfg_attr(
+    not(feature = "probes"),
+    allow(dead_code, reason = "only a probe uses it")
+)]
 pub async fn skip_to(session: &Session, device: &str, uri: &str) -> Result<()> {
     let command = serde_json::json!({ "endpoint": "skip_next", "track": { "uri": uri } });
     send(session, device, command).await

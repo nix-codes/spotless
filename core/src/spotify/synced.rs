@@ -487,6 +487,10 @@ async fn create_in_folder(session: &Session, name: &str, songs: &[String]) -> Re
 
 /// Takes the Spotless folder out of the account's list if nothing is
 /// left in it. Answers whether it did.
+#[cfg_attr(
+    not(feature = "probes"),
+    allow(dead_code, reason = "only a probe uses it")
+)]
 pub async fn remove_empty_folder(session: &Session) -> Result<bool> {
     let root = rootlist(session).await?;
     let Some((start, end)) = find_folder(&root) else {

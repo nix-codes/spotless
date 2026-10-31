@@ -152,6 +152,10 @@ pub async fn remove_at(
 }
 
 /// Like [`remove_at`], on the playlist as it is now.
+#[cfg_attr(
+    not(feature = "probes"),
+    allow(dead_code, reason = "only a probe uses it")
+)]
 pub async fn remove(session: &Session, playlist: &str, rows: &Rows) -> Result<Vec<u8>> {
     let revision = revision(session, playlist).await?;
     remove_at(session, playlist, revision.unwrap_or_default(), rows).await

@@ -31,7 +31,7 @@ use crate::paths::Paths;
 use crate::playback::aaudio::AAudioSink;
 use crate::playback::engine::Status;
 use crate::playback::link::AudioLink;
-use crate::playback::sink::ErrorHook;
+use crate::playback::ErrorHook;
 #[cfg(not(target_os = "android"))]
 use crate::playback::sink::RodioSink;
 

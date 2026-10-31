@@ -2,13 +2,16 @@
 //! Spotify, no audio, no UI.
 
 pub mod catalog;
-pub(crate) mod library;
-pub(crate) mod playback;
-pub mod playlist;
-pub mod sync;
+internal! {
+    mod library;
+    mod playback;
+    mod playlist;
+    mod sync;
+}
 
 pub use library::Library;
 pub use playback::{Playback, Step};
 pub use playlist::{
     AlbumRef, ArtistRef, Entry, EntryId, Grouping, Playlist, PlaylistId, Run, Source, TrackRef,
+    from_source,
 };

@@ -7,7 +7,7 @@
 //! the session and hands the engine a new one, then seeks near the end to
 //! see the next song start on the new session.
 //!
-//!   cargo run -p spotless-core --example reconnect_probe -- [album link]
+//!   cargo run -p spotless-core --features probes --example reconnect_probe -- [album link]
 //!
 //! Sign in through the app first: this reuses its saved credential.
 

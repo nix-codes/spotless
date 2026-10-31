@@ -54,7 +54,11 @@ How the parts fit, to keep to as features are added:
 - The Spotify tab's Connect device is built only with the `spotify-tab`
   feature; CI checks it builds and passes both ways.
 - What the apps don't use stays private to the core, and no public type
-  is left unnameable outside it.
+  is left unnameable outside it (`unnameable_types` warns). An app names
+  what it uses as `spotless_core::<topic>::<Item>`, never deeper: a
+  topic module (`playback`, `spotify`, `lastfm`, `settings`…) re-exports
+  what the apps use, and its submodules are the core's own (`internal!`
+  in `lib.rs`).
 
 ## Checks
 
@@ -68,7 +72,10 @@ cargo test --workspace --release
 
 The Spotify tab is built only with the `spotify-tab` feature, off by
 default; CI also runs clippy and the tests with it
-(`--features spotless-core/spotify-tab`).
+(`--features spotless-core/spotify-tab`). The core's live probes
+(`core/examples`) reach its internals, built public only with the
+`probes` feature; CI checks they build
+(`cargo clippy -p spotless-core --release --examples --features spotify-tab,probes`).
 
 For the Android app: `cd android && ./gradlew assembleDebug`, and its
 `ScreenshotTest` on the core built for this computer:

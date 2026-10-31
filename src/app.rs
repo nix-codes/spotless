@@ -22,10 +22,10 @@ use crate::ui::{
     theme::{self, Palette},
 };
 use crate::update::{self, Updater};
-use spotless_core::controller::Controller;
-use spotless_core::paths::Paths;
-use spotless_core::phosphor::Phosphor;
-use spotless_core::playback::engine::Status;
+use spotless_core::Controller;
+use spotless_core::Paths;
+use spotless_core::playback::Status;
+use spotless_core::settings::Phosphor;
 
 pub struct App {
     controller: Controller,
@@ -168,7 +168,7 @@ impl App {
                 }
             }
             Action::Browse(BrowseAction::Search(ref query))
-                if spotless_core::spotify::catalog::parse_uri(query.trim()).is_ok() =>
+                if spotless_core::spotify::parse_uri(query.trim()).is_ok() =>
             {
                 // A pasted link adds its songs; the field is left empty.
                 self.inputs.query.clear();
@@ -517,9 +517,9 @@ impl eframe::App for App {
             notice: state.notice.as_deref(),
             playlist,
             left_ms: state.left_ms(playlist.id),
-            shuffle: state.transport.playback.shuffle(),
-            repeat: state.transport.playback.repeat,
-            stop_after: state.transport.stop_after(),
+            shuffle: state.settings.shuffle,
+            repeat: state.settings.repeat,
+            stop_after: state.stop_after(),
             library: &state.library,
             sync: &state.sync,
             sync_name_taken: state.sync_name_taken,

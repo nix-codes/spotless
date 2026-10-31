@@ -56,7 +56,7 @@ pub(super) fn artist_page(
     ui.add_space(8.0);
 
     let similar_tab =
-        lastfm::api::is_key(&view.lastfm.api_key) || browse.similar_artists.contains_key(uri);
+        lastfm::is_key(&view.lastfm.api_key) || browse.similar_artists.contains_key(uri);
     let similar = browse.similar && similar_tab;
     let popular = browse.popular_shown();
     let releases = browse.releases_shown();

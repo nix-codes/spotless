@@ -29,13 +29,14 @@ use crate::action::{
 use crate::skin::format::State;
 pub use browse_view::Cover;
 pub use spotify_picker::Picker;
-use spotless_core::backend::{SearchState, SessionState, Storage};
 use spotless_core::browse::{Browse, Loadable};
 use spotless_core::model::{EntryId, Library, Playlist, PlaylistId};
-use spotless_core::playback::engine::PlayerSnapshot;
-use spotless_core::playback::outputs::Output;
-use spotless_core::spotify::queue::SpotifyQueue;
-use spotless_core::store::Settings;
+use spotless_core::playback::Output;
+use spotless_core::playback::PlayerSnapshot;
+use spotless_core::session::{SearchState, SessionState};
+use spotless_core::settings::Settings;
+use spotless_core::settings::Storage;
+use spotless_core::spotify::SpotifyQueue;
 use theme::Palette;
 use widgets::text_button;
 
@@ -58,7 +59,7 @@ pub struct View<'a> {
     pub stop_after: bool,
     pub library: &'a Library,
     /// How each synced playlist stands.
-    pub sync: &'a HashMap<PlaylistId, spotless_core::controller::SyncStatus>,
+    pub sync: &'a HashMap<PlaylistId, spotless_core::SyncStatus>,
     /// A playlist not synced because the Spotless folder has its name.
     pub sync_name_taken: Option<PlaylistId>,
     /// The tabs in order, the Spotify tab's included while it shows.
@@ -82,7 +83,7 @@ pub struct View<'a> {
     /// The settings only the desktop has.
     pub desktop: &'a crate::settings::DesktopSettings,
     /// What the music playing sounds like, for the deck.
-    pub analyser: &'a spotless_core::playback::analyser::Analyser,
+    pub analyser: &'a spotless_core::playback::Analyser,
     /// What the caches hold, once measured.
     pub storage: Option<Storage>,
     /// The audio outputs, once listed; None when they can't be.
@@ -444,7 +445,7 @@ fn fit_least(ui: &Ui, full: Rect, fit: &mut Fit, height: f32, restored: Option<f
 struct Sections {
     equaliser: bool,
     /// The deck, and what it plays on.
-    deck: Option<spotless_core::store::DeckMedia>,
+    deck: Option<spotless_core::settings::DeckMedia>,
 }
 
 /// Grows or shrinks the window by the change in height when EQ or VIS

@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 use spotless::app::App;
-use spotless_core::paths::Paths;
+use spotless_core::Paths;
 
 fn main() -> Result<()> {
     // On X11 the keys go through the input method server XMODIFIERS
@@ -66,7 +66,7 @@ fn main() -> Result<()> {
         .with_inner_size([960.0, 600.0])
         .with_min_inner_size(spotless::ui::MIN_WINDOW);
     // The window opens where it was left, as big.
-    let settings = spotless_core::store::Settings::load(&paths);
+    let settings = spotless_core::settings::Settings::load(&paths);
     if let Some(place) = spotless::settings::DesktopSettings::read(settings.extra()).window {
         viewport = viewport.with_inner_size(place.size);
         if let Some(position) = place.position {

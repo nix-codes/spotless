@@ -8,9 +8,9 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use spotless_core::controller::Controller;
+use spotless_core::Controller;
+use spotless_core::Paths;
 use spotless_core::model::{EntryId, PlaylistId};
-use spotless_core::paths::Paths;
 
 #[cfg(target_os = "android")]
 mod android;
@@ -528,7 +528,7 @@ impl From<Action> for spotless_core::action::Action {
             Action::ToggleEqualiser => ViewAction::ToggleEqualiser.into(),
             Action::SetEqualiser { equaliser } => ViewAction::SetEqualiser(equaliser.into()).into(),
             Action::SetPhosphor { key } => {
-                SettingsAction::SetPhosphor(spotless_core::phosphor::Phosphor::from_key(Some(&key)))
+                SettingsAction::SetPhosphor(spotless_core::settings::Phosphor::from_key(Some(&key)))
                     .into()
             }
             Action::SetGrouping { key } => {

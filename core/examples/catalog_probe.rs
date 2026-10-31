@@ -9,8 +9,8 @@
 //!    `~/.config/spotless/settings.json`. Opens the browser for approval on
 //!    port 8989, so spotifast must be closed.
 //!
-//!   cargo run -p spotless-core --example catalog_probe -- [artist URI or link] [search text]
-//!   cargo run -p spotless-core --example catalog_probe -- --personal [search text]
+//!   cargo run -p spotless-core --features probes --example catalog_probe -- [artist URI or link] [search text]
+//!   cargo run -p spotless-core --features probes --example catalog_probe -- --personal [search text]
 //!
 //! Sign in through the app first: this reuses its saved credential.
 //! Tokens are never printed.

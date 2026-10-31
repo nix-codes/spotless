@@ -8,7 +8,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 use egui::{Align2, Color32, Painter, Rect, pos2};
 
 use super::canvas::{Canvas, Face, blend, rgb, rgba};
-use spotless_core::store::{VuCalibration, VuFace};
+use spotless_core::settings::{VuCalibration, VuFace};
 
 /// AUTO: the music's loudness (RMS, dBFS) averaged over about this many
 /// seconds reads `AUTO_BELOW` under 0 VU, its 0 VU kept within `AUTO_RANGE`.
@@ -46,7 +46,7 @@ pub fn place(vu: f32) -> f32 {
 /// Where the needle heads for `rms` (dBFS) when `reference` reads 0 VU;
 /// at rest in silence.
 pub fn target(rms: f32, reference: f32) -> f32 {
-    if rms <= spotless_core::playback::analyser::SILENT {
+    if rms <= spotless_core::playback::SILENT {
         return REST;
     }
     place((rms - reference).clamp(-30.0, 4.0)).max(REST)
@@ -56,7 +56,7 @@ pub fn target(rms: f32, reference: f32) -> f32 {
 /// leaves it as it was.
 pub fn follow(average: &mut f32, rms: [f32; 2], dt: f32) {
     let loudest = rms[0].max(rms[1]);
-    if loudest > spotless_core::playback::analyser::SILENT {
+    if loudest > spotless_core::playback::SILENT {
         *average += (loudest - *average) * (1.0 - (-dt / AUTO_SECONDS).exp());
     }
 }
@@ -319,7 +319,7 @@ fn meter(c: &Canvas, w: f32, look: &Look, side: usize, at: f32, lit: bool, refer
 #[cfg(test)]
 mod tests {
     use super::{AUTO_START, REST, place, reference, target};
-    use spotless_core::store::VuCalibration;
+    use spotless_core::settings::VuCalibration;
 
     #[test]
     fn the_scale_is_spaced_as_a_vu_meter() {
@@ -332,10 +332,7 @@ mod tests {
 
     #[test]
     fn silence_rests_the_needle() {
-        assert_eq!(
-            target(spotless_core::playback::analyser::SILENT, -14.0),
-            REST
-        );
+        assert_eq!(target(spotless_core::playback::SILENT, -14.0), REST);
         assert!((target(-14.0, -14.0) - place(0.0)).abs() < 1e-6);
         assert_eq!(target(-80.0, -14.0), REST);
     }

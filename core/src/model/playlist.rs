@@ -144,7 +144,7 @@ pub struct Entry {
     /// In a synced playlist, the song's ID in its Spotify playlist: None
     /// until Spotify has it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub item: Option<ItemId>,
+    pub(crate) item: Option<ItemId>,
 }
 
 /// A run of songs the list shows together. Two or more in a row from one
@@ -179,7 +179,7 @@ pub struct Playlist {
     play_next: Vec<EntryId>,
     /// Synced: kept on Spotify too, in this playlist.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sync: Option<Link>,
+    pub(crate) sync: Option<Link>,
 }
 
 impl Playlist {
@@ -212,6 +212,26 @@ impl Playlist {
 
     pub fn entries(&self) -> &[Entry] {
         &self.entries
+    }
+
+    /// It's kept the same on the account's other devices.
+    pub fn synced(&self) -> bool {
+        self.sync.is_some()
+    }
+
+    /// The Spotify playlist it's synced with, by URI, once made.
+    #[cfg(feature = "probes")]
+    pub fn synced_uri(&self) -> Option<&str> {
+        self.sync
+            .as_ref()
+            .map(|link| link.uri.as_str())
+            .filter(|uri| !uri.is_empty())
+    }
+
+    /// Every song has been sent to its Spotify playlist.
+    #[cfg(feature = "probes")]
+    pub fn all_sent(&self) -> bool {
+        self.entries().iter().all(|entry| entry.item.is_some())
     }
 
     pub fn len(&self) -> usize {
@@ -408,7 +428,7 @@ impl Playlist {
 /// Synced playlists' part.
 impl Playlist {
     /// Each song by entry, with its Spotify ID if it has one.
-    pub fn sync_rows(&self) -> Vec<(EntryId, Option<ItemId>)> {
+    pub(crate) fn sync_rows(&self) -> Vec<(EntryId, Option<ItemId>)> {
         self.entries
             .iter()
             .map(|entry| (entry.id, entry.item.clone()))
@@ -416,7 +436,7 @@ impl Playlist {
     }
 
     /// Gives songs their Spotify IDs.
-    pub fn set_items(&mut self, items: &[(EntryId, ItemId)]) {
+    pub(crate) fn set_items(&mut self, items: &[(EntryId, ItemId)]) {
         for (id, item) in items {
             if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == *id) {
                 entry.item = Some(item.clone());
@@ -433,7 +453,7 @@ impl Playlist {
 
     /// Where it's up to, saved at `saved_at`: its song, without Q marks,
     /// which stay on the device. None while its song isn't on Spotify yet.
-    pub fn position(&self, saved_at: u64) -> Option<Position> {
+    pub(crate) fn position(&self, saved_at: u64) -> Option<Position> {
         let song = match self.cursor {
             Some(cursor) => Some(self.get(cursor)?.item.clone()?),
             None => None,
@@ -448,7 +468,7 @@ impl Playlist {
 
     /// Goes to `position`'s song, stopped, if it's here; the Q marks here
     /// stay as they are.
-    pub fn set_position(&mut self, position: &Position) {
+    pub(crate) fn set_position(&mut self, position: &Position) {
         let found = self
             .entries
             .iter()

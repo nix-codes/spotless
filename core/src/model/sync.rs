@@ -25,16 +25,6 @@ impl ItemId {
         Self(bytes.iter().map(|b| format!("{b:02x}")).collect())
     }
 
-    pub fn to_bytes(&self) -> Option<Vec<u8>> {
-        if !self.0.len().is_multiple_of(2) {
-            return None;
-        }
-        (0..self.0.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(self.0.get(i..i + 2)?, 16).ok())
-            .collect()
-    }
-
     fn valid(text: &str) -> bool {
         !text.is_empty()
             && text.len().is_multiple_of(2)
@@ -454,8 +444,6 @@ mod tests {
     fn item_ids_are_spotifys_bytes_in_hex() {
         let id = ItemId::from_bytes(&[0xd6, 0x71, 0x00, 0x58]);
         assert_eq!(id.0, "d6710058");
-        assert_eq!(id.to_bytes(), Some(vec![0xd6, 0x71, 0x00, 0x58]));
-        assert_eq!(ItemId("d67".into()).to_bytes(), None);
     }
 
     #[test]

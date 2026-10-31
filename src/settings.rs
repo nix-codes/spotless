@@ -1,7 +1,7 @@
 //! The settings only the desktop has: the window, the zoom, the skin, the
 //! tray and updates. They are kept in the core's settings file, beside
 //! the settings both apps share, under keys of their own
-//! ([`spotless_core::store::Settings::extra`]), and saved with them.
+//! ([`spotless_core::settings::Settings::extra`]), and saved with them.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -95,8 +95,8 @@ impl DesktopSettings {
 
 #[cfg(test)]
 mod tests {
-    use spotless_core::paths::Paths;
-    use spotless_core::store::Settings;
+    use spotless_core::Paths;
+    use spotless_core::settings::Settings;
 
     use super::*;
 

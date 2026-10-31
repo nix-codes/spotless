@@ -29,7 +29,7 @@ use crate::action::{
     Actions, BrowseAction, Desktop, PlaybackAction, PlaylistsAction, SpotifyTabAction,
 };
 use spotless_core::model::{EntryId, PlaylistId};
-use spotless_core::spotify::queue::{Row, SpotifyQueue};
+use spotless_core::spotify::{Row, SpotifyQueue};
 
 const ROW_HEIGHT: f32 = 18.0;
 const HEADING_HEIGHT: f32 = 24.0;

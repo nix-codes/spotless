@@ -28,9 +28,9 @@ use crate::ui::widgets::{field, share_menu, small_button, tip};
 use crate::ui::{Inputs, View};
 use spotless_core::browse::Loadable;
 use spotless_core::model::catalog::SpotifyPlaylist;
-use spotless_core::model::playlist::from_source;
+use spotless_core::model::from_source;
 use spotless_core::model::{Source, TrackRef};
-use spotless_core::spotify::catalog::LIKED_SONGS;
+use spotless_core::spotify::LIKED_SONGS;
 use spotless_core::spotify::link;
 
 pub(super) const FILTER_ID: &str = "spotify-filter";

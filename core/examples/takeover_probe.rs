@@ -7,7 +7,7 @@
 //! runs, and see what arrives.
 //!
 //!   RUST_LOG=warn,librespot_core::session=trace \
-//!     cargo run -p spotless-core --example takeover_probe -- [album link]
+//!     cargo run -p spotless-core --features probes --example takeover_probe -- [album link]
 //!
 //! Sign in through the app first: this reuses its saved credential.
 

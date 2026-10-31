@@ -15,7 +15,7 @@ use super::widgets::{field, small_button, text_button};
 use super::{Inputs, View, skinned_strip, theme};
 use crate::action::{Actions, ViewAction};
 use crate::skin::format::{Role, State};
-use spotless_core::playback::equaliser::{Equaliser, PRESETS, RANGE};
+use spotless_core::playback::{Equaliser, PRESETS, RANGE};
 
 /// What the bands are called under their sliders, by frequency.
 const LABELS: [&str; 10] = [

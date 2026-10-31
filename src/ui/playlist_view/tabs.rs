@@ -14,10 +14,10 @@ use crate::ui::skin_paint;
 use crate::ui::theme::{self, Palette};
 use crate::ui::widgets::{field, small_action, small_button, small_button_width, text_button};
 use crate::ui::{Inputs, View};
-use spotless_core::backend::SessionState;
-use spotless_core::controller::SyncStatus;
+use spotless_core::SyncStatus;
 use spotless_core::model::PlaylistId;
-use spotless_core::playback::engine::Status;
+use spotless_core::playback::Status;
+use spotless_core::session::SessionState;
 
 const TAB_HEIGHT: f32 = 22.0;
 const TAB_GAP: f32 = 3.0;
@@ -63,7 +63,7 @@ pub(super) fn tab_bar(
                 name: &list.name,
                 count: list.len(),
                 own: true,
-                sync: list.sync.as_ref().map(|_| match view.sync.get(&id) {
+                sync: list.synced().then(|| match view.sync.get(&id) {
                     Some(SyncStatus::Waiting) => Sync::Waiting,
                     Some(SyncStatus::Failed(_)) => Sync::Failed,
                     Some(SyncStatus::UpToDate) | None => Sync::UpToDate,
@@ -735,14 +735,14 @@ mod tests {
 
     use super::*;
     use crate::action::{Action, AnyAction};
-    use spotless_core::backend::{SearchState, SessionState};
+    use spotless_core::Paths;
     use spotless_core::browse::{Browse, Loadable};
     use spotless_core::lastfm::LastFmState;
     use spotless_core::model::{Library, Playlist};
-    use spotless_core::paths::Paths;
-    use spotless_core::playback::engine::PlayerSnapshot;
-    use spotless_core::spotify::queue::SpotifyQueue;
-    use spotless_core::store::Settings;
+    use spotless_core::playback::PlayerSnapshot;
+    use spotless_core::session::{SearchState, SessionState};
+    use spotless_core::settings::Settings;
+    use spotless_core::spotify::SpotifyQueue;
 
     /// Drags from `from` on the tab bar by `by`, in steps, and releases:
     /// the actions the tab bar pushed meanwhile. With `spotify`, the
@@ -752,7 +752,7 @@ mod tests {
         let paths = Paths::from_dirs(root.join("config"), root.join("cache")).unwrap();
         let settings = Settings::load(&paths);
         let desktop = crate::settings::DesktopSettings::read(settings.extra());
-        let analyser = spotless_core::playback::analyser::Analyser::default();
+        let analyser = spotless_core::playback::Analyser::default();
         let player = PlayerSnapshot::default();
         let browse = Browse::new(PlaylistId::DEFAULT, false);
         let covers = HashMap::new();

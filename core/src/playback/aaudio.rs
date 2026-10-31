@@ -31,7 +31,7 @@ use ndk::audio::{
 
 use super::equaliser::Processor;
 use super::link::AudioLink;
-use super::sink::{ErrorHook, NO_DEVICE, STALLED};
+use super::{ErrorHook, NO_DEVICE, STALLED};
 
 /// The buffer asked for, about half a second of audio, as `super::sink`
 /// queues.

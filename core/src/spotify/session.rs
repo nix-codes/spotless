@@ -53,6 +53,10 @@ fn new_session(paths: &Paths) -> Result<Session> {
 /// A session that isn't connected yet, with `config` and the saved
 /// credential, for Spotify Connect, which connects it itself. None when
 /// signed out.
+#[cfg_attr(
+    not(feature = "probes"),
+    allow(dead_code, reason = "only a probe uses it")
+)]
 pub fn unconnected(paths: &Paths, config: SessionConfig) -> Result<Option<(Session, Credentials)>> {
     let cache = open_cache(paths)?;
     let Some(credentials) = cache.credentials() else {

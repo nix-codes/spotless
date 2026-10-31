@@ -6,7 +6,7 @@
 //! turns levelling on, then pauses and turns it off again, printing the
 //! state reported after each switch.
 //!
-//!   cargo run -p spotless-core --example levelling_probe -- [album link]
+//!   cargo run -p spotless-core --features probes --example levelling_probe -- [album link]
 //!
 //! Sign in through the app first: this reuses its saved credential.
 

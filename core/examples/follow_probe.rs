@@ -5,7 +5,7 @@
 //! 8 s before its end, hands over the second, and waits for the switch,
 //! then lets the second end with nothing to follow.
 //!
-//!   cargo run -p spotless-core --example follow_probe -- [album link]
+//!   cargo run -p spotless-core --features probes --example follow_probe -- [album link]
 //!
 //! Sign in through the app first: this reuses its saved credential.
 

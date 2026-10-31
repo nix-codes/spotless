@@ -8,7 +8,7 @@
 //! printed. Nothing plays; the playlist is gone after (the
 //! Spotless folder stays: `sync_probe clean` takes it out if empty).
 //!
-//!   SPOTLESS_AUDIO_DEVICE=nope cargo run -p spotless-core --example sync_devices
+//!   SPOTLESS_AUDIO_DEVICE=nope cargo run -p spotless-core --features probes --example sync_devices
 //!
 //! Sign in through the app first: this reuses its saved credential.
 //! Close Spotless on every device first: one open while this runs opens
@@ -19,10 +19,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use spotless_core::action::{PlaylistsAction, SpotifyListsAction, SyncAction};
-use spotless_core::backend::SessionState;
-use spotless_core::controller::{Controller, SyncStatus};
 use spotless_core::model::{AlbumRef, PlaylistId, TrackRef};
-use spotless_core::paths::Paths;
+use spotless_core::session::SessionState;
+use spotless_core::{Controller, Paths, SyncStatus};
 
 const NAME: &str = "Spotless e2e";
 
@@ -95,7 +94,7 @@ fn synced_list(c: &Controller) -> Option<PlaylistId> {
         .library
         .playlists()
         .iter()
-        .find(|l| l.name == NAME && l.sync.is_some())
+        .find(|l| l.name == NAME && l.synced())
         .map(|l| l.id)
 }
 
@@ -128,21 +127,15 @@ fn main() -> Result<()> {
     a.apply(PlaylistsAction::RenamePlaylist(list_a, NAME.into()));
     a.apply(SyncAction::SetSync(list_a, true));
     until(&mut a, &mut b, "A synced, songs with IDs", 60, |a, _| {
-        up_to_date(a, list_a)
-            && a.state()
-                .library
-                .get(list_a)
-                .is_some_and(|l| l.entries().iter().all(|e| e.item.is_some()))
+        up_to_date(a, list_a) && a.state().library.get(list_a).is_some_and(|l| l.all_sent())
     })?;
     let uri = a
         .state()
         .library
         .get(list_a)
+        .and_then(|l| l.synced_uri())
         .unwrap()
-        .sync
-        .clone()
-        .unwrap()
-        .uri;
+        .to_string();
     println!("        on Spotify as {uri}");
 
     // B, "started" now, finds it in the folder: dropped and made again so
@@ -192,11 +185,11 @@ fn main() -> Result<()> {
             a.state()
                 .library
                 .get(list_a)
-                .is_some_and(|l| l.sync.is_none() && l.len() == 2)
+                .is_some_and(|l| !l.synced() && l.len() == 2)
         },
     )?;
     let kept = b.state().library.get(list_b);
-    if !kept.is_some_and(|l| l.sync.is_none() && l.len() == 2) {
+    if !kept.is_some_and(|l| !l.synced() && l.len() == 2) {
         bail!("B didn't keep it");
     }
     println!("        A: {:?}", a.state().notice);
@@ -244,7 +237,7 @@ fn main() -> Result<()> {
                 && a.state()
                     .library
                     .get(first)
-                    .is_some_and(|l| l.sync.is_none() && l.len() == 1)
+                    .is_some_and(|l| !l.synced() && l.len() == 1)
         },
     )?;
     println!("        A: {:?}", a.state().notice);

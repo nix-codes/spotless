@@ -5,7 +5,7 @@
 //! discography makes of them, as soon as the session is up (its country
 //! maybe not known yet).
 //!
-//!   cargo run -p spotless-core --example top_tracks_probe -- [artist URI]
+//!   cargo run -p spotless-core --features probes --example top_tracks_probe -- [artist URI]
 //!
 //! Sign in through the app first: this reuses its saved credential.
 

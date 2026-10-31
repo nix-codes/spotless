@@ -8,7 +8,7 @@
 //! While it runs: start and stop playing on a phone, and check that
 //! "Spotless probe" is NOT in the phone's list of devices.
 //!
-//!   cargo run -p spotless-core --example listen_probe -- [--pause]
+//!   cargo run -p spotless-core --features probes --example listen_probe -- [--pause]
 //!
 //! Sign in through the app first: this reuses its saved credential.
 

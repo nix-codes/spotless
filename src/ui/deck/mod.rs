@@ -40,9 +40,9 @@ use super::{Inputs, View, player_strip, theme, widgets};
 use crate::action::{Actions, ViewAction};
 use canvas::{Canvas, rgb};
 use spotless_core::model::{PlaylistId, TrackRef};
-use spotless_core::playback::analyser::{self, BANDS, Reading};
-use spotless_core::playback::engine::Status;
-use spotless_core::store::{DeckMedia, DeckMeter, VuCalibration, VuFace};
+use spotless_core::playback::Status;
+use spotless_core::playback::{self, BANDS, Reading};
+use spotless_core::settings::{DeckMedia, DeckMeter, VuCalibration, VuFace};
 
 /// Points round the keys, beside them and above and below.
 const SIDE: f32 = 4.0;
@@ -1154,7 +1154,7 @@ fn draw_spectrum(painter: &Painter, rect: Rect, view: &View, motion: &Motion) {
         (6000.0, "6K"),
         (15000.0, "15K"),
     ] {
-        let x = inner.left() + analyser::place(hz) * column;
+        let x = inner.left() + playback::place(hz) * column;
         painter.text(
             pos2(x, rect.bottom() - labels / 2.0 - 2.0),
             Align2::CENTER_CENTER,

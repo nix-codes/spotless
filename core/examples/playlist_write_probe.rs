@@ -9,10 +9,10 @@
 //! `spotify::playlists::unlist`, puts it back with `relist` and checks it's
 //! where it was, then takes it out again.
 //!
-//!   cargo run -p spotless-core --example playlist_write_probe -- create
-//!   cargo run -p spotless-core --example playlist_write_probe -- fill spotify:playlist:…
-//!   cargo run -p spotless-core --example playlist_write_probe -- delete spotify:playlist:…
-//!   cargo run -p spotless-core --example playlist_write_probe -- unlist
+//!   cargo run -p spotless-core --features probes --example playlist_write_probe -- create
+//!   cargo run -p spotless-core --features probes --example playlist_write_probe -- fill spotify:playlist:…
+//!   cargo run -p spotless-core --features probes --example playlist_write_probe -- delete spotify:playlist:…
+//!   cargo run -p spotless-core --features probes --example playlist_write_probe -- unlist
 //!
 //! Sign in through the app first: this reuses its saved credential.
 

@@ -16,7 +16,7 @@ use egui::{Align2, Color32, Rect};
 
 use super::Tape;
 use super::canvas::{Canvas, Face, blend, rgb, rgba};
-use spotless_core::playback::engine::Status;
+use spotless_core::playback::Status;
 
 /// The disc's parts, as shares of its radius: the hole, the clear middle,
 /// and where the music starts and the mirror ends.

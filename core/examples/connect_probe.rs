@@ -11,7 +11,7 @@
 //! While it runs: play on a phone, then pick "Spotless probe" in the phone's
 //! device list, queue songs on the phone, skip, and take playback back.
 //!
-//!   cargo run -p spotless-core --example connect_probe -- [--add]
+//!   cargo run -p spotless-core --features spotify-tab,probes --example connect_probe -- [--add]
 //!
 //! Sign in through the app first: this reuses its saved credential.
 

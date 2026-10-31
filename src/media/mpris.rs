@@ -13,7 +13,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use zbus::zvariant::{ObjectPath, OwnedValue, Value};
 
 use super::{EventHook, MediaEvent, NowPlaying};
-use spotless_core::playback::engine::Status;
+use spotless_core::playback::Status;
 
 const BUS_NAME: &str = "org.mpris.MediaPlayer2.spotless";
 const PATH: &str = "/org/mpris/MediaPlayer2";

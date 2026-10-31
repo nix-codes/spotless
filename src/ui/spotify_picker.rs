@@ -12,7 +12,7 @@ use crate::action::{Actions, SpotifyListsAction};
 use spotless_core::browse::Loadable;
 use spotless_core::model::TrackRef;
 use spotless_core::model::catalog::{SpotifyPlaylist, SpotifyTarget};
-use spotless_core::spotify::catalog::LIKED_SONGS;
+use spotless_core::spotify::LIKED_SONGS;
 
 const WIDTH: f32 = 340.0;
 const ROW_HEIGHT: f32 = 20.0;
