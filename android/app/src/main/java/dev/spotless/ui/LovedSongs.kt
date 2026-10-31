@@ -32,22 +32,44 @@ import dev.spotless.Core
 import dev.spotless.core.Action
 import dev.spotless.core.LovedSong
 import dev.spotless.core.LovedSongs
+import java.text.Normalizer
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
+ * Adding loved songs to a playlist. Off while too many aren't found on
+ * Spotify, their names there being spelt otherwise.
+ */
+private const val ADDING = false
+
+/** How LAST.FM's songs are sorted. */
+enum class LovedOrder { ARTIST, TITLE, DATE }
+
+/** A title's letters and digits, lowercase and without accents, as the core compares names. */
+private fun nameKey(name: String) =
+    Normalizer.normalize(name, Normalizer.Form.NFKD).filter { it.isLetterOrDigit() }.lowercase()
+
+/**
  * Browse's LAST.FM, while Last.fm is connected and search set up: the
- * songs loved there, by artist, with when. Last.fm knows them only by
+ * songs loved there, by artist, title or when. Last.fm knows them only by
  * artist and title, so Spotless finds each on Spotify first, and says
- * which it couldn't. A tap plays a song now, + adds it; holding one
- * selects it, holding another then selects the ones between, to add or
- * unlove together.
+ * which it couldn't. A tap plays a song now, + adds it (with [ADDING]);
+ * holding one selects it, holding another then selects the ones between,
+ * to add or unlove together.
  */
 @Composable
 fun LovedSongs(core: Core, loved: LovedSongs, modifier: Modifier) {
-    val songs = loved.songs
+    val order = core.lovedOrder
+    // The core keeps them by artist, then title.
+    val songs = remember(loved.songs, order) {
+        when (order) {
+            LovedOrder.ARTIST -> loved.songs
+            LovedOrder.TITLE -> loved.songs.sortedBy { nameKey(it.title) }
+            LovedOrder.DATE -> loved.songs.sortedByDescending { it.date }
+        }
+    }
     // The songs' indices; the selection goes once the songs change.
     var picked by remember(songs) { mutableStateOf(emptySet<Int>()) }
     var anchor by remember(songs) { mutableStateOf<Int?>(null) }
@@ -65,7 +87,16 @@ fun LovedSongs(core: Core, loved: LovedSongs, modifier: Modifier) {
             ) {
                 Line("Loved on Last.fm", body(17.sp, Classic.current, FontWeight.Bold), Modifier.weight(1f, fill = false))
                 Line("AS ${loved.user.uppercase()}", label(11.sp, Classic.label), Modifier.weight(1f))
-                BasicText(songs(songs.size).lowercase(), style = body(13.sp, Classic.label))
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Line(songs(songs.size).lowercase(), body(13.sp, Classic.label), Modifier.weight(1f))
+            for ((by, name) in listOf(LovedOrder.ARTIST to "ARTIST", LovedOrder.TITLE to "TITLE", LovedOrder.DATE to "DATE")) {
+                TextButton(name, { core.lovedOrder = by }, on = order == by)
             }
         }
         val scroll = remember { core.browseScroll.getOrPut("lastfm") { LazyListState() } }
@@ -126,10 +157,12 @@ private fun SelectBar(core: Core, songs: List<LovedSong>, selected: List<Int>, a
             Modifier.weight(1f).padding(start = 4.dp),
         )
         TextButton("ALL", all, enabled = selected.size < songs.size)
-        TextButton("ADD", {
-            core.apply(Action.AddLoved(selected.map { songs[it] }))
-            done()
-        })
+        if (ADDING) {
+            TextButton("ADD", {
+                core.apply(Action.AddLoved(selected.map { songs[it] }))
+                done()
+            })
+        }
         GlyphButton(Glyph.Heart, "Unlove on Last.fm", {
             for (i in selected) core.apply(Action.SetLoved(songs[i].artist, songs[i].title, false))
             done()
@@ -142,7 +175,7 @@ private val DAY = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH).with
 
 private fun day(unix: ULong) = if (unix == 0uL) "" else DAY.format(Instant.ofEpochSecond(unix.toLong()))
 
-/** A song: tap plays it now, + adds it; while selecting, a tap picks it. */
+/** A song: tap plays it now, + adds it (with [ADDING]); while selecting, a tap picks it. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SongRow(
@@ -175,7 +208,7 @@ private fun SongRow(
                 body(13.sp, if (chosen) Color(0xFFD6DCFF) else Classic.dim, FontWeight.Normal),
             )
         }
-        if (!selecting) {
+        if (ADDING && !selecting) {
             AddButton("+", label(18.sp), "Add the song") { core.apply(Action.AddLoved(listOf(song))) }
         }
     }

@@ -133,6 +133,9 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
     /** Where each Browse page was scrolled to, by [browseKey], kept while Browse is closed. */
     val browseScroll = HashMap<String, LazyListState>()
 
+    /** How LAST.FM's songs are sorted, kept while Browse is closed. */
+    var lovedOrder by mutableStateOf(dev.spotless.ui.LovedOrder.ARTIST)
+
     /** Covers read so far, by URL; ones asked for and not read yet are missing. */
     private val covers = mutableStateMapOf<String, ImageBitmap>()
     private val asked = HashSet<String>()
