@@ -1,7 +1,8 @@
 //! Do synced playlists sync? Two Spotless controllers, as two devices of
 //! the account, on folders of their own: A syncs a new "Spotless e2e"
 //! playlist, B finds it in the Spotless folder as it signs in, B removes
-//! a song, A renames it, each followed by the other, and B
+//! a song, A renames it, each followed by the other; closed, B misses a
+//! second rename, and opened again has it once, by its new name; then B
 //! stops syncing it, which deletes it from Spotify: B keeps it, and A, open
 //! all along, keeps it unsynced. Then A syncs another, and B, syncing one
 //! by the same name, is asked, and replaces it. Each step's time is
@@ -171,6 +172,50 @@ fn main() -> Result<()> {
             .get(list_b)
             .is_some_and(|l| l.name == format!("{NAME} 2"))
     })?;
+
+    // B is closed while A renames it again: opened, B has it once, by
+    // the new name, and no tab by the old one.
+    b.save();
+    b.wait_for_syncs(Duration::from_secs(5));
+    drop(b);
+    let renamed = format!("{NAME} 3");
+    a.apply(PlaylistsAction::RenamePlaylist(list_a, renamed.clone()));
+    a.save();
+    let began = Instant::now();
+    while !up_to_date(&a, list_a) {
+        if began.elapsed() > Duration::from_secs(30) {
+            bail!("timed out: A sent the rename");
+        }
+        run(&mut a);
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    println!("{:5.1}s  A sent the rename", began.elapsed().as_secs_f32());
+    let mut b = device(&root, "b2")?;
+    until(
+        &mut a,
+        &mut b,
+        "B, opened again, has it once, renamed",
+        60,
+        |_, b| {
+            up_to_date(b, list_b)
+                && b.state()
+                    .library
+                    .get(list_b)
+                    .is_some_and(|l| l.name == renamed)
+        },
+    )?;
+    let tabs: Vec<(String, bool)> = (b.state().library.playlists().iter())
+        .map(|l| (l.name.clone(), l.synced()))
+        .collect();
+    println!("        B's tabs {tabs:?}");
+    if tabs
+        .iter()
+        .filter(|(name, _)| name.starts_with(NAME))
+        .count()
+        != 1
+    {
+        bail!("B has it more than once");
+    }
 
     // B stops syncing it: it's deleted from Spotify, B keeps it, and A,
     // open all along, keeps it too, unsynced, as Spotify tells it the
