@@ -60,10 +60,12 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
     /** Stops the service once it has been unneeded for a while ([keepAlive]). */
     private val release = Runnable { service(start = false) }
     /**
-     * The app was swiped away with the song paused: the service stays off
-     * until something plays, though the player takes a moment to stop.
+     * The app was swiped away: the service stays off until something plays
+     * again, though the player takes a moment to stop ([stoppedSinceClosed]).
      */
-    private var closedPaused = false
+    private var closedAway = false
+    /** The player has stopped since the app was swiped away. */
+    private var stoppedSinceClosed = false
     /** Lets the player go once it has been paused for long ([keepAlive]). */
     private val putAway = Runnable { apply(Action.Release) }
 
@@ -182,14 +184,14 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
     private val heard get() = if (player.here) player.status else Status.STOPPED
 
     /**
-     * The app was swiped away. A song playing goes on; a paused one is let
-     * go (Play later goes on where it was), and the service, its
-     * notification and the media controls with it, so Android can end the
-     * app and another player gets the headset's buttons.
+     * The app was swiped away (put in the background, it plays on). The
+     * song is let go (Play later goes on where it was), and the service,
+     * its notification and the media controls with it, so Android can end
+     * the app and another player gets the headset's buttons.
      */
     fun closed() {
-        if (heard == Status.PLAYING || heard == Status.LOADING) return
-        closedPaused = true
+        closedAway = true
+        stoppedSinceClosed = heard == Status.STOPPED
         if (heard != Status.STOPPED) apply(Action.Release)
         spotless.save()
         main.removeCallbacks(release)
@@ -302,9 +304,10 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
             main.postDelayed(putAway, PAUSED_FOR)
         }
         val playing = heard == Status.PLAYING || heard == Status.LOADING
-        if (playing) closedPaused = false
+        if (heard == Status.STOPPED) stoppedSinceClosed = true
+        if (playing && stoppedSinceClosed) closedAway = false
         val needed = approving || session == Session.SigningIn ||
-            (heard != Status.STOPPED && !closedPaused)
+            (heard != Status.STOPPED && !closedAway)
         if (needed) {
             main.removeCallbacks(release)
             if (!PlaybackService.running) service(start = true)
