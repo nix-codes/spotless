@@ -23,6 +23,10 @@
 //! the Spotless folder (making it), reads them with their songs' IDs,
 //! moves songs both ways, removes and adds in one change, sends a change
 //! on a stale revision, and sets the position.
+//! `reorder`: can one change reorder a whole synced playlist? Makes one
+//! of 432 songs, shuffles it with every move the sync would send
+//! (`model::sync::changes`) in one change, then reverses it the same way,
+//! checking the order and that every song keeps its ID; then takes it out.
 //! The playlist is kept for the next experiments; `clean` takes every
 //! "Spotless test" playlist out of the account's list.
 //!
@@ -32,6 +36,7 @@
 //!   cargo run -p spotless-core --features probes --example sync_probe -- push
 //!   cargo run -p spotless-core --features probes --example sync_probe -- synced
 //!   cargo run -p spotless-core --features probes --example sync_probe -- folder
+//!   cargo run -p spotless-core --features probes --example sync_probe -- reorder
 //!   cargo run -p spotless-core --features probes --example sync_probe -- control spotify:playlist:…
 //!   cargo run -p spotless-core --features probes --example sync_probe -- clean
 //!
@@ -64,6 +69,7 @@ async fn main() -> Result<()> {
         Some("description") => description().await,
         Some("push") => push().await,
         Some("synced") => synced_side().await,
+        Some("reorder") => reorder().await,
         Some("folder") => {
             let s = session().await?;
             println!("{:?}", synced::folder(&s).await?);
@@ -737,6 +743,70 @@ async fn synced_side() -> Result<()> {
         folder.iter().map(|(u, _)| u.as_str()).collect::<Vec<_>>()
             == [uri.as_str(), second.as_str()],
     );
+    Ok(())
+}
+
+/// Reorders a big synced playlist in one change: shuffled, then reversed.
+async fn reorder() -> Result<()> {
+    use librespot_metadata::Metadata;
+    use spotless_core::model::sync::{Change, ItemId, Slot, changes};
+    let s = session().await?;
+    let big = SpotifyUri::from_uri("spotify:playlist:5FI8rn340FgsOB7B8Ic0DZ")?;
+    let songs: Vec<String> = librespot_metadata::Playlist::get(&s, &big)
+        .await?
+        .tracks()
+        .map(|t| t.to_uri())
+        .collect();
+    let uri = made(synced::create(&s, NAME, &[], false).await?)?;
+    playlists::add(&s, &uri, &songs).await?;
+    println!("made {uri} with {} songs", songs.len());
+
+    let mut rng = fastrand::Rng::with_seed(7);
+    for what in ["shuffled", "reversed"] {
+        let remote = synced::read(&s, &uri).await?;
+        let mut wanted: Vec<ItemId> = remote.songs.iter().map(|(id, _)| id.clone()).collect();
+        let before = wanted.clone();
+        if what == "shuffled" {
+            rng.shuffle(&mut wanted);
+        } else {
+            wanted.reverse();
+        }
+        let merged: Vec<Slot> = wanted.iter().cloned().map(Slot::Item).collect();
+        let mut now: Vec<String> = remote.songs.iter().map(|(_, u)| u.clone()).collect();
+        let mut edits = Vec::new();
+        for change in changes(&before, &merged) {
+            let Change::Move { from, to } = change else {
+                bail!("only moves expected, got {change:?}");
+            };
+            let song = now.remove(from);
+            now.insert(to, song.clone());
+            edits.push(Edit::Move { from, to, song });
+        }
+        let began = std::time::Instant::now();
+        let sent = synced::edit(&s, &uri, remote.revision.clone(), &edits).await;
+        println!(
+            "{what}: {} moves in one change, {:?}",
+            edits.len(),
+            began.elapsed()
+        );
+        if let Err(e) = sent {
+            println!("  FAIL refused: {e:#}");
+            break;
+        }
+        let after = synced::read(&s, &uri).await?;
+        let got: Vec<ItemId> = after.songs.iter().map(|(id, _)| id.clone()).collect();
+        check("in the order sent, by ID", got == wanted);
+        check(
+            "the songs follow their IDs",
+            after
+                .songs
+                .iter()
+                .all(|(id, u)| remote.songs.iter().any(|(id2, u2)| id == id2 && u == u2)),
+        );
+    }
+    playlists::unlist(&s, &uri).await?;
+    synced::remove_empty_folder(&s).await?;
+    println!("took it out");
     Ok(())
 }
 
