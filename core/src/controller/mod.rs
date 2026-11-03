@@ -308,6 +308,7 @@ impl Controller {
                 Event::Outputs(outputs) => self.state.outputs = Loadable::Ready(outputs),
                 Event::SearchResults { query, results } => self.search_results(query, results),
                 Event::MoreSongs { query, result } => self.more_songs_read(query, result),
+                Event::MoreArtists { query, result } => self.more_artists_read(query, result),
                 Event::Discography { artist, result } => self.discography_read(artist, result),
                 Event::SimilarArtists { artist, result } => {
                     self.similar_artists_read(artist, result);

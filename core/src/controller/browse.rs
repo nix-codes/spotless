@@ -8,7 +8,7 @@ use crate::browse::{AddAll, Loadable, Page};
 use crate::model::catalog::{Discography, SearchResults, Songs};
 use crate::model::playlist::from_source;
 use crate::model::{ArtistRef, PlaylistId, Source, TrackRef};
-use crate::spotify::webapi::SongsPage;
+use crate::spotify::webapi::SearchPage;
 
 impl Controller {
     /// Opens Browse and moves through it, and adds what it shows.
@@ -54,6 +54,19 @@ impl Controller {
                     results.reading_songs = true;
                     let offset = results.songs_read;
                     self.send(Command::MoreSongs { query, offset });
+                }
+            }
+            BrowseAction::MoreArtists(query) => {
+                let Some(Loadable::Ready(results)) = browse.searches.get_mut(&query) else {
+                    return;
+                };
+                // Those already read show first; Spotify's next ones after.
+                if results.artists_shown < results.artists.len() {
+                    results.artists_shown = results.artists.len();
+                } else if results.more_artists && !results.reading_artists {
+                    results.reading_artists = true;
+                    let offset = results.artists_read;
+                    self.send(Command::MoreArtists { query, offset });
                 }
             }
             BrowseAction::ForgetSearch(query) => {
@@ -187,7 +200,11 @@ impl Controller {
         self.state.browse.searches.insert(query, loaded);
     }
 
-    pub(super) fn more_songs_read(&mut self, query: String, result: Result<SongsPage, String>) {
+    pub(super) fn more_songs_read(
+        &mut self,
+        query: String,
+        result: Result<SearchPage<TrackRef>, String>,
+    ) {
         let Some(Loadable::Ready(results)) = self.state.browse.searches.get_mut(&query) else {
             return;
         };
@@ -195,13 +212,38 @@ impl Controller {
         match result {
             Ok(page) => {
                 // Spotify's pages can overlap: a song shows once.
-                for song in page.songs {
+                for song in page.items {
                     if !results.songs.iter().any(|s| s.uri == song.uri) {
                         results.songs.push(song);
                     }
                 }
                 results.songs_read += page.read;
                 results.more_songs = page.more;
+            }
+            Err(error) => self.state.error = Some(error),
+        }
+    }
+
+    pub(super) fn more_artists_read(
+        &mut self,
+        query: String,
+        result: Result<SearchPage<ArtistRef>, String>,
+    ) {
+        let Some(Loadable::Ready(results)) = self.state.browse.searches.get_mut(&query) else {
+            return;
+        };
+        results.reading_artists = false;
+        match result {
+            Ok(page) => {
+                // Spotify's pages can overlap: an artist shows once.
+                for artist in page.items {
+                    if !results.artists.iter().any(|a| a.uri == artist.uri) {
+                        results.artists.push(artist);
+                    }
+                }
+                results.artists_read += page.read;
+                results.more_artists = page.more;
+                results.artists_shown = results.artists.len();
             }
             Err(error) => self.state.error = Some(error),
         }

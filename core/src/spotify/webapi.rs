@@ -31,7 +31,8 @@ pub const REDIRECT_URI: &str = "http://127.0.0.1:8989/login";
 /// Search needs no scope; one is asked for because the sign-in needs some.
 const SCOPES: &[&str] = &["user-read-private"];
 
-const ARTIST_LIMIT: usize = 5;
+/// The artists a search shows before MORE ARTISTS shows the rest it read.
+pub const ARTISTS_FIRST: usize = 5;
 const RESULT_LIMIT: &str = "10";
 /// Songs looked through for one by name.
 const SONG_LIMIT: &str = "20";
@@ -95,17 +96,31 @@ impl WebApi {
 
     /// The search's songs from `offset` on, a page of them, and whether
     /// Spotify has more after those.
-    pub async fn search_songs(&mut self, query: &str, offset: usize) -> Result<SongsPage> {
-        let offset = offset.to_string();
-        let body = self
-            .search_for(&[
-                ("q", query),
-                ("type", "track"),
-                ("limit", RESULT_LIMIT),
-                ("offset", &offset),
-            ])
-            .await?;
+    pub async fn search_songs(&mut self, query: &str, offset: usize) -> Result<SearchPage<TrackRef>> {
+        let body = self.search_page(query, "track", offset).await?;
         Ok(songs_page(&body))
+    }
+
+    /// The search's artists from `offset` on, a page of them, and whether
+    /// Spotify has more after those.
+    pub async fn search_artists(
+        &mut self,
+        query: &str,
+        offset: usize,
+    ) -> Result<SearchPage<ArtistRef>> {
+        let body = self.search_page(query, "artist", offset).await?;
+        Ok(artists_page(&body))
+    }
+
+    async fn search_page(&mut self, query: &str, kind: &str, offset: usize) -> Result<Value> {
+        let offset = offset.to_string();
+        self.search_for(&[
+            ("q", query),
+            ("type", kind),
+            ("limit", RESULT_LIMIT),
+            ("offset", &offset),
+        ])
+        .await
     }
 
     /// The artist Spotify knows by this name (one Last.fm named), if any.
@@ -230,38 +245,46 @@ impl WebApi {
 
 fn parse_search(body: &Value) -> SearchResults {
     let items = |key: &str| body[key]["items"].as_array().cloned().unwrap_or_default();
-    let page = songs_page(body);
+    let songs = songs_page(body);
+    let artists = artists_page(body);
     SearchResults {
-        artists: items("artists")
-            .iter()
-            .filter_map(artist_ref)
-            .take(ARTIST_LIMIT)
-            .collect(),
+        artists_shown: artists.items.len().min(ARTISTS_FIRST),
+        artists: artists.items,
+        more_artists: artists.more,
+        artists_read: artists.read,
+        reading_artists: false,
         albums: items("albums").iter().filter_map(release).collect(),
-        songs: page.songs,
-        more_songs: page.more,
-        songs_read: page.read,
+        songs: songs.items,
+        more_songs: songs.more,
+        songs_read: songs.read,
         reading_songs: false,
     }
 }
 
-/// A page of a search's songs.
+/// A page of a search's songs or artists.
 #[derive(Debug, PartialEq)]
-pub struct SongsPage {
-    pub songs: Vec<TrackRef>,
-    /// The items Spotify sent, those that aren't songs to keep too.
+pub struct SearchPage<T> {
+    pub items: Vec<T>,
+    /// The items Spotify sent, those that aren't ones to keep too.
     pub read: usize,
     /// Spotify has a page after this one.
     pub more: bool,
 }
 
-fn songs_page(body: &Value) -> SongsPage {
-    let tracks = &body["tracks"];
-    let items = tracks["items"].as_array().map_or(&[][..], Vec::as_slice);
-    SongsPage {
-        songs: items.iter().filter_map(track_ref).collect(),
+fn songs_page(body: &Value) -> SearchPage<TrackRef> {
+    page(&body["tracks"], track_ref)
+}
+
+fn artists_page(body: &Value) -> SearchPage<ArtistRef> {
+    page(&body["artists"], artist_ref)
+}
+
+fn page<T>(found: &Value, parse: fn(&Value) -> Option<T>) -> SearchPage<T> {
+    let items = found["items"].as_array().map_or(&[][..], Vec::as_slice);
+    SearchPage {
+        items: items.iter().filter_map(parse).collect(),
         read: items.len(),
-        more: tracks["next"].is_string() && !items.is_empty(),
+        more: found["next"].is_string() && !items.is_empty(),
     }
 }
 
@@ -518,6 +541,19 @@ mod tests {
     }
 
     #[test]
+    fn a_search_shows_its_first_artists_and_keeps_the_rest() {
+        let artist = |i: usize| serde_json::json!({"uri": format!("spotify:artist:{i}"), "name": i.to_string()});
+        let mut items: Vec<_> = (0..9).map(artist).collect();
+        items.push(serde_json::json!({"name": "no uri"}));
+        let next = "https://api.spotify.com/v1/search?offset=10";
+        let results = parse_search(&serde_json::json!({"artists": {"items": items, "next": next}}));
+        assert_eq!(results.artists.len(), 9);
+        assert_eq!(results.shown_artists().len(), ARTISTS_FIRST);
+        assert_eq!((results.artists_read, results.more_artists), (10, true));
+        assert!(results.has_more_artists());
+    }
+
+    #[test]
     fn a_page_of_songs_says_whether_spotify_has_more() {
         let song = serde_json::json!({
             "uri": "spotify:track:c", "name": "Roygbiv", "duration_ms": 151000,
@@ -528,7 +564,7 @@ mod tests {
         let page = songs_page(&serde_json::json!({
             "tracks": {"items": [song, {"name": "no uri"}], "next": next}
         }));
-        assert_eq!((page.songs.len(), page.read, page.more), (1, 2, true));
+        assert_eq!((page.items.len(), page.read, page.more), (1, 2, true));
         let last = songs_page(&serde_json::json!({"tracks": {"items": [song], "next": null}}));
         assert!(!last.more);
         // An empty page ends it, whatever Spotify says comes next.

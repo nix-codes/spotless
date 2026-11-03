@@ -29,7 +29,7 @@ use crate::playback::transport::Request;
 use crate::spotify::queue::SpotifyQueue;
 use crate::spotify::session::AudioCache;
 use crate::spotify::synced;
-use crate::spotify::webapi::SongsPage;
+use crate::spotify::webapi::SearchPage;
 
 mod worker;
 
@@ -50,6 +50,11 @@ pub(crate) enum Command {
     Search(String),
     /// The search's songs after the first `offset`.
     MoreSongs {
+        query: String,
+        offset: usize,
+    },
+    /// The search's artists after the first `offset`.
+    MoreArtists {
         query: String,
         offset: usize,
     },
@@ -263,7 +268,12 @@ pub(crate) enum Event {
     /// A search's next page of songs, and whether Spotify has more.
     MoreSongs {
         query: String,
-        result: Result<SongsPage, String>,
+        result: Result<SearchPage<TrackRef>, String>,
+    },
+    /// A search's next page of artists, and whether Spotify has more.
+    MoreArtists {
+        query: String,
+        result: Result<SearchPage<ArtistRef>, String>,
     },
     Discography {
         artist: String,

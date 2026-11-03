@@ -789,7 +789,8 @@ mod tests {
                 | BrowseAction::AddAll
                 | BrowseAction::ShowBrowseTab(..) => true,
                 // Not in the app yet.
-                BrowseAction::AddAlbums(..)
+                BrowseAction::MoreArtists(..)
+                | BrowseAction::AddAlbums(..)
                 | BrowseAction::DropTracks(..)
                 | BrowseAction::DropAlbum(..) => false,
             },

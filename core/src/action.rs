@@ -188,6 +188,9 @@ pub enum BrowseAction {
     Search(String),
     /// Reads the search's next page of songs.
     MoreSongs(String),
+    /// Shows the rest of the search's artists already read, or reads
+    /// Spotify's next page of them.
+    MoreArtists(String),
     /// Opens the page's find with this typed in it, or closes it with
     /// None. On an artist's page it reads the songs of the tab's releases.
     Find(Option<String>),

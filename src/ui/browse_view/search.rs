@@ -258,7 +258,7 @@ pub(super) fn search_page(
     // The find narrows them to what has every word typed in it.
     let find = view.browse.finder();
     let shows = |names: &[&str]| find.as_ref().is_none_or(|find| find.matches(names));
-    let artists: Vec<_> = (results.artists.iter())
+    let artists: Vec<_> = (results.shown_artists().iter())
         .filter(|artist| shows(&[&artist.name]))
         .collect();
     let albums: Vec<_> = (results.albums.iter())
@@ -290,6 +290,18 @@ pub(super) fn search_page(
         for artist in artists {
             artist_row(ui, view, nav, artist, Some("ARTIST"), actions);
         }
+        if results.reading_artists {
+            note(ui, view, "Reading more artists…");
+        } else if results.has_more_artists() {
+            more_row(
+                ui,
+                view,
+                nav,
+                "MORE ARTISTS",
+                "The next artists Spotify found (Enter)",
+            )
+            .then(|| actions.push(BrowseAction::MoreArtists(query.to_string())));
+        }
     }
     if !albums.is_empty() {
         section(ui, view, "ALBUMS & EPS");
@@ -305,26 +317,31 @@ pub(super) fn search_page(
         if results.reading_songs {
             note(ui, view, "Reading more songs…");
         } else if results.more_songs {
-            more_songs(ui, view, nav, query, actions);
+            more_row(
+                ui,
+                view,
+                nav,
+                "MORE SONGS",
+                "The next songs Spotify found (Enter)",
+            )
+            .then(|| actions.push(BrowseAction::MoreSongs(query.to_string())));
         }
     }
 }
 
-/// The row under a search's songs that reads the next page of them.
-fn more_songs(ui: &mut Ui, view: &View, nav: &mut Nav, query: &str, actions: &mut Actions) {
+/// The row under a search's artists or songs that shows more of them:
+/// whether it was pressed.
+fn more_row(ui: &mut Ui, view: &View, nav: &mut Nav, label: &str, tip: &str) -> bool {
     let palette = view.palette;
     let row = row(ui, &palette, nav, TRACK_HEIGHT, None, |painter, rect| {
         painter.text(
             rect.left_center(),
             Align2::LEFT_CENTER,
-            "MORE SONGS",
+            label,
             mono(),
             palette.accent,
         );
     });
     let open = matches!(row.act, Some(Act::Open));
-    let tip = "The next songs Spotify found (Enter)";
-    if row.response.on_hover_text(tip).clicked() || open {
-        actions.push(BrowseAction::MoreSongs(query.to_string()));
-    }
+    row.response.on_hover_text(tip).clicked() || open
 }

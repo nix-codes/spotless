@@ -941,7 +941,7 @@ pub(crate) fn browse(state: &State) -> BrowseView {
             page: match browse.searches.get(query) {
                 None | Some(Loadable::Loading) => SearchPage::Loading,
                 Some(Loadable::Ready(results)) => SearchPage::Ready {
-                    artists: (results.artists.iter())
+                    artists: (results.shown_artists().iter())
                         .filter(|artist| find.as_ref().is_none_or(|f| f.matches(&[&artist.name])))
                         .map(Into::into)
                         .collect(),

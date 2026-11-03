@@ -41,7 +41,18 @@ impl Release {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SearchResults {
+    /// The artists read so far; only the first `artists_shown` show.
     pub artists: Vec<ArtistRef>,
+    /// How many of the artists show: a few at first, all those read once
+    /// MORE ARTISTS is pressed.
+    pub artists_shown: usize,
+    /// Spotify has more artists for the search than these.
+    pub more_artists: bool,
+    /// The artists Spotify has sent so far, those that weren't kept too:
+    /// where its next page starts.
+    pub artists_read: usize,
+    /// The next page of artists is being read.
+    pub reading_artists: bool,
     pub albums: Vec<Release>,
     pub songs: Vec<TrackRef>,
     /// Spotify has more songs for the search than these.
@@ -54,6 +65,16 @@ pub struct SearchResults {
 }
 
 impl SearchResults {
+    /// The artists the search shows.
+    pub fn shown_artists(&self) -> &[ArtistRef] {
+        &self.artists[..self.artists_shown.min(self.artists.len())]
+    }
+
+    /// MORE ARTISTS has more to show: some already read, or Spotify's.
+    pub fn has_more_artists(&self) -> bool {
+        self.artists_shown < self.artists.len() || self.more_artists
+    }
+
     pub fn is_empty(&self) -> bool {
         self.artists.is_empty() && self.albums.is_empty() && self.songs.is_empty()
     }

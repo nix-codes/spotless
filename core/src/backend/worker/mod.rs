@@ -447,6 +447,7 @@ impl Worker {
             | Command::SearchApp(_)
             | Command::Search(_)
             | Command::MoreSongs { .. }
+            | Command::MoreArtists { .. }
             | Command::Discography(_)
             | Command::SimilarArtists { .. }
             | Command::FindArtist(_)

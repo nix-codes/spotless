@@ -217,7 +217,7 @@ fn a_similar_artist_opens_once_found_unless_the_user_moved_on() {
 #[test]
 fn more_songs_reads_the_next_page_once_and_adds_the_new_ones() {
     use crate::model::catalog::SearchResults;
-    use crate::spotify::webapi::SongsPage;
+    use crate::spotify::webapi::SearchPage;
     let mut rig = Rig::new("more-songs");
     rig.controller.apply(BrowseAction::Search("boards".into()));
     rig.sent();
@@ -243,8 +243,8 @@ fn more_songs_reads_the_next_page_once_and_adds_the_new_ones() {
     assert!(matches!(&more[..], [Command::MoreSongs { query, offset: 10 }] if query == "boards"));
     rig.tell(Event::MoreSongs {
         query: "boards".into(),
-        result: Ok(SongsPage {
-            songs: tracks([2, 3]),
+        result: Ok(SearchPage {
+            items: tracks([2, 3]),
             read: 10,
             more: false,
         }),
@@ -258,6 +258,72 @@ fn more_songs_reads_the_next_page_once_and_adds_the_new_ones() {
     assert!(!results.more_songs && !results.reading_songs);
     rig.controller
         .apply(BrowseAction::MoreSongs("boards".into()));
+    assert!(rig.sent().is_empty());
+}
+
+#[test]
+fn more_artists_shows_those_read_then_reads_the_next_page_once() {
+    use crate::model::catalog::SearchResults;
+    use crate::spotify::webapi::SearchPage;
+    let named = |names: &[&str]| -> Vec<ArtistRef> {
+        (names.iter())
+            .map(|name| ArtistRef {
+                uri: format!("spotify:artist:{name}"),
+                name: (*name).into(),
+                image: None,
+            })
+            .collect()
+    };
+    let shown = |rig: &Rig| {
+        let Some(Loadable::Ready(results)) = rig.controller.state().browse.searches.get("boards")
+        else {
+            panic!("the search's results");
+        };
+        (results.shown_artists().to_vec(), results.has_more_artists())
+    };
+    let mut rig = Rig::new("more-artists");
+    rig.controller.apply(BrowseAction::Search("boards".into()));
+    rig.sent();
+    rig.tell(Event::SearchResults {
+        query: "boards".into(),
+        results: Ok(SearchResults {
+            artists: named(&["a", "b", "c"]),
+            artists_shown: 2,
+            artists_read: 10,
+            more_artists: true,
+            ..SearchResults::default()
+        }),
+    });
+    assert_eq!(shown(&rig), (named(&["a", "b"]), true));
+
+    // The ones already read show without asking Spotify.
+    rig.controller
+        .apply(BrowseAction::MoreArtists("boards".into()));
+    assert!(rig.sent().is_empty());
+    assert_eq!(shown(&rig), (named(&["a", "b", "c"]), true));
+
+    // Then Spotify's next page, asked for once while it reads.
+    rig.controller
+        .apply(BrowseAction::MoreArtists("boards".into()));
+    rig.controller
+        .apply(BrowseAction::MoreArtists("boards".into()));
+    let more: Vec<_> = rig
+        .sent()
+        .into_iter()
+        .filter(|c| matches!(c, Command::MoreArtists { .. }))
+        .collect();
+    assert!(matches!(&more[..], [Command::MoreArtists { query, offset: 10 }] if query == "boards"));
+    rig.tell(Event::MoreArtists {
+        query: "boards".into(),
+        result: Ok(SearchPage {
+            items: named(&["c", "d"]),
+            read: 10,
+            more: false,
+        }),
+    });
+    assert_eq!(shown(&rig), (named(&["a", "b", "c", "d"]), false));
+    rig.controller
+        .apply(BrowseAction::MoreArtists("boards".into()));
     assert!(rig.sent().is_empty());
 }
 

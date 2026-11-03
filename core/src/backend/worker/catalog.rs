@@ -74,6 +74,24 @@ impl Worker {
                     emit(Event::MoreSongs { query, result });
                 });
             }
+            Command::MoreArtists { query, offset } => {
+                let Some(web) = self.web.clone() else { return };
+                let approval = Arc::clone(&self.search_approval);
+                let browser = Arc::clone(&self.browser);
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = match approve_search(&web, &approval, &browser, &emit).await {
+                        Ok(()) => web
+                            .lock()
+                            .await
+                            .search_artists(&query, offset)
+                            .await
+                            .map_err(|e| format!("{e:#}")),
+                        Err(error) => Err(error),
+                    };
+                    emit(Event::MoreArtists { query, result });
+                });
+            }
             Command::Discography(artist) => {
                 self.on_session(move |session| async move {
                     let result = match catalog::parse_uri(&artist) {
