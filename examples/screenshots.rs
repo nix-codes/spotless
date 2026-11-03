@@ -251,6 +251,7 @@ impl Demo {
             player: &player,
             error: None,
             notice: None,
+            can_undo_reorder: false,
             playlist: state.list(state.viewed).expect("the demo's"),
             left_ms: state.left_ms(state.viewed),
             shuffle: state.settings.shuffle,

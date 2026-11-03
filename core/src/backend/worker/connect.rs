@@ -55,7 +55,7 @@ struct TakingOver {
 /// What the Spotify tab's device tells the worker.
 pub(super) enum RemoteReport {
     Started(Result<Remote>),
-    Queue(SpotifyQueue),
+    Queue(Box<SpotifyQueue>),
 }
 
 /// How long the queue asked to play here is waited for.
@@ -234,7 +234,7 @@ impl Worker {
         tokio::spawn(async move {
             let queues = remotes.clone();
             let report = move |queue| {
-                let _ = queues.send(RemoteReport::Queue(queue));
+                let _ = queues.send(RemoteReport::Queue(Box::new(queue)));
             };
             let started = Remote::start(&paths, audio_cache, volume, levelling, link, report).await;
             let _ = remotes.send(RemoteReport::Started(started));
@@ -276,6 +276,7 @@ impl Worker {
                 log::warn!("unable to start the Spotify tab: {error:#}");
             }
             RemoteReport::Queue(queue) => {
+                let queue = *queue;
                 if self.connect.remote.is_none() && !self.connect.remote_starting {
                     return;
                 }

@@ -502,3 +502,41 @@ fn stopped_it_goes_from_spotify_closed_it_stays_and_deleted_it_closes() {
     let list = road;
     assert!(rig.controller.state().library.get(list).is_none());
 }
+
+#[test]
+fn a_reorder_of_a_synced_playlist_is_sent_and_so_is_its_undo_keeping_the_ids() {
+    let mut rig = Rig::new("sync-reorder");
+    let list = synced_gym(&mut rig);
+    rig.controller
+        .apply(PlaylistsAction::Reorder(list, Order::Reversed));
+    rig.controller.save();
+    let job = jobs(&mut rig).pop().expect("sent");
+    let sent: Vec<_> = job.local.iter().map(|(_, id, _)| id.clone()).collect();
+    assert_eq!(sent, [Some(item(2)), Some(item(1))]);
+    rig.tell(Event::Synced {
+        list,
+        result: Ok(done(&job, &[2, 1], None)),
+    });
+    assert!(rig.controller.state().can_undo_reorder(), "only sent");
+
+    rig.controller.apply(PlaylistsAction::UndoReorder);
+    rig.controller.save();
+    let job = jobs(&mut rig).pop().expect("sent back");
+    let sent: Vec<_> = job.local.iter().map(|(_, id, _)| id.clone()).collect();
+    assert_eq!(sent, [Some(item(1)), Some(item(2))]);
+}
+
+#[test]
+fn a_change_from_another_device_ends_the_undo() {
+    let mut rig = Rig::new("sync-reorder-remote");
+    let list = synced_gym(&mut rig);
+    rig.controller
+        .apply(PlaylistsAction::Reorder(list, Order::Reversed));
+    rig.controller.save();
+    let job = jobs(&mut rig).pop().expect("sent");
+    rig.tell(Event::Synced {
+        list,
+        result: Ok(done(&job, &[1, 2], None)),
+    });
+    assert!(!rig.controller.state().can_undo_reorder());
+}

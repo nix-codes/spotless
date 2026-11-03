@@ -24,7 +24,6 @@ use crate::update::{self, Status};
 use spotless_core::browse::Loadable;
 use spotless_core::lastfm::LastFmStatus;
 use spotless_core::lastfm::is_key;
-use spotless_core::model::Grouping;
 use spotless_core::session::{SearchState, SessionState};
 use spotless_core::settings::Store;
 use spotless_core::settings::{AUDIO_CACHE_SIZES, SPOTIFY_TAB};
@@ -116,8 +115,6 @@ enum Item {
     Smaller,
     Larger,
     Covers,
-    /// One of the ways to put songs under headers, in their order.
-    Grouping(usize),
     /// One of the skins listed, 0 being Spotless Classic.
     Skin(usize),
     /// One of the phosphors, in their order.
@@ -368,7 +365,6 @@ fn items(category: Category, view: &View, outputs: usize) -> Vec<Item> {
             .collect(),
         Category::Display => [Item::Smaller, Item::Larger, Item::Covers]
             .into_iter()
-            .chain((0..Grouping::ALL.len()).map(Item::Grouping))
             .chain((0..skin_rows().len()).map(Item::Skin))
             .chain((0..Phosphor::ALL.len()).map(Item::Phosphor))
             .collect(),
@@ -791,22 +787,6 @@ impl Controls<'_, '_> {
                 self.actions.push(BrowseAction::ToggleCovers);
             }
             note(ui, palette, "Album covers and artist pictures in Browse.");
-        });
-        row(ui, palette, "Song headers", |ui| {
-            let chosen = self.view.settings.grouping;
-            for (i, grouping) in Grouping::ALL.into_iter().enumerate() {
-                let on = grouping == chosen;
-                let choice = radio(ui, palette, on, grouping.name());
-                self.ring(ui, Item::Grouping(i), &choice);
-                if !on && (choice.clicked() || (self.pressed)(Item::Grouping(i))) {
-                    self.actions.push(SettingsAction::SetGrouping(grouping));
-                }
-            }
-            note(
-                ui,
-                palette,
-                "Two or more songs in a row added from one place, or from one album, sit under a header with its name.",
-            );
         });
         row(ui, palette, "Skin", |ui| {
             let chosen = self.view.desktop.skin.as_deref();

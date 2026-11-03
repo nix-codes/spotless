@@ -98,6 +98,7 @@ impl From<Track> for TrackRef {
                 name: track.album.name,
             },
             duration_ms: track.duration_ms,
+            in_album: None,
             source: track.source.map(|source| CoreSource {
                 uri: source.uri,
                 name: source.name,

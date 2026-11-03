@@ -741,6 +741,10 @@ mod tests {
                 | PlaylistsAction::MovePlaylist(..)
                 | PlaylistsAction::CopyTo(..)
                 | PlaylistsAction::MoveTo(..) => true,
+                // Not in the app yet.
+                PlaylistsAction::Reorder(..)
+                | PlaylistsAction::UndoReorder
+                | PlaylistsAction::SetHeaders(..) => false,
             },
             Core::Sync(action) => match action {
                 SyncAction::SetSync(..)

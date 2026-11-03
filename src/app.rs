@@ -514,6 +514,7 @@ impl eframe::App for App {
             player: &player,
             error: state.error.as_deref(),
             notice: state.notice.as_deref(),
+            can_undo_reorder: state.can_undo_reorder(),
             playlist,
             left_ms: state.left_ms(playlist.id),
             shuffle: state.settings.shuffle,

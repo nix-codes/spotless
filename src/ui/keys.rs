@@ -14,11 +14,10 @@ use super::theme::{self, Palette};
 use super::widgets::text_button;
 use super::{Inputs, View, browse_view, player_strip};
 use crate::action::{
-    Action, Actions, BrowseAction, Desktop, PlaybackAction, PlaylistsAction, SpotifyListsAction,
-    ViewAction,
+    Action, Actions, BrowseAction, Desktop, PlaybackAction, PlaylistsAction, ViewAction,
 };
 use spotless_core::browse::BrowseTab;
-use spotless_core::model::PlaylistId;
+use spotless_core::model::{Order, PlaylistId};
 use spotless_core::playback::Status;
 use spotless_core::session::SessionState;
 
@@ -83,6 +82,10 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Delete", "Remove the selection"),
             ("Alt+↑ / ↓", "Move the selection"),
             ("Q", "Play next (mark / unmark)"),
+            ("Ctrl+S", "Sort by artist, albums by date"),
+            ("Ctrl+Shift+R", "Shuffle all songs"),
+            ("Ctrl+R", "Reverse"),
+            ("Ctrl+Z", "Undo the sort or shuffle"),
         ],
     ),
     (
@@ -337,8 +340,22 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     if take(i, Modifiers::ALT, Key::T) {
         actions.push(ViewAction::ToggleTimeLeft);
     }
-    if super::undo_shown(view) && take(i, Modifiers::COMMAND, Key::Z) {
-        actions.push(SpotifyListsAction::UndoSpotifyRemoval);
+    if take(i, Modifiers::COMMAND, Key::Z) {
+        super::undo(view, actions);
+    }
+    if !browsing && current != PlaylistId::SPOTIFY {
+        let order = if take(i, Modifiers::COMMAND, Key::S) {
+            Some(Order::ArtistAlbums)
+        } else if take(i, Modifiers::COMMAND | Modifiers::SHIFT, Key::R) {
+            Some(Order::Shuffled)
+        } else if take(i, Modifiers::COMMAND, Key::R) {
+            Some(Order::Reversed)
+        } else {
+            None
+        };
+        if let Some(order) = order {
+            actions.push(PlaylistsAction::Reorder(current, order));
+        }
     }
     // Insert opens Browse, to add to the playlist; in Browse it adds.
     if take(i, Modifiers::COMMAND, Key::B)

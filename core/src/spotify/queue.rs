@@ -255,6 +255,7 @@ mod tests {
             },
             duration_ms: 1000,
             source: None,
+            in_album: None,
         }
     }
 

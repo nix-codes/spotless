@@ -6,7 +6,7 @@
 use crate::backend::Store;
 use crate::lastfm::LovedSong;
 use crate::model::catalog::{ReleaseTab, SpotifyTarget};
-use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
+use crate::model::{ArtistRef, EntryId, Order, PlaylistId, TrackRef};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
@@ -104,6 +104,13 @@ pub enum PlaylistsAction {
     /// this index.
     Move(Vec<EntryId>, usize),
     ToggleMarks(Vec<EntryId>),
+    /// Sorts or shuffles a playlist, once. UNDO puts it back.
+    Reorder(PlaylistId, Order),
+    /// Puts back the order from before the last `Reorder`, while nothing
+    /// has changed its songs since.
+    UndoReorder,
+    /// Switches a playlist's headers on or off.
+    SetHeaders(PlaylistId, bool),
 
     SelectPlaylist(PlaylistId),
     NewPlaylist,

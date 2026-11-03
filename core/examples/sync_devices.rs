@@ -83,6 +83,7 @@ fn track(n: usize) -> TrackRef {
         },
         duration_ms: 200_000,
         source: None,
+        in_album: None,
     }
 }
 

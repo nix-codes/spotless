@@ -49,6 +49,8 @@ pub struct View<'a> {
     pub error: Option<&'a str>,
     /// News for the status bar, shown when there is no error.
     pub notice: Option<&'a str>,
+    /// UNDO can put back a playlist's order.
+    pub can_undo_reorder: bool,
     /// The playlist in the editor.
     pub playlist: &'a Playlist,
     /// What's left to play of it from its place, once some has played.
@@ -195,13 +197,24 @@ const MIN_BODY: f32 = 148.0;
 /// The window's height for the playlists when none is known yet.
 const DEFAULT_HEIGHT: f32 = 600.0;
 
-/// Songs or a playlist just removed on Spotify can be put back: UNDO is
-/// in the status bar, and Ctrl+Z does it.
-pub(super) fn undo_shown(view: &View) -> bool {
-    view.browse
-        .undo
-        .as_ref()
-        .is_some_and(|undo| view.error.is_none() && view.notice == Some(undo.notice()))
+/// A playlist's order before a sort or shuffle, or songs or a playlist just
+/// removed on Spotify, can be put back: UNDO is in the status bar, and
+/// Ctrl+Z does it. There's one UNDO, for whichever came last.
+fn undo_shown(view: &View) -> bool {
+    view.can_undo_reorder
+        || view
+            .browse
+            .undo
+            .as_ref()
+            .is_some_and(|undo| view.error.is_none() && view.notice == Some(undo.notice()))
+}
+
+fn undo(view: &View, actions: &mut Actions) {
+    if view.can_undo_reorder {
+        actions.push(PlaylistsAction::UndoReorder);
+    } else if undo_shown(view) {
+        actions.push(SpotifyListsAction::UndoSpotifyRemoval);
+    }
 }
 
 pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
@@ -596,8 +609,8 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
     if button(ui, "F1 · KEYS", "") {
         inputs.help = true;
     }
-    if undo_shown(view) && button(ui, "UNDO", "Puts back what was removed (Ctrl+Z)") {
-        actions.push(SpotifyListsAction::UndoSpotifyRemoval);
+    if undo_shown(view) && button(ui, "UNDO", "Puts it back as it was (Ctrl+Z)") {
+        undo(view, actions);
     }
     if let Some(label) = update_view::status_label(view)
         && button(ui, &label, "")

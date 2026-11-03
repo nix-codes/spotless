@@ -599,5 +599,6 @@ fn unavailable(uri: &str) -> TrackRef {
         },
         duration_ms: 0,
         source: None,
+        in_album: None,
     }
 }

@@ -213,6 +213,7 @@ impl Controller {
                 offline: false,
                 error: None,
                 notice: None,
+                reorder_undo: None,
                 library,
                 transport: Transport::new(playback),
                 viewed,

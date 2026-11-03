@@ -11,7 +11,8 @@ internal! {
 
 pub use library::Library;
 pub use playback::{Playback, Step};
+pub(crate) use playlist::Snapshot;
 pub use playlist::{
-    AlbumRef, ArtistRef, Entry, EntryId, Grouping, Playlist, PlaylistId, Run, Source, TrackRef,
-    from_source,
+    AlbumPlace, AlbumRef, ArtistRef, Entry, EntryId, Grouping, Order, Playlist, PlaylistId, Run,
+    SortHeaders, Source, TrackRef, from_source,
 };

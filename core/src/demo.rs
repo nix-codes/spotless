@@ -4,7 +4,9 @@
 
 use crate::images::CoverImage;
 use crate::model::catalog::{Discography, Release, ReleaseGroup, SpotifyPlaylist};
-use crate::model::{AlbumRef, ArtistRef, EntryId, Library, PlaylistId, Source, TrackRef};
+use crate::model::{
+    AlbumPlace, AlbumRef, ArtistRef, EntryId, Library, PlaylistId, Source, TrackRef,
+};
 
 /// Who is signed in.
 pub const USER: &str = "listener";
@@ -129,6 +131,11 @@ fn songs_of(release: &Release, songs: &[(&str, u32)]) -> Vec<TrackRef> {
             album: album.clone(),
             duration_ms: secs * 1000,
             source: None,
+            in_album: Some(AlbumPlace {
+                date: Some(format!("{}-01-01", release.year)),
+                disc: 1,
+                number: n as u32 + 1,
+            }),
         })
         .collect()
 }
@@ -278,6 +285,7 @@ fn fill(library: &mut Library, id: PlaylistId, songs: &[Song]) {
                 source: Some(Source::album(&album)),
                 album,
                 duration_ms: secs * 1000,
+                in_album: None,
             })
         })
         .collect();

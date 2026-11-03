@@ -24,7 +24,7 @@ use crate::model::catalog::{
     Discography, Place, Release, ReleaseGroup, Songs, SpotifyPlaylist, sort_playlists, tidy,
 };
 use crate::model::playlist::from_source;
-use crate::model::{AlbumRef, ArtistRef, Source, TrackRef};
+use crate::model::{AlbumPlace, AlbumRef, ArtistRef, Source, TrackRef};
 
 /// Accepts `spotify:` URIs and `open.spotify.com` links.
 pub fn parse_uri(text: &str) -> Result<SpotifyUri> {
@@ -388,6 +388,16 @@ fn track_ref(track: &Track) -> TrackRef {
         },
         duration_ms: track.duration.max(0) as u32,
         source: None,
+        in_album: Some(AlbumPlace {
+            // Year 0: the metadata had no date.
+            date: (track.album.date.year() > 0).then(|| {
+                let date = &track.album.date;
+                let month = u8::from(date.month());
+                format!("{:04}-{month:02}-{:02}", date.year(), date.day())
+            }),
+            disc: track.disc_number.max(0) as u32,
+            number: track.number.max(0) as u32,
+        }),
     }
 }
 

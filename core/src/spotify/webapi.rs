@@ -22,7 +22,7 @@ use serde_json::Value;
 use crate::browser::{self, Browser};
 use crate::lastfm::loved::name_key;
 use crate::model::catalog::{Release, ReleaseGroup, SearchResults};
-use crate::model::{AlbumRef, ArtistRef, TrackRef};
+use crate::model::{AlbumPlace, AlbumRef, ArtistRef, TrackRef};
 use crate::store::save_private;
 
 /// The redirect a personal app registers (spotifast uses the same one, so
@@ -412,12 +412,43 @@ fn track_ref(item: &Value) -> Option<TrackRef> {
         },
         duration_ms: item["duration_ms"].as_u64().unwrap_or(0) as u32,
         source: None,
+        in_album: Some(AlbumPlace {
+            date: item["album"]["release_date"].as_str().map(full_date),
+            disc: item["disc_number"].as_u64().unwrap_or(0) as u32,
+            number: item["track_number"].as_u64().unwrap_or(0) as u32,
+        }),
     })
+}
+
+/// A release date as the catalog gives it, whatever Spotify knows of it:
+/// "1995" and "1995-11" fill in the first of the year and month.
+fn full_date(date: &str) -> String {
+    match date.len() {
+        4 => format!("{date}-01-01"),
+        7 => format!("{date}-01"),
+        _ => date.to_string(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_songs_place_in_its_album_fills_in_what_spotify_doesnt_know_of_the_date() {
+        let song = |date: &str| {
+            track_ref(&serde_json::json!({
+                "uri": "spotify:track:1", "name": "One", "disc_number": 2, "track_number": 7,
+                "album": {"uri": "spotify:album:1", "name": "A", "release_date": date},
+            }))
+            .and_then(|track| track.in_album)
+            .unwrap()
+        };
+        assert_eq!(song("1995").date.as_deref(), Some("1995-01-01"));
+        assert_eq!(song("1995-11").date.as_deref(), Some("1995-11-01"));
+        assert_eq!(song("1995-11-20").date.as_deref(), Some("1995-11-20"));
+        assert_eq!((song("1995").disc, song("1995").number), (2, 7));
+    }
 
     fn token(refresh: &str) -> OAuthToken {
         OAuthToken {

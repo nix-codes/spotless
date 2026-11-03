@@ -55,6 +55,12 @@ Spotify only allows playback in other apps for Premium accounts.
 - **Playlists in tabs.** As many as you like, saved between sessions;
   close the last one and an empty *Default* takes its place. Rename a tab
   by double-clicking it; reorder songs and tabs by dragging.
+- **Sort and shuffle a playlist** (desktop). SORT sorts it by artist, with
+  each artist's albums by date or their songs shuffled, shuffles all its
+  songs or reverses it, once, like moving songs by hand; UNDO puts it back
+  until the playlist next changes. Its headers follow: by album or artist
+  after a sort, none after a shuffle, by where they came from for songs
+  added since. HEADERS switches them off for that playlist.
 - **Synced playlists.** A playlist stays on the device it's on, unless you
   sync it: *Sync* in its tab's menu (on Android, hold the tab) keeps it the
   same on your other devices, its songs and the song it's up to (shown

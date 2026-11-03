@@ -1,9 +1,8 @@
 //! The rows of the playlist shown: headers over runs, dragging, and the
 //! glide to the playing song.
 
-use std::collections::BTreeSet;
-
 use egui::scroll_area::ScrollBarVisibility;
+use egui::text::{LayoutJob, TextWrapping};
 use egui::{Align2, Color32, DragAndDrop, FontId, Rect, ScrollArea, Sense, Stroke, Ui, pos2, vec2};
 
 use super::menu::{Choice, Menu, all_loved, all_marked, row_menu, selected_tracks, send};
@@ -17,6 +16,12 @@ use crate::ui::widgets::{drag_ghost, row_heart, row_length};
 use spotless_core::model::{EntryId, Playlist, Run};
 
 const ROW_HEIGHT: f32 = 18.0;
+/// How high the empty header that ends a run is.
+const END_HEIGHT: f32 = 10.0;
+/// How far songs under a header sit in.
+const UNDER_INDENT: f32 = 10.0;
+/// The most of a row the album beside a song takes.
+const ALBUM_SHARE: f32 = 0.45;
 /// The longest a jump to the playing song glides, in screens: further, it
 /// cuts to that far off first.
 const GLIDE_SCREENS: f32 = 3.0;
@@ -91,25 +96,31 @@ pub(super) fn glide(
     Some(offset.min(furthest))
 }
 
-/// A line of the list: the header over a run, or a song, by its
-/// index.
+/// A line of the list: the header over a run; a song, by its index, and
+/// whether a header is over it; or the empty header that ends a run of those,
+/// by the index of the song after it.
 #[derive(Clone, Copy)]
 enum Line {
     Header(Run),
-    Song(usize),
+    Song(usize, bool),
+    End(usize),
 }
 
 /// The list's lines, and the line each song is on.
 fn lines(list: &Playlist, runs: &[Run]) -> (Vec<Line>, Vec<usize>) {
     let mut lines = Vec::with_capacity(list.len());
     let mut line_of = Vec::with_capacity(list.len());
+    let mut under = false;
     for &run in runs {
         if run.header {
             lines.push(Line::Header(run));
+        } else if under {
+            lines.push(Line::End(run.start));
         }
+        under = run.header;
         for index in run.start..run.start + run.len {
             line_of.push(lines.len());
-            lines.push(Line::Song(index));
+            lines.push(Line::Song(index, under));
         }
     }
     (lines, line_of)
@@ -129,14 +140,8 @@ pub(super) fn draw_rows(
     let mut area = ScrollArea::vertical()
         .auto_shrink([false, false])
         .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden);
-    let runs = list.runs(view.settings.grouping);
+    let runs = list.song_runs();
     let (lines, line_of) = lines(list, &runs);
-    // The songs after a header's run that aren't one: a line sets them off.
-    let set_off: BTreeSet<usize> = runs
-        .iter()
-        .filter(|run| !run.header && run.start > 0)
-        .map(|run| run.start)
-        .collect();
     let furthest = (lines.len() as f32 * ROW_HEIGHT - ui.available_height()).max(0.0);
     let thumb_to = bar.interact(ui, slot, selection.offset, furthest);
     if let Some(index) = selection.reveal.take() {
@@ -176,8 +181,19 @@ pub(super) fn draw_rows(
     let output = area.show_rows(ui, ROW_HEIGHT, lines.len(), |ui, range| {
         let viewport = ui.clip_rect();
         for line in range {
-            let index = match lines[line] {
-                Line::Song(index) => index,
+            let (index, under) = match lines[line] {
+                Line::Song(index, under) => (index, under),
+                Line::End(index) => {
+                    let rect = end_of_run(ui, &palette);
+                    if dragging.is_some()
+                        && let Some(p) = pointer
+                        && viewport.contains(p)
+                        && rect.y_range().contains(p.y)
+                    {
+                        drop_at = Some((index, rect.center().y));
+                    }
+                    continue;
+                }
                 Line::Header(run) => {
                     let (rect, choice) = header(ui, view, selection, run, actions);
                     chosen = chosen.or(choice);
@@ -204,14 +220,15 @@ pub(super) fn draw_rows(
             if selection.rows.len() > 1 && selection.cursor == Some(entry.id) {
                 theme::focus_ring(&painter, rect.expand(1.0), &palette);
             }
-            paint_row(&painter, rect, view, list, index, number_width, current);
-            if set_off.contains(&index) {
-                painter.hline(
-                    rect.x_range(),
-                    rect.top() + 0.5,
-                    Stroke::new(1.0, palette.lcd.gamma_multiply(0.3)),
-                );
-            }
+            paint_row(
+                &painter,
+                rect,
+                view,
+                list,
+                (index, under),
+                number_width,
+                current,
+            );
 
             if response.double_clicked() {
                 selection.select(entry.id, index);
@@ -310,6 +327,21 @@ fn header_bg(palette: &Palette) -> Color32 {
     palette.lcd.gamma_multiply(0.12)
 }
 
+/// An empty header, ending the run above it so the songs below don't read as
+/// part of it. Lower than a header, in a line as high as any.
+fn end_of_run(ui: &mut Ui, palette: &Palette) -> Rect {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::hover());
+    let bar = Rect::from_center_size(rect.center(), vec2(rect.width(), END_HEIGHT));
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(bar, 0.0, header_bg(palette));
+    let mark = Rect::from_center_size(
+        pos2(rect.left() + 6.0, rect.center().y),
+        vec2(2.0, END_HEIGHT),
+    );
+    painter.rect_filled(mark, 0.0, palette.accent);
+    rect
+}
+
 /// The header over a run: the name of its album, or of where its songs
 /// came from, and its artist or what it is. A click selects the run (Ctrl adds or takes it away); a double-click
 /// plays it; a right-click selects it and opens the rows' menu.
@@ -338,7 +370,7 @@ fn header(
     );
     let mark = Rect::from_center_size(pos2(rect.left() + 6.0, rect.center().y), vec2(2.0, 10.0));
     painter.rect_filled(mark, 0.0, palette.accent);
-    let (name, detail) = list.heading(run, view.settings.grouping);
+    let (name, detail) = list.song_heading(run);
     let font = FontId::monospace(10.0);
     let name = painter.text(
         pos2(rect.left() + 14.0, rect.center().y),
@@ -400,11 +432,12 @@ fn paint_row(
     rect: Rect,
     view: &View,
     list: &Playlist,
-    index: usize,
+    (index, under): (usize, bool),
     number_width: usize,
     current: Option<EntryId>,
 ) {
     let palette = view.palette;
+    let indent = if under { UNDER_INDENT } else { 0.0 };
     let entry = &list.entries()[index];
     let color = if Some(entry.id) == current {
         palette.current
@@ -413,7 +446,7 @@ fn paint_row(
     };
     let mono = FontId::monospace(11.0);
     painter.text(
-        rect.left_center() + vec2(4.0, 0.0),
+        rect.left_center() + vec2(4.0 + indent, 0.0),
         Align2::LEFT_CENTER,
         format!("{:>number_width$}.", index + 1),
         mono.clone(),
@@ -433,7 +466,17 @@ fn paint_row(
         );
         text_right = badge.left() - 8.0;
     }
-    let left = rect.left() + 12.0 + (number_width as f32 + 1.0) * 7.0;
+    let left = rect.left() + 12.0 + indent + (number_width as f32 + 1.0) * 7.0;
+    if let Some(album) = list.album_beside(index, under) {
+        let widest = (text_right - left) * ALBUM_SHARE;
+        let mut job = LayoutJob::simple_singleline(album, FontId::monospace(10.0), palette.dim);
+        job.wrap = TextWrapping::truncate_at_width(widest);
+        let galley = painter.layout_job(job);
+        let top = rect.center().y - galley.size().y / 2.0;
+        let at = text_right - galley.size().x;
+        painter.galley(pos2(at, top), galley, palette.dim);
+        text_right = at - 8.0;
+    }
     let artists = entry
         .track
         .artists

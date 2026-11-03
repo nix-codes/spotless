@@ -8,12 +8,20 @@ use super::SyncStatus;
 use crate::backend::{SearchState, SessionState, Storage};
 use crate::browse::{Browse, Loadable};
 use crate::lastfm::{LastFmState, Loved};
-use crate::model::{Library, Playlist, PlaylistId, TrackRef};
+use crate::model::{EntryId, Snapshot, Library, Playlist, PlaylistId, TrackRef};
 use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
 use crate::playback::outputs::Output;
 use crate::playback::transport::Transport;
 use crate::spotify::queue::SpotifyQueue;
 use crate::store::Settings;
+
+/// A playlist's order from before a sort or shuffle, for as long as nothing
+/// has changed its songs since: while they're still in `after`.
+pub(crate) struct ReorderUndo {
+    pub(crate) list: PlaylistId,
+    pub(crate) before: Snapshot,
+    pub(crate) after: Vec<EntryId>,
+}
 
 /// What the interface shows. It reads it; only the controller changes it.
 pub struct State {
@@ -25,6 +33,8 @@ pub struct State {
     pub error: Option<String>,
     pub notice: Option<String>,
     pub library: Library,
+    /// What UNDO puts back after a sort or shuffle.
+    pub(crate) reorder_undo: Option<ReorderUndo>,
     pub(crate) transport: Transport,
     /// The playlist shown in the editor.
     pub viewed: PlaylistId,
@@ -206,6 +216,15 @@ impl State {
 
     /// The playlist the player's buttons and edits act on: the one shown,
     /// or with the Spotify tab shown, the one local playback played.
+    /// UNDO can put a playlist back as it was before a sort or shuffle.
+    pub fn can_undo_reorder(&self) -> bool {
+        self.reorder_undo.as_ref().is_some_and(|undo| {
+            self.library
+                .get(undo.list)
+                .is_some_and(|list| list.order() == undo.after)
+        })
+    }
+
     pub(super) fn local_viewed(&self) -> PlaylistId {
         match self.viewed {
             PlaylistId::SPOTIFY => self

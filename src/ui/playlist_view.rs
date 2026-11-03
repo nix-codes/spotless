@@ -15,10 +15,10 @@
 use egui::{Align, Id, Layout, Rect, RichText, Ui, UiBuilder, pos2};
 
 use super::scrollbar::Scrollbar;
-use super::widgets::{Glyph, small_action, small_glyph, tip};
+use super::widgets::{Glyph, sized_toggle, small_action, small_glyph, tip};
 use super::{Inputs, View, spotify_view};
 use crate::action::{Actions, BrowseAction, PlaylistsAction};
-use spotless_core::model::{EntryId, Playlist, PlaylistId};
+use spotless_core::model::{EntryId, Order, Playlist, PlaylistId};
 
 mod menu;
 mod rows;
@@ -158,6 +158,11 @@ fn toolbar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
                 actions,
             );
         }
+        sort_menu(ui, view, actions);
+        let headers = sized_toggle(ui, &palette, "HEADERS", list.headers_on());
+        if tip(headers, "Headers in this playlist, on or off").clicked() {
+            actions.push(PlaylistsAction::SetHeaders(list.id, !list.headers_on()));
+        }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.label(
                 RichText::new(summary(list, view.left_ms))
@@ -166,6 +171,44 @@ fn toolbar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
                     .color(palette.dim),
             );
         });
+    });
+}
+
+/// SORT: what reorders the playlist, once.
+fn sort_menu(ui: &mut Ui, view: &View, actions: &mut Actions) {
+    let list = view.playlist;
+    let button = small_action(ui, &view.palette, "SORT ▾", list.len() > 1);
+    let button = tip(button, "Sort or shuffle this playlist");
+    egui::Popup::menu(&button).show(|ui| {
+        ui.set_min_width(320.0);
+        let mut item = |ui: &mut Ui, order: Order, name: &str, key: &str| {
+            let name = RichText::new(name).monospace().size(11.0);
+            let key = RichText::new(key)
+                .monospace()
+                .size(10.0)
+                .color(view.palette.dim);
+            let item = egui::Button::new(name)
+                .right_text(key)
+                .frame_when_inactive(false);
+            if ui.add(item).clicked() {
+                actions.push(PlaylistsAction::Reorder(list.id, order));
+            }
+        };
+        item(
+            ui,
+            Order::ArtistAlbums,
+            "Sort by artist, albums by date",
+            "Ctrl+S",
+        );
+        item(
+            ui,
+            Order::ArtistShuffled,
+            "Sort by artist, songs shuffled",
+            "",
+        );
+        ui.separator();
+        item(ui, Order::Shuffled, "Shuffle all songs", "Ctrl+Shift+R");
+        item(ui, Order::Reversed, "Reverse", "Ctrl+R");
     });
 }
 

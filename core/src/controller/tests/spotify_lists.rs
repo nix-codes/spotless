@@ -281,3 +281,30 @@ fn songs_copied_to_spotify_are_sent_once_signed_in() {
             .any(|c| matches!(c, Command::SpotifyPlaylists))
     );
 }
+
+#[test]
+fn undo_is_for_whichever_came_last_a_reorder_or_a_removal_on_spotify() {
+    let mut rig = Rig::new("one-undo");
+    rig.controller
+        .apply(BrowseAction::AddTracks(tracks([1, 2])));
+    let reorder = PlaylistsAction::Reorder(PlaylistId::DEFAULT, Order::Reversed);
+    rig.controller.apply(reorder.clone());
+    assert!(rig.controller.state().can_undo_reorder());
+    rig.tell(Event::SpotifyUnlisted {
+        result: Ok(Unlisted {
+            playlist: "spotify:playlist:mine".into(),
+            name: "Mine".into(),
+            at: 1,
+            item: vec![1],
+            notice: "Deleted “Mine” on Spotify.".into(),
+        }),
+        undo: false,
+    });
+    let state = rig.controller.state();
+    assert!(!state.can_undo_reorder());
+    assert!(state.browse.undo.is_some());
+    rig.controller.apply(reorder);
+    let state = rig.controller.state();
+    assert!(state.can_undo_reorder());
+    assert!(state.browse.undo.is_none());
+}

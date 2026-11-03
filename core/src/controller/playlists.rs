@@ -2,6 +2,7 @@
 //! renaming and moving them, and adding, moving and removing their songs.
 
 use super::Controller;
+use super::state::ReorderUndo;
 use crate::action::PlaylistsAction;
 use crate::backend::Command;
 use crate::model::{EntryId, PlaylistId, TrackRef};
@@ -100,6 +101,43 @@ impl Controller {
                     }
                 }
                 state.transport.edited(library, viewed)
+            }
+            PlaylistsAction::Reorder(list, order) => {
+                let Some(playlist) = library.get_mut(list).filter(|l| l.len() > 1) else {
+                    return;
+                };
+                let before = playlist.snapshot();
+                playlist.reorder(order, &mut fastrand::Rng::new());
+                state.notice = Some(format!("{}: {}", order.done(), playlist.name));
+                state.reorder_undo = Some(ReorderUndo {
+                    list,
+                    before,
+                    after: playlist.order(),
+                });
+                // One UNDO: it's for what happened last.
+                state.browse.undo = None;
+                state.transport.edited(library, list)
+            }
+            PlaylistsAction::UndoReorder => {
+                let Some(undo) = state.reorder_undo.take() else {
+                    return;
+                };
+                let Some(playlist) = library
+                    .get_mut(undo.list)
+                    .filter(|playlist| playlist.order() == undo.after)
+                else {
+                    return;
+                };
+                playlist.restore(undo.before);
+                state.viewed = undo.list;
+                state.notice = None;
+                state.transport.edited(library, undo.list)
+            }
+            PlaylistsAction::SetHeaders(list, on) => {
+                if let Some(playlist) = library.get_mut(list) {
+                    playlist.set_headers_on(on);
+                }
+                return self.mark_unsaved();
             }
             PlaylistsAction::CopyTo(list, tracks) => {
                 self.insert_tracks(list, None, tracks);

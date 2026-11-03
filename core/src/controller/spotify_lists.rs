@@ -102,6 +102,7 @@ impl Controller {
             Ok(()) => {
                 self.state.notice = Some(removal.notice.clone());
                 self.state.browse.undo = Some(Undo::Songs(removal.clone()));
+                self.state.reorder_undo = None;
             }
             Err(error) => self.state.error = Some(error),
         }
@@ -175,6 +176,7 @@ impl Controller {
                     self.apply(PlaylistsAction::ClosePlaylist(id));
                 }
                 self.state.browse.undo = Some(Undo::Playlist(unlisted));
+                self.state.reorder_undo = None;
             }
             Err(error) => self.state.error = Some(error),
         }

@@ -772,6 +772,7 @@ mod tests {
             player: &player,
             error: None,
             notice: None,
+            can_undo_reorder: false,
             playlist: library.get(PlaylistId::DEFAULT).unwrap(),
             left_ms: None,
             shuffle: false,

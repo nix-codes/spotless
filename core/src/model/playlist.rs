@@ -8,6 +8,11 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
+mod order;
+
+pub(crate) use order::Snapshot;
+pub use order::{Order, SortHeaders};
+
 use super::sync::{ItemId, Link, Position};
 
 /// Unique for the app's lifetime and persisted, so the same song added twice
@@ -74,6 +79,19 @@ pub struct TrackRef {
     /// search, or added before Spotless kept it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<Source>,
+    /// Its place in its album. None for a song saved before Spotless kept it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_album: Option<AlbumPlace>,
+}
+
+/// A song's place in its album, which a sort goes by.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AlbumPlace {
+    /// The album's release date: "YYYY-MM-DD", the first of the month or
+    /// year where Spotify doesn't know the day.
+    pub date: Option<String>,
+    pub disc: u32,
+    pub number: u32,
 }
 
 /// These songs, as added from `source`.
@@ -87,7 +105,8 @@ pub fn from_source(tracks: Vec<TrackRef>, source: &Source) -> Vec<TrackRef> {
         .collect()
 }
 
-/// What the list puts its songs under headers by. A setting.
+/// What the list puts its songs under headers by. The Android app's setting:
+/// the desktop's headers are each playlist's own (`order`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Grouping {
     /// Where they were added from; those added on their own, by none.
@@ -180,6 +199,12 @@ pub struct Playlist {
     /// Synced: kept on Spotify too, in this playlist.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) sync: Option<Link>,
+    /// What the last sort left its songs grouped by.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sorted: Option<SortHeaders>,
+    /// Its headers are switched off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    headers_off: bool,
 }
 
 impl Playlist {
@@ -193,6 +218,8 @@ impl Playlist {
             resume_ms: 0,
             play_next: Vec::new(),
             sync: None,
+            sorted: None,
+            headers_off: false,
         }
     }
 
@@ -282,18 +309,7 @@ impl Playlist {
             (Grouping::Source, Some(source)) => source,
             _ => return (track.album.name.clone(), artist()),
         };
-        let uri = source.uri.as_str();
-        let detail = if uri.starts_with("spotify:album:") {
-            artist()
-        } else if uri.starts_with("spotify:playlist:") {
-            Some("Spotify playlist".into())
-        } else if uri.starts_with("spotify:artist:") {
-            Some("Artist".into())
-        } else if uri.contains(":collection") {
-            Some("Spotify".into())
-        } else {
-            None
-        };
+        let detail = order::source_detail(track, source);
         (source.name.clone(), detail)
     }
 
@@ -516,6 +532,7 @@ pub(crate) mod tests {
                     name: String::new(),
                 },
                 duration_ms: 180_000,
+                in_album: None,
                 source: None,
             },
             item: None,
