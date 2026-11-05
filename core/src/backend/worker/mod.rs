@@ -510,6 +510,15 @@ mod tests {
             || {},
         )
         .unwrap();
+        // A sign-in's page opens when its task first runs, which a busy
+        // computer can take a while to get to.
+        let pages_reach = |count: i32| {
+            let until = std::time::Instant::now() + Duration::from_secs(5);
+            while *pages.lock().unwrap() < count && std::time::Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            *pages.lock().unwrap() == count
+        };
         let session = |event: &Event| matches!(event, Event::Session(_));
         let signed_out = |e: &Event| matches!(e, Event::Session(SessionState::SignedOut));
         assert!(next(&backend, signed_out).is_some());
@@ -524,6 +533,8 @@ mod tests {
             next(&backend, |e| matches!(e, Event::Storage(_))).is_some(),
             "the commands go on while the sign-in waits"
         );
+        // Given up before that, it would never open its page.
+        assert!(pages_reach(1), "the first page opens");
 
         // Signing in again opens a new page: the first gave its port up.
         backend.send(Command::SignIn);
@@ -531,13 +542,7 @@ mod tests {
             next(&backend, session),
             Some(Event::Session(SessionState::SigningIn))
         ));
-        // Its page opens once it has the port, which a busy computer can
-        // take a while to give.
-        let until = std::time::Instant::now() + Duration::from_secs(5);
-        while *pages.lock().unwrap() < 2 && std::time::Instant::now() < until {
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        assert_eq!(*pages.lock().unwrap(), 2);
+        assert!(pages_reach(2), "the second page opens");
         let failed = |e: &Event| matches!(e, Event::Session(SessionState::Failed(_)));
         assert!(
             next(&backend, failed).is_none(),
