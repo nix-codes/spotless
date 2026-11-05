@@ -13,6 +13,6 @@ pub use library::Library;
 pub use playback::{Playback, Step};
 pub(crate) use playlist::Snapshot;
 pub use playlist::{
-    AlbumPlace, AlbumRef, ArtistRef, Entry, EntryId, Grouping, Order, Playlist, PlaylistId, Run,
-    SortHeaders, Source, TrackRef, from_source,
+    AlbumPlace, AlbumRef, ArtistRef, Entry, EntryId, Order, Playlist, PlaylistId, Run, SortHeaders,
+    Source, TrackRef, from_source,
 };

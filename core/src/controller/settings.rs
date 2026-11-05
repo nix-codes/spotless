@@ -17,10 +17,6 @@ impl Controller {
                 state.settings.phosphor = phosphor;
                 self.mark_unsaved();
             }
-            SettingsAction::SetGrouping(grouping) => {
-                state.settings.grouping = grouping;
-                self.mark_unsaved();
-            }
             SettingsAction::SetLevelling(on) => {
                 state.settings.levelling = on;
                 self.mark_unsaved();

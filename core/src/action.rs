@@ -32,7 +32,6 @@ pub enum SettingsAction {
     /// Draws the lists and the display in this colour.
     SetPhosphor(crate::phosphor::Phosphor),
     /// Puts the playlists' songs under headers by this.
-    SetGrouping(crate::model::playlist::Grouping),
     /// The audio cache on or off, from the next start.
     SetAudioCache(bool),
     /// The audio cache's limit in MB, from the next start.

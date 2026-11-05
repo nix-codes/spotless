@@ -3,10 +3,10 @@
 use spotless_core::browse::{self as core_browse, Find, Loadable, Page};
 use spotless_core::lastfm::{self, LastFmStatus, LovedSong as CoreLovedSong};
 use spotless_core::model::catalog::{self, ReleaseGroup as CoreGroup, ReleaseTab as CoreTab};
-use spotless_core::model::from_source;
 use spotless_core::model::{
-    AlbumRef, ArtistRef, Grouping, Playlist, PlaylistId, Source as CoreSource, TrackRef,
+    AlbumRef, ArtistRef, Playlist, PlaylistId, Source as CoreSource, TrackRef,
 };
+use spotless_core::model::{Order, from_source};
 use spotless_core::playback;
 use spotless_core::session::{SearchState as CoreSearchState, SessionState};
 use spotless_core::settings::AUDIO_CACHE_SIZES;
@@ -274,6 +274,9 @@ pub struct Tabs {
     /// A playlist not synced because the Spotless folder has its name:
     /// renamed, it's synced; or ReplaceSynced, or DismissSyncNameTaken.
     pub sync_name_taken: Option<u64>,
+    /// The playlist UNDO can put back as it was before its last sort or
+    /// shuffle (UndoReorder).
+    pub reorder_undone: Option<u64>,
 }
 
 pub(crate) fn tabs(state: &State) -> Tabs {
@@ -310,6 +313,7 @@ pub(crate) fn tabs(state: &State) -> Tabs {
             .collect(),
         viewed: state.viewed.0,
         sync_name_taken: state.sync_name_taken.map(|id| id.0),
+        reorder_undone: state.reorder_undone().map(|id| id.0),
     }
 }
 
@@ -411,11 +415,16 @@ pub struct Song {
     pub track: Track,
     /// The number of its Q mark: it plays next, in that order.
     pub mark: Option<u32>,
-    /// It starts a run of songs from one album or source (as Settings
-    /// chooses), under this header.
+    /// It starts a run of songs from one source, or one group of the last
+    /// sort, under this header.
     pub header: Option<Header>,
-    /// It follows a header's run without starting one: a line sets it off.
-    pub set_off: bool,
+    /// It's in a header's run, so it sits in a little.
+    pub under: bool,
+    /// It follows a header's run without starting one: an empty header
+    /// ends that run above it.
+    pub ends_run: bool,
+    /// Its album, shown beside it where no header says it.
+    pub album: Option<String>,
     /// Loved on Last.fm.
     pub loved: bool,
 }
@@ -442,12 +451,39 @@ pub struct PlaylistView {
     /// What's left to play from the song the pointer is on, once some has
     /// played.
     pub left_ms: Option<u64>,
+    /// Its headers are on (SetHeaders).
+    pub headers_on: bool,
+}
+
+/// How SORT reorders a playlist, once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum SortOrder {
+    /// By artist, each artist's albums by date, each album's songs in order.
+    ArtistAlbums,
+    /// By artist, each artist's songs shuffled.
+    ArtistShuffled,
+    Shuffled,
+    Reversed,
+}
+
+impl From<SortOrder> for Order {
+    fn from(order: SortOrder) -> Self {
+        match order {
+            SortOrder::ArtistAlbums => Self::ArtistAlbums,
+            SortOrder::ArtistShuffled => Self::ArtistShuffled,
+            SortOrder::Shuffled => Self::Shuffled,
+            SortOrder::Reversed => Self::Reversed,
+        }
+    }
 }
 
 pub(crate) fn playlist(state: &State, id: PlaylistId) -> Option<PlaylistView> {
     let list = state.library.get(id)?;
-    let by = state.settings.grouping;
-    let runs = list.runs(by);
+    let runs = list.song_runs();
+    let run_of = |index: usize| {
+        runs.iter()
+            .find(|run| (run.start..run.start + run.len).contains(&index))
+    };
     let run_at = |index: usize| runs.iter().find(|run| run.start == index);
     Some(PlaylistView {
         id: list.id.0,
@@ -461,20 +497,23 @@ pub(crate) fn playlist(state: &State, id: PlaylistId) -> Option<PlaylistView> {
                 track: (&entry.track).into(),
                 mark: list.mark_number(entry.id).map(count),
                 header: run_at(index).filter(|run| run.header).map(|&run| {
-                    let (name, detail) = list.heading(run, by);
+                    let (name, detail) = list.song_heading(run);
                     Header {
                         songs: count(run.len),
                         name,
                         detail,
                     }
                 }),
-                set_off: run_at(index).is_some_and(|run| !run.header && index > 0),
+                under: run_of(index).is_some_and(|run| run.header),
+                ends_run: run_at(index).is_some_and(|run| !run.header && index > 0),
+                album: list.album_beside(index, run_of(index).is_some_and(|run| run.header)),
                 loved: state.loved.track(&entry.track),
             })
             .collect(),
         cursor: list.cursor().map(|id| id.0),
         duration_ms: duration(list),
         left_ms: state.left_ms(id),
+        headers_on: list.headers_on(),
     })
 }
 
@@ -1139,8 +1178,6 @@ pub struct SettingsView {
     pub lastfm_secret: String,
     /// The colour of the lists and the display, by its key.
     pub phosphor: String,
-    /// What the playlists' songs sit under headers by, by its key.
-    pub song_headers: String,
     /// The Spotify tab can be used (Settings).
     pub spotify_tab_enabled: bool,
     /// The Spotify tab is offered in Settings at all.
@@ -1241,25 +1278,6 @@ pub fn phosphors() -> Vec<PhosphorView> {
         .collect()
 }
 
-/// A way to put the playlists' songs under headers.
-#[derive(Clone, Debug, PartialEq, uniffi::Record)]
-pub struct GroupingView {
-    pub key: String,
-    pub name: String,
-}
-
-/// Every way, in the order Settings lists them.
-#[uniffi::export]
-pub fn groupings() -> Vec<GroupingView> {
-    Grouping::ALL
-        .into_iter()
-        .map(|grouping| GroupingView {
-            key: grouping.key().into(),
-            name: grouping.name().into(),
-        })
-        .collect()
-}
-
 pub(crate) fn settings(state: &State) -> SettingsView {
     let settings = &state.settings;
     SettingsView {
@@ -1281,7 +1299,6 @@ pub(crate) fn settings(state: &State) -> SettingsView {
         lastfm_key: state.lastfm.api_key.clone(),
         lastfm_secret: state.lastfm.secret.clone(),
         phosphor: settings.phosphor.key().into(),
-        song_headers: settings.grouping.key().into(),
         spotify_tab_enabled: settings.spotify_tab_enabled,
         spotify_tab_offered: spotless_core::settings::SPOTIFY_TAB,
         spotify_tab_closed: settings.spotify_tab_enabled && !settings.spotify_tab,

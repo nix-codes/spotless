@@ -116,7 +116,6 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
 
     /** The colours Settings offers. */
     val phosphors = dev.spotless.core.phosphors()
-    val groupings = dev.spotless.core.groupings()
     private var coloured = false
 
     /**

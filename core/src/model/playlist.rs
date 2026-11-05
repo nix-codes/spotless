@@ -105,57 +105,6 @@ pub fn from_source(tracks: Vec<TrackRef>, source: &Source) -> Vec<TrackRef> {
         .collect()
 }
 
-/// What the list puts its songs under headers by. The Android app's setting:
-/// the desktop's headers are each playlist's own (`order`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Grouping {
-    /// Where they were added from; those added on their own, by none.
-    #[default]
-    Source,
-    /// Their album.
-    Album,
-    /// Nothing: no headers.
-    None,
-}
-
-impl Grouping {
-    pub const ALL: [Self; 3] = [Self::Source, Self::Album, Self::None];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Source => "Where they came from",
-            Self::Album => "Album",
-            Self::None => "None",
-        }
-    }
-
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::Source => "source",
-            Self::Album => "album",
-            Self::None => "none",
-        }
-    }
-
-    pub fn from_key(key: Option<&str>) -> Self {
-        match key {
-            Some("album") => Self::Album,
-            Some("none") => Self::None,
-            _ => Self::Source,
-        }
-    }
-
-    /// What songs share to sit under one header: None, nothing.
-    fn key_of(self, track: &TrackRef) -> Option<&str> {
-        let key = match self {
-            Self::Source => track.source.as_ref().map(|source| source.uri.as_str()),
-            Self::Album => Some(track.album.uri.as_str()),
-            Self::None => None,
-        };
-        key.filter(|key| !key.is_empty())
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub id: EntryId,
@@ -167,7 +116,7 @@ pub struct Entry {
 }
 
 /// A run of songs the list shows together. Two or more in a row from one
-/// album, or one source (see [`Grouping`]), are a `header` run, under a
+/// source, or one group of the last sort, are a `header` run, under a
 /// header with its name. The songs between those, each alone there, make
 /// one plain run, set off from the header run before it by a line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -271,46 +220,6 @@ impl Playlist {
 
     pub fn index_of(&self, id: EntryId) -> Option<usize> {
         self.entries.iter().position(|entry| entry.id == id)
-    }
-
-    /// The list cut into runs, in order, by `by`; see [`Run`].
-    pub fn runs(&self, by: Grouping) -> Vec<Run> {
-        let mut runs: Vec<Run> = Vec::new();
-        let mut start = 0;
-        while start < self.entries.len() {
-            let len = match by.key_of(&self.entries[start].track) {
-                None => 1,
-                Some(key) => self.entries[start..]
-                    .iter()
-                    .take_while(|entry| by.key_of(&entry.track) == Some(key))
-                    .count(),
-            };
-            match runs.last_mut() {
-                Some(last) if len == 1 && !last.header => last.len += 1,
-                _ => runs.push(Run {
-                    start,
-                    len,
-                    header: len > 1,
-                }),
-            }
-            start += len;
-        }
-        runs
-    }
-
-    /// A header run's name, and what it is, or whose, when that says
-    /// more: an album's artist, "Spotify playlist", "Artist".
-    pub fn heading(&self, run: Run, by: Grouping) -> (String, Option<String>) {
-        let Some(track) = self.entries.get(run.start).map(|entry| &entry.track) else {
-            return (String::new(), None);
-        };
-        let artist = || track.artists.first().map(|artist| artist.name.clone());
-        let source = match (by, &track.source) {
-            (Grouping::Source, Some(source)) => source,
-            _ => return (track.album.name.clone(), artist()),
-        };
-        let detail = order::source_detail(track, source);
-        (source.name.clone(), detail)
     }
 
     pub fn get(&self, id: EntryId) -> Option<&Entry> {
@@ -551,44 +460,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn albums_of_two_or_more_get_a_run_and_lone_songs_share_one() {
-        let mut list = Playlist::new(PlaylistId(1), "Test");
-        let on = |id, album: &str| {
-            let mut entry = entry(id);
-            entry.track.album.uri = album.to_string();
-            entry
-        };
-        list.append(vec![
-            on(1, "a"),
-            on(2, "b"),
-            on(3, "b"),
-            on(4, "b"),
-            on(5, "c"),
-            on(6, "d"),
-            on(7, ""),
-            on(8, ""),
-            on(9, "e"),
-            on(10, "e"),
-            on(11, "f"),
-        ]);
-        let run = |start, len, header| Run { start, len, header };
-        assert_eq!(
-            list.runs(Grouping::Album),
-            [
-                run(0, 1, false),
-                run(1, 3, true),
-                run(4, 4, false),
-                run(8, 2, true),
-                run(10, 1, false),
-            ]
-        );
-        assert_eq!(list.runs(Grouping::None), [run(0, 11, false)]);
-        let empty = Playlist::new(PlaylistId(1), "Test");
-        assert_eq!(empty.runs(Grouping::Album), []);
-        assert_eq!(empty.runs(Grouping::None), []);
-    }
-
-    #[test]
     fn songs_from_one_source_get_a_run_whatever_their_albums() {
         let mut list = Playlist::new(PlaylistId(1), "Test");
         let late = Source {
@@ -616,18 +487,12 @@ pub(crate) mod tests {
             on(7, "a", None),
         ]);
         let run = |start, len, header| Run { start, len, header };
-        let runs = list.runs(Grouping::Source);
+        let runs = list.song_runs();
         assert_eq!(runs, [run(0, 3, true), run(3, 2, true), run(5, 2, false)]);
         assert_eq!(
-            list.heading(runs[0], Grouping::Source),
+            list.song_heading(runs[0]),
             ("Late Trains".into(), Some("Spotify playlist".into()))
         );
-        // By album, the songs added on their own join their album's.
-        assert_eq!(
-            list.runs(Grouping::Album),
-            [run(0, 3, false), run(3, 4, true)]
-        );
-        assert_eq!(list.heading(run(3, 4, true), Grouping::Album).0, "A");
     }
 
     #[test]

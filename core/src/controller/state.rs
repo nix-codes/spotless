@@ -214,17 +214,22 @@ impl State {
         }
     }
 
-    /// The playlist the player's buttons and edits act on: the one shown,
-    /// or with the Spotify tab shown, the one local playback played.
     /// UNDO can put a playlist back as it was before a sort or shuffle.
     pub fn can_undo_reorder(&self) -> bool {
-        self.reorder_undo.as_ref().is_some_and(|undo| {
-            self.library
-                .get(undo.list)
-                .is_some_and(|list| list.order() == undo.after)
-        })
+        self.reorder_undone().is_some()
     }
 
+    /// The playlist UNDO would put back as it was before a sort or shuffle.
+    pub fn reorder_undone(&self) -> Option<PlaylistId> {
+        let undo = self.reorder_undo.as_ref()?;
+        self.library
+            .get(undo.list)
+            .is_some_and(|list| list.order() == undo.after)
+            .then_some(undo.list)
+    }
+
+    /// The playlist the player's buttons and edits act on: the one shown,
+    /// or with the Spotify tab shown, the one local playback played.
     pub(super) fn local_viewed(&self) -> PlaylistId {
         match self.viewed {
             PlaylistId::SPOTIFY => self

@@ -11,7 +11,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::model::{ArtistRef, Grouping, Library, PlaylistId};
+use crate::model::{ArtistRef, Library, PlaylistId};
 use crate::paths::Paths;
 use crate::phosphor::Phosphor;
 use crate::playback::equaliser::{Equaliser, Preset};
@@ -301,7 +301,6 @@ macro_rules! saved_by_key {
 
 saved_by_key!(
     Phosphor,
-    Grouping,
     DeckMedia,
     DeckMeter,
     VuFace,
@@ -343,9 +342,6 @@ pub struct Settings {
     pub spotify_tab: bool,
     /// The colour of the lists and the display.
     pub phosphor: Phosphor,
-    /// What the playlists' songs are put under headers by.
-    #[serde(rename = "song_headers")]
-    pub grouping: Grouping,
     pub equaliser: Equaliser,
     /// The equaliser shows below the player (EQ).
     pub equaliser_shown: bool,
@@ -397,7 +393,6 @@ impl Default for Settings {
             spotify_tab_enabled: false,
             spotify_tab: true,
             phosphor: Phosphor::default(),
-            grouping: Grouping::default(),
             equaliser: Equaliser::default(),
             equaliser_shown: false,
             equaliser_presets: Vec::new(),
@@ -421,6 +416,10 @@ impl Default for Settings {
 fn percent<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u8, D::Error> {
     u64::deserialize(deserializer).map(|value| value.min(100) as u8)
 }
+
+/// Settings no longer kept, dropped from the file the next time it's saved:
+/// the songs' headers, now each playlist's own.
+const RETIRED: [&str; 1] = ["song_headers"];
 
 /// The audio cache's sizes to choose from, in MB.
 pub const AUDIO_CACHE_SIZES: [u64; 6] = [512, 1024, 2048, 4096, 8192, 16384];
@@ -476,7 +475,10 @@ impl Settings {
     /// The settings in `raw`. A value that can't be read (from a newer or
     /// an older Spotless, or edited by hand) leaves only its own setting
     /// as at first.
-    fn from_raw(raw: Map<String, Value>) -> Self {
+    fn from_raw(mut raw: Map<String, Value>) -> Self {
+        for key in RETIRED {
+            raw.remove(key);
+        }
         let read = |raw: &Map<String, Value>| Self::deserialize(Value::Object(raw.clone()));
         let settings = read(&raw).unwrap_or_else(|_| {
             let mut readable = Map::new();
@@ -639,14 +641,13 @@ mod tests {
     }"#;
 
     #[test]
-    fn a_file_written_before_reads_and_saves_back_the_same() {
+    fn a_file_written_before_reads_and_saves_back_the_same_but_retired_settings() {
         let paths = temporary_paths("before");
         std::fs::write(paths.settings(), WRITTEN_BEFORE).unwrap();
         let settings = Settings::load(&paths);
         assert_eq!(settings.volume, 42);
         assert_eq!(settings.audio_output.as_deref(), Some("alsa_output.usb"));
         assert_eq!(settings.phosphor, Phosphor::Amber);
-        assert_eq!(settings.grouping, Grouping::Album);
         assert_eq!(settings.vu_calibration, VuCalibration::Minus14);
         assert_eq!(settings.equaliser_presets[0].bands[1], 3.5);
         assert_eq!(settings.web_client_id().as_deref(), Some("abc"));
@@ -656,7 +657,8 @@ mod tests {
         settings.save(&paths).unwrap();
         let saved: Value =
             serde_json::from_slice(&std::fs::read(paths.settings()).unwrap()).unwrap();
-        let before: Value = serde_json::from_str(WRITTEN_BEFORE).unwrap();
+        let mut before: Value = serde_json::from_str(WRITTEN_BEFORE).unwrap();
+        before.as_object_mut().unwrap().remove("song_headers");
         assert_eq!(saved, before);
     }
 
@@ -772,7 +774,6 @@ mod tests {
         assert!(read.vinyl_lp);
         assert!(read.reel_slow);
         assert!(read.cd_mini);
-        assert_eq!(read.grouping, Grouping::Source, "by source to start with");
         for media in [
             DeckMedia::Cassette,
             DeckMedia::Reel,
@@ -794,9 +795,6 @@ mod tests {
             );
         }
         assert_eq!(VuCalibration::Minus10.next(), VuCalibration::Auto);
-        for grouping in Grouping::ALL {
-            assert_eq!(Grouping::from_key(Some(grouping.key())), grouping);
-        }
     }
 
     #[test]

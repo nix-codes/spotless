@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.PaddingValues
@@ -87,6 +90,7 @@ import dev.spotless.core.Header
 import dev.spotless.core.LastFm
 import dev.spotless.core.Played
 import dev.spotless.core.Song
+import dev.spotless.core.SortOrder
 import dev.spotless.core.SpotifyRow
 import dev.spotless.core.SpotifyView
 import dev.spotless.core.TabSync
@@ -106,13 +110,18 @@ import kotlin.math.sin
 
 private val ROW = 52.dp
 private val HEADER = 30.dp
+/** The empty header that ends a run, before songs under none. */
+private val RUN_END = 12.dp
+/** How far songs under a header sit in. */
+private val UNDER_INDENT = 10.dp
 
 /**
  * The main screen: the playlist tabs, the viewed playlist, and the player.
  * Holding a song selects it, for Q NEXT, copying, removing and moving;
  * holding another then selects every song from the last one picked up to
- * it. Two or more songs in a row from one album sit under a header with
- * its name; a line sets off the lone songs that follow.
+ * it. Two or more songs in a row added from one place, or gathered by the
+ * last sort, sit under a header with its name; an empty header ends the
+ * run before songs under none. SORT and HEADERS are in the tab editor.
  *
  * The Spotify tab, while Spotless is in Spotify Connect, shows the
  * account's queue instead: what played, the song playing, then what comes.
@@ -672,6 +681,7 @@ private fun TabEditor(core: Core, id: ULong, naming: NameEdit?, done: () -> Unit
     var deleting by remember(id) { mutableStateOf(false) }
     var saving by remember(id) { mutableStateOf(false) }
     var help by remember(id) { mutableStateOf(false) }
+    var sorting by remember(id) { mutableStateOf(false) }
     val focus = LocalFocusManager.current
     // The name typed is kept before whatever is tapped next.
     val keep = {
@@ -696,6 +706,16 @@ private fun TabEditor(core: Core, id: ULong, naming: NameEdit?, done: () -> Unit
             }
             return@Column
         }
+        if (sorting) {
+            SortChoices(
+                sort = {
+                    core.apply(Action.Reorder(id, it))
+                    done()
+                },
+                cancel = { sorting = false },
+            )
+            return@Column
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             // Pressed in, with the tab's ⇅, while it's synced.
             ChromeButton({
@@ -717,6 +737,18 @@ private fun TabEditor(core: Core, id: ULong, naming: NameEdit?, done: () -> Unit
                 keep()
                 saving = true
             }, Modifier.weight(1f), enabled = tab.songs > 0u)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton("SORT…", {
+                keep()
+                sorting = true
+            }, Modifier.weight(1f), enabled = tab.songs > 1u)
+            // Lit while on, as the desktop's.
+            val headers = core.playlist?.takeIf { it.id == id }?.headersOn ?: true
+            TextButton("HEADERS", {
+                keep()
+                core.apply(Action.SetHeaders(id, !headers))
+            }, Modifier.width(112.dp), on = headers)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (!deleting) {
@@ -783,6 +815,33 @@ private fun TabEditor(core: Core, id: ULong, naming: NameEdit?, done: () -> Unit
     }
 }
 
+/** SORT's choices, in the tab editor's place: one reorders the playlist once. */
+@Composable
+private fun SortChoices(sort: (SortOrder) -> Unit, cancel: () -> Unit) {
+    @Composable
+    fun Choice(name: String, order: SortOrder) {
+        BasicText(
+            name,
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clickable { sort(order) }
+                .wrapContentHeight(Alignment.CenterVertically)
+                .padding(horizontal = 8.dp),
+            body(15.sp, Classic.chrome, FontWeight.Normal),
+        )
+    }
+    Choice("Sort by artist, albums by date", SortOrder.ARTIST_ALBUMS)
+    Choice("Sort by artist, songs shuffled", SortOrder.ARTIST_SHUFFLED)
+    Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp).height(1.dp).background(Classic.button))
+    Choice("Shuffle all songs", SortOrder.SHUFFLED)
+    Choice("Reverse", SortOrder.REVERSED)
+    Row {
+        Box(Modifier.weight(1f))
+        TextButton("CANCEL", cancel)
+    }
+}
+
 /** What the tab editor's buttons do, in their place until OK. */
 @Composable
 private fun TabHelp(ok: () -> Unit) {
@@ -800,6 +859,8 @@ private fun TabHelp(ok: () -> Unit) {
     Line({ Word("NAME") }, "Tap the name in the tab to rename it.")
     Line({ Word("⇅ SYNC") }, "Keeps it the same on your other devices: its songs and where it's up to. Tap again to stop; it stays only here.")
     Line({ Word("EXPORT…") }, "Makes a new playlist on Spotify with its songs, once. Changing the tab later doesn't change it.")
+    Line({ Word("SORT…") }, "Sorts or shuffles its songs, once. UNDO, beside the song count, puts them back until the playlist next changes.")
+    Line({ Word("HEADERS") }, "Its songs under headers: where they were added from, or the artist or album of the last sort. Lit while on.")
     Line({ Mark(Glyph.Trash) }, "Deletes the playlist. A synced one has CLOSE TAB instead: it stays on Spotify, and Browse's YOUR SPOTIFY opens it again.")
     Line({ Word("MOVE") }, "Hold a tab and slide it.")
     Line({ Word("CLOSE") }, "Swipe this panel up, or go back.")
@@ -895,6 +956,11 @@ private fun Summary(core: Core, queue: SpotifyView?, selected: List<ULong>) {
             }
             return@Row
         }
+        // After a sort or shuffle, UNDO takes that playlist's CLEAR's place until it changes.
+        if (queue == null && list != null && core.tabs.reorderUndone == list.id && !clearing) {
+            TextButton("UNDO", { core.apply(Action.UndoReorder) }, Modifier.height(32.dp))
+            return@Row
+        }
         // The queue's CLEAR stops it and empties it.
         val count = if (queue != null) queue.toCome.toInt() else list?.songs?.size ?: 0
         if (count > 0) {
@@ -937,10 +1003,13 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
         val songs = list.songs
         // Where each header's run starts, and how far down each song sits.
         val starts = songs.indices.filter { songs[it].header != null }
+        val ends = songs.indices.filter { songs[it].endsRun }
+        val end = with(LocalDensity.current) { RUN_END.toPx() }
         val tops = FloatArray(songs.size)
         var y = 0f
         for (i in songs.indices) {
             if (i in starts) y += header
+            if (i in ends) y += end
             tops[i] = y
             y += row
         }
@@ -952,7 +1021,7 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
         // Opened on the cursor's song, with the row above it in sight.
         fun opening(): Int {
             val at = songs.indexOfFirst { it.entry == list.cursor }
-            return if (at > 0) at + starts.count { it <= at } - 1 else 0
+            return if (at > 0) at + starts.count { it <= at } + ends.count { it <= at } - 1 else 0
         }
         val state = remember(list.id) { LazyListState(opening()) }
         // A tap on the player's song glides it there again: in a scope of
@@ -988,6 +1057,7 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
                         )
                     }
                 }
+                if (song.endsRun) item(key = "end ${song.entry}") { RunEnd() }
                 item(key = song.entry.toLong()) {
                     val chosen = song.entry in selected
                     val d = drag
@@ -1006,8 +1076,7 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
                         chosen = chosen,
                         selecting = selected.isNotEmpty(),
                         lifted = d?.entry == song.entry,
-                        modifier = Modifier.zIndex(if (d?.entry == song.entry) 1f else 0f).graphicsLayer { translationY = shift }
-                            .then(if (song.setOff) Modifier.setOff() else Modifier),
+                        modifier = Modifier.zIndex(if (d?.entry == song.entry) 1f else 0f).graphicsLayer { translationY = shift },
                         tap = {
                             when {
                                 selected.isEmpty() -> core.apply(Action.PlayEntry(list.id, song.entry))
@@ -1057,10 +1126,15 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
     }
 }
 
-/** The line over a lone song that follows an album's run. */
-private fun Modifier.setOff() = drawWithContent {
-    drawContent()
-    drawLine(Classic.lcd.copy(alpha = 0.3f), Offset(0f, 0.5f), Offset(size.width, 0.5f), 1.dp.toPx())
+/** An empty header, ending the run above so the songs below don't read as part of it. */
+@Composable
+private fun RunEnd() {
+    Row(
+        Modifier.fillMaxWidth().height(RUN_END).background(Classic.playingRow).padding(start = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(3.dp).fillMaxHeight().background(Classic.lcd))
+    }
 }
 
 /**
@@ -1142,7 +1216,10 @@ private fun SongRow(
             .height(ROW)
             .background(bg)
             .combinedClickable(onLongClick = hold, onClick = tap)
-            .padding(start = if (number == null) 12.dp else 8.dp, end = if (selecting && handle != null) 4.dp else 18.dp),
+            .padding(
+                start = (if (number == null) 12.dp else 8.dp) + (if (song.under) UNDER_INDENT else 0.dp),
+                end = if (selecting && handle != null) 4.dp else 18.dp,
+            ),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1154,7 +1231,9 @@ private fun SongRow(
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Line(song.track.title, body(color = fg))
-            Line(song.track.artists.joinToString(", ") { it.name }, body(13.sp, sub, FontWeight.Normal))
+            // The album too, where no header says it.
+            val artists = song.track.artists.joinToString(", ") { it.name }
+            Line(song.album?.let { "$artists · $it" } ?: artists, body(13.sp, sub, FontWeight.Normal))
         }
         song.mark?.let { BasicText("Q$it", style = mono(13.sp, Classic.lcd)) }
         if (song.loved) Box(Modifier.size(13.dp).drawBehind { glyph(Glyph.Heart, fg) })
@@ -1234,7 +1313,7 @@ private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, se
                         val chosen = row.entry in selected
                         val index = songs.indexOf(row)
                         SongRow(
-                            null, Song(row.entry, row.track, null, null, false, row.loved),
+                            null, Song(row.entry, row.track, null, null, false, false, null, row.loved),
                             current = row.played == Played.NOW,
                             chosen = chosen,
                             selecting = selected.isNotEmpty(),

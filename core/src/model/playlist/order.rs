@@ -172,8 +172,8 @@ impl Playlist {
         runs
     }
 
-    /// A header's name, and its detail: see [`Playlist::heading`]. An album's
-    /// says its artist and year.
+    /// A header's name, and what it is or whose, when that says more: a
+    /// source's "Spotify playlist" or artist, an album's artist and year.
     pub fn song_heading(&self, run: Run) -> (String, Option<String>) {
         let Some(track) = self.entries.get(run.start).map(|entry| &entry.track) else {
             return (String::new(), None);

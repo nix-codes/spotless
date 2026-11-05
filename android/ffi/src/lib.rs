@@ -266,10 +266,6 @@ pub enum Action {
     SetPhosphor {
         key: String,
     },
-    /// The playlists' songs under headers by this way, by its key.
-    SetGrouping {
-        key: String,
-    },
     /// Saves this Last.fm API account and opens its approval page.
     ConnectLastFm {
         api_key: String,
@@ -343,6 +339,19 @@ pub enum Action {
     /// Q marks on the viewed playlist's songs.
     ToggleMarks {
         entries: Vec<u64>,
+    },
+    /// Sorts or shuffles a playlist, once. UndoReorder puts it back.
+    Reorder {
+        playlist: u64,
+        order: SortOrder,
+    },
+    /// Puts back the order from before the last Reorder, while nothing has
+    /// changed its songs since (Tabs::reorder_undone).
+    UndoReorder,
+    /// Switches a playlist's headers on or off.
+    SetHeaders {
+        playlist: u64,
+        on: bool,
     },
     SelectPlaylist {
         playlist: u64,
@@ -531,10 +540,6 @@ impl From<Action> for spotless_core::action::Action {
                 SettingsAction::SetPhosphor(spotless_core::settings::Phosphor::from_key(Some(&key)))
                     .into()
             }
-            Action::SetGrouping { key } => {
-                SettingsAction::SetGrouping(spotless_core::model::Grouping::from_key(Some(&key)))
-                    .into()
-            }
             Action::ConnectLastFm { api_key, secret } => {
                 LastFmAction::ConnectLastFm(api_key, secret).into()
             }
@@ -578,6 +583,13 @@ impl From<Action> for spotless_core::action::Action {
                 entries: ids,
                 before,
             } => PlaylistsAction::Move(entries(ids), before as usize).into(),
+            Action::Reorder { playlist, order } => {
+                PlaylistsAction::Reorder(PlaylistId(playlist), order.into()).into()
+            }
+            Action::UndoReorder => PlaylistsAction::UndoReorder.into(),
+            Action::SetHeaders { playlist, on } => {
+                PlaylistsAction::SetHeaders(PlaylistId(playlist), on).into()
+            }
             Action::ToggleMarks { entries: ids } => {
                 PlaylistsAction::ToggleMarks(entries(ids)).into()
             }
@@ -695,7 +707,6 @@ mod tests {
                 | SettingsAction::SetSearchApp(..)
                 | SettingsAction::SetLevelling(..)
                 | SettingsAction::SetPhosphor(..)
-                | SettingsAction::SetGrouping(..)
                 | SettingsAction::SetAudioCache(..)
                 | SettingsAction::SetAudioCacheSize(..)
                 | SettingsAction::MeasureStorage
@@ -740,11 +751,10 @@ mod tests {
                 | PlaylistsAction::RenamePlaylist(..)
                 | PlaylistsAction::MovePlaylist(..)
                 | PlaylistsAction::CopyTo(..)
-                | PlaylistsAction::MoveTo(..) => true,
-                // Not in the app yet.
-                PlaylistsAction::Reorder(..)
+                | PlaylistsAction::MoveTo(..)
+                | PlaylistsAction::Reorder(..)
                 | PlaylistsAction::UndoReorder
-                | PlaylistsAction::SetHeaders(..) => false,
+                | PlaylistsAction::SetHeaders(..) => true,
             },
             Core::Sync(action) => match action {
                 SyncAction::SetSync(..)
@@ -863,7 +873,6 @@ mod tests {
                 },
             },
             Action::SetPhosphor { key: "x".into() },
-            Action::SetGrouping { key: "x".into() },
             Action::ConnectLastFm {
                 api_key: "x".into(),
                 secret: "x".into(),
@@ -952,6 +961,15 @@ mod tests {
             },
             Action::UnlistSpotifyPlaylist { uri: "x".into() },
             Action::UndoSpotifyRemoval,
+            Action::Reorder {
+                playlist: 1,
+                order: SortOrder::Reversed,
+            },
+            Action::UndoReorder,
+            Action::SetHeaders {
+                playlist: 1,
+                on: false,
+            },
             Action::SetSync {
                 playlist: 1,
                 on: true,
@@ -1120,6 +1138,63 @@ mod tests {
     }
 
     #[test]
+    fn sort_gathers_artists_under_headers_and_undo_puts_the_order_back() {
+        let (spotless, root) = spotless("sort");
+        let track = |n: u32, artist: &str| Track {
+            uri: format!("spotify:track:{n}"),
+            title: format!("Song {n}"),
+            artists: vec![Artist {
+                uri: format!("spotify:artist:{artist}"),
+                name: artist.into(),
+                image: None,
+            }],
+            album: Album {
+                uri: format!("spotify:album:{artist}"),
+                name: format!("{artist}'s Album"),
+            },
+            duration_ms: 1_000,
+            source: None,
+        };
+        spotless.apply(Action::OpenBrowse);
+        spotless.apply(Action::AddTracks {
+            tracks: vec![track(1, "Zed"), track(2, "Abba"), track(3, "Abba")],
+        });
+        let titles = |spotless: &Spotless| -> Vec<String> {
+            let list = spotless.playlist(0).unwrap();
+            list.songs
+                .iter()
+                .map(|song| song.track.title.clone())
+                .collect()
+        };
+        assert_eq!(spotless.tabs().reorder_undone, None);
+
+        spotless.apply(Action::Reorder {
+            playlist: 0,
+            order: SortOrder::ArtistAlbums,
+        });
+        assert_eq!(titles(&spotless), ["Song 2", "Song 3", "Song 1"]);
+        let songs = spotless.playlist(0).unwrap().songs;
+        let header = songs[0].header.clone().expect("Abba's header");
+        assert_eq!((header.name.as_str(), header.songs), ("Abba", 2));
+        assert!(songs[0].under && songs[1].under && !songs[2].under);
+        assert!(songs[2].ends_run, "Zed's lone song ends Abba's run");
+        assert_eq!(songs[0].album.as_deref(), Some("Abba's Album"));
+        assert_eq!(spotless.tabs().reorder_undone, Some(0));
+        assert!(
+            spotless
+                .message()
+                .unwrap()
+                .text
+                .starts_with("Sorted by artist")
+        );
+
+        spotless.apply(Action::UndoReorder);
+        assert_eq!(titles(&spotless), ["Song 1", "Song 2", "Song 3"]);
+        assert_eq!(spotless.tabs().reorder_undone, None);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn your_spotify_lists_the_accounts_own_first_and_opens_one() {
         let root = std::env::temp_dir().join(format!("spotless-ffi-yours-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -1157,7 +1232,7 @@ mod tests {
     }
 
     #[test]
-    fn songs_added_from_a_spotify_playlist_sit_under_its_name() {
+    fn songs_added_from_a_spotify_playlist_sit_under_its_name_until_headers_are_off() {
         let root =
             std::env::temp_dir().join(format!("spotless-ffi-headers-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -1188,11 +1263,6 @@ mod tests {
             name: late_trains.name.clone(),
         };
         assert!(tracks.iter().all(|t| t.source.as_ref() == Some(&from)));
-        assert_eq!(
-            spotless.settings().song_headers,
-            "source",
-            "by source to start with"
-        );
 
         let id = spotless.tabs().viewed;
         let before = spotless.playlist(id).unwrap().songs.len();
@@ -1206,10 +1276,19 @@ mod tests {
         assert_eq!(header.detail.as_deref(), Some("Spotify playlist"));
         assert_eq!(songs[before].track.source, Some(from));
 
-        spotless.apply(Action::SetGrouping { key: "none".into() });
-        assert_eq!(spotless.settings().song_headers, "none");
-        let songs = spotless.playlist(id).unwrap().songs;
-        assert!(songs.iter().all(|song| song.header.is_none()));
+        assert!(songs[before..before + 3].iter().all(|song| song.under));
+
+        spotless.apply(Action::SetHeaders {
+            playlist: id,
+            on: false,
+        });
+        let view = spotless.playlist(id).unwrap();
+        assert!(!view.headers_on);
+        assert!(
+            view.songs
+                .iter()
+                .all(|song| song.header.is_none() && !song.under)
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 

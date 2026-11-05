@@ -84,9 +84,6 @@ fn songs_added_from_an_album_or_a_spotify_playlist_keep_where_from() {
             .iter()
             .all(|e| e.track.source.as_ref().map(|s| s.name.as_str()) == Some("Late Trains"))
     );
-    rig.controller
-        .apply(SettingsAction::SetGrouping(Grouping::None));
-    assert_eq!(rig.controller.state().settings.grouping, Grouping::None);
 }
 
 #[test]

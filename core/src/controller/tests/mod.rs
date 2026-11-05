@@ -13,7 +13,7 @@ use crate::model::ArtistRef;
 use crate::model::catalog::Songs;
 use crate::model::catalog::{SpotifyPlaylist, SpotifyTarget};
 use crate::model::playlist::tests::entry;
-use crate::model::{AlbumRef, Grouping, Order, Playlist};
+use crate::model::{AlbumRef, Order, Playlist};
 use crate::playback::equaliser::Equaliser;
 use crate::playback::transport::Request;
 use crate::spotify::queue::SpotifyQueue;
