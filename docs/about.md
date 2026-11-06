@@ -144,7 +144,8 @@ Spotify only allows playback in other apps for Premium accounts.
   page **Similar**: the artists Last.fm's listeners play alongside it.
 - **Made for the keyboard.** Everything works without the mouse: playback,
   moving between tabs and through playlists, searching and browsing an
-  artist's albums, adding them, and Settings. F1 lists the keys.
+  artist's albums, adding them, and Settings. F1 lists the keys; held
+  down, it shows each button's key on the button.
 - **Your desktop's controls**: media keys, the system's now-playing display
   (MPRIS on Linux, the media overlay on Windows), and a tray icon; closing
   the window keeps Spotless playing there.

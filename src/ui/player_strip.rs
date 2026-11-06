@@ -10,7 +10,9 @@ use egui::{
     UiBuilder, pos2, vec2,
 };
 
-use super::widgets::{Glyph, glyph_button, glyph_toggle, paint_glyph, paint_heart, small_button};
+use super::widgets::{
+    Glyph, KeyTag, glyph_button, glyph_toggle, paint_glyph, paint_heart, small_button,
+};
 use super::{Inputs, View, theme};
 use crate::action::{
     Action, Actions, BrowseAction, LastFmAction, PlaybackAction, PlaylistsAction, ViewAction,
@@ -194,6 +196,7 @@ pub(super) fn time_clicked(ui: &Ui, rect: Rect, view: &View, actions: &mut Actio
     if response
         .on_hover_cursor(CursorIcon::PointingHand)
         .on_hover_text(tip)
+        .key_tag("Alt+T")
         .clicked()
     {
         actions.push(ViewAction::ToggleTimeLeft);
@@ -304,6 +307,7 @@ pub(super) fn held(ui: &Ui, view: &View, inputs: &mut Inputs) -> [bool; 2] {
 pub(super) fn stop_clicked(ui: &Ui, response: Response, actions: &mut Actions) {
     let stop = response
         .on_hover_text("Stop (V). Ctrl-click: stop after this song (Shift+V)")
+        .key_tag("V")
         .clicked();
     if stop {
         actions.push(if ui.input(|i| i.modifiers.command) {
@@ -428,7 +432,7 @@ pub fn eject_clicked(
     } else {
         "Browse (Ctrl+B)"
     };
-    if response.on_hover_text(tip).clicked() {
+    if response.on_hover_text(tip).key_tag("Ctrl+B").clicked() {
         super::browse_view::opening(view, inputs);
         actions.push(BrowseAction::ToggleBrowse);
     }
@@ -462,6 +466,7 @@ pub(super) fn display_clicked(
     if response
         .on_hover_cursor(CursorIcon::PointingHand)
         .on_hover_text("Show the song in its playlist (J)")
+        .key_tag("J")
         .clicked()
     {
         jump_to_playing(view, inputs, actions);
@@ -496,7 +501,7 @@ pub(super) fn eq_clicked(response: egui::Response, view: &View, actions: &mut Ac
     } else {
         "Show the equaliser (Alt+G)"
     };
-    if response.on_hover_text(tip).clicked() {
+    if response.on_hover_text(tip).key_tag("Alt+G").clicked() {
         actions.push(ViewAction::ToggleEqualiser);
     }
 }
@@ -508,7 +513,7 @@ pub(super) fn vis_clicked(response: egui::Response, view: &View, actions: &mut A
     } else {
         "Show the deck: the music on a cassette, reels, a CD or a record, its spectrum and levels (Alt+V)"
     };
-    if response.on_hover_text(tip).clicked() {
+    if response.on_hover_text(tip).key_tag("Alt+V").clicked() {
         actions.push(ViewAction::ToggleDeck);
     }
 }
@@ -594,12 +599,15 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
     ui.spacing_mut().item_spacing.x = 4.0;
     if glyph_button(ui, &palette, Glyph::Previous, ready)
         .on_hover_text(PREVIOUS_TIP)
+        .key_tag("Z")
         .clicked()
     {
         actions.push(PlaybackAction::Previous);
     }
     let [playing, paused] = held(ui, view, inputs);
-    let play = glyph_toggle(ui, &palette, Glyph::Play, playing, ready).on_hover_text(PLAY_TIP);
+    let play = glyph_toggle(ui, &palette, Glyph::Play, playing, ready)
+        .on_hover_text(PLAY_TIP)
+        .key_tag("Space");
     follow_press(
         ui,
         &play,
@@ -608,7 +616,9 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
         inputs,
         actions,
     );
-    let pause = glyph_toggle(ui, &palette, Glyph::Pause, paused, ready).on_hover_text(PAUSE_TIP);
+    let pause = glyph_toggle(ui, &palette, Glyph::Pause, paused, ready)
+        .on_hover_text(PAUSE_TIP)
+        .key_tag("Space");
     follow_press(
         ui,
         &pause,
@@ -621,6 +631,7 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
     stop_clicked(ui, stop, actions);
     if glyph_button(ui, &palette, Glyph::Next, ready)
         .on_hover_text(NEXT_TIP)
+        .key_tag("B")
         .clicked()
     {
         actions.push(PlaybackAction::Next);
@@ -631,12 +642,14 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
     ui.add_space(6.0);
     if glyph_toggle(ui, &palette, Glyph::Shuffle, view.shuffle, true)
         .on_hover_text(SHUFFLE_TIP)
+        .key_tag("S")
         .clicked()
     {
         actions.push(PlaybackAction::SetShuffle(!view.shuffle));
     }
     if glyph_toggle(ui, &palette, Glyph::Repeat, view.repeat, true)
         .on_hover_text(REPEAT_TIP)
+        .key_tag("R")
         .clicked()
     {
         actions.push(PlaybackAction::SetRepeat(!view.repeat));

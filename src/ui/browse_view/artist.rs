@@ -9,7 +9,7 @@ use super::{
 };
 use crate::action::{Actions, BrowseAction};
 use crate::ui::View;
-use crate::ui::widgets::{SMALL_HEIGHT, small_action, small_button, small_button_width};
+use crate::ui::widgets::{KeyTag, SMALL_HEIGHT, small_action, small_button, small_button_width};
 use spotless_core::browse::{AddAll, BrowseTab, Find, Loadable, Page};
 use spotless_core::lastfm;
 use spotless_core::model::ArtistRef;
@@ -71,8 +71,10 @@ pub(super) fn artist_page(
                 .count();
             let label = format!("{} {count}", tab.label());
             let on = !similar && !popular && tab == browse.tab;
+            let key = format!("Alt+{}", n + 1);
             if small_button(ui, &palette, &label, on)
-                .on_hover_text(format!("Alt+{}", n + 1))
+                .on_hover_text(&key)
+                .key_tag(&key)
                 .clicked()
             {
                 actions.push(BrowseAction::SetTab(tab));
@@ -81,6 +83,7 @@ pub(super) fn artist_page(
         if similar_tab
             && small_button(ui, &palette, "SIMILAR", similar)
                 .on_hover_text("Artists Last.fm's listeners play alongside this one (Alt+5)")
+                .key_tag("Alt+5")
                 .clicked()
         {
             actions.push(BrowseAction::ShowSimilar(discography.artist.clone()));
@@ -88,6 +91,7 @@ pub(super) fn artist_page(
         if !discography.popular.is_empty()
             && small_button(ui, &palette, "POPULAR", popular)
                 .on_hover_text("Its most played songs, as Spotify ranks them (Alt+6)")
+                .key_tag("Alt+6")
                 .clicked()
         {
             actions.push(BrowseAction::ShowPopular);
@@ -103,6 +107,7 @@ pub(super) fn artist_page(
         };
         if small_button(ui, &palette, sort, false)
             .on_hover_text("Oldest / newest first (Ctrl+S)")
+            .key_tag("Ctrl+S")
             .clicked()
         {
             actions.push(BrowseAction::ToggleSort);
@@ -116,6 +121,7 @@ pub(super) fn artist_page(
         };
         if small_button(ui, &palette, label, false)
             .on_hover_text("Show / hide every album's songs (Ctrl+E)")
+            .key_tag("Ctrl+E")
             .clicked()
             || nav.expand_all
         {
@@ -348,7 +354,8 @@ fn add_all(ui: &mut Ui, view: &View, (end, pressed): (egui::Pos2, bool), actions
     } else {
         format!("Adds {what}{to} (Shift+Insert)")
     };
-    if crate::ui::widgets::tip(button, &tip).clicked() || (pressed && !reading) {
+    let button = crate::ui::widgets::tip(button, &tip).key_tag("Shift+Insert");
+    if button.clicked() || (pressed && !reading) {
         actions.push(BrowseAction::AddAll);
     }
 }

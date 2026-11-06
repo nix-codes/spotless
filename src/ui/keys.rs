@@ -11,7 +11,7 @@ use egui::{
 
 use super::scrollbar::{self, Scrollbar};
 use super::theme::{self, Palette};
-use super::widgets::text_button;
+use super::widgets::{self, text_button};
 use super::{Inputs, View, browse_view, player_strip};
 use crate::action::{
     Action, Actions, BrowseAction, Desktop, PlaybackAction, PlaylistsAction, ViewAction,
@@ -67,6 +67,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Ctrl+V", "Add a pasted Spotify link"),
             ("F10", "Settings"),
             ("F1 or ?", "This list"),
+            ("F1, held", "Each button's key, on it"),
             ("Ctrl+Q", "Quit (closing only hides)"),
         ],
     ),
@@ -120,7 +121,12 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
 pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let ctx = ui.ctx();
     // A question waiting for an answer: the keys belong to it.
-    if inputs.closing.is_some() || inputs.renaming.is_some() || inputs.spotify_pick.is_some() {
+    let asking =
+        inputs.closing.is_some() || inputs.renaming.is_some() || inputs.spotify_pick.is_some();
+    let free = !asking && !ctx.text_edit_focused();
+    ui.input_mut(|i| f1(i, inputs, free));
+    widgets::show_key_tags(ctx, inputs.f1_since.map(|_| view.palette));
+    if asking {
         return;
     }
     // Browse's tabs, even from a field: they take the keyboard to theirs.
@@ -164,7 +170,7 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
         return;
     }
     ui.input_mut(|i| {
-        if take(i, Modifiers::NONE, Key::F1) || i.consume_key(Modifiers::NONE, Key::Questionmark) {
+        if i.consume_key(Modifiers::NONE, Key::Questionmark) {
             inputs.help = !inputs.help;
             return;
         }
@@ -188,6 +194,27 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
             screens(i, view, inputs, actions);
         }
     });
+}
+
+/// Longer than this, F1 was held to see the keys, not tapped for the list.
+const F1_TAP: f64 = 0.3;
+
+/// F1 shows each button's key on a tag while it's held; a tap opens or
+/// closes the list of keys.
+fn f1(i: &mut InputState, inputs: &mut Inputs, free: bool) {
+    if free && take(i, Modifiers::NONE, Key::F1) && inputs.f1_since.is_none() {
+        inputs.f1_since = Some(i.time);
+    }
+    let Some(since) = inputs.f1_since else {
+        return;
+    };
+    if i.key_down(Key::F1) {
+        return;
+    }
+    inputs.f1_since = None;
+    if i.time - since < F1_TAP {
+        inputs.help = !inputs.help;
+    }
 }
 
 fn playback(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut Actions) {

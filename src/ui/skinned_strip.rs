@@ -18,6 +18,7 @@ use super::player_strip::{
     vis_clicked,
 };
 use super::skin_paint::SkinPaint;
+use super::widgets::KeyTag;
 use super::{Inputs, View, theme};
 use crate::action::{Action, Actions, PlaybackAction};
 use crate::skin::format::{Role, State};
@@ -625,6 +626,12 @@ pub fn buttons_row(
         if !tip.is_empty() {
             response = response.on_hover_text(tip);
         }
+        response = response.key_tag(match name {
+            "previous" => "Z",
+            "play" | "pause" => "Space",
+            "next" => "B",
+            _ => "",
+        });
         if matches!(
             action,
             Action::Playback(PlaybackAction::Play) | Action::Playback(PlaybackAction::TogglePause)
@@ -648,6 +655,7 @@ pub fn buttons_row(
         ui, &painter, paint, at, unit, "shuffle", state, "Shuffle", true,
     )
     .on_hover_text(SHUFFLE_TIP)
+    .key_tag("S")
     .clicked()
     {
         actions.push(PlaybackAction::SetShuffle(!view.shuffle));
@@ -658,6 +666,7 @@ pub fn buttons_row(
         ui, &painter, paint, at, unit, "repeat", state, "Repeat", true,
     )
     .on_hover_text(REPEAT_TIP)
+    .key_tag("R")
     .clicked()
     {
         actions.push(PlaybackAction::SetRepeat(!view.repeat));

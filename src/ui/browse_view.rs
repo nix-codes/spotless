@@ -24,7 +24,9 @@ use egui::{
 use super::scrollbar;
 use super::settings_view::Category;
 use super::theme::{self, Palette};
-use super::widgets::{BUTTON_HEIGHT, SMALL_HEIGHT, small_button, small_button_width, text_button};
+use super::widgets::{
+    BUTTON_HEIGHT, KeyTag, SMALL_HEIGHT, small_button, small_button_width, text_button,
+};
 use super::{Inputs, View};
 use crate::action::{Actions, BrowseAction};
 use spotless_core::browse::{BrowseTab, Page};
@@ -384,7 +386,12 @@ fn tabs(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
             if shown == tab {
                 shown_rect = Some(rect);
             }
-            if response.on_hover_text(key).clicked() && shown != tab {
+            let tag = match tab {
+                BrowseTab::Search => "F3",
+                BrowseTab::Spotify => "F4",
+                BrowseTab::LastFm => "F5",
+            };
+            if response.on_hover_text(key).key_tag(tag).clicked() && shown != tab {
                 actions.push(BrowseAction::ShowBrowseTab(tab));
                 inputs.nav.area = match tab {
                     BrowseTab::Search | BrowseTab::LastFm => Area::Results,
@@ -393,11 +400,15 @@ fn tabs(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if text_button(ui, &palette, "ESC · PLAYLISTS", false, true).clicked() {
+            if text_button(ui, &palette, "ESC · PLAYLISTS", false, true)
+                .key_tag("Esc")
+                .clicked()
+            {
                 actions.push(BrowseAction::CloseBrowse);
             }
             if text_button(ui, &palette, "PICS", view.browse.show_covers, true)
                 .on_hover_text("Show album covers and artist pictures (C)")
+                .key_tag("C")
                 .clicked()
             {
                 actions.push(BrowseAction::ToggleCovers);

@@ -23,7 +23,7 @@ use egui::{
 
 use super::playlist_view::{self, Choice, Menu, RowDrag};
 use super::scrollbar;
-use super::widgets::{drag_ghost, row_heart, row_length, small_action, tip};
+use super::widgets::{KeyTag, drag_ghost, row_heart, row_length, small_action, tip};
 use super::{Inputs, View};
 use crate::action::{
     Actions, BrowseAction, Desktop, PlaybackAction, PlaylistsAction, SpotifyTabAction,
@@ -349,13 +349,18 @@ fn toolbar(
             actions.push(SpotifyTabAction::TakeOverSpotify);
         }
         let add = small_action(ui, &palette, "+ ADD", queue.takes_songs());
-        let adding = tip(add, "Add songs from Browse (Ctrl+B)").clicked();
+        let adding = tip(add, "Add songs from Browse (Ctrl+B)")
+            .key_tag("Ctrl+B")
+            .clicked();
         if adding {
             actions.push(BrowseAction::ToggleBrowse);
         }
         let can_remove = queue.takes_songs() && !removable.is_empty();
         let rem = small_action(ui, &palette, "REM", can_remove);
-        if tip(rem, "Remove the selected songs (Delete)").clicked() {
+        if tip(rem, "Remove the selected songs (Delete)")
+            .key_tag("Del")
+            .clicked()
+        {
             actions.push(PlaylistsAction::Remove(PlaylistId::SPOTIFY, removable));
         }
         let something = queue.now.is_some() || !queue.parts.is_empty();

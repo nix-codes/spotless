@@ -1,8 +1,8 @@
 //! Small Winamp-style controls drawn with the painter.
 
 use egui::{
-    Align2, Color32, FontId, Pos2, Rect, Response, RichText, Sense, Shape, TextEdit, Ui, Vec2,
-    WidgetInfo, WidgetType, pos2, vec2,
+    Align2, Color32, Context, FontId, Id, LayerId, Order, Pos2, Rect, Response, RichText, Sense,
+    Shape, TextEdit, Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2,
 };
 
 use super::skin_paint;
@@ -176,7 +176,16 @@ fn sized_button(
     let size = vec2(label_width(ui, label, &font) + padding, height);
     let (rect, response, skinned) = button_frame(ui, palette, size, on, enabled);
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, label));
-    let color = label_color(&response, palette, on, enabled, skinned);
+    // On: a lit face, so it reads as pressed at a glance, on a skin's
+    // button too.
+    let color = if on && enabled {
+        let inset = if skinned { 2.0 } else { 1.0 };
+        ui.painter()
+            .rect_filled(rect.shrink(inset), 0.0, palette.accent);
+        on_accent(palette)
+    } else {
+        label_color(&response, palette, on, enabled, skinned)
+    };
     ui.painter()
         .text(rect.center(), Align2::CENTER_CENTER, label, font, color);
     response
@@ -253,6 +262,71 @@ fn label_color(
     } else {
         palette.button_text
     }
+}
+
+/// A label on the accent: the button's face colour when it reads there,
+/// else black or white.
+fn on_accent(palette: &Palette) -> Color32 {
+    use crate::skin::contrast;
+    [palette.button, Color32::BLACK, Color32::WHITE]
+        .into_iter()
+        .find(|&c| contrast(c, palette.accent) >= 4.5)
+        .unwrap_or(Color32::BLACK)
+}
+
+const KEY_TAGS: &str = "key-tags";
+
+/// The buttons show their keys this frame, in these colours (F1 held),
+/// or not.
+pub fn show_key_tags(ctx: &Context, palette: Option<Palette>) {
+    ctx.data_mut(|d| d.insert_temp(Id::new(KEY_TAGS), palette));
+}
+
+/// A button's key, shown on a tag under it while F1 is held.
+pub trait KeyTag {
+    fn key_tag(self, key: &str) -> Self;
+}
+
+impl KeyTag for Response {
+    fn key_tag(self, key: &str) -> Self {
+        let palette = self
+            .ctx
+            .data(|d| d.get_temp::<Option<Palette>>(Id::new(KEY_TAGS)))
+            .flatten();
+        // Not for a button scrolled out of sight, even partly.
+        if let Some(palette) = palette
+            && !key.is_empty()
+            && self.rect.is_positive()
+            && self.interact_rect == self.rect
+        {
+            paint_key_tag(&self.ctx, &palette, self.rect, key);
+        }
+        self
+    }
+}
+
+fn paint_key_tag(ctx: &Context, palette: &Palette, button: Rect, key: &str) {
+    let painter = ctx.layer_painter(LayerId::new(Order::Foreground, Id::new(KEY_TAGS)));
+    let galley = painter.layout_no_wrap(key.to_string(), FontId::monospace(9.0), palette.lcd);
+    let size = galley.size() + vec2(6.0, 2.0);
+    let screen = ctx.content_rect();
+    // Hanging from the button's lower edge, its label still readable.
+    let mut rect = Rect::from_center_size(
+        pos2(button.center().x, button.bottom() - 2.0 + size.y / 2.0),
+        size,
+    );
+    // Inside the window: at its foot, over the button instead.
+    let dx = (screen.left() - rect.left()).max(0.0) + (screen.right() - rect.right()).min(0.0);
+    let dy = (screen.bottom() - rect.bottom()).min(0.0);
+    rect = rect.translate(vec2(dx, dy));
+    painter.rect(
+        rect,
+        2.0,
+        palette.lcd_bg,
+        egui::Stroke::new(1.0, palette.lcd),
+        egui::StrokeKind::Inside,
+    );
+    painter.galley(rect.center() - galley.size() / 2.0, galley, palette.lcd);
 }
 
 /// Draws a glyph about 10 px high, centred on `c`.

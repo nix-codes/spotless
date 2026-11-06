@@ -9,7 +9,7 @@ use super::{
     spans,
 };
 use crate::action::{Actions, BrowseAction};
-use crate::ui::widgets::{BUTTON_HEIGHT, field, text_button, text_button_width};
+use crate::ui::widgets::{BUTTON_HEIGHT, KeyTag, field, text_button, text_button_width};
 use crate::ui::{Inputs, View};
 use spotless_core::browse::{Loadable, Page};
 use spotless_core::session::SearchState;
@@ -18,7 +18,10 @@ pub(super) fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions:
     let palette = view.palette;
     ui.horizontal(|ui| {
         let back = text_button(ui, &palette, "BACK", false, view.browse.can_go_back());
-        if crate::ui::widgets::tip(back, "Backspace or Alt+←").clicked() {
+        if crate::ui::widgets::tip(back, "Backspace or Alt+←")
+            .key_tag("Backspace")
+            .clicked()
+        {
             actions.push(BrowseAction::Back);
         }
         let enabled = searchable(view);
@@ -70,7 +73,8 @@ pub(super) fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions:
         let find = ui.add_enabled_ui(findable(view), |ui| {
             text_button(ui, &palette, "FIND", open, true)
         });
-        let find = crate::ui::widgets::tip(find.inner, "Find in the results or the songs here (/)");
+        let find = crate::ui::widgets::tip(find.inner, "Find in the results or the songs here (/)")
+            .key_tag("/");
         if find.clicked() {
             if open {
                 actions.push(BrowseAction::Find(None));

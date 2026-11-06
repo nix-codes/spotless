@@ -15,7 +15,7 @@
 use egui::{Align, Id, Layout, Rect, RichText, Ui, UiBuilder, pos2};
 
 use super::scrollbar::Scrollbar;
-use super::widgets::{Glyph, sized_toggle, small_action, small_glyph, tip};
+use super::widgets::{Glyph, KeyTag, sized_toggle, small_action, small_glyph, tip};
 use super::{Inputs, View, spotify_view};
 use crate::action::{Actions, BrowseAction, PlaylistsAction};
 use spotless_core::model::{EntryId, Order, Playlist, PlaylistId};
@@ -132,24 +132,39 @@ fn toolbar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions)
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         let add = small_action(ui, &palette, "+ ADD", true);
-        if tip(add, "Add songs from Browse (Ctrl+B)").clicked() {
+        if tip(add, "Add songs from Browse (Ctrl+B)")
+            .key_tag("Ctrl+B")
+            .clicked()
+        {
             super::browse_view::opening(view, inputs);
             actions.push(BrowseAction::ToggleBrowse);
         }
         let rem = small_action(ui, &palette, "REM", any);
-        if tip(rem, "Remove the selected songs (Delete)").clicked() {
+        if tip(rem, "Remove the selected songs (Delete)")
+            .key_tag("Del")
+            .clicked()
+        {
             remove(list, &mut inputs.selection, selected.clone(), actions);
         }
         let next = small_action(ui, &palette, "Q NEXT", any);
-        if tip(next, "Play the selected songs next, or not (Q)").clicked() {
+        if tip(next, "Play the selected songs next, or not (Q)")
+            .key_tag("Q")
+            .clicked()
+        {
             actions.push(PlaylistsAction::ToggleMarks(selected.clone()));
         }
         let up = small_glyph(ui, &palette, Glyph::Up, any);
-        if tip(up, "Move the selected songs up (Alt+↑)").clicked() {
+        if tip(up, "Move the selected songs up (Alt+↑)")
+            .key_tag("Alt+↑")
+            .clicked()
+        {
             move_by(list, &mut inputs.selection, selected.clone(), true, actions);
         }
         let down = small_glyph(ui, &palette, Glyph::Down, any);
-        if tip(down, "Move the selected songs down (Alt+↓)").clicked() {
+        if tip(down, "Move the selected songs down (Alt+↓)")
+            .key_tag("Alt+↓")
+            .clicked()
+        {
             move_by(
                 list,
                 &mut inputs.selection,

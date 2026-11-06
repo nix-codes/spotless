@@ -12,7 +12,9 @@ use crate::action::{Actions, Desktop, PlaylistsAction, SpotifyTabAction, SyncAct
 use crate::ui::dialog::{self, Answer};
 use crate::ui::skin_paint;
 use crate::ui::theme::{self, Palette};
-use crate::ui::widgets::{field, small_action, small_button, small_button_width, text_button};
+use crate::ui::widgets::{
+    KeyTag, field, small_action, small_button, small_button_width, text_button,
+};
 use crate::ui::{Inputs, View};
 use spotless_core::SyncStatus;
 use spotless_core::model::PlaylistId;
@@ -213,7 +215,11 @@ pub(super) fn tab_bar(
             let spotify_closed = view.settings.spotify_tab_enabled && !view.settings.spotify_tab;
             let plus = small_button(ui, &palette, "+", false);
             if !spotify_closed {
-                if plus.on_hover_text("New playlist (Ctrl+T)").clicked() {
+                if plus
+                    .on_hover_text("New playlist (Ctrl+T)")
+                    .key_tag("Ctrl+T")
+                    .clicked()
+                {
                     actions.push(PlaylistsAction::NewPlaylist);
                 }
             } else {

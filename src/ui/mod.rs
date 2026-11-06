@@ -38,7 +38,7 @@ use spotless_core::settings::Settings;
 use spotless_core::settings::Storage;
 use spotless_core::spotify::SpotifyQueue;
 use theme::Palette;
-use widgets::text_button;
+use widgets::{KeyTag, text_button};
 
 /// Everything the views read.
 pub struct View<'a> {
@@ -138,6 +138,8 @@ pub struct Inputs {
     pub jump: Option<(PlaylistId, EntryId)>,
     /// The F1 list of keys is open.
     pub help: bool,
+    /// When F1 went down, while it's held: the buttons show their keys.
+    pub f1_since: Option<f64>,
     /// Tab presses this frame, minus Shift+Tab ones.
     pub tab: isize,
     /// Browse's areas and highlighted rows.
@@ -588,7 +590,7 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
     // Buttons from the right: SETTINGS, then KEYS, then UNDO after a
     // removal.
     let mut right = inner.right();
-    let mut button = |ui: &mut Ui, label: &str, tip: &str| {
+    let mut button = |ui: &mut Ui, label: &str, tip: &str, key: &str| {
         let width = widgets::small_button_width(ui, label);
         let at = Rect::from_center_size(
             egui::pos2(right - width / 2.0, inner.center().y),
@@ -596,24 +598,24 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
         );
         right -= width + 6.0;
         let mut child = ui.new_child(UiBuilder::new().max_rect(at));
-        let response = widgets::small_button(&mut child, &palette, label, false);
+        let response = widgets::small_button(&mut child, &palette, label, false).key_tag(key);
         if tip.is_empty() {
             response.clicked()
         } else {
             response.on_hover_text(tip).clicked()
         }
     };
-    if button(ui, "F10 · SETTINGS", "") {
+    if button(ui, "F10 · SETTINGS", "", "F10") {
         toggle_settings(view, inputs, actions);
     }
-    if button(ui, "F1 · KEYS", "") {
+    if button(ui, "F1 · KEYS", "", "F1 tap") {
         inputs.help = true;
     }
-    if undo_shown(view) && button(ui, "UNDO", "Puts it back as it was (Ctrl+Z)") {
+    if undo_shown(view) && button(ui, "UNDO", "Puts it back as it was (Ctrl+Z)", "Ctrl+Z") {
         undo(view, actions);
     }
     if let Some(label) = update_view::status_label(view)
-        && button(ui, &label, "")
+        && button(ui, &label, "", "")
     {
         show_settings(view, inputs, actions, settings_view::Category::About);
     }
