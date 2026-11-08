@@ -104,7 +104,9 @@ Spotify only allows playback in other apps for Premium accounts.
 - **Browse**: search shows Artists, Albums and Songs separately. An artist's
   page is just the discography: All, Albums, Singles & EPs, Appears on;
   Albums first, oldest first, songs opening inline. **+ ADD** adds a whole
-  album to the playlist shown alongside. Pasting a Spotify link adds it too.
+  album to the playlist shown alongside. A Spotify link pasted (Ctrl+V),
+  or a picture of a Spotify Code pasted or dropped on the window, opens
+  what it points to there, to add from.
 - **Your Spotify**: Browse's second tab (F4; SEARCH is F3) lists
   your Spotify playlists, yours (Liked Songs first) apart from the ones
   you follow, with a field to find one by name; the one chosen shows its

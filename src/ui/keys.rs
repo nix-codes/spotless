@@ -64,7 +64,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("F3 or Ctrl+F", "Browse: search"),
             ("F4", "Browse: your Spotify playlists"),
             ("F5", "Browse: songs loved on Last.fm"),
-            ("Ctrl+V", "Paste a Spotify link or Code"),
+            ("Ctrl+V", "Open a pasted Spotify link or Code"),
             ("F10", "Settings"),
             ("F1 or ?", "This list"),
             ("F1, held", "Each button's key, on it"),
@@ -392,14 +392,15 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
         actions.push(BrowseAction::ToggleBrowse);
     }
 
-    // Ctrl+V arrives as a paste. Text that isn't a Spotify link is left alone.
+    // Ctrl+V arrives as a paste. A Spotify link opens its page in Browse,
+    // to be added from there; text that isn't one is left alone.
     // So does Shift+Insert on Windows: on an artist's page, that is ADD ALL.
     if browse_view::adds_all(view) && browse_view::add_all_pressed(i) {
         return;
     }
     i.events.retain(|event| match event {
         Event::Paste(text) if spotless_core::spotify::parse_uri(text.trim()).is_ok() => {
-            actions.push(PlaylistsAction::AddLink(text.trim().to_string()));
+            actions.push(BrowseAction::OpenLink(text.trim().to_string()));
             false
         }
         _ => true,
