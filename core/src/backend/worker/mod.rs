@@ -455,6 +455,7 @@ impl Worker {
             | Command::Cover(_)
             | Command::Album(_)
             | Command::ReadCode(_)
+            | Command::LookUpCode(_)
             | Command::ReadLink(_) => self.handle_catalog(command),
             Command::SpotifyPlaylists
             | Command::RemoveFromSpotify { .. }

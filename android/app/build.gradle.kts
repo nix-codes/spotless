@@ -85,6 +85,9 @@ dependencies {
     implementation(libs.compose.foundation)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.activity.compose)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
     debugImplementation(libs.compose.ui.tooling)
     // The screenshots' test: Robolectric for Android, Roborazzi to draw,

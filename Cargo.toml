@@ -111,6 +111,10 @@ hyper-proxy2 = { git = "https://github.com/crmne/hyper-proxy2", rev = "efca48113
 # Dependencies optimised even in debug builds: audio decoding is too slow otherwise.
 opt-level = 2
 
+[profile.dev.package.spotless-core]
+# The core too: a phone's camera has each frame read for a Spotify Code.
+opt-level = 2
+
 [dev-dependencies]
 # The README's screenshots (examples/screenshots.rs), drawn without a window.
 egui_kittest = { version = "0.36", features = ["wgpu"] }

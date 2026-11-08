@@ -12,6 +12,29 @@ use crate::spotify::webapi::WebApi;
 use std::sync::Arc;
 
 impl Worker {
+    /// Opens a Spotify Code: its number from `reading` (a picture read,
+    /// which takes a moment for a big one, or a number already read), then
+    /// one lookup, never retried, and what it points to.
+    fn open_code(&self, reading: impl FnOnce() -> anyhow::Result<u64> + Send + 'static) {
+        let Some(session) = self.session.clone() else {
+            let error = "Sign in to Spotify to read a Spotify Code.".to_string();
+            return (self.emit)(Event::CodeRead(Err(error)));
+        };
+        let http = self.http.clone();
+        let emit = Arc::clone(&self.emit);
+        tokio::spawn(async move {
+            let result = async {
+                let reference = tokio::task::spawn_blocking(reading).await??;
+                let found = code::look_up(&session, &http, reference).await?;
+                let target = code::target(&session, &found).await?;
+                Ok((code::encode(reference), target))
+            }
+            .await
+            .map_err(|e: anyhow::Error| format!("{e:#}"));
+            emit(Event::CodeRead(result));
+        });
+    }
+
     /// Reads links, searches, artists, albums and covers.
     pub(super) fn handle_catalog(&mut self, command: Command) {
         match command {
@@ -168,27 +191,8 @@ impl Worker {
                     emit(Event::Cover { url, result });
                 });
             }
-            Command::ReadCode(image) => {
-                let Some(session) = self.session.clone() else {
-                    let error = "Sign in to Spotify to read a Spotify Code.".to_string();
-                    return (self.emit)(Event::CodeRead(Err(error)));
-                };
-                let http = self.http.clone();
-                let emit = Arc::clone(&self.emit);
-                tokio::spawn(async move {
-                    let result = async {
-                        // Reading the picture takes a moment for a big one.
-                        let reference =
-                            tokio::task::spawn_blocking(move || code::read(&image)).await??;
-                        let found = code::look_up(&session, &http, reference).await?;
-                        let target = code::target(&session, &found).await?;
-                        Ok((code::encode(reference), target))
-                    }
-                    .await
-                    .map_err(|e: anyhow::Error| format!("{e:#}"));
-                    emit(Event::CodeRead(result));
-                });
-            }
+            Command::ReadCode(image) => self.open_code(move || code::read(&image)),
+            Command::LookUpCode(reference) => self.open_code(move || Ok(reference)),
             Command::ReadLink(link) => {
                 let reading = self.on_session(move |session| async move {
                     let result = code::target(&session, &link).await;

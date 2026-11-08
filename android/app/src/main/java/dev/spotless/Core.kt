@@ -230,6 +230,9 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
         context.startActivity(chooser)
     }
 
+    /** The camera is open, scanning for a Spotify Code. */
+    var scanning by mutableStateOf(false)
+
     /** A Spotify Code's picture or a link shared to Spotless, opened once signed in. */
     private var shared: Action? = null
 

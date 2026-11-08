@@ -3,6 +3,8 @@ agp = "9.4.1"
 kotlin = "2.4.20"
 compose-bom = "2026.09.00"
 activity = "1.13.0"
+# Scanning a Spotify Code: the camera's preview and frames.
+camerax = "1.6.2"
 # UniFFI's Kotlin bindings call the library through JNA.
 jna = "5.19.1"
 # The README's screenshots (app/src/test), drawn on the computer.
@@ -17,6 +19,9 @@ compose-foundation = { module = "androidx.compose.foundation:foundation" }
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity" }
+camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "camerax" }
+camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camerax" }
+camera-view = { module = "androidx.camera:camera-view", version.ref = "camerax" }
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 junit = { module = "junit:junit", version.ref = "junit" }

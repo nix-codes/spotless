@@ -19,6 +19,7 @@ import dev.spotless.core.Session
 import dev.spotless.core.spotifyLinkIn
 import dev.spotless.ui.BrowseScreen
 import dev.spotless.ui.PlaylistsScreen
+import dev.spotless.ui.Scanner
 import dev.spotless.ui.SettingsScreen
 import dev.spotless.ui.SignInScreen
 
@@ -74,7 +75,10 @@ private fun Screens(core: Core) {
     var settings by rememberSaveable { mutableStateOf(false) }
     when (core.session) {
         Session.SignedOut, Session.SigningIn, is Session.Failed -> SignInScreen(core)
-        else -> if (core.browse.open) {
+        else -> if (core.scanning) {
+            BackHandler { core.scanning = false }
+            Scanner(core)
+        } else if (core.browse.open) {
             BackHandler { core.browseBack() }
             BrowseScreen(core)
         } else if (settings) {

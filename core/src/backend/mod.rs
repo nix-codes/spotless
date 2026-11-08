@@ -79,6 +79,9 @@ pub(crate) enum Command {
     /// What the Spotify Code in this picture points to; answered with
     /// `Event::CodeRead`.
     ReadCode(CodeImage),
+    /// What the code with this number points to; answered with
+    /// `Event::CodeRead`.
+    LookUpCode(u64),
     /// What this Spotify link points to; answered with `Event::LinkRead`.
     ReadLink(String),
     /// The account's own Spotify playlists, Liked Songs first.

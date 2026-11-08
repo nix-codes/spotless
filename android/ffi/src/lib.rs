@@ -70,6 +70,18 @@ pub fn spotify_link_in(text: String) -> Option<String> {
         .map(String::from)
 }
 
+/// The number of the Spotify Code in a camera frame's greys (its Y plane,
+/// a byte a pixel, row by row), read on the phone, asking Spotify nothing:
+/// for `Action::LookUpCode`. None if there's no code to read in it.
+#[uniffi::export]
+pub fn code_in_frame(width: u32, height: u32, greys: Vec<u8>) -> Option<u64> {
+    spotless_core::spotify::code_in(&spotless_core::spotify::CodeImage::Greys {
+        width,
+        height,
+        greys,
+    })
+}
+
 /// The made-up artist a demo's Browse has ready (`spotless_core::demo`).
 #[uniffi::export]
 pub fn demo_artist() -> view::Artist {
@@ -496,6 +508,11 @@ pub enum Action {
     ReadCode {
         image: Vec<u8>,
     },
+    /// Opens in Browse what the Spotify Code with this number points to
+    /// (`code_in_frame`): one request to Spotify.
+    LookUpCode {
+        reference: u64,
+    },
     /// Opens in Browse what this Spotify link points to; `Search` with a
     /// link does the same.
     OpenLink {
@@ -688,6 +705,7 @@ impl From<Action> for spotless_core::action::Action {
             Action::ReadCode { image } => {
                 BrowseAction::ReadCode(spotless_core::spotify::CodeImage::File(image)).into()
             }
+            Action::LookUpCode { reference } => BrowseAction::LookUpCode(reference).into(),
             Action::OpenLink { link } => BrowseAction::OpenLink(link).into(),
             Action::Revealed => BrowseAction::Revealed.into(),
             Action::PlayNow { track } => PlaybackAction::PlayNow(track.into()).into(),
@@ -834,6 +852,7 @@ mod tests {
                 | BrowseAction::AddAll
                 | BrowseAction::ShowBrowseTab(..)
                 | BrowseAction::ReadCode(..)
+                | BrowseAction::LookUpCode(..)
                 | BrowseAction::OpenLink(..)
                 | BrowseAction::Revealed => true,
                 // Not in the app yet.
@@ -1028,6 +1047,7 @@ mod tests {
             },
             Action::AddAlbum { album: "x".into() },
             Action::ReadCode { image: vec![1] },
+            Action::LookUpCode { reference: 1 },
             Action::OpenLink { link: "x".into() },
             Action::Revealed,
             Action::PlayNow { track: track() },

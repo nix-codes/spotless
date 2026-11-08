@@ -238,6 +238,9 @@ pub enum BrowseAction {
     ShowBrowseTab(crate::browse::BrowseTab),
     /// Opens in Browse what the Spotify Code in this picture points to.
     ReadCode(crate::spotify::CodeImage),
+    /// Opens in Browse what a Spotify Code already read points to, by its
+    /// number (`spotify::code_in`): the camera reads its frames itself.
+    LookUpCode(u64),
     /// Opens in Browse what this Spotify link points to, as a code does.
     OpenLink(String),
     /// The album or song a code or link opened has been shown.

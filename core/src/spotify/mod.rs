@@ -20,6 +20,13 @@ pub use code::CodeImage;
 pub use queue::{Part, Queued, Row, SpotifyQueue};
 pub use webapi::REDIRECT_URI;
 
+/// The Spotify Code in a picture, read on this computer or phone without
+/// asking Spotify anything: its number, for `BrowseAction::LookUpCode`.
+/// Quick enough for a camera's frames.
+pub fn code_in(image: &CodeImage) -> Option<u64> {
+    code::read(image).ok()
+}
+
 /// The web link that opens this song, album, artist or playlist in
 /// Spotify, to share it as the Spotify app does. None for what has none:
 /// Liked Songs, a local file.

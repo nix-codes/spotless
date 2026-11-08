@@ -452,6 +452,10 @@ fn a_spotify_code_opens_what_it_points_to_in_browse() {
     assert_eq!(*browse.page(), Page::Artist("spotify:artist:boc".into()));
     assert_eq!(browse.code_here(), None);
 
+    // A code the camera read goes straight to the lookup.
+    rig.controller.apply(BrowseAction::LookUpCode(16862907074));
+    assert!((rig.sent().iter()).any(|c| matches!(c, Command::LookUpCode(16862907074))));
+
     // A link opens the same way, with no code drawn.
     rig.controller.apply(BrowseAction::OpenLink(
         " https://open.spotify.com/artist/boc ".into(),

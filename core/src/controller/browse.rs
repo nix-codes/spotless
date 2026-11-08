@@ -202,6 +202,10 @@ impl Controller {
                 self.state.notice = Some("Reading the code…".into());
                 self.send(Command::ReadCode(image));
             }
+            BrowseAction::LookUpCode(reference) => {
+                self.state.notice = Some("Reading the code…".into());
+                self.send(Command::LookUpCode(reference));
+            }
             BrowseAction::OpenLink(link) => {
                 self.state.notice = Some("Opening the link…".into());
                 self.send(Command::ReadLink(link.trim().to_string()));

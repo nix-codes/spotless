@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
@@ -213,17 +214,37 @@ private fun SearchField(core: Core, query: String, findable: Boolean) {
                 field()
             },
         )
-        // A screenshot of a Spotify Code, picked, opens what it points to.
-        val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { picked ->
-            if (picked != null) core.readCode(picked)
-        }
-        GlyphButton(
-            Glyph.Code,
-            "Open a Spotify Code from a screenshot",
-            { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-            Modifier.width(48.dp).height(48.dp),
-        )
+        CodeButton(core)
         if (findable) TextButton("FIND", { toggleFind(core) }, Modifier.height(48.dp), on = core.browse.find != null)
+    }
+}
+
+/**
+ * A Spotify Code, scanned with the camera or picked from screenshots,
+ * opens what it points to: a menu of the two.
+ */
+@Composable
+private fun CodeButton(core: Core) {
+    var choosing by remember { mutableStateOf(false) }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { picked ->
+        if (picked != null) core.readCode(picked)
+    }
+    Box {
+        GlyphButton(Glyph.Code, "Open a Spotify Code", { choosing = !choosing }, Modifier.width(48.dp).height(48.dp), on = choosing)
+        if (choosing) {
+            Popup(alignment = Alignment.TopEnd, offset = IntOffset(0, 150), onDismissRequest = { choosing = false }) {
+                Column(Modifier.width(260.dp).background(Classic.frame).bevel().padding(4.dp)) {
+                    TextButton("SCAN WITH THE CAMERA", {
+                        choosing = false
+                        core.scanning = true
+                    }, Modifier.fillMaxWidth())
+                    TextButton("PICK A SCREENSHOT", {
+                        choosing = false
+                        pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }, Modifier.fillMaxWidth())
+                }
+            }
+        }
     }
 }
 
