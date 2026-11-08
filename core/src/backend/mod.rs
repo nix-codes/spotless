@@ -364,9 +364,9 @@ pub(crate) enum Event {
     PlaylistChanged(synced::Changed),
     /// Spotify told of a change to the account's list of playlists.
     PlaylistsChanged,
-    /// A Spotify Code's bars and what it points to, or why it couldn't
+    /// A Spotify Code's number and what it points to, or why it couldn't
     /// be read.
-    CodeRead(u64, Result<([u8; 23], CodeTarget), String>),
+    CodeRead(u64, Result<(u64, CodeTarget), String>),
     /// What a Spotify link points to, or why it couldn't be opened.
     LinkRead(u64, Result<CodeTarget, String>),
     Error(String),

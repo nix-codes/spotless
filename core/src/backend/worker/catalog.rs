@@ -27,7 +27,7 @@ impl Worker {
                 let reference = tokio::task::spawn_blocking(reading).await??;
                 let found = code::look_up(&session, &http, reference).await?;
                 let target = code::target(&session, &found).await?;
-                Ok((code::encode(reference), target))
+                Ok((reference, target))
             }
             .await
             .map_err(|e: anyhow::Error| format!("{e:#}"));

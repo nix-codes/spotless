@@ -8,7 +8,7 @@ use crate::browse::{AddAll, BrowseTab, Loadable, OpenedCode, Page};
 use crate::model::catalog::{Discography, ReleaseTab, SearchResults, Songs};
 use crate::model::playlist::from_source;
 use crate::model::{ArtistRef, PlaylistId, Source, TrackRef};
-use crate::spotify::code::CodeTarget;
+use crate::spotify::code::{CodeTarget, encode};
 use crate::spotify::webapi::SearchPage;
 
 impl Controller {
@@ -227,12 +227,13 @@ impl Controller {
     /// artist's page; an album or song on its artist's page, opened and
     /// shown; a playlist on its own page. Unless another code or link has
     /// been asked for since.
-    pub(super) fn code_read(&mut self, id: u64, result: Result<([u8; 23], CodeTarget), String>) {
+    pub(super) fn code_read(&mut self, id: u64, result: Result<(u64, CodeTarget), String>) {
         if id != self.last_open {
             return;
         }
         match result {
-            Ok((bars, target)) => self.open_target(Some(bars), target),
+            // Its bars are drawn again from its number.
+            Ok((reference, target)) => self.open_target(Some(encode(reference)), target),
             Err(error) => {
                 self.state.notice = None;
                 self.state.error = Some(error);

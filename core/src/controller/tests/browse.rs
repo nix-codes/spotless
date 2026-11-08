@@ -369,11 +369,12 @@ fn a_spotify_code_opens_what_it_points_to_in_browse() {
     );
 
     // A song: its artist's page, on every release, its album open.
-    let bars = crate::spotify::code::encode(57268659651);
+    let reference = 57268659651;
+    let bars = crate::spotify::code::encode(reference);
     rig.tell(Event::CodeRead(
         1,
         Ok((
-        bars,
+        reference,
         CodeTarget::Track {
             artist: artist.clone(),
             album: "spotify:album:geogaddi".into(),
@@ -404,7 +405,7 @@ fn a_spotify_code_opens_what_it_points_to_in_browse() {
         owner: Some("Max".into()),
         private: false,
     };
-    rig.tell(Event::CodeRead(1, Ok((bars, CodeTarget::Playlist(playlist)))));
+    rig.tell(Event::CodeRead(1, Ok((reference, CodeTarget::Playlist(playlist)))));
     let browse = &rig.controller.state().browse;
     assert_eq!(*browse.page(), Page::Playlist("spotify:playlist:p".into()));
     assert_eq!(
@@ -514,8 +515,7 @@ fn only_the_last_code_or_link_asked_for_opens() {
 
     // The second's answer comes first and opens; the first's, late, doesn't.
     rig.tell(Event::LinkRead(second, Ok(CodeTarget::Artist(artist("second")))));
-    let bars = crate::spotify::code::encode(1);
-    rig.tell(Event::CodeRead(first, Ok((bars, CodeTarget::Artist(artist("first"))))));
+    rig.tell(Event::CodeRead(first, Ok((1, CodeTarget::Artist(artist("first"))))));
     let browse = &rig.controller.state().browse;
     assert_eq!(*browse.page(), Page::Artist("spotify:artist:second".into()));
     assert_eq!(browse.code, None);
