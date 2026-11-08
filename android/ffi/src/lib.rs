@@ -61,6 +61,15 @@ pub fn spotify_links(uris: Vec<String>) -> String {
     spotless_core::spotify::links(uris.iter().map(String::as_str))
 }
 
+/// The first Spotify link or URI in shared text, as Spotify's app shares
+/// one ("Listen to … on Spotify: https://open.spotify.com/…").
+#[uniffi::export]
+pub fn spotify_link_in(text: String) -> Option<String> {
+    (text.split_whitespace())
+        .find(|word| spotless_core::spotify::parse_uri(word).is_ok())
+        .map(String::from)
+}
+
 /// The made-up artist a demo's Browse has ready (`spotless_core::demo`).
 #[uniffi::export]
 pub fn demo_artist() -> view::Artist {
@@ -482,6 +491,19 @@ pub enum Action {
     AddAlbum {
         album: String,
     },
+    /// Opens in Browse what the Spotify Code in this picture (a PNG or
+    /// JPEG file's bytes) points to.
+    ReadCode {
+        image: Vec<u8>,
+    },
+    /// Opens in Browse what this Spotify link points to; `Search` with a
+    /// link does the same.
+    OpenLink {
+        link: String,
+    },
+    /// The album or song a code or link opened (`BrowseView::reveal`) has
+    /// been scrolled to.
+    Revealed,
     /// Puts a song after the target playlist's current one and plays it.
     PlayNow {
         track: Track,
@@ -613,6 +635,10 @@ impl From<Action> for spotless_core::action::Action {
             Action::OpenBrowse => BrowseAction::ToggleBrowse.into(),
             Action::CloseBrowse => BrowseAction::CloseBrowse.into(),
             Action::Back => BrowseAction::Back.into(),
+            // A link searched for opens what it points to.
+            Action::Search { query } if spotless_core::spotify::parse_uri(&query).is_ok() => {
+                BrowseAction::OpenLink(query).into()
+            }
             Action::Search { query } => BrowseAction::Search(query).into(),
             Action::MoreSongs { query } => BrowseAction::MoreSongs(query).into(),
             Action::Find { text } => BrowseAction::Find(text).into(),
@@ -659,6 +685,11 @@ impl From<Action> for spotless_core::action::Action {
                 BrowseAction::AddTracks(tracks.into_iter().map(Into::into).collect()).into()
             }
             Action::AddAlbum { album } => BrowseAction::AddAlbum(album).into(),
+            Action::ReadCode { image } => {
+                BrowseAction::ReadCode(spotless_core::spotify::CodeImage::File(image)).into()
+            }
+            Action::OpenLink { link } => BrowseAction::OpenLink(link).into(),
+            Action::Revealed => BrowseAction::Revealed.into(),
             Action::PlayNow { track } => PlaybackAction::PlayNow(track.into()).into(),
             Action::AddLoved { songs } => {
                 LastFmAction::AddLoved(songs.into_iter().map(Into::into).collect()).into()
@@ -801,15 +832,15 @@ mod tests {
                 | BrowseAction::AddTracks(..)
                 | BrowseAction::AddAlbum(..)
                 | BrowseAction::AddAll
-                | BrowseAction::ShowBrowseTab(..) => true,
+                | BrowseAction::ShowBrowseTab(..)
+                | BrowseAction::ReadCode(..)
+                | BrowseAction::OpenLink(..)
+                | BrowseAction::Revealed => true,
                 // Not in the app yet.
                 BrowseAction::MoreArtists(..)
                 | BrowseAction::AddAlbums(..)
                 | BrowseAction::DropTracks(..)
-                | BrowseAction::DropAlbum(..)
-                | BrowseAction::ReadCode(..)
-                | BrowseAction::OpenLink(..)
-                | BrowseAction::Revealed => false,
+                | BrowseAction::DropAlbum(..) => false,
             },
             Core::SpotifyLists(action) => match action {
                 SpotifyListsAction::OpenSpotifyPlaylist(..)
@@ -996,6 +1027,9 @@ mod tests {
                 tracks: vec![track()],
             },
             Action::AddAlbum { album: "x".into() },
+            Action::ReadCode { image: vec![1] },
+            Action::OpenLink { link: "x".into() },
+            Action::Revealed,
             Action::PlayNow { track: track() },
             Action::AddLoved {
                 songs: vec![loved()],
@@ -1070,6 +1104,17 @@ mod tests {
         assert_eq!(list.cursor, None);
         assert!(spotless.playlist(made + 1000).is_none());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_spotify_link_is_found_in_shared_text() {
+        let shared = "Listen to Night Shift on Spotify: \
+            https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC?si=abc";
+        assert_eq!(
+            spotify_link_in(shared.into()).as_deref(),
+            Some("https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC?si=abc")
+        );
+        assert_eq!(spotify_link_in("no link here".into()), None);
     }
 
     #[test]

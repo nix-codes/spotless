@@ -56,7 +56,7 @@ pub(super) fn artist_page(
     });
     ui.add_space(8.0);
     if browse.code_here().is_some() {
-        let caption = code_caption(view, discography);
+        let caption = (browse.code_title()).map(|title| format!("CODE · “{title}”"));
         opened_code(ui, view, caption.as_deref(), actions);
         ui.add_space(10.0);
     }
@@ -189,24 +189,6 @@ pub(super) fn artist_page(
             actions,
         );
     }
-}
-
-/// What the Spotify Code that opened the page points to, when it's an
-/// album or a song on it: “CODE · title”.
-fn code_caption(view: &View, discography: &Discography) -> Option<String> {
-    let uri = view.browse.code_here()?.uri.as_str();
-    let release = (discography.releases.iter()).find(|r| r.uri == uri);
-    let title = match release {
-        Some(release) => release.title.clone(),
-        None => (view.browse.albums.values())
-            .find_map(|songs| match songs {
-                Loadable::Ready(songs) => songs.iter().find(|s| s.uri == uri),
-                _ => None,
-            })?
-            .title
-            .clone(),
-    };
-    Some(format!("CODE · “{title}”"))
 }
 
 /// The artist's most played songs, Spotify's pick, in its order: what

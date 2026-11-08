@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -229,6 +230,25 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
         context.startActivity(chooser)
     }
 
+    /** A Spotify Code's picture or a link shared to Spotless, opened once signed in. */
+    private var shared: Action? = null
+
+    /** Opens in Browse what was picked or shared: now if signed in, otherwise once it is. */
+    fun openShared(action: Action) {
+        if (session is Session.Ready) apply(action) else shared = action
+    }
+
+    /** Opens the Spotify Code in the picture at [uri], picked or shared, read off the main thread. */
+    fun readCode(uri: Uri) {
+        thread {
+            val bytes = runCatching {
+                context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            }.getOrNull()
+            // Nothing read is said as a picture that isn't one.
+            main.post { openShared(Action.ReadCode(bytes ?: ByteArray(0))) }
+        }
+    }
+
     override fun open(url: String) {
         main.post {
             approving = true
@@ -242,6 +262,12 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
     private fun refresh() {
         val saveIn = spotless.update()
         session = spotless.session()
+        if (session is Session.Ready) {
+            shared?.let { action ->
+                shared = null
+                main.post { apply(action) }
+            }
+        }
         player = spotless.player()
         tabs = spotless.tabs()
         playlist = spotless.playlist(tabs.viewed)

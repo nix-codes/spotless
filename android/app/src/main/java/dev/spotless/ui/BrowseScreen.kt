@@ -1,6 +1,9 @@
 package dev.spotless.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -83,9 +86,12 @@ fun BrowseScreen(core: Core) {
             val artist = (browse.page as? BrowsePage.Artist)
                 ?.takeIf { browse.shown == BrowseTab.SEARCH }
                 ?.let { (it.page as? ArtistPage.Ready)?.artist }
+            val playlist = (browse.page as? BrowsePage.Playlist)?.takeIf { browse.shown == BrowseTab.SEARCH }
             if (artist != null) {
                 if (browse.covers) Cover(core, artist.image)
                 Line(artist.name, body(18.sp, Classic.current, FontWeight.Bold), Modifier.weight(1f).padding(start = 4.dp))
+            } else if (playlist != null) {
+                Line(playlist.name, body(18.sp, Classic.current, FontWeight.Bold), Modifier.weight(1f).padding(start = 4.dp))
             } else {
                 BasicText("B R O W S E", Modifier.weight(1f).padding(start = 4.dp), label(spacing = 0.3.em))
             }
@@ -117,14 +123,28 @@ private fun Catalog(core: Core, modifier: Modifier) {
         is BrowsePage.Home -> "home"
         is BrowsePage.Search -> "search:${page.query}"
         is BrowsePage.Artist -> "artist:${page.uri}"
+        is BrowsePage.Playlist -> "playlist:${page.uri}"
     }
     val scroll = remember(key) { core.browseScroll.getOrPut(key) { LazyListState() } }
     Column(modifier) {
-        if (page !is BrowsePage.Artist) {
-            SearchField(core, (page as? BrowsePage.Search)?.query ?: "", findable = page is BrowsePage.Search)
+        when (page) {
+            is BrowsePage.Artist -> {
+                ArtistBar(core, page)
+                (page.page as? ArtistPage.Ready)?.let { Reveal(core, scroll, it.releases) }
+            }
+            is BrowsePage.Playlist -> PlaylistBar(core, page)
+            else -> SearchField(core, (page as? BrowsePage.Search)?.query ?: "", findable = page is BrowsePage.Search)
         }
-        if (page is BrowsePage.Artist) ArtistBar(core, page)
-        if (core.browse.find != null) FindField(core, artist = page is BrowsePage.Artist)
+        if (core.browse.find != null) {
+            FindField(
+                core,
+                when (page) {
+                    is BrowsePage.Artist -> "Find a song or a release here"
+                    is BrowsePage.Playlist -> "Find a song here"
+                    else -> "Find in these results"
+                },
+            )
+        }
         ScrollingList(
             scroll,
             Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp).lcd().padding(2.dp),
@@ -133,6 +153,7 @@ private fun Catalog(core: Core, modifier: Modifier) {
                 is BrowsePage.Home -> home(core, page)
                 is BrowsePage.Search -> search(core, page.query, page.page)
                 is BrowsePage.Artist -> artist(core, page.page)
+                is BrowsePage.Playlist -> playlist(core, page)
             }
         }
     }
@@ -192,6 +213,16 @@ private fun SearchField(core: Core, query: String, findable: Boolean) {
                 field()
             },
         )
+        // A screenshot of a Spotify Code, picked, opens what it points to.
+        val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { picked ->
+            if (picked != null) core.readCode(picked)
+        }
+        GlyphButton(
+            Glyph.Code,
+            "Open a Spotify Code from a screenshot",
+            { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            Modifier.width(48.dp).height(48.dp),
+        )
         if (findable) TextButton("FIND", { toggleFind(core) }, Modifier.height(48.dp), on = core.browse.find != null)
     }
 }
@@ -202,7 +233,7 @@ private fun SearchField(core: Core, query: String, findable: Boolean) {
  * CLOSE or Back closes it.
  */
 @Composable
-private fun FindField(core: Core, artist: Boolean) {
+private fun FindField(core: Core, hint: String) {
     var text by remember { mutableStateOf(core.browse.find.orEmpty()) }
     val focus = remember { FocusRequester() }
     val manager = LocalFocusManager.current
@@ -232,7 +263,6 @@ private fun FindField(core: Core, artist: Boolean) {
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { manager.clearFocus() }),
             decorationBox = { field ->
-                val hint = if (artist) "Find a song or a release here" else "Find in these results"
                 if (text.isEmpty()) BasicText(hint, style = body(16.sp, Classic.dim))
                 field()
             },
@@ -253,7 +283,7 @@ private fun LazyListScope.home(core: Core, page: BrowsePage.Home) {
     when (core.browse.search) {
         SearchState.NO_APP -> note(
             "Search needs your own Spotify app, which Settings sets up. " +
-                "A pasted Spotify link adds its songs meanwhile.",
+                "A Spotify link or Code opens what it points to meanwhile.",
         )
         SearchState.SIGNING_IN -> note("Approve search in the browser page that opened.")
         else -> {}
@@ -335,6 +365,7 @@ private fun LazyListScope.artist(core: Core, page: ArtistPage) {
                 return
             }
             val find = core.browse.find?.trim().orEmpty()
+            core.browse.code?.let { code -> item(key = "code") { OpenedCodeView(core, code) } }
             listBar(core, page)
             if (core.browse.popular) {
                 if (page.popular.isEmpty()) note("No popular song has “$find”.")
@@ -391,6 +422,48 @@ private fun LazyListScope.listBar(core: Core, page: ArtistPage.Ready) {
             Box(Modifier.weight(1f))
             if (what != null) AddButton("ADD ALL", label(), "Add $what") { core.apply(Action.AddAll) }
         }
+    }
+}
+
+/** Someone's Spotify playlist, opened from a Spotify Code or link: the code, ADD ALL, its songs. */
+private fun LazyListScope.playlist(core: Core, page: BrowsePage.Playlist) {
+    core.browse.code?.let { code -> item(key = "code") { OpenedCodeView(core, code) } }
+    when (val list = page.list) {
+        AlbumSongs.NotRead, AlbumSongs.Loading -> note("Reading the songs…")
+        is AlbumSongs.Failed -> note(list.message)
+        is AlbumSongs.Ready -> {
+            val find = core.browse.find?.trim().orEmpty()
+            if (list.tracks.isEmpty()) {
+                note("No song here has “$find”.")
+                return
+            }
+            item(key = "list-bar") {
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp, start = 6.dp, end = 6.dp)) {
+                    Box(Modifier.weight(1f))
+                    val count = list.tracks.size
+                    val what = if (count == 1) "the song shown" else "the $count songs shown"
+                    AddButton("ADD ALL", label(), "Add $what") {
+                        // Found by the find, only those; otherwise the whole playlist.
+                        core.apply(if (core.browse.find != null) Action.AddTracks(list.tracks) else Action.AddAlbum(page.uri))
+                    }
+                }
+            }
+            itemsIndexed(list.tracks) { i, track -> TrackRow(core, track, list.numbers[i].toInt(), artists(track)) }
+        }
+    }
+}
+
+/** Under a playlist's name: whose it is and how many songs, and FIND. */
+@Composable
+private fun PlaylistBar(core: Core, page: BrowsePage.Playlist) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val about = listOfNotNull("PLAYLIST", page.owner?.let { "BY $it" }, songs(page.songs.toInt()))
+        Line(about.joinToString(" · "), label(12.sp, Classic.dim), Modifier.weight(1f))
+        TextButton("FIND", { toggleFind(core) }, on = core.browse.find != null)
     }
 }
 
@@ -574,6 +647,8 @@ private fun TrackRow(core: Core, track: Track, number: Int?, sub: String?) {
         Modifier
             .fillMaxWidth()
             .height(if (sub != null) 52.dp else 46.dp)
+            // The song a Spotify Code opened, lit while its code shows.
+            .background(if (core.browse.code?.uri == track.uri) Classic.selected else Color.Transparent)
             .combinedClickable(onLongClick = { core.share(listOf(track.uri)) }) { core.apply(Action.PlayNow(track)) }
             .padding(start = if (number != null) 16.dp else 12.dp, end = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),

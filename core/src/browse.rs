@@ -418,6 +418,26 @@ impl Browse {
         self.code.as_ref().filter(|code| &code.page == self.page())
     }
 
+    /// The title of the album or song the Spotify Code shown points to,
+    /// on its artist's page, once read.
+    pub fn code_title(&self) -> Option<&str> {
+        let code = self.code_here()?;
+        let Page::Artist(artist) = &code.page else {
+            return None;
+        };
+        if let Some(Loadable::Ready(discography)) = self.artists.get(artist)
+            && let Some(release) = (discography.releases.iter()).find(|r| r.uri == code.uri)
+        {
+            return Some(&release.title);
+        }
+        (self.albums.values())
+            .find_map(|songs| match songs {
+                Loadable::Ready(songs) => songs.iter().find(|song| song.uri == code.uri),
+                _ => None,
+            })
+            .map(|song| song.title.as_str())
+    }
+
     pub fn any_playlist(&self, uri: &str) -> Option<&SpotifyPlaylist> {
         self.spotify_playlist(uri)
             .or_else(|| self.playlists.get(uri))

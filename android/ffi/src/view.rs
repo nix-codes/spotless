@@ -620,7 +620,7 @@ fn album_songs(state: &State, uri: &str) -> AlbumSongs {
 /// An album's or a Spotify playlist's songs, as added from it, as the
 /// core does for a whole one added.
 fn added_from(state: &State, uri: &str, tracks: &[TrackRef]) -> Vec<TrackRef> {
-    let name = match state.browse.spotify_playlist(uri) {
+    let name = match state.browse.any_playlist(uri) {
         Some(playlist) => playlist.name.clone(),
         None => match tracks.first() {
             Some(track) if track.album.uri == uri => track.album.name.clone(),
@@ -770,6 +770,28 @@ pub enum BrowsePage {
         uri: String,
         page: ArtistPage,
     },
+    /// Someone's Spotify playlist, opened from a Spotify Code or link.
+    Playlist {
+        uri: String,
+        name: String,
+        /// Who made it, unless it's the account's own.
+        owner: Option<String>,
+        /// How many songs it has, all of them.
+        songs: u32,
+        /// Its songs, those a find found only.
+        list: AlbumSongs,
+    },
+}
+
+/// The Spotify Code the page shown was opened from, drawn on it.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct OpenedCode {
+    /// Its 23 bars' heights, 0 to 7.
+    pub bars: Vec<u8>,
+    /// What it points to, to share.
+    pub uri: String,
+    /// The album or song it points to, on its artist's page.
+    pub title: Option<String>,
 }
 
 /// Browse's tabs: the catalogue, searched, the account's own Spotify
@@ -965,6 +987,11 @@ pub struct BrowseView {
     pub find: Option<String>,
     /// LAST.FM, while it's there.
     pub loved: Option<LovedSongs>,
+    /// The Spotify Code the page shown was opened from.
+    pub code: Option<OpenedCode>,
+    /// The album or song a code or link opened, to scroll to on its
+    /// artist's page; `Action::Revealed` once it has been.
+    pub reveal: Option<String>,
 }
 
 pub(crate) fn browse(state: &State) -> BrowseView {
@@ -1087,11 +1114,28 @@ pub(crate) fn browse(state: &State) -> BrowseView {
                 },
             },
         },
-        // Only a Spotify Code opens it, which the app can't read yet.
-        Page::Playlist(_) => BrowsePage::Home {
-            searches: browse.recent_searches.clone(),
-            recent: browse.recent.iter().map(Into::into).collect(),
-        },
+        Page::Playlist(uri) => {
+            let playlist = browse.any_playlist(uri);
+            BrowsePage::Playlist {
+                uri: uri.clone(),
+                name: playlist.map_or_else(String::new, |p| p.name.clone()),
+                owner: playlist.and_then(|p| p.owner.clone()),
+                songs: playlist.map_or(0, |p| count(p.tracks)),
+                list: match browse.albums.get(uri) {
+                    Some(Loadable::Ready(list)) => {
+                        let added = added_from(state, uri, list);
+                        let shown: Vec<(usize, &TrackRef)> = (added.iter().enumerate())
+                            .filter(|(_, track)| find.as_ref().is_none_or(|f| f.track(track)))
+                            .collect();
+                        AlbumSongs::Ready {
+                            tracks: shown.iter().map(|(_, track)| (*track).into()).collect(),
+                            numbers: shown.iter().map(|(i, _)| count(i + 1)).collect(),
+                        }
+                    }
+                    _ => album_songs(state, uri),
+                },
+            }
+        }
     };
     BrowseView {
         open: browse.open,
@@ -1115,6 +1159,12 @@ pub(crate) fn browse(state: &State) -> BrowseView {
         your_spotify: your_spotify(state),
         find: browse.find.clone(),
         loved,
+        code: browse.code_here().map(|code| OpenedCode {
+            bars: code.bars.to_vec(),
+            uri: code.uri.clone(),
+            title: browse.code_title().map(String::from),
+        }),
+        reveal: browse.reveal.clone(),
     }
 }
 

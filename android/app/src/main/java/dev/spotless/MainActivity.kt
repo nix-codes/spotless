@@ -1,6 +1,8 @@
 package dev.spotless
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -12,7 +14,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import dev.spotless.core.Action
 import dev.spotless.core.Session
+import dev.spotless.core.spotifyLinkIn
 import dev.spotless.ui.BrowseScreen
 import dev.spotless.ui.PlaylistsScreen
 import dev.spotless.ui.SettingsScreen
@@ -27,6 +31,31 @@ class MainActivity : ComponentActivity() {
         }
         val core = (application as SpotlessApp).core
         setContent { Screens(core) }
+        // Not again when the activity is only made anew (turned, say).
+        if (savedInstanceState == null) shared(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        shared(intent)
+    }
+
+    /** A picture of a Spotify Code, or a Spotify link, shared to Spotless: opened in Browse. */
+    private fun shared(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        val core = (application as SpotlessApp).core
+        if (intent.type?.startsWith("image/") == true) {
+            val picture = if (Build.VERSION.SDK_INT >= 33) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            }
+            picture?.let(core::readCode)
+        } else {
+            val link = intent.getStringExtra(Intent.EXTRA_TEXT)?.let(::spotifyLinkIn) ?: return
+            core.openShared(Action.OpenLink(link))
+        }
     }
 
     override fun onStart() {

@@ -173,7 +173,7 @@ fun TextButton(
 
 /** The transport's and the bars' glyphs, drawn in [color] on a 24-unit square. */
 /** Heart is a song loved on Last.fm; Unloved, its outline, one that isn't. */
-enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check, Trash, Clear, Repeat, Shuffle, Lock, Share, Sync, Heart, Unloved }
+enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check, Trash, Clear, Repeat, Shuffle, Lock, Share, Sync, Heart, Unloved, Code }
 
 @Composable
 fun GlyphButton(
@@ -269,6 +269,14 @@ fun DrawScope.glyph(glyph: Glyph, color: Color) {
             drawPath(arm(4f to 9f, 8f to 4.5f, 12f to 9f), color, style = line)
             drawLine(color, Offset(16f * u, 4f * u), Offset(16f * u, 19f * u), 1.8f * u)
             drawPath(arm(12f to 15f, 16f to 19.5f, 20f to 15f), color, style = line)
+        }
+        Glyph.Code -> {
+            // A Spotify Code in small: a dot, then bars of a few heights.
+            drawCircle(color, 3.5f * u, Offset(5f * u, 12f * u))
+            listOf(4f, 11f, 16f, 7f, 13f).forEachIndexed { i, tall ->
+                val x = (11.5f + i * 2.8f) * u
+                drawLine(color, Offset(x, (12f - tall / 2) * u), Offset(x, (12f + tall / 2) * u), 1.7f * u)
+            }
         }
         Glyph.Share -> {
             // Three dots, the first passing on to the other two.
