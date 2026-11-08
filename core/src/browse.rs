@@ -411,8 +411,6 @@ impl Browse {
         }
     }
 
-    /// A Spotify playlist by URI, the account's or one opened on its own
-    /// page.
     /// The Spotify Code the page shown was opened from.
     pub fn code_here(&self) -> Option<&OpenedCode> {
         self.code.as_ref().filter(|code| &code.page == self.page())
@@ -438,6 +436,8 @@ impl Browse {
             .map(|song| song.title.as_str())
     }
 
+    /// A Spotify playlist by URI, the account's or one opened on its own
+    /// page.
     pub fn any_playlist(&self, uri: &str) -> Option<&SpotifyPlaylist> {
         self.spotify_playlist(uri)
             .or_else(|| self.playlists.get(uri))

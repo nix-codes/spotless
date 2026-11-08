@@ -2,7 +2,7 @@
 //! albums, and the songs added from them to the target playlist.
 
 use super::Controller;
-use crate::action::{BrowseAction, PlaylistsAction};
+use crate::action::BrowseAction;
 use crate::backend::{Command, SearchState};
 use crate::browse::{AddAll, BrowseTab, Loadable, OpenedCode, Page};
 use crate::model::catalog::{Discography, ReleaseTab, SearchResults, Songs};
@@ -38,9 +38,10 @@ impl Controller {
                 if query.is_empty() {
                     return;
                 }
-                // A pasted Spotify link adds its songs instead.
+                // A Spotify link searched for opens what it points to, as a
+                // Spotify Code does.
                 if crate::spotify::catalog::parse_uri(&query).is_ok() {
-                    return self.apply(PlaylistsAction::AddLink(query));
+                    return self.apply(BrowseAction::OpenLink(query));
                 }
                 browse.go(Page::Search(query.clone()));
                 if self.state.search == SearchState::NoApp {

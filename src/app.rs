@@ -181,15 +181,9 @@ impl App {
                     self.inputs.renaming = Some((list.id, list.name.clone()));
                 }
             }
-            Action::Browse(BrowseAction::Search(query))
-                if spotless_core::spotify::parse_uri(query.trim()).is_ok() =>
-            {
-                // A link searched for opens what it points to, as a Spotify
-                // Code does; the field keeps it.
-                self.controller.apply(BrowseAction::OpenLink(query));
-            }
             Action::Browse(BrowseAction::Search(ref query)) => {
-                // A recent search fills the field, as if typed.
+                // A recent search fills the field, as if typed; a link
+                // searched for stays there while its page opens.
                 self.inputs.query = query.trim().to_string();
                 self.controller.apply(action);
             }

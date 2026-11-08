@@ -652,10 +652,6 @@ impl From<Action> for spotless_core::action::Action {
             Action::OpenBrowse => BrowseAction::ToggleBrowse.into(),
             Action::CloseBrowse => BrowseAction::CloseBrowse.into(),
             Action::Back => BrowseAction::Back.into(),
-            // A link searched for opens what it points to.
-            Action::Search { query } if spotless_core::spotify::parse_uri(&query).is_ok() => {
-                BrowseAction::OpenLink(query).into()
-            }
             Action::Search { query } => BrowseAction::Search(query).into(),
             Action::MoreSongs { query } => BrowseAction::MoreSongs(query).into(),
             Action::Find { text } => BrowseAction::Find(text).into(),

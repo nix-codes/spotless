@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
     let reference = match args.as_slice() {
         ["--heights", list] => {
             let heights = parse_heights(list)?;
-            code::decode(&heights).context("these bars aren't a Spotify Code")?
+            code::bars::decode(&heights).context("these bars aren't a Spotify Code")?
         }
         ["--uri", uri] => {
             expected = Some(uri.to_string());

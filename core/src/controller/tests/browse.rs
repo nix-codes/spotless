@@ -464,6 +464,17 @@ fn a_spotify_code_opens_what_it_points_to_in_browse() {
         (rig.sent().iter())
             .any(|c| matches!(c, Command::ReadLink(l) if l == "https://open.spotify.com/artist/boc"))
     );
+    // Searched for, it opens just the same: nothing is added or searched.
+    rig.controller.apply(BrowseAction::Search(
+        " spotify:artist:2VAvhf61GgLYmC6C8anyX1 ".into(),
+    ));
+    let sent = rig.sent();
+    assert!(sent.iter().any(|c| matches!(c, Command::ReadLink(l) if l == "spotify:artist:2VAvhf61GgLYmC6C8anyX1")));
+    assert!(
+        !sent
+            .iter()
+            .any(|c| matches!(c, Command::AddLink { .. } | Command::Search(_)))
+    );
     rig.tell(Event::LinkRead(Ok(CodeTarget::Artist(artist.clone()))));
     let browse = &rig.controller.state().browse;
     assert_eq!(*browse.page(), Page::Artist("spotify:artist:boc".into()));
