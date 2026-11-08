@@ -38,14 +38,6 @@ impl Worker {
     /// Reads links, searches, artists, albums and covers.
     pub(super) fn handle_catalog(&mut self, command: Command) {
         match command {
-            Command::AddLink { text, playlist } => {
-                self.on_session(move |session| async move {
-                    match catalog::link_tracks(&session, &text).await {
-                        Ok(tracks) => Event::Tracks { playlist, tracks },
-                        Err(error) => Event::Error(format!("{error:#}")),
-                    }
-                });
-            }
             Command::SearchApp(client_id) => {
                 // The saved approval belongs to the old app.
                 let _ = std::fs::remove_file(self.paths.search_credentials());

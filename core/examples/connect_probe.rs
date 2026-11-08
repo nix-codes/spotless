@@ -99,7 +99,7 @@ async fn main() -> Result<()> {
         let t = began.elapsed().as_secs_f32();
         if add_at.take_if(|at| Instant::now() >= *at).is_some() {
             added = true;
-            let tracks = catalog::link_tracks(&session, ALBUM).await?;
+            let tracks = catalog::songs(&session, ALBUM).await?.tracks;
             let song = &tracks[2];
             println!("{t:6.1}s  adding {} to the queue", song.title);
             spirc.add_to_queue(SpotifyUri::from_uri(&song.uri)?)?;

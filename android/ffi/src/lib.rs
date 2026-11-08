@@ -314,10 +314,6 @@ pub enum Action {
     ClearCache {
         store: Store,
     },
-    /// Adds a track, album or artist link's songs.
-    AddLink {
-        link: String,
-    },
     Play,
     TogglePause,
     Stop,
@@ -598,7 +594,6 @@ impl From<Action> for spotless_core::action::Action {
             Action::MeasureStorage => SettingsAction::MeasureStorage.into(),
             Action::NetworkBack => SettingsAction::NetworkBack.into(),
             Action::ClearCache { store } => SettingsAction::ClearCache(store.into()).into(),
-            Action::AddLink { link } => PlaylistsAction::AddLink(link).into(),
             Action::Play => PlaybackAction::Play.into(),
             Action::TogglePause => PlaybackAction::TogglePause.into(),
             Action::Stop => PlaybackAction::Stop.into(),
@@ -785,8 +780,7 @@ mod tests {
                 | PlaybackAction::PlayNow(..) => true,
             },
             Core::Playlists(action) => match action {
-                PlaylistsAction::AddLink(..)
-                | PlaylistsAction::Remove(..)
+                PlaylistsAction::Remove(..)
                 | PlaylistsAction::Move(..)
                 | PlaylistsAction::ToggleMarks(..)
                 | PlaylistsAction::SelectPlaylist(..)
@@ -939,7 +933,6 @@ mod tests {
             Action::ClearCache {
                 store: Store::Audio,
             },
-            Action::AddLink { link: "x".into() },
             Action::Play,
             Action::TogglePause,
             Action::Stop,

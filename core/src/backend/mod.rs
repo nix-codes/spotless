@@ -40,11 +40,6 @@ use worker::Worker;
 pub(crate) enum Command {
     SignIn,
     SignOut,
-    /// Reads the songs of a track, album or artist link for a playlist.
-    AddLink {
-        text: String,
-        playlist: PlaylistId,
-    },
     Player(Request),
     Seek(u32),
     Volume(u16),
@@ -337,11 +332,6 @@ pub(crate) enum Event {
     Loved(Loved),
     /// The outputs to choose from; None when they can't be listed.
     Outputs(Option<Vec<Output>>),
-    /// The songs of an `AddLink`.
-    Tracks {
-        playlist: PlaylistId,
-        tracks: Vec<TrackRef>,
-    },
     /// A synced playlist synced, or not.
     Synced {
         list: PlaylistId,

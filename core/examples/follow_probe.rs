@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
     let Some(session) = session::restore(&paths, audio_cache(&paths)).await? else {
         bail!("not signed in: start Spotless and sign in first");
     };
-    let tracks = catalog::link_tracks(&session, &album).await?;
+    let tracks = catalog::songs(&session, &album).await?.tracks;
     let [first, second, ..] = tracks.as_slice() else {
         bail!("the album needs two songs");
     };

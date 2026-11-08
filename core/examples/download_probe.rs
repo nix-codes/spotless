@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
     let Some(session) = session::restore(&paths, audio_cache(&paths)).await? else {
         bail!("not signed in: start Spotless and sign in first");
     };
-    let tracks = catalog::link_tracks(&session, &album).await?;
+    let tracks = catalog::songs(&session, &album).await?.tracks;
     let song = tracks
         .iter()
         .max_by_key(|t| t.duration_ms)

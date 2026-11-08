@@ -303,9 +303,6 @@ impl Controller {
                     }
                     self.sync_on_reconnect();
                 }
-                Event::Tracks { playlist, tracks } => {
-                    self.insert_tracks(playlist, None, tracks);
-                }
                 Event::Search(search) => self.state.search = search,
                 Event::LastFm(lastfm) => self.lastfm_changed(lastfm),
                 Event::Loved(loved) => self.state.loved = loved,

@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
     let proxy = Proxy::start().await?;
     let paths = Paths::new()?;
     let mut session = connect(&paths, &proxy).await?;
-    let tracks = catalog::link_tracks(&session, DEFAULT_ALBUM).await?;
+    let tracks = catalog::songs(&session, DEFAULT_ALBUM).await?.tracks;
     let [_, first, second, third, fourth, fifth, sixth, ..] = tracks.as_slice() else {
         bail!("the album needs seven songs");
     };

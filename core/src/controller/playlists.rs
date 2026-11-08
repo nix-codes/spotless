@@ -4,7 +4,6 @@
 use super::Controller;
 use super::state::ReorderUndo;
 use crate::action::PlaylistsAction;
-use crate::backend::Command;
 use crate::model::{EntryId, PlaylistId, TrackRef};
 
 impl Controller {
@@ -18,16 +17,6 @@ impl Controller {
         let state = &mut self.state;
         let library = &mut state.library;
         let requests = match action {
-            PlaylistsAction::AddLink(text) => {
-                state.error = None;
-                state.notice = Some("Reading the link…".into());
-                let playlist = if state.browse.open {
-                    state.browse.target
-                } else {
-                    viewed
-                };
-                return self.send(Command::AddLink { text, playlist });
-            }
             PlaylistsAction::SelectPlaylist(list) => {
                 if library.get(list).is_some() {
                     state.viewed = list;

@@ -476,7 +476,7 @@ fn a_spotify_code_opens_what_it_points_to_in_browse() {
     assert!(
         !sent
             .iter()
-            .any(|c| matches!(c, Command::AddLink { .. } | Command::Search(_)))
+            .any(|c| matches!(c, Command::Search(_)))
     );
     rig.tell(Event::LinkRead(4, Ok(CodeTarget::Artist(artist.clone()))));
     let browse = &rig.controller.state().browse;

@@ -443,8 +443,7 @@ impl Worker {
             | Command::Levelling(_)
             | Command::ListOutputs
             | Command::Output(_) => self.handle_player(command),
-            Command::AddLink { .. }
-            | Command::SearchApp(_)
+            Command::SearchApp(_)
             | Command::Search(_)
             | Command::MoreSongs { .. }
             | Command::MoreArtists { .. }

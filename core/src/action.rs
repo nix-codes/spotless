@@ -96,8 +96,6 @@ pub enum PlaybackAction {
 /// The playlists: their songs, and the tabs.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PlaylistsAction {
-    /// Appends a track, album or artist link's songs to the target playlist.
-    AddLink(String),
     Remove(PlaylistId, Vec<EntryId>),
     /// Moves these rows, keeping their order, to just before the row now at
     /// this index.

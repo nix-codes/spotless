@@ -23,8 +23,7 @@ use reqwest::Method;
 use crate::model::catalog::{
     Discography, Place, Release, ReleaseGroup, Songs, SpotifyPlaylist, sort_playlists, tidy,
 };
-use crate::model::playlist::from_source;
-use crate::model::{AlbumPlace, AlbumRef, ArtistRef, Source, TrackRef};
+use crate::model::{AlbumPlace, AlbumRef, ArtistRef, TrackRef};
 
 /// Accepts `spotify:` URIs and `open.spotify.com` links.
 pub fn parse_uri(text: &str) -> Result<SpotifyUri> {
@@ -48,42 +47,6 @@ pub fn parse_uri(text: &str) -> Result<SpotifyUri> {
 
 /// Liked Songs, read like a playlist (Spotify's own URI for it).
 pub const LIKED_SONGS: &str = "spotify:collection:tracks";
-
-/// The songs a link stands for, in order: a track, an album's or a
-/// playlist's tracks, or the tracks of an artist's first album.
-pub async fn link_tracks(session: &Session, text: &str) -> Result<Vec<TrackRef>> {
-    // A playlist's name; an album's is its songs'.
-    let (uris, from, name) = match parse_uri(text)? {
-        uri @ SpotifyUri::Track { .. } => (vec![uri], None, None),
-        uri @ SpotifyUri::Album { .. } => (album_tracks(session, &uri).await?, Some(uri), None),
-        uri @ SpotifyUri::Artist { .. } => {
-            let album = first_release(session, &uri).await?;
-            (album_tracks(session, &album).await?, Some(album), None)
-        }
-        uri @ SpotifyUri::Playlist { .. } => {
-            let playlist = Playlist::get(session, &uri)
-                .await
-                .context("playlist not found")?;
-            let tracks = playlist
-                .tracks()
-                .filter(|uri| matches!(uri, SpotifyUri::Track { .. }))
-                .cloned()
-                .collect();
-            (tracks, Some(uri), Some(playlist.name().to_string()))
-        }
-        _ => bail!("only tracks, albums, playlists and artists can be added"),
-    };
-    let found = tracks(session, uris).await?;
-    let Some(from) = from else {
-        return Ok(found);
-    };
-    let name = name.or_else(|| found.first().map(|track| track.album.name.clone()));
-    let source = Source {
-        uri: from.to_uri(),
-        name: name.unwrap_or_default(),
-    };
-    Ok(from_source(found, &source))
-}
 
 async fn album_tracks(session: &Session, album: &SpotifyUri) -> Result<Vec<SpotifyUri>> {
     let album = Album::get(session, album)
@@ -254,7 +217,9 @@ pub(super) async fn display_name(session: &Session, user: &str) -> String {
 }
 
 /// Reads the tracks' metadata, keeping their order and repeats (a playlist
-/// may have a song twice). Tracks Spotify doesn't know are left out.
+/// may have a song twice). Tracks Spotify doesn't know are left out. For
+/// the Spotify tab, which knows its songs by URI only.
+#[cfg(feature = "spotify-tab")]
 pub async fn tracks(session: &Session, uris: Vec<SpotifyUri>) -> Result<Vec<TrackRef>> {
     let tagged = uris.into_iter().map(|uri| (uri, ())).collect();
     let found = tracks_with(session, tagged).await?;
@@ -399,21 +364,6 @@ fn track_ref(track: &Track) -> TrackRef {
             number: track.number.max(0) as u32,
         }),
     }
-}
-
-/// An artist's first album, or first single if it has no albums.
-async fn first_release(session: &Session, uri: &SpotifyUri) -> Result<SpotifyUri> {
-    let artist = Artist::get(session, uri)
-        .await
-        .context("artist not found")?;
-    artist
-        .albums
-        .iter()
-        .chain(artist.singles.iter())
-        .flat_map(|group| group.iter())
-        .next()
-        .cloned()
-        .context("the artist has no releases")
 }
 
 /// An artist's releases, oldest first, read a batch at a time.
