@@ -1087,6 +1087,11 @@ pub(crate) fn browse(state: &State) -> BrowseView {
                 },
             },
         },
+        // Only a Spotify Code opens it, which the app can't read yet.
+        Page::Playlist(_) => BrowsePage::Home {
+            searches: browse.recent_searches.clone(),
+            recent: browse.recent.iter().map(Into::into).collect(),
+        },
     };
     BrowseView {
         open: browse.open,

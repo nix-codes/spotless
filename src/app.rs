@@ -26,6 +26,7 @@ use spotless_core::Controller;
 use spotless_core::Paths;
 use spotless_core::playback::Status;
 use spotless_core::settings::Phosphor;
+use spotless_core::spotify::CodeImage;
 
 pub struct App {
     controller: Controller,
@@ -56,6 +57,15 @@ pub struct App {
     updater: Updater,
     /// The updated program to start once this one has quit.
     restart: Option<PathBuf>,
+    /// Ctrl+V pasted a Spotify link since V was last released.
+    pasted_link: bool,
+    /// A file Ctrl+V pasted the path of (a picture copied in a file
+    /// manager or an image viewer), read when there's no picture.
+    pasted_file: Option<PathBuf>,
+    /// Ctrl+V was pressed with no Spotify link to paste: a picture, maybe.
+    paste_picture: bool,
+    /// Files dropped on the window, to read a Spotify Code from.
+    dropped: Vec<egui::DroppedFileHandle>,
 }
 
 impl App {
@@ -114,6 +124,10 @@ impl App {
                 move || ctx.request_repaint()
             }),
             restart: None,
+            pasted_link: false,
+            pasted_file: None,
+            paste_picture: false,
+            dropped: Vec::new(),
         };
         // A skin from the skins folder of an older Spotless is gone:
         // Spotless Classic takes its place.
@@ -167,12 +181,12 @@ impl App {
                     self.inputs.renaming = Some((list.id, list.name.clone()));
                 }
             }
-            Action::Browse(BrowseAction::Search(ref query))
+            Action::Browse(BrowseAction::Search(query))
                 if spotless_core::spotify::parse_uri(query.trim()).is_ok() =>
             {
-                // A pasted link adds its songs; the field is left empty.
-                self.inputs.query.clear();
-                self.controller.apply(action);
+                // A link searched for opens what it points to, as a Spotify
+                // Code does; the field keeps it.
+                self.controller.apply(BrowseAction::OpenLink(query));
             }
             Action::Browse(BrowseAction::Search(ref query)) => {
                 // A recent search fills the field, as if typed.
@@ -547,6 +561,17 @@ impl eframe::App for App {
             update: self.updater.status(),
         };
         ui::draw(ui, &view, &mut self.inputs, &mut actions);
+        // A Spotify Code pasted or dropped opens in Browse.
+        let file = self.pasted_file.take();
+        if std::mem::take(&mut self.paste_picture)
+            && let Some(picture) =
+                clipboard_picture().or_else(|| Some(CodeImage::File(std::fs::read(file?).ok()?)))
+        {
+            actions.push(BrowseAction::ReadCode(picture));
+        }
+        if let Some(bytes) = self.dropped.drain(..).find_map(|file| file.bytes().ok()) {
+            actions.push(BrowseAction::ReadCode(CodeImage::File(bytes)));
+        }
         self.keep_zoom(ui.ctx());
         self.keep_window_place(ui.ctx());
         // What the actions change is saved and shown by the next logic pass.
@@ -562,6 +587,31 @@ impl eframe::App for App {
     /// move between Browse's areas (`Inputs::tab`). Ctrl+Tab (switching
     /// playlists) still gets through.
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        // egui passes Ctrl+V on only when there's text to paste, and keeps
+        // its press to itself; its release still comes. Released with no
+        // Spotify link pasted, the clipboard may hold a picture. A picture
+        // copied often comes with its file's path as text, too.
+        for event in &raw_input.events {
+            match event {
+                egui::Event::Paste(text) => {
+                    if spotless_core::spotify::parse_uri(text.trim()).is_ok() {
+                        self.pasted_link = true;
+                    } else {
+                        self.pasted_file = pasted_path(text);
+                    }
+                }
+                egui::Event::Key {
+                    key: egui::Key::V,
+                    pressed: false,
+                    modifiers,
+                    ..
+                } if modifiers.command => {
+                    self.paste_picture |= !std::mem::take(&mut self.pasted_link);
+                }
+                _ => {}
+            }
+        }
+        self.dropped.append(&mut raw_input.dropped_files);
         let tab = &mut self.inputs.tab;
         raw_input.events.retain(|event| match event {
             egui::Event::Key {
@@ -591,5 +641,66 @@ impl eframe::App for App {
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         self.palette.desk.to_normalized_gamma_f32()
+    }
+}
+
+/// The file pasted text names, as a path or a `file://` URI.
+fn pasted_path(text: &str) -> Option<PathBuf> {
+    let text = text.lines().next()?.trim();
+    // file:///home/… on Linux, file:///C:/… on Windows.
+    let scheme = if cfg!(windows) { "file:///" } else { "file://" };
+    let path = match text.strip_prefix(scheme) {
+        Some(uri) => PathBuf::from(percent_decoded(uri)?),
+        None => PathBuf::from(text),
+    };
+    (path.is_absolute() && path.is_file()).then_some(path)
+}
+
+/// `%20` and the like turned back into the bytes they stand for.
+fn percent_decoded(text: &str) -> Option<String> {
+    let mut bytes = Vec::with_capacity(text.len());
+    let mut rest = text.as_bytes();
+    while let [first, tail @ ..] = rest {
+        if *first == b'%' {
+            let hex = std::str::from_utf8(tail.get(..2)?).ok()?;
+            bytes.push(u8::from_str_radix(hex, 16).ok()?);
+            rest = &tail[2..];
+        } else {
+            bytes.push(*first);
+            rest = tail;
+        }
+    }
+    String::from_utf8(bytes).ok()
+}
+
+/// The picture on the clipboard, if it holds one.
+fn clipboard_picture() -> Option<CodeImage> {
+    let image = arboard::Clipboard::new().ok()?.get_image().ok()?;
+    Some(CodeImage::Pixels {
+        width: image.width as u32,
+        height: image.height as u32,
+        rgba: image.bytes.into_owned(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_pasted_file_uri_names_its_file() {
+        assert_eq!(
+            percent_decoded("/home/me/My%20Codes/a%C3%B1o.png").as_deref(),
+            Some("/home/me/My Codes/año.png")
+        );
+        assert_eq!(percent_decoded("/broken%2"), None);
+        let file = std::env::temp_dir().join(format!("spotless code {}.png", std::process::id()));
+        std::fs::write(&file, b"x").unwrap();
+        let uri = format!("file://{}", file.display()).replace(' ', "%20");
+        assert_eq!(pasted_path(&uri), Some(file.clone()));
+        assert_eq!(pasted_path(&file.display().to_string()), Some(file.clone()));
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(pasted_path(&uri), None);
+        assert_eq!(pasted_path("just some words"), None);
     }
 }

@@ -236,6 +236,12 @@ pub enum BrowseAction {
     DropAlbum(String, usize),
     /// Shows this tab of Browse, opening Browse if needed.
     ShowBrowseTab(crate::browse::BrowseTab),
+    /// Opens in Browse what the Spotify Code in this picture points to.
+    ReadCode(crate::spotify::CodeImage),
+    /// Opens in Browse what this Spotify link points to, as a code does.
+    OpenLink(String),
+    /// The album or song a code or link opened has been shown.
+    Revealed,
 }
 
 /// The account's Spotify playlists, in YOUR SPOTIFY.

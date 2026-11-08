@@ -7,7 +7,7 @@ use crate::backend::{Command, Event};
 use crate::backend::{Emit, SearchState};
 use crate::browser::Browser;
 use crate::lastfm;
-use crate::spotify::catalog;
+use crate::spotify::{catalog, code};
 use crate::spotify::webapi::WebApi;
 use std::sync::Arc;
 
@@ -167,6 +167,37 @@ impl Worker {
                     }
                     emit(Event::Cover { url, result });
                 });
+            }
+            Command::ReadCode(image) => {
+                let Some(session) = self.session.clone() else {
+                    let error = "Sign in to Spotify to read a Spotify Code.".to_string();
+                    return (self.emit)(Event::CodeRead(Err(error)));
+                };
+                let http = self.http.clone();
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = async {
+                        // Reading the picture takes a moment for a big one.
+                        let reference =
+                            tokio::task::spawn_blocking(move || code::read(&image)).await??;
+                        let found = code::look_up(&session, &http, reference).await?;
+                        let target = code::target(&session, &found).await?;
+                        Ok((code::encode(reference), target))
+                    }
+                    .await
+                    .map_err(|e: anyhow::Error| format!("{e:#}"));
+                    emit(Event::CodeRead(result));
+                });
+            }
+            Command::ReadLink(link) => {
+                let reading = self.on_session(move |session| async move {
+                    let result = code::target(&session, &link).await;
+                    Event::LinkRead(result.map_err(|e| format!("{e:#}")))
+                });
+                if !reading {
+                    let error = "Sign in to Spotify to open a Spotify link.".to_string();
+                    (self.emit)(Event::LinkRead(Err(error)));
+                }
             }
             Command::Album(album) => {
                 self.on_session(move |session| async move {

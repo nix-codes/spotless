@@ -5,7 +5,7 @@
 use super::Controller;
 use crate::action::{PlaylistsAction, SpotifyListsAction};
 use crate::backend::{Command, SessionState};
-use crate::browse::{Loadable, Removal, Undo, Unlisted};
+use crate::browse::{Loadable, Page, Removal, Undo, Unlisted};
 use crate::model::TrackRef;
 use crate::model::catalog::{Place, SpotifyPlaylist, SpotifyTarget};
 use crate::spotify::catalog::LIKED_SONGS;
@@ -290,7 +290,8 @@ impl Controller {
         for playlist in &playlists {
             let browse = &mut self.state.browse;
             let shown = browse.expanded.contains(&playlist.uri)
-                || browse.spotify_open.as_ref() == Some(&playlist.uri);
+                || browse.spotify_open.as_ref() == Some(&playlist.uri)
+                || *browse.page() == Page::Playlist(playlist.uri.clone());
             let stale = match browse.albums.get(&playlist.uri) {
                 Some(Loadable::Ready(songs)) => !shown || songs.len() != playlist.tracks,
                 Some(Loadable::Failed(_)) => true,

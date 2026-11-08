@@ -89,7 +89,10 @@ pub(super) fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions:
 
 /// The page has something to find in: search results or a discography.
 pub(super) fn findable(view: &View) -> bool {
-    matches!(view.browse.page(), Page::Search(_) | Page::Artist(_))
+    matches!(
+        view.browse.page(),
+        Page::Search(_) | Page::Artist(_) | Page::Playlist(_)
+    )
 }
 
 /// The page's find, under the search field while it is open. The page
@@ -99,6 +102,7 @@ pub(super) fn find_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &
     let palette = view.palette;
     let hint = match view.browse.page() {
         Page::Artist(_) => "Find a song or a release here",
+        Page::Playlist(_) => "Find a song here",
         _ => "Find in these results",
     };
     ui.add_space(4.0);

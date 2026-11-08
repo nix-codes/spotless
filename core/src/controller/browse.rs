@@ -4,10 +4,11 @@
 use super::Controller;
 use crate::action::{BrowseAction, PlaylistsAction};
 use crate::backend::{Command, SearchState};
-use crate::browse::{AddAll, Loadable, Page};
-use crate::model::catalog::{Discography, SearchResults, Songs};
+use crate::browse::{AddAll, BrowseTab, Loadable, OpenedCode, Page};
+use crate::model::catalog::{Discography, ReleaseTab, SearchResults, Songs};
 use crate::model::playlist::from_source;
 use crate::model::{ArtistRef, PlaylistId, Source, TrackRef};
+use crate::spotify::code::CodeTarget;
 use crate::spotify::webapi::SearchPage;
 
 impl Controller {
@@ -23,7 +24,15 @@ impl Controller {
                 }
             }
             BrowseAction::CloseBrowse => browse.open = false,
-            BrowseAction::Back => browse.back(),
+            BrowseAction::Back => {
+                browse.back();
+                // A Spotify playlist's songs may have been let go while
+                // its page was out of sight.
+                if let Page::Playlist(uri) = browse.page() {
+                    let uri = uri.clone();
+                    self.read_album(uri);
+                }
+            }
             BrowseAction::Search(query) => {
                 let query = query.trim().to_string();
                 if query.is_empty() {
@@ -189,7 +198,77 @@ impl Controller {
                 }
                 self.mark_unsaved();
             }
+            BrowseAction::ReadCode(image) => {
+                self.state.notice = Some("Reading the code…".into());
+                self.send(Command::ReadCode(image));
+            }
+            BrowseAction::OpenLink(link) => {
+                self.state.notice = Some("Opening the link…".into());
+                self.send(Command::ReadLink(link.trim().to_string()));
+            }
+            BrowseAction::Revealed => browse.reveal = None,
         }
+    }
+
+    /// Opens what a Spotify Code points to in Browse's SEARCH tab: an
+    /// artist's page; an album or song on its artist's page, opened and
+    /// shown; a playlist on its own page.
+    pub(super) fn code_read(&mut self, result: Result<([u8; 23], CodeTarget), String>) {
+        match result {
+            Ok((bars, target)) => self.open_target(Some(bars), target),
+            Err(error) => {
+                self.state.notice = None;
+                self.state.error = Some(error);
+            }
+        }
+    }
+
+    pub(super) fn link_read(&mut self, result: Result<CodeTarget, String>) {
+        match result {
+            Ok(target) => self.open_target(None, target),
+            Err(error) => {
+                self.state.notice = None;
+                self.state.error = Some(error);
+            }
+        }
+    }
+
+    /// Opens what a Spotify Code (with its `bars`) or link points to.
+    fn open_target(&mut self, bars: Option<[u8; 23]>, target: CodeTarget) {
+        self.state.notice = None;
+        self.apply(BrowseAction::ShowBrowseTab(BrowseTab::Search));
+        // A code is drawn on the page it opened; a link draws none.
+        let opened = |page, uri| bars.map(|bars| OpenedCode { page, bars, uri });
+        let (artist, album, reveal) = match target {
+            CodeTarget::Artist(artist) => {
+                let page = Page::Artist(artist.uri.clone());
+                self.state.browse.code = opened(page, artist.uri.clone());
+                return self.apply(BrowseAction::OpenArtist(artist));
+            }
+            CodeTarget::Playlist(playlist) => {
+                let uri = playlist.uri.clone();
+                let browse = &mut self.state.browse;
+                browse.playlists.insert(uri.clone(), playlist);
+                browse.go(Page::Playlist(uri.clone()));
+                browse.code = opened(Page::Playlist(uri.clone()), uri.clone());
+                return self.read_album(uri);
+            }
+            CodeTarget::Album { artist, album } => (artist, album.clone(), album),
+            CodeTarget::Track {
+                artist,
+                album,
+                track,
+            } => (artist, album, track),
+        };
+        let page = Page::Artist(artist.uri.clone());
+        self.apply(BrowseAction::OpenArtist(artist));
+        // Whatever kind of release it is, its tab shows it.
+        let browse = &mut self.state.browse;
+        browse.code = opened(page, reveal.clone());
+        browse.tab = ReleaseTab::All;
+        browse.expanded.insert(album.clone());
+        browse.reveal = Some(reveal);
+        self.read_album(album);
     }
 
     pub(super) fn search_results(&mut self, query: String, results: Result<SearchResults, String>) {
@@ -390,7 +469,7 @@ impl Controller {
 
     /// An album's or a Spotify playlist's songs, as added from it.
     fn added_from(&self, uri: &str, tracks: Vec<TrackRef>) -> Vec<TrackRef> {
-        let name = match self.state.browse.spotify_playlist(uri) {
+        let name = match self.state.browse.any_playlist(uri) {
             Some(playlist) => playlist.name.clone(),
             None => match tracks.first() {
                 Some(track) if track.album.uri == uri => track.album.name.clone(),

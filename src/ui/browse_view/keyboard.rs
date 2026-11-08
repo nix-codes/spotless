@@ -90,7 +90,7 @@ pub(super) fn page_id(page: &Page) -> String {
     match page {
         Page::Home => "home".into(),
         Page::Search(query) => format!("search:{query}"),
-        Page::Artist(uri) => uri.clone(),
+        Page::Artist(uri) | Page::Playlist(uri) => uri.clone(),
     }
 }
 

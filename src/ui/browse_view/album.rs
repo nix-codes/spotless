@@ -4,7 +4,7 @@ use egui::{Align2, Color32, Painter, Rect, Response, Sense, Stroke, StrokeKind, 
 
 use super::{
     Act, BIG_COVER, COVER_ROW_HEIGHT, CatalogDrag, Cover, Nav, ROW_HEIGHT, THUMB, TRACK_HEIGHT,
-    body, chevron, indented_note, mono, row, spans, tag,
+    body, chevron, indented_note, mono, reveal_next, row, spans, tag,
 };
 use crate::action::{Actions, BrowseAction, Desktop, PlaybackAction};
 use crate::ui::View;
@@ -47,6 +47,9 @@ pub(super) fn album(
     };
     let covers = view.browse.show_covers;
     let height = if covers { COVER_ROW_HEIGHT } else { ROW_HEIGHT };
+    if view.browse.reveal.as_deref() == Some(release.uri.as_str()) {
+        reveal_next(nav, actions);
+    }
     let row = row(ui, &palette, nav, height, Some("+ ADD"), |painter, rect| {
         chevron(
             painter,
@@ -173,6 +176,37 @@ pub(super) fn song(
     page_artist: Option<&str>,
     actions: &mut Actions,
 ) {
+    // A song of an album's comes from that album; a search's, alone.
+    let from = (!full).then(|| Source::album(&track.album));
+    song_from(
+        ui,
+        view,
+        nav,
+        number,
+        track,
+        full,
+        page_artist,
+        from,
+        actions,
+    );
+}
+
+/// A song row, the song added as coming `from` there.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn song_from(
+    ui: &mut Ui,
+    view: &View,
+    nav: &mut Nav,
+    number: usize,
+    track: &TrackRef,
+    full: bool,
+    page_artist: Option<&str>,
+    from: Option<Source>,
+    actions: &mut Actions,
+) {
+    if view.browse.reveal.as_deref() == Some(track.uri.as_str()) {
+        reveal_next(nav, actions);
+    }
     let palette = view.palette;
     let number = format!("{number:>2}");
     let seconds = track.duration_ms / 1000;
@@ -215,11 +249,10 @@ pub(super) fn song(
             spans(painter, text, &parts);
         },
     );
-    // A song of an album's comes from that album; a search's, alone.
     let added = || {
         let mut track = track.clone();
-        if !full {
-            track.source = Some(Source::album(&track.album));
+        if from.is_some() {
+            track.source.clone_from(&from);
         }
         vec![track]
     };

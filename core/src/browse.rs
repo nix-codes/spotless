@@ -24,6 +24,9 @@ pub enum Page {
     Search(String),
     /// An artist's discography, by URI.
     Artist(String),
+    /// Someone's Spotify playlist and its songs, by URI: one a Spotify
+    /// Code opened.
+    Playlist(String),
 }
 
 /// Browse's tabs: the catalogue, searched, the account's own Spotify
@@ -190,6 +193,24 @@ pub struct Browse {
     /// The page's find is open, with what is typed in it so far. A new
     /// page closes it.
     pub find: Option<String>,
+    /// The Spotify playlists opened on their own page, by URI.
+    pub playlists: HashMap<String, SpotifyPlaylist>,
+    /// The album or song a Spotify Code opened, by URI: the page scrolls
+    /// to it and highlights it once it shows.
+    pub reveal: Option<String>,
+    /// The Spotify Code the last page it opened came from, drawn there.
+    pub code: Option<OpenedCode>,
+}
+
+/// A Spotify Code read, and the page it opened.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenedCode {
+    pub page: Page,
+    /// Its 23 bars' heights, 0 to 7, drawn again from what it holds.
+    pub bars: [u8; 23],
+    /// What it points to, by URI: the page's artist or playlist, or an
+    /// album or song on its artist's page.
+    pub uri: String,
 }
 
 impl Browse {
@@ -218,6 +239,9 @@ impl Browse {
             flash: Vec::new(),
             show_covers,
             find: None,
+            playlists: HashMap::new(),
+            reveal: None,
+            code: None,
         }
     }
 
@@ -385,6 +409,18 @@ impl Browse {
             Some(Loadable::Ready(playlists)) => playlists.iter().find(|p| p.uri == uri),
             _ => None,
         }
+    }
+
+    /// A Spotify playlist by URI, the account's or one opened on its own
+    /// page.
+    /// The Spotify Code the page shown was opened from.
+    pub fn code_here(&self) -> Option<&OpenedCode> {
+        self.code.as_ref().filter(|code| &code.page == self.page())
+    }
+
+    pub fn any_playlist(&self, uri: &str) -> Option<&SpotifyPlaylist> {
+        self.spotify_playlist(uri)
+            .or_else(|| self.playlists.get(uri))
     }
 
     /// Whether songs can be removed from this Spotify playlist: Liked

@@ -351,3 +351,124 @@ fn searches_are_remembered_across_starts_but_links_are_not() {
     let again = Controller::with_backend(paths, settings, Arc::default(), Ok(backend));
     assert_eq!(again.state().browse.recent_searches, ["aphex", "boards"]);
 }
+
+#[test]
+fn a_spotify_code_opens_what_it_points_to_in_browse() {
+    use crate::spotify::code::CodeTarget;
+    let mut rig = Rig::new("code");
+    let artist = ArtistRef {
+        uri: "spotify:artist:boc".into(),
+        name: "Boards of Canada".into(),
+        image: None,
+    };
+    rig.controller
+        .apply(BrowseAction::ReadCode(crate::spotify::CodeImage::File(vec![1])));
+    assert!(
+        (rig.sent().iter()).any(|c| matches!(c, Command::ReadCode(_))),
+        "the picture goes to the worker"
+    );
+
+    // A song: its artist's page, on every release, its album open.
+    let bars = crate::spotify::code::encode(57268659651);
+    rig.tell(Event::CodeRead(Ok((
+        bars,
+        CodeTarget::Track {
+            artist: artist.clone(),
+            album: "spotify:album:geogaddi".into(),
+            track: "spotify:track:dawn".into(),
+        },
+    ))));
+    let browse = &rig.controller.state().browse;
+    assert!(browse.open && browse.shown == crate::browse::BrowseTab::Search);
+    assert_eq!(*browse.page(), Page::Artist("spotify:artist:boc".into()));
+    assert_eq!(browse.tab, crate::model::catalog::ReleaseTab::All);
+    assert!(browse.expanded.contains("spotify:album:geogaddi"));
+    assert_eq!(browse.reveal.as_deref(), Some("spotify:track:dawn"));
+    // The code is drawn there, with what it points to.
+    let code = browse.code_here().expect("the code shows on the page it opened");
+    assert_eq!(code.bars, bars);
+    assert_eq!(code.uri, "spotify:track:dawn");
+    let sent = rig.sent();
+    assert!(sent.iter().any(|c| matches!(c, Command::Discography(a) if a == "spotify:artist:boc")));
+    assert!(sent.iter().any(|c| matches!(c, Command::Album(a) if a == "spotify:album:geogaddi")));
+    rig.controller.apply(BrowseAction::Revealed);
+    assert_eq!(rig.controller.state().browse.reveal, None);
+
+    // A playlist: its own page, its songs read, added under its name.
+    let playlist = SpotifyPlaylist {
+        uri: "spotify:playlist:p".into(),
+        name: "Late Night Drive".into(),
+        tracks: 2,
+        owner: Some("Max".into()),
+        private: false,
+    };
+    rig.tell(Event::CodeRead(Ok((bars, CodeTarget::Playlist(playlist)))));
+    let browse = &rig.controller.state().browse;
+    assert_eq!(*browse.page(), Page::Playlist("spotify:playlist:p".into()));
+    assert_eq!(
+        browse.code_here().map(|c| c.uri.as_str()),
+        Some("spotify:playlist:p")
+    );
+    assert!(
+        (rig.sent().iter()).any(|c| matches!(c, Command::Album(a) if a == "spotify:playlist:p"))
+    );
+    rig.tell(Event::Album {
+        album: "spotify:playlist:p".into(),
+        result: Ok(songs(tracks([1, 2]))),
+    });
+    rig.controller
+        .apply(BrowseAction::AddAlbum("spotify:playlist:p".into()));
+    let state = rig.controller.state();
+    let list = state.library.get(state.browse.target).unwrap();
+    assert!(list.entries().iter().all(|e| {
+        e.track.source.as_ref().map(|s| s.name.as_str()) == Some("Late Night Drive")
+    }));
+
+    // One of the account's own: its songs stay while its page shows,
+    // though the account's playlists are read again.
+    let own = SpotifyPlaylist {
+        uri: "spotify:playlist:p".into(),
+        name: "Late Night Drive".into(),
+        tracks: 2,
+        owner: None,
+        private: false,
+    };
+    rig.tell(Event::SpotifyPlaylists(Ok(vec![own.clone()])));
+    let albums = &rig.controller.state().browse.albums;
+    assert!(matches!(albums.get("spotify:playlist:p"), Some(Loadable::Ready(_))));
+    // Let go once it's out of sight, they're read again on coming back.
+    rig.controller.apply(BrowseAction::OpenArtist(artist.clone()));
+    rig.tell(Event::SpotifyPlaylists(Ok(vec![own])));
+    assert_eq!(rig.controller.state().browse.albums.get("spotify:playlist:p"), None);
+    rig.sent();
+    rig.controller.apply(BrowseAction::Back);
+    assert!(
+        (rig.sent().iter()).any(|c| matches!(c, Command::Album(a) if a == "spotify:playlist:p"))
+    );
+
+    // Elsewhere, it isn't.
+    rig.controller.apply(BrowseAction::Back);
+    let browse = &rig.controller.state().browse;
+    assert_eq!(*browse.page(), Page::Artist("spotify:artist:boc".into()));
+    assert_eq!(browse.code_here(), None);
+
+    // A link opens the same way, with no code drawn.
+    rig.controller.apply(BrowseAction::OpenLink(
+        " https://open.spotify.com/artist/boc ".into(),
+    ));
+    assert!(
+        (rig.sent().iter())
+            .any(|c| matches!(c, Command::ReadLink(l) if l == "https://open.spotify.com/artist/boc"))
+    );
+    rig.tell(Event::LinkRead(Ok(CodeTarget::Artist(artist.clone()))));
+    let browse = &rig.controller.state().browse;
+    assert_eq!(*browse.page(), Page::Artist("spotify:artist:boc".into()));
+    assert_eq!(browse.code_here(), None);
+
+    // Not a code: said, nothing opened.
+    rig.tell(Event::CodeRead(Err("No Spotify Code found".into())));
+    assert_eq!(
+        rig.controller.state().error.as_deref(),
+        Some("No Spotify Code found")
+    );
+}

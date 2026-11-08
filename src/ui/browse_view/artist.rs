@@ -4,6 +4,7 @@
 use egui::{InputState, Key, Modifiers, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
 
 use super::album::{album, cover, share, song};
+use super::code::opened_code;
 use super::{
     Act, COVER_ROW_HEIGHT, Nav, PORTRAIT, ROW_HEIGHT, THUMB, body, note, row, shown, spans, tag,
 };
@@ -54,6 +55,11 @@ pub(super) fn artist_page(
         );
     });
     ui.add_space(8.0);
+    if browse.code_here().is_some() {
+        let caption = code_caption(view, discography);
+        opened_code(ui, view, caption.as_deref(), actions);
+        ui.add_space(10.0);
+    }
 
     let similar_tab =
         lastfm::is_key(&view.lastfm.api_key) || browse.similar_artists.contains_key(uri);
@@ -183,6 +189,24 @@ pub(super) fn artist_page(
             actions,
         );
     }
+}
+
+/// What the Spotify Code that opened the page points to, when it's an
+/// album or a song on it: “CODE · title”.
+fn code_caption(view: &View, discography: &Discography) -> Option<String> {
+    let uri = view.browse.code_here()?.uri.as_str();
+    let release = (discography.releases.iter()).find(|r| r.uri == uri);
+    let title = match release {
+        Some(release) => release.title.clone(),
+        None => (view.browse.albums.values())
+            .find_map(|songs| match songs {
+                Loadable::Ready(songs) => songs.iter().find(|s| s.uri == uri),
+                _ => None,
+            })?
+            .title
+            .clone(),
+    };
+    Some(format!("CODE · “{title}”"))
 }
 
 /// The artist's most played songs, Spotify's pick, in its order: what

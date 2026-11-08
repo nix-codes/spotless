@@ -35,8 +35,10 @@ use spotless_core::model::{EntryId, TrackRef};
 
 mod album;
 mod artist;
+mod code;
 mod keyboard;
 mod lastfm_tab;
+mod playlist;
 mod search;
 mod slim;
 mod spotify;
@@ -45,6 +47,7 @@ pub(super) use artist::{add_all_pressed, adds_all};
 
 use artist::artist_page;
 use keyboard::{enter_area, keyboard, page_id, switch_area};
+use playlist::playlist_page;
 use search::{find_bar, home, search_bar, search_page, searchable};
 use slim::slim_column;
 
@@ -216,6 +219,15 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
     {
         inputs.query = query.clone();
     }
+    // A Spotify Code read puts its link in the field, as if it had been
+    // pasted there.
+    let code = view.browse.code.as_ref();
+    if code != inputs.code_shown.as_ref() {
+        inputs.code_shown = code.cloned();
+        if let Some(link) = code.and_then(|code| spotless_core::spotify::link(&code.uri)) {
+            inputs.query = link;
+        }
+    }
     if view.browse.find.is_none() {
         inputs.nav.find.clear();
     }
@@ -277,6 +289,7 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
                         search_page(ui, view, nav, query, &mut set_up, actions);
                     }
                     Page::Artist(uri) => artist_page(ui, view, nav, uri, actions),
+                    Page::Playlist(uri) => playlist_page(ui, view, nav, uri, actions),
                 }
             })
         });
@@ -485,6 +498,15 @@ fn row(
         button: clicked,
         act: if lit { nav.act.take() } else { None },
     }
+}
+
+/// The row drawn next is what a Spotify Code opened: it is highlighted and
+/// scrolled to, once.
+fn reveal_next(nav: &mut Nav, actions: &mut Actions) {
+    nav.row = Some(nav.drawn);
+    nav.area = Area::Results;
+    nav.reveal = true;
+    actions.push(BrowseAction::Revealed);
 }
 
 /// Paints text pieces left to right with a gap, clipped to `rect`.

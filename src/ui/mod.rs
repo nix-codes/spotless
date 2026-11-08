@@ -122,6 +122,8 @@ pub struct Inputs {
     pub selection: playlist_view::Selection,
     /// The catalog's search field.
     pub query: String,
+    /// The Spotify Code whose link the search field was last given.
+    pub code_shown: Option<spotless_core::browse::OpenedCode>,
     /// Put the keyboard in the search field next frame.
     pub focus_search: bool,
     /// The tab being renamed, and the name typed so far.
@@ -250,6 +252,9 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     keys::help(ui, view, inputs);
     spotify_picker::draw(ui, view, inputs, actions);
     let full = ui.max_rect();
+    if ui.input(|i| !i.raw.hovered_files.is_empty()) {
+        drop_hint(ui, view, full);
+    }
     if !skin_paint::chrome(ui.painter(), "window", State::Normal, full) {
         ui.painter().rect_filled(full, 0.0, palette.frame);
         theme::bevel(ui.painter(), full, true, &palette);
@@ -664,4 +669,26 @@ pub(super) fn toggle_settings(view: &View, inputs: &mut Inputs, actions: &mut Ac
     } else {
         open_settings(view, inputs, actions);
     }
+}
+
+/// While a file is dragged over the window: what dropping it does.
+fn drop_hint(ui: &Ui, view: &View, full: Rect) {
+    let palette = view.palette;
+    let layer = egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop-code"));
+    let painter = ui.ctx().layer_painter(layer);
+    painter.rect_filled(full, 0.0, palette.frame.gamma_multiply(0.9));
+    let inner = full.shrink(24.0);
+    painter.rect_stroke(
+        inner,
+        0.0,
+        egui::Stroke::new(2.0, palette.current),
+        egui::StrokeKind::Inside,
+    );
+    painter.text(
+        inner.center(),
+        egui::Align2::CENTER_CENTER,
+        "DROP A SPOTIFY CODE TO OPEN IT",
+        egui::FontId::monospace(16.0),
+        palette.current,
+    );
 }

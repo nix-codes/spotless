@@ -36,10 +36,11 @@ fn main() -> Result<()> {
             None => std::env::remove_var("XMODIFIERS"),
         }
     }
-    env_logger::Builder::from_env(
-        env_logger::Env::default()
-            .default_filter_or("warn,spotless=info,spotless_core=info,librespot=info"),
-    )
+    // egui asks the clipboard for text on every Ctrl+V and logs an error
+    // when it holds only a picture: a Spotify Code pasted, read anyway.
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(
+        "warn,spotless=info,spotless_core=info,librespot=info,egui_winit::clipboard=off",
+    ))
     .init();
     // Restarting into an update, the Spotless that started this one is
     // still quitting.

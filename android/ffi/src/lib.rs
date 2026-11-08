@@ -806,7 +806,10 @@ mod tests {
                 BrowseAction::MoreArtists(..)
                 | BrowseAction::AddAlbums(..)
                 | BrowseAction::DropTracks(..)
-                | BrowseAction::DropAlbum(..) => false,
+                | BrowseAction::DropAlbum(..)
+                | BrowseAction::ReadCode(..)
+                | BrowseAction::OpenLink(..)
+                | BrowseAction::Revealed => false,
             },
             Core::SpotifyLists(action) => match action {
                 SpotifyListsAction::OpenSpotifyPlaylist(..)

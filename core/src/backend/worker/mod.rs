@@ -453,7 +453,9 @@ impl Worker {
             | Command::FindArtist(_)
             | Command::FindSongs { .. }
             | Command::Cover(_)
-            | Command::Album(_) => self.handle_catalog(command),
+            | Command::Album(_)
+            | Command::ReadCode(_)
+            | Command::ReadLink(_) => self.handle_catalog(command),
             Command::SpotifyPlaylists
             | Command::RemoveFromSpotify { .. }
             | Command::PutBackOnSpotify(_)

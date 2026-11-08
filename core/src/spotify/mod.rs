@@ -4,6 +4,7 @@
 
 internal! {
     mod catalog;
+    mod code;
     mod devices;
     mod playlists;
     mod queue;
@@ -15,6 +16,7 @@ internal! {
 }
 
 pub use catalog::{LIKED_SONGS, parse_uri};
+pub use code::CodeImage;
 pub use queue::{Part, Queued, Row, SpotifyQueue};
 pub use webapi::REDIRECT_URI;
 

@@ -64,7 +64,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("F3 or Ctrl+F", "Browse: search"),
             ("F4", "Browse: your Spotify playlists"),
             ("F5", "Browse: songs loved on Last.fm"),
-            ("Ctrl+V", "Add a pasted Spotify link"),
+            ("Ctrl+V", "Paste a Spotify link or Code"),
             ("F10", "Settings"),
             ("F1 or ?", "This list"),
             ("F1, held", "Each button's key, on it"),

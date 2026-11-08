@@ -26,6 +26,7 @@ use crate::playback::engine::PlayerSnapshot;
 use crate::playback::link::AudioLink;
 use crate::playback::outputs::Output;
 use crate::playback::transport::Request;
+use crate::spotify::code::{CodeImage, CodeTarget};
 use crate::spotify::queue::SpotifyQueue;
 use crate::spotify::session::AudioCache;
 use crate::spotify::synced;
@@ -75,6 +76,11 @@ pub(crate) enum Command {
     },
     /// The songs of an album, a Spotify playlist or Liked Songs, by URI.
     Album(String),
+    /// What the Spotify Code in this picture points to; answered with
+    /// `Event::CodeRead`.
+    ReadCode(CodeImage),
+    /// What this Spotify link points to; answered with `Event::LinkRead`.
+    ReadLink(String),
     /// The account's own Spotify playlists, Liked Songs first.
     SpotifyPlaylists,
     /// Adds songs, by track URI, to a Spotify playlist, or to a new one.
@@ -354,6 +360,11 @@ pub(crate) enum Event {
     PlaylistChanged(synced::Changed),
     /// Spotify told of a change to the account's list of playlists.
     PlaylistsChanged,
+    /// A Spotify Code's bars and what it points to, or why it couldn't
+    /// be read.
+    CodeRead(Result<([u8; 23], CodeTarget), String>),
+    /// What a Spotify link points to, or why it couldn't be opened.
+    LinkRead(Result<CodeTarget, String>),
     Error(String),
 }
 

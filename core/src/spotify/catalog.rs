@@ -238,7 +238,7 @@ async fn is_private(session: &Session, uri: &str) -> bool {
 }
 
 /// A Spotify user's name as Spotify shows it, else their username.
-async fn display_name(session: &Session, user: &str) -> String {
+pub(super) async fn display_name(session: &Session, user: &str) -> String {
     let profile = session
         .spclient()
         .get_user_profile(user, Some(0), Some(0))
