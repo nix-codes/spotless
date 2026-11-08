@@ -77,13 +77,14 @@ pub(crate) enum Command {
     /// The songs of an album, a Spotify playlist or Liked Songs, by URI.
     Album(String),
     /// What the Spotify Code in this picture points to; answered with
-    /// `Event::CodeRead`.
-    ReadCode(CodeImage),
+    /// `Event::CodeRead`, with the ID it was asked for with.
+    ReadCode(u64, CodeImage),
     /// What the code with this number points to; answered with
-    /// `Event::CodeRead`.
-    LookUpCode(u64),
-    /// What this Spotify link points to; answered with `Event::LinkRead`.
-    ReadLink(String),
+    /// `Event::CodeRead`, with the ID it was asked for with.
+    LookUpCode(u64, u64),
+    /// What this Spotify link points to; answered with `Event::LinkRead`,
+    /// with the ID it was asked for with.
+    ReadLink(u64, String),
     /// The account's own Spotify playlists, Liked Songs first.
     SpotifyPlaylists,
     /// Adds songs, by track URI, to a Spotify playlist, or to a new one.
@@ -365,9 +366,9 @@ pub(crate) enum Event {
     PlaylistsChanged,
     /// A Spotify Code's bars and what it points to, or why it couldn't
     /// be read.
-    CodeRead(Result<([u8; 23], CodeTarget), String>),
+    CodeRead(u64, Result<([u8; 23], CodeTarget), String>),
     /// What a Spotify link points to, or why it couldn't be opened.
-    LinkRead(Result<CodeTarget, String>),
+    LinkRead(u64, Result<CodeTarget, String>),
     Error(String),
 }
 

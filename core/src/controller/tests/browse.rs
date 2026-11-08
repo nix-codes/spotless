@@ -364,13 +364,15 @@ fn a_spotify_code_opens_what_it_points_to_in_browse() {
     rig.controller
         .apply(BrowseAction::ReadCode(crate::spotify::CodeImage::File(vec![1])));
     assert!(
-        (rig.sent().iter()).any(|c| matches!(c, Command::ReadCode(_))),
+        (rig.sent().iter()).any(|c| matches!(c, Command::ReadCode(1, _))),
         "the picture goes to the worker"
     );
 
     // A song: its artist's page, on every release, its album open.
     let bars = crate::spotify::code::encode(57268659651);
-    rig.tell(Event::CodeRead(Ok((
+    rig.tell(Event::CodeRead(
+        1,
+        Ok((
         bars,
         CodeTarget::Track {
             artist: artist.clone(),
@@ -402,7 +404,7 @@ fn a_spotify_code_opens_what_it_points_to_in_browse() {
         owner: Some("Max".into()),
         private: false,
     };
-    rig.tell(Event::CodeRead(Ok((bars, CodeTarget::Playlist(playlist)))));
+    rig.tell(Event::CodeRead(1, Ok((bars, CodeTarget::Playlist(playlist)))));
     let browse = &rig.controller.state().browse;
     assert_eq!(*browse.page(), Page::Playlist("spotify:playlist:p".into()));
     assert_eq!(
@@ -454,7 +456,7 @@ fn a_spotify_code_opens_what_it_points_to_in_browse() {
 
     // A code the camera read goes straight to the lookup.
     rig.controller.apply(BrowseAction::LookUpCode(16862907074));
-    assert!((rig.sent().iter()).any(|c| matches!(c, Command::LookUpCode(16862907074))));
+    assert!((rig.sent().iter()).any(|c| matches!(c, Command::LookUpCode(2, 16862907074))));
 
     // A link opens the same way, with no code drawn.
     rig.controller.apply(BrowseAction::OpenLink(
@@ -462,28 +464,62 @@ fn a_spotify_code_opens_what_it_points_to_in_browse() {
     ));
     assert!(
         (rig.sent().iter())
-            .any(|c| matches!(c, Command::ReadLink(l) if l == "https://open.spotify.com/artist/boc"))
+            .any(|c| matches!(c, Command::ReadLink(3, l) if l == "https://open.spotify.com/artist/boc"))
     );
     // Searched for, it opens just the same: nothing is added or searched.
     rig.controller.apply(BrowseAction::Search(
         " spotify:artist:2VAvhf61GgLYmC6C8anyX1 ".into(),
     ));
     let sent = rig.sent();
-    assert!(sent.iter().any(|c| matches!(c, Command::ReadLink(l) if l == "spotify:artist:2VAvhf61GgLYmC6C8anyX1")));
+    assert!(sent.iter().any(|c| matches!(c, Command::ReadLink(4, l) if l == "spotify:artist:2VAvhf61GgLYmC6C8anyX1")));
     assert!(
         !sent
             .iter()
             .any(|c| matches!(c, Command::AddLink { .. } | Command::Search(_)))
     );
-    rig.tell(Event::LinkRead(Ok(CodeTarget::Artist(artist.clone()))));
+    rig.tell(Event::LinkRead(4, Ok(CodeTarget::Artist(artist.clone()))));
     let browse = &rig.controller.state().browse;
     assert_eq!(*browse.page(), Page::Artist("spotify:artist:boc".into()));
     assert_eq!(browse.code_here(), None);
 
     // Not a code: said, nothing opened.
-    rig.tell(Event::CodeRead(Err("No Spotify Code found".into())));
+    rig.tell(Event::CodeRead(4, Err("No Spotify Code found".into())));
     assert_eq!(
         rig.controller.state().error.as_deref(),
         Some("No Spotify Code found")
     );
+}
+
+#[test]
+fn only_the_last_code_or_link_asked_for_opens() {
+    use crate::spotify::code::CodeTarget;
+    let mut rig = Rig::new("code-order");
+    let artist = |name: &str| ArtistRef {
+        uri: format!("spotify:artist:{name}"),
+        name: name.into(),
+        image: None,
+    };
+    rig.controller.apply(BrowseAction::LookUpCode(1));
+    rig.controller
+        .apply(BrowseAction::OpenLink("spotify:artist:second".into()));
+    let ids: Vec<u64> = (rig.sent().iter())
+        .filter_map(|c| match c {
+            Command::LookUpCode(id, _) | Command::ReadLink(id, _) => Some(*id),
+            _ => None,
+        })
+        .collect();
+    let [first, second] = ids[..] else {
+        panic!("both asked for: {ids:?}");
+    };
+
+    // The second's answer comes first and opens; the first's, late, doesn't.
+    rig.tell(Event::LinkRead(second, Ok(CodeTarget::Artist(artist("second")))));
+    let bars = crate::spotify::code::encode(1);
+    rig.tell(Event::CodeRead(first, Ok((bars, CodeTarget::Artist(artist("first"))))));
+    let browse = &rig.controller.state().browse;
+    assert_eq!(*browse.page(), Page::Artist("spotify:artist:second".into()));
+    assert_eq!(browse.code, None);
+    // Nor does a late failure say anything.
+    rig.tell(Event::CodeRead(first, Err("too late".into())));
+    assert_eq!(rig.controller.state().error, None);
 }

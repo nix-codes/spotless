@@ -66,6 +66,9 @@ pub struct Controller {
     finding: Vec<(u64, Vec<LovedSong>, FoundFor)>,
     /// The ID the last were asked for with.
     last_find: u64,
+    /// The ID the last Spotify Code or link to open was asked for with:
+    /// only its answer opens, whichever comes back last.
+    last_open: u64,
     /// The song that waited offline is loading again: it stays shown until
     /// the engine has it (the new player starts out knowing no song).
     resuming: bool,
@@ -238,6 +241,7 @@ impl Controller {
             finding: Vec::new(),
             desynced: HashSet::new(),
             last_find: 0,
+            last_open: 0,
             resuming: false,
             spotify_seeked: None,
             syncing: HashMap::new(),
@@ -335,8 +339,8 @@ impl Controller {
                 Event::SyncFolder(result) => self.sync_folder_read(result),
                 Event::PlaylistChanged(changed) => self.playlist_changed(changed),
                 Event::PlaylistsChanged => self.sync_on_connect(),
-                Event::CodeRead(result) => self.code_read(result),
-                Event::LinkRead(result) => self.link_read(result),
+                Event::CodeRead(id, result) => self.code_read(id, result),
+                Event::LinkRead(id, result) => self.link_read(id, result),
                 Event::Error(message) => self.state.error = Some(message),
                 Event::Cover { url, result } => theirs.push(Cover { url, image: result }),
             }

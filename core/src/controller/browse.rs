@@ -200,25 +200,37 @@ impl Controller {
                 self.mark_unsaved();
             }
             BrowseAction::ReadCode(image) => {
-                self.state.notice = Some("Reading the code…".into());
-                self.send(Command::ReadCode(image));
+                let id = self.opening("Reading the code…");
+                self.send(Command::ReadCode(id, image));
             }
             BrowseAction::LookUpCode(reference) => {
-                self.state.notice = Some("Reading the code…".into());
-                self.send(Command::LookUpCode(reference));
+                let id = self.opening("Reading the code…");
+                self.send(Command::LookUpCode(id, reference));
             }
             BrowseAction::OpenLink(link) => {
-                self.state.notice = Some("Opening the link…".into());
-                self.send(Command::ReadLink(link.trim().to_string()));
+                let id = self.opening("Opening the link…");
+                self.send(Command::ReadLink(id, link.trim().to_string()));
             }
             BrowseAction::Revealed => browse.reveal = None,
         }
     }
 
+    /// A Spotify Code or link is being opened, saying so meanwhile: the ID
+    /// to ask with. One asked for before it no longer opens.
+    fn opening(&mut self, notice: &str) -> u64 {
+        self.state.notice = Some(notice.into());
+        self.last_open += 1;
+        self.last_open
+    }
+
     /// Opens what a Spotify Code points to in Browse's SEARCH tab: an
     /// artist's page; an album or song on its artist's page, opened and
-    /// shown; a playlist on its own page.
-    pub(super) fn code_read(&mut self, result: Result<([u8; 23], CodeTarget), String>) {
+    /// shown; a playlist on its own page. Unless another code or link has
+    /// been asked for since.
+    pub(super) fn code_read(&mut self, id: u64, result: Result<([u8; 23], CodeTarget), String>) {
+        if id != self.last_open {
+            return;
+        }
         match result {
             Ok((bars, target)) => self.open_target(Some(bars), target),
             Err(error) => {
@@ -228,7 +240,11 @@ impl Controller {
         }
     }
 
-    pub(super) fn link_read(&mut self, result: Result<CodeTarget, String>) {
+    /// Opens what a Spotify link points to, as a code does.
+    pub(super) fn link_read(&mut self, id: u64, result: Result<CodeTarget, String>) {
+        if id != self.last_open {
+            return;
+        }
         match result {
             Ok(target) => self.open_target(None, target),
             Err(error) => {

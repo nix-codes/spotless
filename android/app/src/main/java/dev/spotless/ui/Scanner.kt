@@ -151,14 +151,20 @@ private fun Camera(core: Core) {
                 }
             }
         }
+        // Left before the camera was ready: it isn't started after all.
+        // Both this and the camera's start run on the main thread.
+        var left = false
         val providing = ProcessCameraProvider.getInstance(context)
         providing.addListener({
+            if (left) return@addListener
             val provider = providing.get()
             val preview = Preview.Builder().build().also { it.surfaceProvider = view.surfaceProvider }
             provider.unbindAll()
             provider.bindToLifecycle(owner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
         }, ContextCompat.getMainExecutor(context))
         onDispose {
+            left = true
+            analysis.clearAnalyzer()
             if (providing.isDone) providing.get().unbindAll()
             reading.shutdown()
         }

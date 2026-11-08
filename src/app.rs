@@ -3,7 +3,7 @@
 //! actions.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -57,8 +57,9 @@ pub struct App {
     updater: Updater,
     /// The updated program to start once this one has quit.
     restart: Option<PathBuf>,
-    /// Ctrl+V pasted a Spotify link since V was last released.
-    pasted_link: bool,
+    /// Ctrl+V's text went somewhere since V was last released: it was a
+    /// Spotify link, or it was typed into a field.
+    pasted_text: bool,
     /// A file Ctrl+V pasted the path of (a picture copied in a file
     /// manager or an image viewer), read when there's no picture.
     pasted_file: Option<PathBuf>,
@@ -124,7 +125,7 @@ impl App {
                 move || ctx.request_repaint()
             }),
             restart: None,
-            pasted_link: false,
+            pasted_text: false,
             pasted_file: None,
             paste_picture: false,
             dropped: Vec::new(),
@@ -559,11 +560,11 @@ impl eframe::App for App {
         let file = self.pasted_file.take();
         if std::mem::take(&mut self.paste_picture)
             && let Some(picture) =
-                clipboard_picture().or_else(|| Some(CodeImage::File(std::fs::read(file?).ok()?)))
+                clipboard_picture().or_else(|| Some(CodeImage::File(picture_file(&file?)?)))
         {
             actions.push(BrowseAction::ReadCode(picture));
         }
-        if let Some(bytes) = self.dropped.drain(..).find_map(|file| file.bytes().ok()) {
+        if let Some(bytes) = (self.dropped.drain(..)).find_map(|file| picture_file(file.path())) {
             actions.push(BrowseAction::ReadCode(CodeImage::File(bytes)));
         }
         self.keep_zoom(ui.ctx());
@@ -580,18 +581,21 @@ impl eframe::App for App {
     /// Tab and Shift+Tab never walk egui's focus through the buttons: they
     /// move between Browse's areas (`Inputs::tab`). Ctrl+Tab (switching
     /// playlists) still gets through.
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         // egui passes Ctrl+V on only when there's text to paste, and keeps
         // its press to itself; its release still comes. Released with no
-        // Spotify link pasted, the clipboard may hold a picture. A picture
-        // copied often comes with its file's path as text, too.
+        // Spotify link pasted, nor text pasted into a field, the clipboard
+        // may hold a picture. A picture copied often comes with its file's
+        // path as text, too.
         for event in &raw_input.events {
             match event {
                 egui::Event::Paste(text) => {
                     if spotless_core::spotify::parse_uri(text.trim()).is_ok() {
-                        self.pasted_link = true;
-                    } else {
-                        self.pasted_file = pasted_path(text);
+                        self.pasted_text = true;
+                    } else if let Some(file) = pasted_path(text) {
+                        self.pasted_file = Some(file);
+                    } else if ctx.egui_wants_keyboard_input() {
+                        self.pasted_text = true;
                     }
                 }
                 egui::Event::Key {
@@ -600,7 +604,7 @@ impl eframe::App for App {
                     modifiers,
                     ..
                 } if modifiers.command => {
-                    self.paste_picture |= !std::mem::take(&mut self.pasted_link);
+                    self.paste_picture |= !std::mem::take(&mut self.pasted_text);
                 }
                 _ => {}
             }
@@ -665,6 +669,20 @@ fn percent_decoded(text: &str) -> Option<String> {
         }
     }
     String::from_utf8(bytes).ok()
+}
+
+/// A Spotify Code's picture is far smaller than this: a file pasted or
+/// dropped that's larger isn't read (a video, say), and is said not to be
+/// a picture.
+const PICTURE_LIMIT: u64 = 30 * 1024 * 1024;
+
+/// The bytes of a picture file pasted or dropped, none if larger than a
+/// picture could be, or nothing if it can't be read.
+fn picture_file(path: &Path) -> Option<Vec<u8>> {
+    if std::fs::metadata(path).ok()?.len() > PICTURE_LIMIT {
+        return Some(Vec::new());
+    }
+    std::fs::read(path).ok()
 }
 
 /// The picture on the clipboard, if it holds one.
