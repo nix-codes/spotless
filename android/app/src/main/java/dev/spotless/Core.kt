@@ -87,8 +87,11 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
         private set
     var tabs by mutableStateOf(spotless.tabs())
         private set
-    /** The playlist the tabs show. */
+    /** The playlist the tabs show: the songs the find has, while it's open. */
     var playlist by mutableStateOf<PlaylistView?>(null)
+        private set
+    /** What's typed in the playlist's find, while it's open. */
+    var finding by mutableStateOf<String?>(null)
         private set
     /** The Spotify tab's queue, while the tab shows. */
     var spotify by mutableStateOf<SpotifyView?>(null)
@@ -152,6 +155,16 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
                 },
                 main,
             )
+    }
+
+    /** Opens the playlist's find with `text`, or closes it (null). */
+    fun find(text: String?) {
+        finding = text
+        readPlaylist()
+    }
+
+    private fun readPlaylist() {
+        playlist = finding?.let { spotless.playlistFound(tabs.viewed, it) } ?: spotless.playlist(tabs.viewed)
     }
 
     /** Removes every song from this playlist, viewed or not. */
@@ -272,8 +285,11 @@ class Core(private val context: Context, demo: Boolean = false) : Host {
             }
         }
         player = spotless.player()
+        // Another playlist's songs aren't what was being found.
+        val viewed = tabs.viewed
         tabs = spotless.tabs()
-        playlist = spotless.playlist(tabs.viewed)
+        if (tabs.viewed != viewed) finding = null
+        readPlaylist()
         spotify = spotless.spotify()
         browse = spotless.browse()
         message = spotless.message()

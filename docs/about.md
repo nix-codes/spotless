@@ -77,10 +77,11 @@ Spotify only allows playback in other apps for Premium accounts.
   longer synced. *Your Spotify* in Browse lists them apart, under SYNCED,
   to open one again (double-click, or *Open as tab*) or delete it everywhere. Where
   a song was added from (its header) stays on the device it was added on.
-- **Find in a playlist** (desktop). Ctrl+F narrows the songs shown to
-  those with every word you type in their name, artist or album, whatever
-  the case or accents, as you type; ↑/↓ and Enter pick one and play it, and
-  Esc shows them all again. While it's narrowed, songs aren't moved or
+- **Find in a playlist.** Ctrl+F (on Android, the find button beside
+  CLEAR) narrows the songs shown to those with every word you type in
+  their name, artist or album, whatever the case or accents, as you type;
+  ↑/↓ and Enter pick one and play it (on Android, tap it), and Esc (✕ or
+  Back) shows them all again. While it's narrowed, songs aren't moved or
   sorted.
 - **Send songs between playlists.** Drag songs onto another tab to copy
   them there, or hold Shift as you drop them to move them. Or right-click

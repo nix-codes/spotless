@@ -412,6 +412,8 @@ pub(crate) fn spotify(state: &State) -> Option<SpotifyView> {
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct Song {
     pub entry: u64,
+    /// Its place in the playlist, from 1: a find shows only some.
+    pub number: u32,
     pub track: Track,
     /// The number of its Q mark: it plays next, in that order.
     pub mark: Option<u32>,
@@ -432,7 +434,7 @@ pub struct Song {
 /// A header over a run of songs.
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct Header {
-    /// How many songs it's over.
+    /// How many songs it's over (of those a find shows).
     pub songs: u32,
     /// The album's or the source's name.
     pub name: String,
@@ -444,7 +446,10 @@ pub struct Header {
 pub struct PlaylistView {
     pub id: u64,
     pub name: String,
+    /// Its songs, or those a find has (`playlist_found`).
     pub songs: Vec<Song>,
+    /// How many songs it has, found or not.
+    pub total: u32,
     /// The song the pointer is on: the one playing, or the one Play starts.
     pub cursor: Option<u64>,
     pub duration_ms: u64,
@@ -477,39 +482,56 @@ impl From<SortOrder> for Order {
     }
 }
 
-pub(crate) fn playlist(state: &State, id: PlaylistId) -> Option<PlaylistView> {
+/// The playlist, all its songs or, with a `find` that has words, those
+/// with every word in their name, artists' or album's. A run's header is
+/// over the songs of it shown, and ends before the next run shown.
+pub(crate) fn playlist(state: &State, id: PlaylistId, find: Option<&str>) -> Option<PlaylistView> {
     let list = state.library.get(id)?;
-    let runs = list.song_runs();
-    let run_of = |index: usize| {
-        runs.iter()
-            .find(|run| (run.start..run.start + run.len).contains(&index))
-    };
-    let run_at = |index: usize| runs.iter().find(|run| run.start == index);
+    let find = find.map(Find::new).filter(|find| !find.is_empty());
+    let entries = list.entries();
+    let mut songs = Vec::with_capacity(entries.len());
+    // The run shown last had a header: a plain one after it ends it.
+    let mut after_header = false;
+    for run in list.song_runs() {
+        let shown: Vec<usize> = (run.start..run.start + run.len)
+            .filter(|&index| {
+                find.as_ref()
+                    .is_none_or(|find| find.track(&entries[index].track))
+            })
+            .collect();
+        let Some(&first) = shown.first() else {
+            continue;
+        };
+        let header = run.header.then(|| {
+            let (name, detail) = list.song_heading(run);
+            Header {
+                songs: count(shown.len()),
+                name,
+                detail,
+            }
+        });
+        let ends_run = !run.header && after_header;
+        after_header = run.header;
+        for index in shown {
+            let entry = &entries[index];
+            songs.push(Song {
+                entry: entry.id.0,
+                number: count(index + 1),
+                track: (&entry.track).into(),
+                mark: list.mark_number(entry.id).map(count),
+                header: header.clone().filter(|_| index == first),
+                under: run.header,
+                ends_run: ends_run && index == first,
+                album: list.album_beside(index, run.header),
+                loved: state.loved.track(&entry.track),
+            });
+        }
+    }
     Some(PlaylistView {
         id: list.id.0,
         name: list.name.clone(),
-        songs: list
-            .entries()
-            .iter()
-            .enumerate()
-            .map(|(index, entry)| Song {
-                entry: entry.id.0,
-                track: (&entry.track).into(),
-                mark: list.mark_number(entry.id).map(count),
-                header: run_at(index).filter(|run| run.header).map(|&run| {
-                    let (name, detail) = list.song_heading(run);
-                    Header {
-                        songs: count(run.len),
-                        name,
-                        detail,
-                    }
-                }),
-                under: run_of(index).is_some_and(|run| run.header),
-                ends_run: run_at(index).is_some_and(|run| !run.header && index > 0),
-                album: list.album_beside(index, run_of(index).is_some_and(|run| run.header)),
-                loved: state.loved.track(&entry.track),
-            })
-            .collect(),
+        songs,
+        total: count(entries.len()),
         cursor: list.cursor().map(|id| id.0),
         duration_ms: duration(list),
         left_ms: state.left_ms(id),

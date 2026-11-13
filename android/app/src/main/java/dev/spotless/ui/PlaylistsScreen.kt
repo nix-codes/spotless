@@ -123,6 +123,11 @@ private val UNDER_INDENT = 10.dp
  * last sort, sit under a header with its name; an empty header ends the
  * run before songs under none. SORT and HEADERS are in the tab editor.
  *
+ * FIND, beside CLEAR, narrows the songs to those with every word typed in
+ * their name, artists' or album's, as it's typed; ✕ or Back shows them all
+ * again. Narrowed, songs can't be dragged to another place, and holding a
+ * tab for its editor (SORT) closes the find.
+ *
  * The Spotify tab, while Spotless is in Spotify Connect, shows the
  * account's queue instead: what played, the song playing, then what comes.
  */
@@ -144,6 +149,8 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
         sending = null
         toSpotify = false
     }
+    // Back ends a selection first, then closes the find.
+    BackHandler(enabled = core.finding != null && !selecting) { core.find(null) }
     BackHandler(enabled = selecting) { done() }
     BackHandler(enabled = editing != null) { editing = null }
     BackHandler(enabled = adding) { adding = false }
@@ -169,6 +176,7 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
         // A tab held is shown too: the one pressed in is the one edited.
         Tabs(core, naming, {
             editing = it
+            core.find(null)
             core.apply(Action.SelectPlaylist(it))
         }, { adding = !adding }, { if (it != editing) editing = null })
         // The editor unrolls from the tabs, and rolls back up; the last one
@@ -181,7 +189,7 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
         if (adding && core.settings.spotifyTabClosed) AddBar(core) { adding = false }
         // Not under the tab editor, which it would pass for part of.
         AnimatedVisibility(editing == null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            Summary(core, queue, selected)
+            if (core.finding != null && queue == null && !selecting) FindRow(core) else Summary(core, queue, selected)
         }
         ErrorNote(core)
         if (queue != null) {
@@ -929,7 +937,7 @@ private fun Summary(core: Core, queue: SpotifyView?, selected: List<ULong>) {
             // LOVE takes the room of the drag's hint.
             val love = core.settings.lastfm is LastFm.Connected
             Line(
-                if (queue != null || love) "TAP ADD/DROP · HOLD RANGE" else "TAP ADD/DROP · HOLD RANGE · DRAG ≡ REORDERS",
+                if (queue != null || love || core.finding?.isNotBlank() == true) "TAP ADD/DROP · HOLD RANGE" else "TAP ADD/DROP · HOLD RANGE · DRAG ≡ REORDERS",
                 label(12.sp, Classic.label, 0.02.em).copy(textAlign = TextAlign.End),
                 Modifier.weight(1f),
             )
@@ -956,6 +964,10 @@ private fun Summary(core: Core, queue: SpotifyView?, selected: List<ULong>) {
             }
             return@Row
         }
+        // FIND, beside CLEAR (or UNDO in its place).
+        if (queue == null && list != null && list.songs.isNotEmpty() && !clearing) {
+            GlyphButton(Glyph.Find, "Find in this playlist", { core.find("") }, Modifier.height(32.dp).width(44.dp))
+        }
         // After a sort or shuffle, UNDO takes that playlist's CLEAR's place until it changes.
         if (queue == null && list != null && core.tabs.reorderUndone == list.id && !clearing) {
             TextButton("UNDO", { core.apply(Action.UndoReorder) }, Modifier.height(32.dp))
@@ -978,6 +990,53 @@ private fun Summary(core: Core, queue: SpotifyView?, selected: List<ULong>) {
     }
 }
 
+/**
+ * The find, in place of the summary: the field, with the keyboard up as it
+ * opens; how many of the songs it has; ✕ to close it.
+ */
+@Composable
+private fun FindRow(core: Core) {
+    val text = core.finding ?: return
+    val list = core.playlist
+    val focus = LocalFocusManager.current
+    val field = remember { FocusRequester() }
+    LaunchedEffect(Unit) { field.requestFocus() }
+    Row(
+        Modifier.fillMaxWidth().height(40.dp).padding(start = 16.dp, end = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BasicTextField(
+            text,
+            { core.find(it) },
+            Modifier
+                .weight(1f)
+                .focusRequester(field)
+                // Underlined: it can be typed in.
+                .drawBehind {
+                    drawLine(Classic.lcd, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+                }
+                .semantics { contentDescription = "Find in this playlist" },
+            textStyle = body(14.sp, Classic.lcd),
+            singleLine = true,
+            cursorBrush = SolidColor(Classic.lcd),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
+            decorationBox = { inner ->
+                if (text.isEmpty()) BasicText("A song, artist or album", style = body(14.sp, Classic.dim))
+                inner()
+            },
+        )
+        if (list != null && text.isNotBlank()) {
+            BasicText("${list.songs.size} OF ${list.total}", style = label(12.sp, Classic.label, 0.06.em))
+        }
+        GlyphButton(Glyph.Close, "Close the find", {
+            focus.clearFocus()
+            core.find(null)
+        }, Modifier.height(32.dp).width(44.dp))
+    }
+}
+
 /** A song being dragged by its handle, and how far. */
 private class Drag(val entry: ULong, val from: Int) {
     var offset by mutableFloatStateOf(0f)
@@ -993,8 +1052,9 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
     var anchor by remember(list?.id) { mutableStateOf<ULong?>(null) }
     Box(modifier.fillMaxWidth().padding(horizontal = 8.dp).lcd().padding(2.dp)) {
         if (list == null || list.songs.isEmpty()) {
+            val found = core.finding?.isNotBlank() == true && (list?.total ?: 0u) > 0u
             BasicText(
-                "No songs yet. Add some from Browse.",
+                if (found) "No song here has all of that in its name, its artists' or its album's." else "No songs yet. Add some from Browse.",
                 Modifier.padding(16.dp),
                 body(color = Classic.dim),
             )
@@ -1028,12 +1088,22 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
         // its own, or clearing the jump would end this effect, and the
         // glide with it.
         val gliding = rememberCoroutineScope()
-        LaunchedEffect(core.jump, list.id) {
+        LaunchedEffect(core.jump, list.id, core.finding) {
             if (core.jump == list.id) {
+                // A song the find hides is shown by closing it.
+                if (list.cursor != null && songs.none { it.entry == list.cursor }) {
+                    core.find(null)
+                    return@LaunchedEffect
+                }
                 core.jump = null
                 gliding.launch { state.glideTo(opening()) }
             }
         }
+        // What's found shows from the top as it's typed.
+        LaunchedEffect(core.finding) {
+            if (core.finding != null) state.scrollToItem(0)
+        }
+        val narrowed = core.finding?.isNotBlank() == true
         ScrollingList(state, Modifier.fillMaxSize()) {
             songs.forEachIndexed { index, song ->
                 if (index in starts) {
@@ -1071,7 +1141,7 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
                         else -> 0f
                     }
                     SongRow(
-                        index + 1, song,
+                        song.number.toInt(), song,
                         current = song.entry == list.cursor,
                         chosen = chosen,
                         selecting = selected.isNotEmpty(),
@@ -1097,7 +1167,8 @@ private fun Songs(core: Core, selected: List<ULong>, select: (Set<ULong>) -> Uni
                                 select((selected + song.entry).toSet())
                             }
                         },
-                        handle = Modifier.pointerInput(song.entry, index, selected, starts, songs.size) {
+                        // Narrowed, where a song would land among those hidden can't be seen.
+                        handle = if (narrowed) null else Modifier.pointerInput(song.entry, index, selected, starts, songs.size) {
                             detectDragGestures(
                                 onDragStart = { drag = Drag(song.entry, index) },
                                 onDrag = { change, amount ->
@@ -1313,7 +1384,7 @@ private fun QueueSongs(core: Core, queue: SpotifyView, selected: List<ULong>, se
                         val chosen = row.entry in selected
                         val index = songs.indexOf(row)
                         SongRow(
-                            null, Song(row.entry, row.track, null, null, false, false, null, row.loved),
+                            null, Song(row.entry, 0u, row.track, null, null, false, false, null, row.loved),
                             current = row.played == Played.NOW,
                             chosen = chosen,
                             selecting = selected.isNotEmpty(),

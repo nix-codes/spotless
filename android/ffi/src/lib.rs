@@ -229,7 +229,14 @@ impl Spotless {
     }
 
     pub fn playlist(&self, id: u64) -> Option<PlaylistView> {
-        view::playlist(self.lock().state(), PlaylistId(id))
+        view::playlist(self.lock().state(), PlaylistId(id), None)
+    }
+
+    /// The playlist narrowed to the songs with every word of `find` in
+    /// their name, artists' or album's, whatever the case and accents: all
+    /// of them while it has no words. The songs keep their numbers.
+    pub fn playlist_found(&self, id: u64, find: String) -> Option<PlaylistView> {
+        view::playlist(self.lock().state(), PlaylistId(id), Some(&find))
     }
 
     /// The Spotify tab's queue, while the tab shows.
@@ -1236,6 +1243,23 @@ mod tests {
         assert!(songs[0].under && songs[1].under && !songs[2].under);
         assert!(songs[2].ends_run, "Zed's lone song ends Abba's run");
         assert_eq!(songs[0].album.as_deref(), Some("Abba's Album"));
+        assert_eq!(
+            songs.iter().map(|s| s.number).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+
+        // Found: the songs keep their numbers, a header is over those of
+        // its run shown, and none ends a run that isn't shown.
+        let found = |find: &str| spotless.playlist_found(0, find.into()).unwrap();
+        let zed = found("ZED");
+        assert_eq!((zed.songs.len(), zed.total), (1, 3));
+        assert_eq!(zed.songs[0].number, 3);
+        assert!(!zed.songs[0].ends_run && zed.songs[0].header.is_none());
+        let abba = found("abba 3");
+        assert_eq!(abba.songs.len(), 1);
+        assert_eq!(abba.songs[0].header.as_ref().map(|h| h.songs), Some(1));
+        assert_eq!(found("  ").songs, songs, "no words: all of them");
+        assert!(found("nobody").songs.is_empty());
         assert_eq!(spotless.tabs().reorder_undone, Some(0));
         assert!(
             spotless

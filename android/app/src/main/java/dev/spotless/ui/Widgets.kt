@@ -173,7 +173,7 @@ fun TextButton(
 
 /** The transport's and the bars' glyphs, drawn in [color] on a 24-unit square. */
 /** Heart is a song loved on Last.fm; Unloved, its outline, one that isn't. */
-enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check, Trash, Clear, Repeat, Shuffle, Lock, Share, Sync, Heart, Unloved, Code }
+enum class Glyph { Previous, Play, Pause, Stop, Next, Search, Menu, Close, Back, Open, Closed, Check, Trash, Clear, Repeat, Shuffle, Lock, Share, Sync, Heart, Unloved, Code, Find }
 
 @Composable
 fun GlyphButton(
@@ -232,6 +232,13 @@ fun DrawScope.glyph(glyph: Glyph, color: Color) {
             drawLine(color, Offset(3f * u, 16f * u), Offset(10f * u, 16f * u), line.width)
             drawLine(color, Offset(13.5f * u, 13f * u), Offset(19.5f * u, 19f * u), line.width)
             drawLine(color, Offset(19.5f * u, 13f * u), Offset(13.5f * u, 19f * u), line.width)
+        }
+        // A list, a lens over its last line: a song found in it.
+        Glyph.Find -> {
+            for (y in listOf(6f, 11f)) drawLine(color, Offset(3f * u, y * u), Offset(20f * u, y * u), line.width)
+            drawLine(color, Offset(3f * u, 16f * u), Offset(9f * u, 16f * u), line.width)
+            drawCircle(color, 3.5f * u, Offset(15f * u, 16f * u), style = line)
+            drawLine(color, Offset(17.5f * u, 18.5f * u), Offset(21f * u, 22f * u), line.width)
         }
         Glyph.Back -> {
             drawLine(color, Offset(15f * u, 5f * u), Offset(8f * u, 12f * u), line.width)
