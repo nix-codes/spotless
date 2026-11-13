@@ -5,7 +5,8 @@
 //!
 //! Plays at volume 0, so nothing is heard. Plays a song for a while, drops
 //! the session and hands the engine a new one, then seeks near the end to
-//! see the next song start on the new session.
+//! see the next song preloaded on the new session, and drops that one too
+//! before the song ends, to see the next song start all the same.
 //!
 //!   cargo run -p spotless-core --features probes --example reconnect_probe -- [album link]
 //!
@@ -73,9 +74,13 @@ async fn main() -> Result<()> {
         }
     );
 
-    println!("\nseek near the end, for the next song");
-    engine.seek(first.duration_ms.saturating_sub(5_000));
-    watch(&mut events, Duration::from_secs(12)).await;
+    println!("\nseek to 20 s before the end: the next song preloads on the new session");
+    engine.seek(first.duration_ms.saturating_sub(20_000));
+    watch(&mut events, Duration::from_secs(10)).await;
+
+    println!("\nthe new session drops too, before the song ends: the next should still play");
+    new.shutdown();
+    watch(&mut events, Duration::from_secs(20)).await;
     engine.stop();
     Ok(())
 }

@@ -7,7 +7,9 @@
 //!
 //! Like Spirc, the engine holds the song to follow the playing one, preloads
 //! it when librespot asks, and starts it the moment the playing song ends,
-//! so songs follow each other without a gap (`super::transport`).
+//! so songs follow each other without a gap (`super::transport`). It asks
+//! [`PRELOAD_BEFORE_END`] ahead, so the next song is there when the
+//! connection goes near the end of one.
 //!
 //! Volume levelling and the session are fixed when a librespot player is
 //! made, so changing either makes a new player that picks up the song where
@@ -38,6 +40,10 @@ use crate::model::{EntryId, TrackRef};
 const REPORTS_DUE: Duration = Duration::from_millis(1_500);
 /// A song that ends further than this from its end was cut short.
 const CUT_MARGIN_MS: u32 = 5_000;
+/// How long before the playing song's end the next one is preloaded, once
+/// the playing one is all downloaded: room to walk out of signal near the
+/// end of a song and still hear the next. One song ahead, never more.
+const PRELOAD_BEFORE_END: Duration = Duration::from_secs(120);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Status {
@@ -132,6 +138,9 @@ struct Shared {
     /// The song the player is loading: the snapshot has it only once it's
     /// loaded, and the song before until then.
     loading: Mutex<Option<SpotifyUri>>,
+    /// librespot asked for the next song to be preloaded, and the playing
+    /// song hasn't ended since: a new song to follow is preloaded at once.
+    preload_due: AtomicBool,
     current: Mutex<Current>,
 }
 
@@ -142,11 +151,28 @@ struct Current {
     /// song to end: the song goes on with the audio it has, as a new player
     /// would start it over (a gap each time the network changes).
     waiting: Option<Session>,
+    /// The waiting session's player, made before the song ends to preload
+    /// the next one, as the playing player can't on its dropped session.
+    standby: Option<Standby>,
     /// Volume levelling, as the player was made with.
     levelling: bool,
     player: Arc<Player>,
     /// Cleared when the player is replaced: its events are no longer told.
     live: Arc<AtomicBool>,
+}
+
+/// A player made ahead of its turn, and its flag (see `Current::live`).
+struct Standby {
+    player: Arc<Player>,
+    live: Arc<AtomicBool>,
+}
+
+impl Standby {
+    fn discard(self) {
+        self.live.store(false, Ordering::SeqCst);
+        self.player.stop();
+        tokio::task::spawn_blocking(move || drop(self.player));
+    }
 }
 
 /// A song for a new player to load: playing or not, from where.
@@ -178,6 +204,7 @@ impl Engine {
                 current: Mutex::new(Current {
                     session: session.clone(),
                     waiting: None,
+                    standby: None,
                     levelling,
                     player: start_player(shared, session, &mixer, &link, levelling, &live, &notify),
                     live,
@@ -188,6 +215,7 @@ impl Engine {
                 follow: Mutex::default(),
                 state: Mutex::default(),
                 loading: Mutex::default(),
+                preload_due: AtomicBool::new(false),
             }
         });
         Ok(Self { shared })
@@ -205,6 +233,9 @@ impl Engine {
             return;
         }
         current.levelling = on;
+        if let Some(standby) = current.standby.take() {
+            standby.discard();
+        }
         let carried = self.shared.carried();
         self.shared.renew(&mut current, carried);
     }
@@ -215,6 +246,9 @@ impl Engine {
     pub fn set_session(&mut self, session: &Session) {
         let mut current = lock(&self.shared.current);
         current.waiting = Some(session.clone());
+        if let Some(standby) = current.standby.take() {
+            standby.discard();
+        }
         // Reports stop coming when the audio has: a stalled song is picked
         // up at once instead.
         let state = lock(&self.shared.state).clone();
@@ -224,6 +258,8 @@ impl Engine {
                 .is_some_and(|at| at.elapsed() < REPORTS_DUE)
         {
             log::info!("the playing song goes on; a new player is made when it ends");
+            // The next song's preload, if due, failed on the dropped session.
+            self.shared.preload(&mut current);
             return;
         }
         let carried = self.shared.carried();
@@ -233,6 +269,7 @@ impl Engine {
     /// Plays `track` now, following it with nothing until told otherwise.
     pub fn load(&self, track: SpotifyUri, position_ms: u32) {
         *lock(&self.shared.follow) = None;
+        self.shared.preload_due.store(false, Ordering::SeqCst);
         let mut current = lock(&self.shared.current);
         if current.waiting.is_some() {
             self.shared
@@ -243,8 +280,17 @@ impl Engine {
     }
 
     /// The song to start when the playing one ends. None: playback stops.
+    /// Preloaded at once if the playing song is near its end.
     pub fn follow(&self, next: Option<(EntryId, SpotifyUri)>) {
-        *lock(&self.shared.follow) = next;
+        let changed = {
+            let mut follow = lock(&self.shared.follow);
+            let changed = follow.as_ref().map(|(_, uri)| uri) != next.as_ref().map(|(_, uri)| uri);
+            *follow = next;
+            changed
+        };
+        if changed {
+            self.shared.preload(&mut lock(&self.shared.current));
+        }
     }
 
     pub fn play(&self) {
@@ -265,6 +311,7 @@ impl Engine {
 
     pub fn stop(&self) {
         *lock(&self.shared.follow) = None;
+        self.shared.preload_due.store(false, Ordering::SeqCst);
         let mut current = lock(&self.shared.current);
         current.player.stop();
         if current.waiting.is_some() {
@@ -301,29 +348,76 @@ impl Shared {
         Some((uri, playing, state.position_now()))
     }
 
+    /// Preloads the song to follow, if librespot has asked for it: on the
+    /// player, or on a standby player when a new session waits, as the
+    /// player's own is gone.
+    fn preload(self: &Arc<Self>, current: &mut Current) {
+        if !self.preload_due.load(Ordering::SeqCst) {
+            return;
+        }
+        let Some((_, next)) = lock(&self.follow).clone() else {
+            return;
+        };
+        let Some(session) = current.waiting.clone() else {
+            current.player.preload(next);
+            return;
+        };
+        let standby = current.standby.get_or_insert_with(|| {
+            log::info!("the next song is preloaded on the new session");
+            let live = Arc::new(AtomicBool::new(true));
+            Standby {
+                player: start_player(
+                    &Arc::downgrade(self),
+                    &session,
+                    &self.mixer,
+                    &self.link,
+                    current.levelling,
+                    &live,
+                    &self.notify,
+                ),
+                live,
+            }
+        });
+        standby.player.preload(next);
+    }
+
     /// Replaces the player with one on the waiting session, if there is
-    /// one, loading `then`.
+    /// one, loading `then`: the standby player, if one was made for it.
     fn renew(self: &Arc<Self>, current: &mut Current, then: Option<Load>) {
         if let Some(session) = current.waiting.take() {
             current.session = session;
         }
+        // A song to load is the one the standby preloaded, or one that
+        // replaces it; with none, it's not needed.
+        let mut standby = current.standby.take();
+        if then.is_none()
+            && let Some(unneeded) = standby.take()
+        {
+            unneeded.discard();
+        }
         current.live.store(false, Ordering::SeqCst);
         current.player.stop();
-        current.live = Arc::new(AtomicBool::new(true));
         *lock(&self.state) = PlayerSnapshot::default();
         *lock(&self.loading) = None;
-        let old = std::mem::replace(
-            &mut current.player,
-            start_player(
-                &Arc::downgrade(self),
-                &current.session,
-                &self.mixer,
-                &self.link,
-                current.levelling,
-                &current.live,
-                &self.notify,
-            ),
-        );
+        let player = match standby {
+            Some(standby) => {
+                current.live = standby.live;
+                standby.player
+            }
+            None => {
+                current.live = Arc::new(AtomicBool::new(true));
+                start_player(
+                    &Arc::downgrade(self),
+                    &current.session,
+                    &self.mixer,
+                    &self.link,
+                    current.levelling,
+                    &current.live,
+                    &self.notify,
+                )
+            }
+        };
+        let old = std::mem::replace(&mut current.player, player);
         // Dropping a player waits for its threads, and one still loading
         // a song on a network gone waits as long as that does.
         tokio::task::spawn_blocking(move || drop(old));
@@ -366,6 +460,7 @@ fn start_player(
         // Album gain while an album plays through, track gain otherwise.
         normalisation_type: NormalisationType::Auto,
         position_update_interval: Some(Duration::from_secs(1)),
+        preload_before_end: PRELOAD_BEFORE_END,
         ..PlayerConfig::default()
     };
     let player = Player::new(
@@ -474,6 +569,7 @@ async fn follow_songs(
         // A new session waiting for this song to end: the next player is
         // made on it, and this one's done.
         if matches!(event, PlayerEvent::EndOfTrack { .. }) {
+            shared.preload_due.store(false, Ordering::SeqCst);
             let mut current = lock(&shared.current);
             if current.waiting.is_some() {
                 let next = if cut {
@@ -507,12 +603,8 @@ async fn follow_songs(
         // answers with `Engine::follow` takes it too.
         match &event {
             PlayerEvent::TimeToPreloadNextTrack { .. } => {
-                let next = lock(&shared.follow).clone();
-                if let Some((_, next)) = next
-                    && lock(&shared.current).waiting.is_none()
-                {
-                    player.preload(next);
-                }
+                shared.preload_due.store(true, Ordering::SeqCst);
+                shared.preload(&mut lock(&shared.current));
             }
             PlayerEvent::EndOfTrack { .. } if cut => {
                 player.stop();
@@ -582,7 +674,14 @@ fn apply(state: &mut PlayerSnapshot, event: PlayerEvent) -> bool {
             state.position_ms = 0;
             state.reported_at = now;
         }
-        PlayerEvent::TrackChanged { audio_item } => state.track = Some(track_info(&audio_item)),
+        // A song's details come as it loads; a preloaded one, started on a
+        // new player, tells no Loading first.
+        PlayerEvent::TrackChanged { audio_item } => {
+            state.track = Some(track_info(&audio_item));
+            if state.status == Status::Stopped {
+                state.status = Status::Loading;
+            }
+        }
         PlayerEvent::Unavailable { .. } => {
             state.status = Status::Stopped;
             state.error = Some("This song can't be played.".into());
