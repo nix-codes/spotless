@@ -93,6 +93,7 @@ import dev.spotless.core.Song
 import dev.spotless.core.SortOrder
 import dev.spotless.core.SpotifyRow
 import dev.spotless.core.SpotifyView
+import dev.spotless.core.Tab
 import dev.spotless.core.TabSync
 import dev.spotless.core.Track
 import dev.spotless.core.Session
@@ -104,6 +105,7 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Path
 import dev.spotless.core.Status
 import kotlin.math.sin
@@ -119,7 +121,8 @@ private val UNDER_INDENT = 10.dp
  * The main screen: the playlist tabs, the viewed playlist, and the player.
  * Holding a song selects it, for Q NEXT, copying, removing and moving;
  * holding another then selects every song from the last one picked up to
- * it. Two or more songs in a row added from one place, or gathered by the
+ * it. While COPY or MOVE is on, the tabs are where the songs go: tapping
+ * one sends them there. Two or more songs in a row added from one place, or gathered by the
  * last sort, sit under a header with its name; an empty header ends the
  * run before songs under none. SORT and HEADERS are in the tab editor.
  *
@@ -149,6 +152,9 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
         sending = null
         toSpotify = false
     }
+    // COPY's or MOVE's choice of tab, made on the tabs themselves.
+    val movable = selecting && (queue == null || movable(queue, selected))
+    val targeting = sending?.takeIf { selecting && !toSpotify && (it == Send.COPY || movable) }
     // Back ends a selection first, then closes the find.
     BackHandler(enabled = core.finding != null && !selecting) { core.find(null) }
     BackHandler(enabled = selecting) { done() }
@@ -156,16 +162,13 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
     BackHandler(enabled = adding) { adding = false }
     Column(Modifier.fillMaxSize().background(Classic.frame).safeDrawingPadding()) {
         if (selecting) {
-            val movable = queue == null || movable(queue, selected)
             SelectBar(core, queue, selected, { picked = entries.toSet() }, sending, movable, { sending = it.takeIf { it != sending } }, done)
             val tracks = selectedTracks(core, queue, selected)
             if (toSpotify) {
                 val name = core.tabs.tabs.firstOrNull { it.id == core.tabs.viewed }?.name.orEmpty()
                 SpotifyPicker(core, tracks, name, saving = false, close = { toSpotify = false }, done = done)
             } else {
-                sending?.takeIf { it == Send.COPY || movable }?.let {
-                    SendBar(core, it, selected, tracks, { toSpotify = true }, done)
-                }
+                targeting?.let { SendBar(core, it, selected, tracks, { toSpotify = true }, done) }
             }
         } else {
             TopBar(core, openSettings)
@@ -174,7 +177,15 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
             editing?.let { id -> core.tabs.tabs.firstOrNull { it.id == id && !it.spotify }?.let { NameEdit(id, it.name) } }
         }
         // A tab held is shown too: the one pressed in is the one edited.
-        Tabs(core, naming, {
+        val target = targeting?.let { send ->
+            val tracks = selectedTracks(core, queue, selected)
+            val from = core.tabs.viewed
+            TabTarget(send, { tab -> tab.id != from && (!tab.spotify || core.spotify?.takesSongs == true) }) { id ->
+                core.apply(if (send == Send.COPY) Action.CopyTo(id, tracks) else Action.MoveTo(from, id, selected))
+                done()
+            }
+        }
+        Tabs(core, naming, target, {
             editing = it
             core.find(null)
             core.apply(Action.SelectPlaylist(it))
@@ -189,7 +200,7 @@ fun PlaylistsScreen(core: Core, openSettings: () -> Unit) {
         if (adding && core.settings.spotifyTabClosed) AddBar(core) { adding = false }
         // Not under the tab editor, which it would pass for part of.
         AnimatedVisibility(editing == null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            if (core.finding != null && queue == null && !selecting) FindRow(core) else Summary(core, queue, selected)
+            if (core.finding != null && queue == null && !selecting) FindRow(core) else Summary(core, queue, selected, targeting)
         }
         ErrorNote(core)
         if (queue != null) {
@@ -316,16 +327,16 @@ private fun Love(core: Core, queue: SpotifyView?, selected: List<ULong>) {
 }
 
 /**
- * COPY's and MOVE's choice of tab: the selected songs go to the end of the
- * one tapped, or make a new playlist, which shows.
+ * COPY's and MOVE's places other than a tab (the tabs below are the rest):
+ * a new playlist, which shows; and for a copy, Spotify or another app.
  */
 @Composable
 private fun SendBar(core: Core, send: Send, selected: List<ULong>, tracks: List<Track>, toSpotify: () -> Unit, done: () -> Unit) {
-    val queue = core.spotify
     val from = core.tabs.viewed
-    Column(
+    Row(
         Modifier.fillMaxWidth().padding(8.dp).background(Classic.frame).bevel().padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicText(if (send == Send.COPY) "COPY TO" else "MOVE TO", style = label(12.sp, Classic.label, 0.06.em))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -348,16 +359,15 @@ private fun SendBar(core: Core, send: Send, selected: List<ULong>, tracks: List<
                     }, Modifier.height(44.dp))
                 }
             }
-            items(core.tabs.tabs.filter { it.id != from }, key = { it.id.toLong() }) { tab ->
-                // Spotify takes songs for the queue only from the device playing it.
-                TextButton(tab.name, {
-                    core.apply(if (send == Send.COPY) Action.CopyTo(tab.id, tracks) else Action.MoveTo(from, tab.id, selected))
-                    done()
-                }, Modifier.height(44.dp), enabled = !tab.spotify || queue?.takesSongs == true)
-            }
         }
     }
 }
+
+/**
+ * The tabs as COPY's or MOVE's targets: those [takes] lit and outlined,
+ * the one viewed and Spotify's while it takes no songs greyed.
+ */
+private class TabTarget(val send: Send, val takes: (Tab) -> Boolean, val pick: (ULong) -> Unit)
 
 /** A tab being dragged: where it was, its tab's left edges then, and how far it has moved. */
 private class TabDrag(val id: ULong, val from: Int, val lefts: List<Float>, val widths: List<Float>) {
@@ -377,10 +387,11 @@ private class TabDrag(val id: ULong, val from: Int, val lefts: List<Float>, val 
 /**
  * The playlists' tabs. Holding one or swiping down from it opens its
  * editor, its name typed in the tab itself; holding it and sliding moves
- * it, the others making room.
+ * it, the others making room. As a [target], tapping one only sends the
+ * songs selected there, and it can't be held, swiped or added to.
  */
 @Composable
-private fun Tabs(core: Core, naming: NameEdit?, edit: (ULong) -> Unit, add: () -> Unit, tapped: (ULong?) -> Unit) {
+private fun Tabs(core: Core, naming: NameEdit?, target: TabTarget?, edit: (ULong) -> Unit, add: () -> Unit, tapped: (ULong?) -> Unit) {
     val tabs = core.tabs.tabs
     val state = rememberLazyListState()
     var drag by remember { mutableStateOf<TabDrag?>(null) }
@@ -409,7 +420,8 @@ private fun Tabs(core: Core, naming: NameEdit?, edit: (ULong) -> Unit, add: () -
         contentPadding = PaddingValues(horizontal = 8.dp),
     ) {
         itemsIndexed(tabs, key = { _, tab -> tab.id.toLong() }) { index, tab ->
-            val on = tab.id == core.tabs.viewed
+            val takes = target?.takes?.invoke(tab)
+            val on = tab.id == core.tabs.viewed && target == null
             val held = drag?.takeIf { it.id == tab.id }
             // The others slide aside to make room.
             val room = drag?.let { d ->
@@ -427,18 +439,41 @@ private fun Tabs(core: Core, naming: NameEdit?, edit: (ULong) -> Unit, add: () -
                 if (drag != null) tween(120) else snap(),
                 label = "tab",
             )
+            val outline = with(LocalDensity.current) { 1.dp.toPx() }
             ChromeButton(
                 {
-                    // Another tab than the one held: its editor closes.
-                    tapped(tab.id)
-                    core.apply(Action.SelectPlaylist(tab.id))
+                    if (target != null) {
+                        target.pick(tab.id)
+                    } else {
+                        // Another tab than the one held: its editor closes.
+                        tapped(tab.id)
+                        core.apply(Action.SelectPlaylist(tab.id))
+                    }
                 },
                 Modifier
                     .fillMaxHeight()
                     .zIndex(if (held != null) 1f else 0f)
                     .graphicsLayer { translationX = held?.dx ?: slide }
+                    // A target's outline, inside the bevel.
+                    .then(
+                        if (takes == true) {
+                            Modifier.drawWithContent {
+                                drawContent()
+                                val inset = 3 * outline
+                                drawRect(
+                                    Classic.lcd,
+                                    topLeft = Offset(inset, inset),
+                                    size = Size(size.width - 2 * inset, size.height - 2 * inset),
+                                    style = Stroke(outline),
+                                )
+                            }
+                        } else {
+                            Modifier
+                        },
+                    )
                     // A swipe down opens its editor too, as holding it does.
-                    .pointerInput(tab.id) {
+                    .pointerInput(tab.id, target != null) {
+                        if (target != null) return@pointerInput
                         var pulled = 0f
                         detectVerticalDragGestures(
                             onDragStart = { pulled = 0f },
@@ -453,7 +488,8 @@ private fun Tabs(core: Core, naming: NameEdit?, edit: (ULong) -> Unit, add: () -
                             },
                         )
                     }
-                    .pointerInput(tab.id, index, tabs.size) {
+                    .pointerInput(tab.id, index, tabs.size, target != null) {
+                        if (target != null) return@pointerInput
                         detectDragGesturesAfterLongPress(
                             onDragStart = {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -492,6 +528,7 @@ private fun Tabs(core: Core, naming: NameEdit?, edit: (ULong) -> Unit, add: () -
                         )
                     },
                 on = on,
+                enabled = takes != false,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // The playing tab's mark: bars while a song plays, ▶ paused.
@@ -502,7 +539,12 @@ private fun Tabs(core: Core, naming: NameEdit?, edit: (ULong) -> Unit, add: () -
                     if (naming?.id == tab.id) {
                         NameField(core, naming)
                     } else {
-                        BasicText(tab.name, style = body(14.sp, if (on) Classic.lcd else Classic.chrome))
+                        val color = when (takes) {
+                            true -> Classic.lcd
+                            false -> Classic.label
+                            null -> if (on) Classic.lcd else Classic.chrome
+                        }
+                        BasicText(tab.name, style = body(14.sp, color))
                     }
                     // A synced one's mark, lit while it's the same as elsewhere.
                     tab.sync?.let { sync ->
@@ -517,7 +559,8 @@ private fun Tabs(core: Core, naming: NameEdit?, edit: (ULong) -> Unit, add: () -
                 }
             }
         }
-        item {
+        // A new playlist to send to is the bar's + NEW.
+        if (target == null) item {
             // With the Spotify tab closed, + opens it too.
             val closed = core.settings.spotifyTabClosed
             ChromeButton(
@@ -907,7 +950,7 @@ private fun SpotifyTabEditor(core: Core, id: ULong, at: Int, done: () -> Unit) {
 }
 
 @Composable
-private fun Summary(core: Core, queue: SpotifyView?, selected: List<ULong>) {
+private fun Summary(core: Core, queue: SpotifyView?, selected: List<ULong>, sending: Send?) {
     val list = core.playlist
     val tab = core.tabs.tabs.firstOrNull { it.id == core.tabs.viewed }
     val selecting = selected.isNotEmpty()
@@ -937,8 +980,13 @@ private fun Summary(core: Core, queue: SpotifyView?, selected: List<ULong>) {
             // LOVE takes the room of the drag's hint.
             val love = core.settings.lastfm is LastFm.Connected
             Line(
-                if (queue != null || love || core.finding?.isNotBlank() == true) "TAP ADD/DROP · HOLD RANGE" else "TAP ADD/DROP · HOLD RANGE · DRAG ≡ REORDERS",
-                label(12.sp, Classic.label, 0.02.em).copy(textAlign = TextAlign.End),
+                when {
+                    sending == Send.COPY -> "TAP A TAB TO COPY TO"
+                    sending == Send.MOVE -> "TAP A TAB TO MOVE TO"
+                    queue != null || love || core.finding?.isNotBlank() == true -> "TAP ADD/DROP · HOLD RANGE"
+                    else -> "TAP ADD/DROP · HOLD RANGE · DRAG ≡ REORDERS"
+                },
+                label(12.sp, if (sending != null) Classic.current else Classic.label, 0.02.em).copy(textAlign = TextAlign.End),
                 Modifier.weight(1f),
             )
             if (love) Love(core, queue, selected)
