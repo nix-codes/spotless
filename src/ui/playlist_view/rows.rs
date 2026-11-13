@@ -106,21 +106,36 @@ enum Line {
     End(usize),
 }
 
-/// The list's lines, and the line each song is on.
-fn lines(list: &Playlist, runs: &[Run]) -> (Vec<Line>, Vec<usize>) {
+/// The list's lines, of the songs `selection` shows, and the line each
+/// song is on: a hidden one, the next shown's.
+fn lines(list: &Playlist, runs: &[Run], selection: &Selection) -> (Vec<Line>, Vec<usize>) {
     let mut lines = Vec::with_capacity(list.len());
-    let mut line_of = Vec::with_capacity(list.len());
+    let mut line_of = vec![usize::MAX; list.len()];
     let mut under = false;
     for &run in runs {
+        let songs: Vec<usize> = (run.start..run.start + run.len)
+            .filter(|&index| selection.shows(index))
+            .collect();
+        let Some(&first) = songs.first() else {
+            continue;
+        };
         if run.header {
             lines.push(Line::Header(run));
         } else if under {
-            lines.push(Line::End(run.start));
+            lines.push(Line::End(first));
         }
         under = run.header;
-        for index in run.start..run.start + run.len {
-            line_of.push(lines.len());
+        for index in songs {
+            line_of[index] = lines.len();
             lines.push(Line::Song(index, under));
+        }
+    }
+    let mut next = lines.len().saturating_sub(1);
+    for line in line_of.iter_mut().rev() {
+        if *line == usize::MAX {
+            *line = next;
+        } else {
+            next = *line;
         }
     }
     (lines, line_of)
@@ -141,7 +156,7 @@ pub(super) fn draw_rows(
         .auto_shrink([false, false])
         .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden);
     let runs = list.song_runs();
-    let (lines, line_of) = lines(list, &runs);
+    let (lines, line_of) = lines(list, &runs, selection);
     let furthest = (lines.len() as f32 * ROW_HEIGHT - ui.available_height()).max(0.0);
     let thumb_to = bar.interact(ui, slot, selection.offset, furthest);
     if let Some(index) = selection.reveal.take() {
@@ -299,6 +314,11 @@ pub(super) fn draw_rows(
     let Some(dragging) = dragging else { return };
     let label = drag_label(ui, dragging.0.len(), onto_tab, true);
     drag_ghost(ui, &palette, &label);
+    // Narrowed, where a song would land among those hidden is anyone's
+    // guess: dragged rows go only onto another tab.
+    if selection.narrowed() {
+        return;
+    }
     // Below the last row: the end of the list.
     if drop_at.is_none()
         && let Some(p) = pointer
@@ -354,7 +374,10 @@ fn header(
 ) -> (Rect, Option<Choice>) {
     let palette = view.palette;
     let list = view.playlist;
-    let songs = &list.entries()[run.start..run.start + run.len];
+    let songs: Vec<_> = (run.start..run.start + run.len)
+        .filter(|&index| selection.shows(index))
+        .map(|index| &list.entries()[index])
+        .collect();
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
     let chosen = songs.iter().all(|entry| selection.rows.contains(&entry.id));
@@ -390,7 +413,7 @@ fn header(
     }
     let first = songs[0].id;
     if response.double_clicked() {
-        selection.select(first, run.start);
+        selection.select(first, list.index_of(first).unwrap_or(run.start));
         selection.reveal = None;
         actions.push(PlaybackAction::PlayEntry(list.id, first));
         return (rect, None);

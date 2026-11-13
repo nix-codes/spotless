@@ -61,7 +61,7 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Insert", "Browse, to add to the playlist"),
             ("Alt+G", "Show / hide the equaliser"),
             ("Alt+V", "Show / hide the deck"),
-            ("F3 or Ctrl+F", "Browse: search"),
+            ("F3", "Browse: search (Ctrl+F there)"),
             ("F4", "Browse: your Spotify playlists"),
             ("F5", "Browse: songs loved on Last.fm"),
             ("Ctrl+V", "Open a pasted Spotify link or Code"),
@@ -79,6 +79,8 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("Home / End", "Select the first / last"),
             ("Shift+any of those", "Extend the selection"),
             ("Ctrl+A", "Select all"),
+            ("Ctrl+F", "Find: narrow the list as you type"),
+            ("Esc", "Close the find"),
             ("Enter", "Play the selected song"),
             ("Delete", "Remove the selection"),
             ("Alt+↑ / ↓", "Move the selection"),
@@ -130,16 +132,25 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
         return;
     }
     // Browse's tabs, even from a field: they take the keyboard to theirs.
-    // Ctrl+F and F3: SEARCH, in its field; F4: YOUR SPOTIFY, in the field
+    // F3, and Ctrl+F in Browse: SEARCH, in its field (Ctrl+F in a playlist
+    // finds in it); F4: YOUR SPOTIFY, in the field
     // that finds a playlist; F5: LAST.FM, while it's there. In Browse,
     // Ctrl+PgDn and PgUp: the next and previous tab.
     if matches!(view.session, SessionState::Ready { .. }) {
+        let mut find_here = false;
         ui.input_mut(|i| {
             let mut show = |tab: BrowseTab| {
                 actions.push(BrowseAction::ShowBrowseTab(tab));
                 browse_view::focus_tab(tab, inputs);
             };
-            if take(i, Modifiers::COMMAND, Key::F) || take(i, Modifiers::NONE, Key::F3) {
+            if take(i, Modifiers::COMMAND, Key::F) {
+                if view.browse.open || view.playlist.id == PlaylistId::SPOTIFY {
+                    show(BrowseTab::Search);
+                } else {
+                    find_here = true;
+                }
+            }
+            if take(i, Modifiers::NONE, Key::F3) {
                 show(BrowseTab::Search);
             }
             if take(i, Modifiers::NONE, Key::F4) {
@@ -156,6 +167,9 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
                 }
             }
         });
+        if find_here {
+            inputs.selection.open_find();
+        }
         // Alt+↓ or ↑: Browse's ADD TO list, from a field too.
         let add_to = view.browse.open
             && ui.input_mut(|i| {
@@ -370,7 +384,7 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
     if take(i, Modifiers::COMMAND, Key::Z) {
         super::undo(view, actions);
     }
-    if !browsing && current != PlaylistId::SPOTIFY {
+    if !browsing && current != PlaylistId::SPOTIFY && !inputs.selection.narrowed() {
         let order = if take(i, Modifiers::COMMAND, Key::S) {
             Some(Order::ArtistAlbums)
         } else if take(i, Modifiers::COMMAND | Modifiers::SHIFT, Key::R) {

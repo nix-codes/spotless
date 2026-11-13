@@ -28,6 +28,20 @@ pub struct Selection {
     /// The song to glide to, placed as on opening (J), and the glide under way.
     pub(super) glide_to: Option<usize>,
     pub(super) glide: Option<Glide>,
+    /// The find in the toolbar, while it's open.
+    pub(super) find: Option<FindText>,
+    /// The songs the find has, by index in order, worked out each frame
+    /// from it: None while it has no words, all shown.
+    pub(super) found: Option<Vec<usize>>,
+}
+
+/// What's typed in the find; whether the keyboard goes to it next frame;
+/// and whether it changed, for the selection to go to what it found.
+#[derive(Default)]
+pub(super) struct FindText {
+    pub text: String,
+    pub focus: bool,
+    pub changed: bool,
 }
 
 impl Selection {
@@ -37,6 +51,39 @@ impl Selection {
         self.anchor = Some(id);
         self.cursor = Some(id);
         self.reveal = Some(index);
+    }
+
+    /// Ctrl+F: the find, with the keyboard in it.
+    pub fn open_find(&mut self) {
+        self.find.get_or_insert_with(FindText::default).focus = true;
+    }
+
+    /// The list is narrowed to what the find has: songs can't be moved.
+    pub fn narrowed(&self) -> bool {
+        self.found.is_some()
+    }
+
+    /// Closes the find, the song the keyboard is on placed as on opening
+    /// the playlist.
+    pub(super) fn close_find(&mut self, list: &Playlist) {
+        self.find = None;
+        self.found = None;
+        self.open_at = self.cursor.and_then(|id| list.index_of(id));
+    }
+
+    /// Whether the song at `index` is shown.
+    pub(super) fn shows(&self, index: usize) -> bool {
+        self.found
+            .as_ref()
+            .is_none_or(|found| found.binary_search(&index).is_ok())
+    }
+
+    /// The songs shown, by index.
+    pub(super) fn visible(&self, list: &Playlist) -> Vec<usize> {
+        match &self.found {
+            Some(found) => found.clone(),
+            None => (0..list.len()).collect(),
+        }
     }
 }
 
@@ -49,9 +96,9 @@ pub(super) fn click(list: &Playlist, selection: &mut Selection, id: EntryId, mod
         if !modifiers.command {
             selection.rows.clear();
         }
-        selection
-            .rows
-            .extend(list.entries()[range].iter().map(|entry| entry.id));
+        let shown = range.filter(|&index| selection.shows(index));
+        let ids: Vec<EntryId> = shown.map(|index| list.entries()[index].id).collect();
+        selection.rows.extend(ids);
         selection.cursor = Some(id);
         return;
     }
@@ -93,10 +140,10 @@ pub(super) fn select_after(list: &Playlist, selection: &mut Selection, rows: &[E
     let Some(last) = rows.iter().filter_map(|&id| list.index_of(id)).max() else {
         return false;
     };
-    let next = list.entries()[last + 1..]
-        .iter()
-        .chain(list.entries()[..last].iter().rev())
-        .map(|entry| entry.id)
+    let next = (last + 1..list.len())
+        .chain((0..last).rev())
+        .filter(|&index| selection.shows(index))
+        .map(|index| list.entries()[index].id)
         .find(|id| !selection.rows.contains(id));
     selection.rows = next.into_iter().collect();
     selection.anchor = next;
@@ -125,9 +172,14 @@ pub(super) fn move_by(
     }
 }
 
-/// The editor's keys, unless a text field has the keyboard.
+/// The editor's keys, unless a text field has the keyboard. Narrowed by
+/// the find, they go over the songs shown, and Esc closes it.
 pub(super) fn keyboard(ui: &Ui, list: &Playlist, selection: &mut Selection, actions: &mut Actions) {
     if ui.ctx().text_edit_focused() || list.is_empty() {
+        return;
+    }
+    if selection.find.is_some() && ui.input(|i| i.key_pressed(Key::Escape)) {
+        selection.close_find(list);
         return;
     }
     let rows = selected(list, selection);
@@ -159,48 +211,67 @@ pub(super) fn keyboard(ui: &Ui, list: &Playlist, selection: &mut Selection, acti
         Key::Delete if !rows.is_empty() => remove(list, selection, rows, actions),
         Key::Q if !rows.is_empty() => actions.push(PlaylistsAction::ToggleMarks(rows)),
         Key::A if modifiers.command => {
-            selection.rows = list.entries().iter().map(|entry| entry.id).collect();
+            let shown = selection.visible(list);
+            selection.rows = shown.iter().map(|&i| list.entries()[i].id).collect();
         }
         Key::ArrowUp | Key::ArrowDown if modifiers.alt && !rows.is_empty() => {
-            move_by(list, selection, rows, key == Key::ArrowUp, actions);
+            if !selection.narrowed() {
+                move_by(list, selection, rows, key == Key::ArrowUp, actions);
+            }
         }
         Key::ArrowUp | Key::ArrowDown | Key::Home | Key::End | Key::PageUp | Key::PageDown
             if !modifiers.alt && !modifiers.command =>
         {
-            let from = selection
-                .cursor
-                .or(selection.anchor)
-                .and_then(|id| list.index_of(id))
-                .or(list.cursor().and_then(|id| list.index_of(id)));
-            let last = list.len() - 1;
-            let page = selection.page.max(1);
-            let to = match (key, from) {
-                (Key::Home, _) => 0,
-                (Key::End, _) => last,
-                (Key::ArrowUp, Some(i)) => i.saturating_sub(1),
-                (Key::ArrowDown, Some(i)) => (i + 1).min(last),
-                (Key::PageUp, Some(i)) => i.saturating_sub(page),
-                (Key::PageDown, Some(i)) => (i + page).min(last),
-                _ => 0,
-            };
-            let id = list.entries()[to].id;
-            if modifiers.shift {
-                // Extend from the anchor to the new row.
-                let anchor = selection
-                    .anchor
-                    .and_then(|id| list.index_of(id))
-                    .unwrap_or(from.unwrap_or(to));
-                selection.anchor = Some(list.entries()[anchor].id);
-                selection.rows = list.entries()[anchor.min(to)..=anchor.max(to)]
-                    .iter()
-                    .map(|entry| entry.id)
-                    .collect();
-                selection.cursor = Some(id);
-                selection.reveal = Some(to);
-            } else {
-                selection.select(id, to);
-            }
+            step(list, selection, key, modifiers.shift);
         }
         _ => {}
+    }
+}
+
+/// Moves the selection by an arrow, page or Home/End key, over the songs
+/// shown; with `extend`, from the anchor to there.
+pub(super) fn step(list: &Playlist, selection: &mut Selection, key: Key, extend: bool) {
+    let shown = selection.visible(list);
+    let Some(last) = shown.len().checked_sub(1) else {
+        return;
+    };
+    // Where a song is among those shown; one hidden counts as the next.
+    let at = |index: usize| match shown.binary_search(&index) {
+        Ok(at) | Err(at) => at.min(last),
+    };
+    let from = selection
+        .cursor
+        .or(selection.anchor)
+        .and_then(|id| list.index_of(id))
+        .or(list.cursor().and_then(|id| list.index_of(id)))
+        .map(at);
+    let page = selection.page.max(1);
+    let to = match (key, from) {
+        (Key::Home, _) => 0,
+        (Key::End, _) => last,
+        (Key::ArrowUp, Some(i)) => i.saturating_sub(1),
+        (Key::ArrowDown, Some(i)) => (i + 1).min(last),
+        (Key::PageUp, Some(i)) => i.saturating_sub(page),
+        (Key::PageDown, Some(i)) => (i + page).min(last),
+        _ => 0,
+    };
+    let index = shown[to];
+    let id = list.entries()[index].id;
+    if extend {
+        // Extend from the anchor to the new row.
+        let anchor = selection
+            .anchor
+            .and_then(|id| list.index_of(id))
+            .map(at)
+            .unwrap_or(from.unwrap_or(to));
+        selection.anchor = Some(list.entries()[shown[anchor]].id);
+        selection.rows = shown[anchor.min(to)..=anchor.max(to)]
+            .iter()
+            .map(|&i| list.entries()[i].id)
+            .collect();
+        selection.cursor = Some(id);
+        selection.reveal = Some(index);
+    } else {
+        selection.select(id, index);
     }
 }
