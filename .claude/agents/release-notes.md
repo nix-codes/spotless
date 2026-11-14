@@ -58,9 +58,18 @@ a stale display) is Fixed, even when its commit doesn't call it a bug.
 No heading above the sections: the release adds "Changes since x.y.z".
 
 Write for someone who uses the app and has never seen its code or its
-commits. Each entry is `- ` and one or two full, plain, friendly
-sentences saying what they'll notice and, when it helps, what it was
-like before or why it matters to them. Don't copy the commits' wording:
+commits. Each entry is `- **Title**: description`. The title is a few
+words naming the feature or the trouble ("Find in a playlist", "Losing
+the connection near a song's end"). The description is one or two short,
+plain sentences: what they'll notice, and just enough to try it (the key,
+the button and where it is), and, when it helps, what it was like before.
+Leave out the finer rules and every sub-case: a user finds those by
+using it. For example:
+
+- **Find in a playlist**: Ctrl+F narrows the playlist's songs as you
+  type. Esc shows them all again.
+
+Don't copy the commits' wording:
 commit subjects are clipped shorthand for developers ("Stopped, the
 player shows the song Play starts") and read like riddles to users.
 
