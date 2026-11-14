@@ -708,7 +708,13 @@ mod tests {
         assert_eq!(percent_decoded("/broken%2"), None);
         let file = std::env::temp_dir().join(format!("spotless code {}.png", std::process::id()));
         std::fs::write(&file, b"x").unwrap();
-        let uri = format!("file://{}", file.display()).replace(' ', "%20");
+        // file:///tmp/… on Linux, file:///C:/Users/… on Windows.
+        let uri = if cfg!(windows) {
+            format!("file:///{}", file.display()).replace('\\', "/")
+        } else {
+            format!("file://{}", file.display())
+        }
+        .replace(' ', "%20");
         assert_eq!(pasted_path(&uri), Some(file.clone()));
         assert_eq!(pasted_path(&file.display().to_string()), Some(file.clone()));
         std::fs::remove_file(&file).unwrap();
