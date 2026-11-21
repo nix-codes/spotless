@@ -599,7 +599,8 @@ impl Inner {
                 let volume = f64::from_bits(self.volume.load(Ordering::Relaxed));
                 self.levelling.apply(&mut piece.samples, volume);
                 let samples = piece.samples.iter().map(|&s| s as f32).collect();
-                if self.last_position.elapsed() >= POSITION_EVERY {
+                // A skipped piece puts the position out: told at once.
+                if piece.skipped || self.last_position.elapsed() >= POSITION_EVERY {
                     self.last_position = Instant::now();
                     self.tell(Event::Position {
                         request,

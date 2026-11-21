@@ -1,46 +1,37 @@
-//! A bare librespot `Player` on the session. There is no Spirc: Spotify
-//! Connect never hears of it, so the account's queue and other devices are
-//! left alone (as spotifast's local-queue player proved).
+//! Plays songs on Spotless's own player, carrying out what the [`Flow`]
+//! decides. There is no Spirc: Spotify Connect never hears of it, so the
+//! account's queue and other devices are left alone.
 //!
-//! Player events are folded into a [`PlayerSnapshot`] that is handed to the
-//! interface whenever it changes.
+//! The engine holds the song to follow the playing one, preloads it when
+//! the player says it's time, and starts it the moment the playing song
+//! ends, so songs follow each other without a gap (`super::transport`).
+//! The player says so [`PRELOAD_BEFORE_END`] ahead, once the playing song is
+//! all downloaded, so the next song is there when the connection goes near
+//! the end of one.
 //!
-//! Like Spirc, the engine holds the song to follow the playing one, preloads
-//! it when librespot asks, and starts it the moment the playing song ends,
-//! so songs follow each other without a gap (`super::transport`). It asks
-//! [`PRELOAD_BEFORE_END`] ahead, so the next song is there when the
-//! connection goes near the end of one.
-//!
-//! Volume levelling and the session are fixed when a librespot player is
-//! made, so changing either makes a new player that picks up the song where
-//! the old one was. A new session, for one that dropped, waits for the
-//! playing song to end instead: the song plays on with the audio it has.
+//! Songs open through the Spotify source on the session; a new session,
+//! for one that dropped, opens them from then on, and the playing song
+//! plays on with the audio it has.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
-use librespot_playback::config::{Bitrate, NormalisationType, PlayerConfig, VolumeCtrl};
-use librespot_playback::mixer::{self, Mixer, MixerConfig};
-use librespot_playback::player::{Player, PlayerEvent};
+use tokio::sync::mpsc;
 
 #[cfg(target_os = "android")]
 use super::aaudio::AAudioSink;
-use super::audio_sink::Librespot;
+use super::audio_sink::AudioSink;
+use super::flow::{Do, Flow, REPORTS_DUE};
 use super::link::AudioLink;
+use super::player::{Event, Player};
 #[cfg(not(target_os = "android"))]
 use super::sink::RodioSink;
 use crate::model::{EntryId, TrackRef};
-use crate::spotify::audio::track_info;
+use crate::spotify::audio::SpotifyAudio;
 
-/// Position reports come every second while a song plays (see
-/// `position_update_interval`); this one's beyond that.
-const REPORTS_DUE: Duration = Duration::from_millis(1_500);
-/// A song that ends further than this from its end was cut short.
-const CUT_MARGIN_MS: u32 = 5_000;
 /// How long before the playing song's end the next one is preloaded, once
 /// the playing one is all downloaded: room to walk out of signal near the
 /// end of a song and still hear the next. One song ahead, never more.
@@ -81,7 +72,7 @@ pub struct PlayerSnapshot {
 impl PlayerSnapshot {
     /// The position now, counting on from the last report while playing,
     /// but not past the next report's due: a song whose audio stops coming
-    /// is still playing to librespot, and reports no more.
+    /// is still playing to the player, and reports no more.
     pub fn position_now(&self) -> u32 {
         self.position_at(Instant::now())
     }
@@ -129,64 +120,21 @@ pub struct Engine {
     shared: Arc<Shared>,
 }
 
-/// What the engine's players are made with, shared with the task following
-/// the playing one's events, which makes the next player itself when a
-/// song ends on a dropped session.
+/// The engine's parts, shared with the task that hands the player's events
+/// to the flow.
 struct Shared {
-    mixer: Arc<dyn Mixer>,
-    /// The equaliser and analyser the players' outputs use.
-    link: Arc<AudioLink>,
+    /// Taken only when the engine is let go.
+    player: Option<Player>,
+    audio: Arc<SpotifyAudio>,
+    session: Mutex<Session>,
+    flow: Mutex<Flow>,
     notify: Notify,
-    /// The song to start when the playing one ends.
-    follow: Mutex<Option<(EntryId, SpotifyUri)>>,
-    /// The player's state as last reported, to carry over to a new player.
-    state: Mutex<PlayerSnapshot>,
-    /// The song the player is loading: the snapshot has it only once it's
-    /// loaded, and the song before until then.
-    loading: Mutex<Option<SpotifyUri>>,
-    /// librespot asked for the next song to be preloaded, and the playing
-    /// song hasn't ended since: a new song to follow is preloaded at once.
-    preload_due: AtomicBool,
-    current: Mutex<Current>,
 }
-
-/// The player, and what it was made with.
-struct Current {
-    session: Session,
-    /// A new session, for the player's dropped one, waiting for the playing
-    /// song to end: the song goes on with the audio it has, as a new player
-    /// would start it over (a gap each time the network changes).
-    waiting: Option<Session>,
-    /// The waiting session's player, made before the song ends to preload
-    /// the next one, as the playing player can't on its dropped session.
-    standby: Option<Standby>,
-    /// Volume levelling, as the player was made with.
-    levelling: bool,
-    player: Arc<Player>,
-    /// Cleared when the player is replaced: its events are no longer told.
-    live: Arc<AtomicBool>,
-}
-
-/// A player made ahead of its turn, and its flag (see `Current::live`).
-struct Standby {
-    player: Arc<Player>,
-    live: Arc<AtomicBool>,
-}
-
-impl Standby {
-    fn discard(self) {
-        self.live.store(false, Ordering::SeqCst);
-        self.player.stop();
-        tokio::task::spawn_blocking(move || drop(self.player));
-    }
-}
-
-/// A song for a new player to load: playing or not, from where.
-type Load = (SpotifyUri, bool, u32);
 
 impl Engine {
-    /// Must be called on the tokio runtime: the event fold runs on it.
-    /// Its outputs apply `link`'s equaliser and feed its analyser.
+    /// Must be called on the tokio runtime: songs open on it, and the
+    /// player's events are followed there. Its output applies `link`'s
+    /// equaliser and feeds its analyser.
     pub fn new(
         session: &Session,
         volume: u16,
@@ -194,516 +142,153 @@ impl Engine {
         link: Arc<AudioLink>,
         notify: Notify,
     ) -> Result<Self> {
-        let mixer =
-            mixer::find(Some("softvol")).ok_or_else(|| anyhow!("soft volume mixer missing"))?;
-        // librespot's default curve puts half the slider below -30 dB. The
-        // cubic one spreads the useful range across it (as in spotifast).
-        let mixer = mixer(MixerConfig {
-            volume_ctrl: VolumeCtrl::Cubic(VolumeCtrl::DEFAULT_DB_RANGE),
-            ..MixerConfig::default()
-        })
-        .context("unable to create the mixer")?;
-        mixer.set_volume(volume);
-        let shared = Arc::new_cyclic(|shared: &Weak<Shared>| {
-            let live = Arc::new(AtomicBool::new(true));
-            Shared {
-                current: Mutex::new(Current {
-                    session: session.clone(),
-                    waiting: None,
-                    standby: None,
-                    levelling,
-                    player: start_player(shared, session, &mixer, &link, levelling, &live, &notify),
-                    live,
-                }),
-                mixer,
-                link,
-                notify,
-                follow: Mutex::default(),
-                state: Mutex::default(),
-                loading: Mutex::default(),
-                preload_due: AtomicBool::new(false),
-            }
+        let audio = Arc::new(SpotifyAudio::new(session));
+        let (told, events) = mpsc::unbounded_channel();
+        let on_error = {
+            let notify = Arc::clone(&notify);
+            Box::new(move |message| notify(EngineEvent::OutputError(message)))
+        };
+        // A device by name, for testing without one: any name that doesn't
+        // exist acts as a missing output.
+        #[cfg(not(target_os = "android"))]
+        let device = std::env::var("SPOTLESS_AUDIO_DEVICE").ok();
+        let player = Player::new(
+            Arc::clone(&audio) as Arc<_>,
+            Box::new(move || -> Box<dyn AudioSink> {
+                #[cfg(not(target_os = "android"))]
+                return Box::new(RodioSink::new(device, on_error, link));
+                #[cfg(target_os = "android")]
+                return Box::new(AAudioSink::new(on_error, link));
+            }),
+            volume,
+            levelling,
+            PRELOAD_BEFORE_END,
+            Box::new(move |event| {
+                let _ = told.send(event);
+            }),
+        );
+        let shared = Arc::new(Shared {
+            player: Some(player),
+            audio,
+            session: Mutex::new(session.clone()),
+            flow: Mutex::default(),
+            notify,
         });
+        tokio::spawn(follow(Arc::downgrade(&shared), events));
         Ok(Self { shared })
     }
 
-    fn player(&self) -> Arc<Player> {
-        Arc::clone(&lock(&self.shared.current).player)
-    }
-
-    /// Turns volume levelling on or off with a new player, which goes on
-    /// with the song (playing or paused) and the song to follow it.
+    /// Volume levelling on or off, from the next piece of audio.
     pub fn set_levelling(&mut self, on: bool) {
-        let mut current = lock(&self.shared.current);
-        if on == current.levelling {
-            return;
-        }
-        current.levelling = on;
-        if let Some(standby) = current.standby.take() {
-            standby.discard();
-        }
-        let carried = self.shared.carried();
-        self.shared.renew(&mut current, carried);
+        self.shared.player().set_levelling(on);
     }
 
-    /// Plays on a new session, for one that dropped, with a new player that
-    /// goes on as `set_levelling`'s does. A playing song plays on without
-    /// one, with the audio it has, until it ends.
+    /// Opens songs on a new session, for one that dropped. A playing song
+    /// plays on with the audio it has, until it ends.
     pub fn set_session(&mut self, session: &Session) {
-        let mut current = lock(&self.shared.current);
-        current.waiting = Some(session.clone());
-        if let Some(standby) = current.standby.take() {
-            standby.discard();
-        }
-        // Reports stop coming when the audio has: a stalled song is picked
-        // up at once instead.
-        let state = lock(&self.shared.state).clone();
-        if state.status == Status::Playing
-            && state
-                .reported_at
-                .is_some_and(|at| at.elapsed() < REPORTS_DUE)
-        {
-            log::info!("the playing song goes on; a new player is made when it ends");
-            // The next song's preload, if due, failed on the dropped session.
-            self.shared.preload(&mut current);
-            return;
-        }
-        let carried = self.shared.carried();
-        self.shared.renew(&mut current, carried);
+        self.shared.audio.set_session(session);
+        *lock(&self.shared.session) = session.clone();
+        let done = lock(&self.shared.flow).session_changed(Instant::now());
+        self.shared.carry_out(done);
     }
 
     /// Plays `track` now, following it with nothing until told otherwise.
     pub fn load(&self, track: SpotifyUri, position_ms: u32) {
-        *lock(&self.shared.follow) = None;
-        self.shared.preload_due.store(false, Ordering::SeqCst);
-        let mut current = lock(&self.shared.current);
-        if current.waiting.is_some() {
-            self.shared
-                .renew(&mut current, Some((track, true, position_ms)));
-        } else {
-            current.player.load(track, true, position_ms);
-        }
+        let done = lock(&self.shared.flow).load(&track.to_uri(), position_ms);
+        self.shared.carry_out(done);
     }
 
     /// The song to start when the playing one ends. None: playback stops.
     /// Preloaded at once if the playing song is near its end.
     pub fn follow(&self, next: Option<(EntryId, SpotifyUri)>) {
-        let changed = {
-            let mut follow = lock(&self.shared.follow);
-            let changed = follow.as_ref().map(|(_, uri)| uri) != next.as_ref().map(|(_, uri)| uri);
-            *follow = next;
-            changed
-        };
-        if changed {
-            self.shared.preload(&mut lock(&self.shared.current));
-        }
+        let next = next.map(|(entry, uri)| (entry, uri.to_uri()));
+        let done = lock(&self.shared.flow).follow(next);
+        self.shared.carry_out(done);
     }
 
     pub fn play(&self) {
-        self.player().play();
+        self.shared.player().play();
     }
 
     pub fn pause(&self) {
-        self.player().pause();
+        self.shared.player().pause();
     }
 
     /// Whether a song is playing, or loading to play.
     pub fn playing(&self) -> bool {
-        matches!(
-            lock(&self.shared.state).status,
-            Status::Playing | Status::Loading
-        )
+        lock(&self.shared.flow).playing()
     }
 
     pub fn stop(&self) {
-        *lock(&self.shared.follow) = None;
-        self.shared.preload_due.store(false, Ordering::SeqCst);
-        let mut current = lock(&self.shared.current);
-        current.player.stop();
-        if current.waiting.is_some() {
-            self.shared.renew(&mut current, None);
-        }
+        let done = lock(&self.shared.flow).stop();
+        self.shared.carry_out(done);
     }
 
     pub fn seek(&self, position_ms: u32) {
-        self.player().seek(position_ms);
+        self.shared.player().seek(position_ms);
     }
 
     pub fn set_volume(&self, volume: u16) {
-        self.shared.mixer.set_volume(volume);
+        self.shared.player().set_volume(volume);
     }
 }
 
 impl Shared {
-    /// The song as the player has it, for a new one to pick up where it
-    /// was, playing or paused.
-    fn carried(&self) -> Option<Load> {
-        let state = lock(&self.state).clone();
-        log::info!(
-            "new player: was {:?} at {} ms (last reported {} ms)",
-            state.status,
-            state.position_now(),
-            state.position_ms,
-        );
-        let playing = matches!(state.status, Status::Playing | Status::Loading);
-        let uri = match (state.status, lock(&self.loading).clone()) {
-            (Status::Stopped, _) => return None,
-            (Status::Loading, Some(uri)) => uri,
-            _ => SpotifyUri::from_uri(&state.track.as_ref()?.uri).ok()?,
-        };
-        Some((uri, playing, state.position_now()))
+    fn player(&self) -> &Player {
+        self.player.as_ref().expect("the player lives as long as the engine")
     }
 
-    /// Preloads the song to follow, if librespot has asked for it: on the
-    /// player, or on a standby player when a new session waits, as the
-    /// player's own is gone.
-    fn preload(self: &Arc<Self>, current: &mut Current) {
-        if !self.preload_due.load(Ordering::SeqCst) {
-            return;
-        }
-        let Some((_, next)) = lock(&self.follow).clone() else {
-            return;
-        };
-        let Some(session) = current.waiting.clone() else {
-            current.player.preload(next);
-            return;
-        };
-        let standby = current.standby.get_or_insert_with(|| {
-            log::info!("the next song is preloaded on the new session");
-            let live = Arc::new(AtomicBool::new(true));
-            Standby {
-                player: start_player(
-                    &Arc::downgrade(self),
-                    &session,
-                    &self.mixer,
-                    &self.link,
-                    current.levelling,
-                    &live,
-                    &self.notify,
-                ),
-                live,
+    /// Carries out what the flow decided. The flow's lock is let go by
+    /// then: a hook that answers a told event with `Engine::follow` takes
+    /// it too.
+    fn carry_out(&self, done: Vec<Do>) {
+        for step in done {
+            match step {
+                Do::Load {
+                    request,
+                    uri,
+                    play,
+                    position_ms,
+                } => self.player().load(request, &uri, play, position_ms),
+                Do::Preload { uri, again } => self.player().preload(&uri, again),
+                Do::Stop => self.player().stop(),
+                Do::LetSessionGo => {
+                    let session = lock(&self.session);
+                    if !session.is_invalid() {
+                        session.shutdown();
+                    }
+                }
+                Do::Tell(event) => (self.notify)(event),
             }
-        });
-        standby.player.preload(next);
-    }
-
-    /// Replaces the player with one on the waiting session, if there is
-    /// one, loading `then`: the standby player, if one was made for it.
-    fn renew(self: &Arc<Self>, current: &mut Current, then: Option<Load>) {
-        if let Some(session) = current.waiting.take() {
-            current.session = session;
-        }
-        // A song to load is the one the standby preloaded, or one that
-        // replaces it; with none, it's not needed.
-        let mut standby = current.standby.take();
-        if then.is_none()
-            && let Some(unneeded) = standby.take()
-        {
-            unneeded.discard();
-        }
-        current.live.store(false, Ordering::SeqCst);
-        current.player.stop();
-        *lock(&self.state) = PlayerSnapshot::default();
-        *lock(&self.loading) = None;
-        let player = match standby {
-            Some(standby) => {
-                current.live = standby.live;
-                standby.player
-            }
-            None => {
-                current.live = Arc::new(AtomicBool::new(true));
-                start_player(
-                    &Arc::downgrade(self),
-                    &current.session,
-                    &self.mixer,
-                    &self.link,
-                    current.levelling,
-                    &current.live,
-                    &self.notify,
-                )
-            }
-        };
-        let old = std::mem::replace(&mut current.player, player);
-        // Dropping a player waits for its threads, and one still loading
-        // a song on a network gone waits as long as that does.
-        tokio::task::spawn_blocking(move || drop(old));
-        if let Some((track, playing, position_ms)) = then {
-            current.player.load(track, playing, position_ms);
         }
     }
 }
 
-/// Makes a player on the session and starts following its events.
-fn start_player(
-    shared: &Weak<Shared>,
-    session: &Session,
-    mixer: &Arc<dyn Mixer>,
-    link: &Arc<AudioLink>,
-    levelling: bool,
-    live: &Arc<AtomicBool>,
-    notify: &Notify,
-) -> Arc<Player> {
-    // A device by name, for testing without one: any name that doesn't
-    // exist acts as a missing output.
-    #[cfg(not(target_os = "android"))]
-    let device = std::env::var("SPOTLESS_AUDIO_DEVICE").ok();
-    let soft_volume = mixer.get_soft_volume();
-    let on_error = {
-        let notify = Arc::clone(notify);
-        let live = Arc::clone(live);
-        Box::new(move |message| {
-            if live.load(Ordering::SeqCst) {
-                notify(EngineEvent::OutputError(message));
-            }
-        })
-    };
-    let link = Arc::clone(link);
-    let config = PlayerConfig {
-        bitrate: Bitrate::Bitrate320,
-        gapless: true,
-        normalisation: levelling,
-        // Album gain while an album plays through, track gain otherwise.
-        normalisation_type: NormalisationType::Auto,
-        position_update_interval: Some(Duration::from_secs(1)),
-        preload_before_end: PRELOAD_BEFORE_END,
-        ..PlayerConfig::default()
-    };
-    let player = Player::new(
-        config,
-        session.clone(),
-        mixer.get_soft_volume(),
-        move || {
-            #[cfg(not(target_os = "android"))]
-            let sink = RodioSink::new(device, on_error, link);
-            #[cfg(target_os = "android")]
-            let sink = AAudioSink::new(on_error, link);
-            Box::new(Librespot::new(sink, soft_volume))
-        },
-    );
-    // Subscribed before the first load, so its events are seen.
-    let events = player.get_player_event_channel();
-    tokio::spawn(follow_songs(
-        Weak::clone(shared),
-        session.clone(),
-        Arc::clone(&player),
-        events,
-        Arc::clone(live),
-        Arc::clone(notify),
-    ));
-    player
+impl Drop for Shared {
+    fn drop(&mut self) {
+        // Letting the player go waits for its thread to finish the piece
+        // of audio it's on: not on the runtime's threads.
+        if let Some(player) = self.player.take() {
+            std::thread::spawn(move || drop(player));
+        }
+    }
 }
 
-/// Preloads the followed song when librespot asks, starts it as the playing
-/// one ends, and reports the player's state. Ends, letting the player go,
-/// once the player has been replaced, or the engine let go.
-async fn follow_songs(
-    shared: Weak<Shared>,
-    session: Session,
-    player: Arc<Player>,
-    mut events: librespot_playback::player::PlayerEventChannel,
-    live: Arc<AtomicBool>,
-    notify: Notify,
-) {
-    let mut state = PlayerSnapshot::default();
-    let mut current = None;
+/// Hands the player's events to the flow and carries out what it decides,
+/// until the engine is let go.
+async fn follow(shared: Weak<Shared>, mut events: mpsc::UnboundedReceiver<Event>) {
     while let Some(event) = events.recv().await {
         let Some(shared) = shared.upgrade() else {
             break;
         };
-        if !live.load(Ordering::SeqCst) {
-            break;
-        }
-        if let PlayerEvent::PlayRequestIdChanged { play_request_id } = event {
-            current = Some(play_request_id);
-            continue;
-        }
-        // A late event from a song already replaced.
-        if event.get_play_request_id().is_some() && event.get_play_request_id() != current {
-            continue;
-        }
-        // librespot reports a song it failed to load ahead, to follow the
-        // playing one, as unavailable too, under the playing song's
-        // request. The playing song goes on; the next one is loaded again
-        // when it is due, and only a failure then counts.
-        if let PlayerEvent::Loading { track_id, .. } = &event {
-            *lock(&shared.loading) = Some(track_id.clone());
-        }
-        if matches!(event, PlayerEvent::Unavailable { .. }) && state.status != Status::Loading {
-            log::info!("the next song didn't load ahead; it is tried again when due");
-            continue;
-        }
-        // A song that didn't load, or whose audio stopped coming, for want
-        // of a connection, with the session's socket yet to notice (it can
-        // take a minute and a half): the session is let go, so a new one is
-        // made once Spotify answers, and the song goes on then.
-        if matches!(
-            event,
-            PlayerEvent::Unavailable {
-                unreachable: true,
-                ..
-            } | PlayerEvent::EndOfTrack { stalled: true, .. }
-        ) && !session.is_invalid()
-        {
-            log::info!("Spotify couldn't be reached for the song; the session is let go");
-            session.shutdown();
-        }
-        let offline = matches!(event, PlayerEvent::Unavailable { .. }) && session.is_invalid();
-        // librespot ends a song whose audio stops coming, as if it were
-        // over; offline, the next would fail too. Near its end, it's over.
-        let cut = matches!(event, PlayerEvent::EndOfTrack { .. })
-            && session.is_invalid()
-            && state.track.as_ref().is_some_and(|track| {
-                state.position_ms.saturating_add(CUT_MARGIN_MS) < track.duration_ms
-            });
-        // How a song ended or failed, and with the session up or not, is
-        // what tells an offline stop from a real one.
-        let session_state = if session.is_invalid() {
-            "dropped"
-        } else {
-            "up"
-        };
-        match &event {
-            PlayerEvent::EndOfTrack { .. } => log::info!(
-                "song ended at {} of {} ms, session {session_state}{}",
-                state.position_ms,
-                state.track.as_ref().map_or(0, |t| t.duration_ms),
-                if cut { ": cut short" } else { "" },
-            ),
-            PlayerEvent::Unavailable { .. } => {
-                log::info!("song unavailable, session {session_state}")
-            }
-            _ => {}
-        }
-        // A new session waiting for this song to end: the next player is
-        // made on it, and this one's done.
-        if matches!(event, PlayerEvent::EndOfTrack { .. }) {
-            shared.preload_due.store(false, Ordering::SeqCst);
-            let mut current = lock(&shared.current);
-            if current.waiting.is_some() {
-                let next = if cut {
-                    let uri = state.track.as_ref().map(|t| SpotifyUri::from_uri(&t.uri));
-                    if let Some(Ok(uri)) = uri {
-                        log::info!("going on from {} ms on the new session", state.position_ms);
-                        shared.renew(&mut current, Some((uri, true, state.position_ms)));
-                    } else {
-                        shared.renew(&mut current, None);
-                    }
-                    None
-                } else {
-                    let next = lock(&shared.follow).take();
-                    shared.renew(&mut current, next.clone().map(|(_, uri)| (uri, true, 0)));
-                    Some(next)
-                };
-                drop(current);
-                match next {
-                    Some(Some((entry, _))) => notify(EngineEvent::Followed(entry)),
-                    // The new player has nothing to report.
-                    Some(None) => {
-                        notify(EngineEvent::Ended);
-                        notify(EngineEvent::Snapshot(PlayerSnapshot::default()));
-                    }
-                    None => {}
-                }
-                break;
-            }
-        }
-        // The follow lock is let go before anything is told: a hook that
-        // answers with `Engine::follow` takes it too.
-        match &event {
-            PlayerEvent::TimeToPreloadNextTrack { .. } => {
-                shared.preload_due.store(true, Ordering::SeqCst);
-                shared.preload(&mut lock(&shared.current));
-            }
-            PlayerEvent::EndOfTrack { .. } if cut => {
-                player.stop();
-                notify(EngineEvent::Cut {
-                    position_ms: state.position_ms,
-                });
-            }
-            PlayerEvent::EndOfTrack { .. } => {
-                let next = lock(&shared.follow).take();
-                match next {
-                    Some((entry, next)) => {
-                        player.load(next, true, 0);
-                        notify(EngineEvent::Followed(entry));
-                    }
-                    None => {
-                        player.stop();
-                        notify(EngineEvent::Ended);
-                    }
-                }
-            }
-            PlayerEvent::Unavailable { .. } => notify(EngineEvent::Unavailable { offline }),
-            _ => {}
-        }
-        if apply(&mut state, event) {
-            *lock(&shared.state) = state.clone();
-            notify(EngineEvent::Snapshot(state.clone()));
-        }
+        let online = !lock(&shared.session).is_invalid();
+        let done = lock(&shared.flow).event(event, online, Instant::now());
+        shared.carry_out(done);
     }
-    // Dropping a player waits for its thread, which may be finishing audio.
-    tokio::task::spawn_blocking(move || drop(player));
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
-}
-
-/// Folds one player event into the snapshot. Returns whether it changed.
-fn apply(state: &mut PlayerSnapshot, event: PlayerEvent) -> bool {
-    let before = state.clone();
-    let now = Some(Instant::now());
-    match event {
-        PlayerEvent::Loading { position_ms, .. } => {
-            state.status = Status::Loading;
-            state.position_ms = position_ms;
-            state.reported_at = now;
-            state.error = None;
-        }
-        PlayerEvent::Playing { position_ms, .. } => {
-            state.status = Status::Playing;
-            state.position_ms = position_ms;
-            state.reported_at = now;
-        }
-        PlayerEvent::Paused { position_ms, .. } => {
-            state.status = Status::Paused;
-            state.position_ms = position_ms;
-            state.reported_at = now;
-        }
-        PlayerEvent::PositionChanged { position_ms, .. }
-        | PlayerEvent::PositionCorrection { position_ms, .. }
-        | PlayerEvent::Seeked { position_ms, .. } => {
-            state.position_ms = position_ms;
-            state.reported_at = now;
-        }
-        // The end of a song is followed by a load or a stop.
-        PlayerEvent::Stopped { .. } => {
-            state.status = Status::Stopped;
-            state.position_ms = 0;
-            state.reported_at = now;
-        }
-        // A song's details come as it loads; a preloaded one, started on a
-        // new player, tells no Loading first.
-        PlayerEvent::TrackChanged { audio_item } => {
-            state.track = Some(track_info(&audio_item));
-            if state.status == Status::Stopped {
-                state.status = Status::Loading;
-            }
-        }
-        PlayerEvent::Unavailable { .. } => {
-            state.status = Status::Stopped;
-            state.error = Some("This song can't be played.".into());
-        }
-        PlayerEvent::AudioKeyUnavailable { .. } => {
-            state.status = Status::Stopped;
-            state.error =
-                Some("Spotify didn't give this song's key just now. Try again in a moment.".into());
-        }
-        _ => return false,
-    }
-    // Position reports alone change only the timestamp; skip those repaints
-    // unless the position really moved.
-    *state != before
 }
 
 /// A playlist's song, as the player shows it, for one it doesn't hold.

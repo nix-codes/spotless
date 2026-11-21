@@ -67,6 +67,7 @@ pub struct Flow {
 
 impl Flow {
     /// The player's state, as last told.
+    #[cfg(test)]
     pub fn snapshot(&self) -> &PlayerSnapshot {
         &self.snapshot
     }

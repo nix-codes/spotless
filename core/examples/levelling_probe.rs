@@ -1,10 +1,10 @@
-//! Check: does switching volume levelling keep the song going? The engine
-//! makes a new player for it, which should pick the song up where it was,
-//! playing or paused.
+//! Check: does switching volume levelling leave the song be? The player
+//! levels from the next piece of audio on: a playing song should go on
+//! playing, a paused one stay paused, with nothing loaded again.
 //!
 //! Plays at volume 0, so nothing is heard. Plays a song for a few seconds,
 //! turns levelling on, then pauses and turns it off again, printing the
-//! state reported after each switch.
+//! states reported in the two seconds after each switch.
 //!
 //!   cargo run -p spotless-core --features probes --example levelling_probe -- [album link]
 //!
@@ -57,21 +57,17 @@ async fn main() -> Result<()> {
     let state = settle(&mut events, Status::Playing).await?;
     tokio::time::sleep(Duration::from_secs(3)).await;
     let state = latest(&mut events).unwrap_or(state);
-    let before = state.position_now();
-    println!("\nplaying at {} ms, levelling on", before);
+    println!("\nplaying at {} ms, levelling on", state.position_now());
     engine.set_levelling(true);
-    let after = settle(&mut events, Status::Playing).await?;
-    report(before, &after, Status::Playing);
+    steady(&mut events, Status::Playing).await;
 
     tokio::time::sleep(Duration::from_secs(2)).await;
     engine.pause();
     let paused = settle(&mut events, Status::Paused).await?;
     let paused = latest(&mut events).unwrap_or(paused);
-    let before = paused.position_now();
-    println!("\npaused at {} ms, levelling off", before);
+    println!("\npaused at {} ms, levelling off", paused.position_now());
     engine.set_levelling(false);
-    let after = settle(&mut events, Status::Paused).await?;
-    report(before, &after, Status::Paused);
+    steady(&mut events, Status::Paused).await;
     engine.stop();
     Ok(())
 }
@@ -110,14 +106,24 @@ async fn settle(
     }
 }
 
-fn report(before: u32, after: &PlayerSnapshot, status: Status) {
-    let gap = i64::from(after.position_ms) - i64::from(before);
-    let ok = after.status == status && gap.abs() < 1_500;
-    println!(
-        "  {}: {:?}, position moved {gap} ms",
-        if ok { "OK" } else { "WRONG" },
-        after.status
-    );
+/// Prints the states reported over the next two seconds, and whether they
+/// all kept to `status`.
+async fn steady(events: &mut mpsc::UnboundedReceiver<EngineEvent>, status: Status) {
+    let mut kept = true;
+    let until = tokio::time::Instant::now() + Duration::from_secs(2);
+    while let Ok(Some(event)) = tokio::time::timeout_at(until, events.recv()).await {
+        match event {
+            EngineEvent::Snapshot(snapshot) => {
+                println!("  {:?} at {} ms", snapshot.status, snapshot.position_ms);
+                kept &= snapshot.status == status;
+            }
+            other => {
+                println!("  {other:?}");
+                kept = false;
+            }
+        }
+    }
+    println!("  {}: stayed {status:?}", if kept { "OK" } else { "WRONG" });
 }
 
 /// The audio cache as the app's settings have it.

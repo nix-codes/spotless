@@ -94,10 +94,6 @@ impl Levelling {
         }
     }
 
-    pub fn on(&self) -> bool {
-        self.on
-    }
-
     /// Turns it on or off from the next piece of audio.
     pub fn set_on(&mut self, on: bool) {
         self.on = on;

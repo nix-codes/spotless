@@ -45,23 +45,6 @@ pub trait Source: Send + Sync {
     fn open(&self, uri: &str) -> Result<Opened, OpenError>;
 }
 
-/// A file that's all there already: a test's, or a local one.
-pub struct Whole;
-
-impl Download for Whole {
-    fn whole(&self) -> bool {
-        true
-    }
-
-    fn stalled(&self) -> bool {
-        false
-    }
-
-    fn read_ahead(&self) {}
-
-    fn close(&self) {}
-}
-
 /// A source and an output for tests: songs made up as WAV files, and an
 /// output that keeps what it's given.
 #[cfg(test)]
@@ -75,6 +58,23 @@ pub(crate) mod fake {
     use super::*;
     use crate::playback::audio_sink::{AudioSink, SinkError};
     use crate::playback::{CHANNELS, SAMPLE_RATE};
+
+    /// A file that's all there already: a test's.
+    pub struct Whole;
+
+    impl Download for Whole {
+        fn whole(&self) -> bool {
+            true
+        }
+
+        fn stalled(&self) -> bool {
+            false
+        }
+
+        fn read_ahead(&self) {}
+
+        fn close(&self) {}
+    }
 
     /// A WAV file of `frames` stereo frames at the player's rate, each
     /// sample `value` as 16 bits.

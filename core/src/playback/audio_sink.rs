@@ -6,9 +6,13 @@
 //! The Spotify tab's device plays through librespot's own player, which
 //! writes to an output through [`Librespot`].
 
+#[cfg(feature = "spotify-tab")]
 use librespot_playback::audio_backend::{self, Sink, SinkResult};
+#[cfg(feature = "spotify-tab")]
 use librespot_playback::convert::Converter;
+#[cfg(feature = "spotify-tab")]
 use librespot_playback::decoder::AudioPacket;
+#[cfg(feature = "spotify-tab")]
 use librespot_playback::mixer::VolumeGetter;
 
 /// Why the output took no audio. The status bar has been told already,
@@ -33,18 +37,21 @@ pub trait AudioSink {
 }
 
 /// An output as librespot's player writes to it.
+#[cfg(feature = "spotify-tab")]
 pub struct Librespot<S> {
     sink: S,
     /// The volume the player turned the audio down by.
     volume: Box<dyn VolumeGetter + Send>,
 }
 
+#[cfg(feature = "spotify-tab")]
 impl<S> Librespot<S> {
     pub fn new(sink: S, volume: Box<dyn VolumeGetter + Send>) -> Self {
         Self { sink, volume }
     }
 }
 
+#[cfg(feature = "spotify-tab")]
 impl<S: AudioSink> Sink for Librespot<S> {
     fn start(&mut self) -> SinkResult<()> {
         self.sink.start().map_err(|e| {

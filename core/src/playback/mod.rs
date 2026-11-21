@@ -5,36 +5,16 @@ internal! {
     mod aaudio;
     mod analyser;
     mod audio_sink;
-    #[cfg_attr(
-        not(feature = "probes"),
-        allow(dead_code, reason = "until the engine plays through it, only a probe does")
-    )]
     mod decoder;
     mod engine;
     mod equaliser;
-    #[cfg_attr(
-        not(feature = "probes"),
-        allow(dead_code, reason = "until the engine plays through it, only a probe does")
-    )]
     mod flow;
-    #[cfg_attr(
-        not(feature = "probes"),
-        allow(dead_code, reason = "until the engine plays through it, only a probe does")
-    )]
     mod levelling;
     mod link;
     mod outputs;
-    #[cfg_attr(
-        not(feature = "probes"),
-        allow(dead_code, reason = "until the engine plays through it, only a probe does")
-    )]
     mod player;
     #[cfg(not(target_os = "android"))]
     mod sink;
-    #[cfg_attr(
-        not(feature = "probes"),
-        allow(dead_code, reason = "until the engine plays through it, only a probe does")
-    )]
     mod source;
     mod transport;
 }
