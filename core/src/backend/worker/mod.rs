@@ -92,6 +92,8 @@ pub(super) struct Worker {
     /// Loved songs found on Spotify so far.
     found: Arc<tokio::sync::Mutex<lastfm::found::Found>>,
     http: reqwest::Client,
+    /// Reads public MEGA folders opened from their links.
+    mega: Arc<crate::mega::api::Api>,
     /// Limits cover downloads running at once.
     cover_slots: Arc<tokio::sync::Semaphore>,
     /// When to connect to Spotify, at the start and after a drop.
@@ -138,6 +140,7 @@ impl Worker {
             search_approval: Arc::default(),
             found,
             http: reqwest::Client::new(),
+            mega: Arc::new(crate::mega::api::Api::new()),
             cover_slots: Arc::new(tokio::sync::Semaphore::new(6)),
             retry: Retry::new(),
             link,
@@ -457,7 +460,8 @@ impl Worker {
             | Command::Album(_)
             | Command::ReadCode(..)
             | Command::LookUpCode(..)
-            | Command::ReadLink(..) => self.handle_catalog(command),
+            | Command::ReadLink(..)
+            | Command::ReadMegaFolder(..) => self.handle_catalog(command),
             Command::SpotifyPlaylists
             | Command::RemoveFromSpotify { .. }
             | Command::PutBackOnSpotify(_)

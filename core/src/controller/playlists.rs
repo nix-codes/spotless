@@ -31,6 +31,13 @@ impl Controller {
             }
             PlaylistsAction::NewPlaylistWith(tracks) => {
                 let name = library.fresh_name();
+                return self.apply(PlaylistsAction::NewNamedPlaylist(name, tracks));
+            }
+            PlaylistsAction::NewNamedPlaylist(name, tracks) => {
+                let name = match name.trim() {
+                    "" => library.fresh_name(),
+                    name => name.to_string(),
+                };
                 let list = library.create(name);
                 state.viewed = list;
                 self.insert_tracks(list, None, tracks);

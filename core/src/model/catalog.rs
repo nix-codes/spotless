@@ -277,3 +277,45 @@ mod tests {
         assert_eq!(ReleaseTab::default(), ReleaseTab::Albums);
     }
 }
+
+/// A public MEGA folder opened from its link: its playlists, one for each
+/// M3U in it, or its audio files by name when it has none.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MegaFolder {
+    /// The folder's own name.
+    pub name: String,
+    pub playlists: Vec<FolderPlaylist>,
+}
+
+/// A playlist of a MEGA folder: its M3U's songs, in its order.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FolderPlaylist {
+    /// Where its songs are added from, as a song's `source`.
+    pub uri: String,
+    /// The M3U's name, without `.m3u`; the folder's name for its files.
+    pub name: String,
+    pub songs: Vec<FolderSong>,
+}
+
+/// A song of a folder's playlist.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FolderSong {
+    pub track: TrackRef,
+    /// The file the M3U names is in the folder: it can be added.
+    pub found: bool,
+}
+
+impl FolderPlaylist {
+    /// The songs that can be added, each from this playlist.
+    pub fn addable(&self) -> Vec<TrackRef> {
+        let source = super::playlist::Source {
+            uri: self.uri.clone(),
+            name: self.name.clone(),
+        };
+        let found = (self.songs.iter())
+            .filter(|song| song.found)
+            .map(|song| song.track.clone())
+            .collect();
+        super::playlist::from_source(found, &source)
+    }
+}

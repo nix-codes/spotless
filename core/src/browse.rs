@@ -9,9 +9,17 @@ use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
 use crate::model::catalog::{
-    Discography, Place, Release, ReleaseTab, SearchResults, SpotifyPlaylist,
+    Discography, FolderPlaylist, MegaFolder, Place, Release, ReleaseTab, SearchResults,
+    SpotifyPlaylist,
 };
 use crate::model::{ArtistRef, EntryId, PlaylistId, Source, TrackRef};
+
+/// Whether pasted text is a link Browse opens (`BrowseAction::OpenLink`):
+/// a Spotify link, or a public MEGA folder's.
+pub fn is_link(text: &str) -> bool {
+    let text = text.trim();
+    crate::spotify::parse_uri(text).is_ok() || crate::mega::is_folder_link(text)
+}
 
 /// How long rows just added light up in the slim column.
 pub const FLASH: Duration = Duration::from_millis(1200);
@@ -27,6 +35,13 @@ pub enum Page {
     /// Someone's Spotify playlist and its songs, by URI: one a Spotify
     /// Code opened.
     Playlist(String),
+    /// A public MEGA folder, by its link: the playlist of its M3Us at
+    /// `playlist`, or with None, the list of them (its one playlist, if
+    /// it has only one).
+    Mega {
+        link: String,
+        playlist: Option<usize>,
+    },
 }
 
 /// Browse's tabs: the catalogue, searched, the account's own Spotify
@@ -200,6 +215,8 @@ pub struct Browse {
     pub reveal: Option<String>,
     /// The Spotify Code the last page it opened came from, drawn there.
     pub code: Option<OpenedCode>,
+    /// The public MEGA folders opened, by their links.
+    pub megas: HashMap<String, Loadable<MegaFolder>>,
 }
 
 /// A Spotify Code read, and the page it opened.
@@ -242,6 +259,7 @@ impl Browse {
             playlists: HashMap::new(),
             reveal: None,
             code: None,
+            megas: HashMap::new(),
         }
     }
 
@@ -349,6 +367,22 @@ impl Browse {
             .as_deref()
             .map(Find::new)
             .filter(|find| !find.is_empty())
+    }
+
+    /// The MEGA folder's playlist the page shows: the one asked for, or
+    /// its only one. None on its list of playlists, or off a MEGA page.
+    pub fn folder_playlist(&self) -> Option<&FolderPlaylist> {
+        let Page::Mega { link, playlist } = self.page() else {
+            return None;
+        };
+        let Some(Loadable::Ready(folder)) = self.megas.get(link) else {
+            return None;
+        };
+        match (playlist, folder.playlists.as_slice()) {
+            (Some(at), playlists) => playlists.get(*at),
+            (None, [only]) => Some(only),
+            (None, _) => None,
+        }
     }
 
     pub fn page(&self) -> &Page {

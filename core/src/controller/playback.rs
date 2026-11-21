@@ -4,8 +4,9 @@
 use super::{Controller, volume_level};
 use crate::action::PlaybackAction;
 use crate::backend::Command;
-use crate::model::TrackRef;
-use crate::playback::engine::{PlayerSnapshot, Status};
+use crate::browse::Loadable;
+use crate::model::{FileDetails, SongSource, TrackRef};
+use crate::playback::engine::{PlayerSnapshot, Status, TrackInfo};
 use crate::playback::transport::Request;
 
 impl Controller {
@@ -126,7 +127,40 @@ impl Controller {
         if snapshot.status == Status::Playing {
             self.state.spotify_owns = false;
         }
+        if let Some(track) = &snapshot.track
+            && self.state.player.track.as_ref() != Some(track)
+        {
+            self.fill_from_file(track);
+        }
         self.state.player = snapshot;
+    }
+
+    /// A MEGA song opened: what its file says fills in its rows, in the
+    /// playlists and on the folder's pages in Browse.
+    fn fill_from_file(&mut self, track: &TrackInfo) {
+        if !matches!(track.uri.source(), SongSource::Mega { .. }) {
+            return;
+        }
+        let file = FileDetails {
+            artists: (track.artists.split(", ").map(str::to_string)).collect(),
+            album: track.album.clone(),
+            duration_ms: track.duration_ms,
+        };
+        let mut changed = false;
+        for list in self.state.library.playlists_mut() {
+            changed |= list.fill_song(&track.uri, &file);
+        }
+        if changed {
+            self.mark_unsaved();
+        }
+        for folder in self.state.browse.megas.values_mut() {
+            if let Loadable::Ready(folder) = folder {
+                let songs = folder.playlists.iter_mut().flat_map(|list| &mut list.songs);
+                for song in songs.filter(|song| song.track.uri == track.uri) {
+                    song.track.fill_from(&file);
+                }
+            }
+        }
     }
 
     /// The engine started the followed song by itself.

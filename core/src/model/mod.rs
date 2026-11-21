@@ -14,7 +14,7 @@ pub use library::Library;
 pub use playback::{Playback, Step};
 pub(crate) use playlist::Snapshot;
 pub use playlist::{
-    AlbumPlace, AlbumRef, ArtistRef, Entry, EntryId, Order, Playlist, PlaylistId, Run, SortHeaders,
-    Source, TrackRef, from_source,
+    AlbumPlace, AlbumRef, ArtistRef, Entry, EntryId, FileDetails, Order, Playlist, PlaylistId, Run,
+    SortHeaders, Source, TrackRef, from_source,
 };
 pub use song::{SongSource, SongUri};

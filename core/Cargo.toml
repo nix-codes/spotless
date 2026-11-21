@@ -109,6 +109,10 @@ name = "mega_probe"
 required-features = ["probes"]
 
 [[example]]
+name = "mega_import_probe"
+required-features = ["probes"]
+
+[[example]]
 name = "levelling_probe"
 required-features = ["probes"]
 

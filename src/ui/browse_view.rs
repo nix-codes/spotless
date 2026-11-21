@@ -39,6 +39,7 @@ mod artist;
 mod code;
 mod keyboard;
 mod lastfm_tab;
+mod mega;
 mod playlist;
 mod search;
 mod slim;
@@ -48,6 +49,7 @@ pub(super) use artist::{add_all_pressed, adds_all};
 
 use artist::artist_page;
 use keyboard::{enter_area, keyboard, page_id, switch_area};
+use mega::mega_page;
 use playlist::playlist_page;
 use search::{find_bar, home, search_bar, search_page, searchable};
 use slim::slim_column;
@@ -291,6 +293,7 @@ pub fn draw(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: 
                     }
                     Page::Artist(uri) => artist_page(ui, view, nav, uri, actions),
                     Page::Playlist(uri) => playlist_page(ui, view, nav, uri, actions),
+                    Page::Mega { link, .. } => mega_page(ui, view, nav, link, actions),
                 }
             })
         });

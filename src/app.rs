@@ -590,7 +590,7 @@ impl eframe::App for App {
         for event in &raw_input.events {
             match event {
                 egui::Event::Paste(text) => {
-                    if spotless_core::spotify::parse_uri(text.trim()).is_ok() {
+                    if spotless_core::browse::is_link(text) {
                         self.pasted_text = true;
                     } else if let Some(file) = pasted_path(text) {
                         self.pasted_file = Some(file);

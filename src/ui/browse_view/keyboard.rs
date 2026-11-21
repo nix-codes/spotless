@@ -91,6 +91,7 @@ pub(super) fn page_id(page: &Page) -> String {
         Page::Home => "home".into(),
         Page::Search(query) => format!("search:{query}"),
         Page::Artist(uri) | Page::Playlist(uri) => uri.clone(),
+        Page::Mega { link, playlist } => format!("{link}/{playlist:?}"),
     }
 }
 

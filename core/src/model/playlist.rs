@@ -50,6 +50,41 @@ pub struct AlbumRef {
     pub name: String,
 }
 
+impl ArtistRef {
+    /// An artist with no page anywhere, as a MEGA song's: told apart by
+    /// its name alone (`name:artist:<name>`).
+    pub fn by_name(name: &str) -> Self {
+        let name = plain_name(name);
+        Self {
+            uri: format!("name:artist:{name}"),
+            name,
+            image: None,
+        }
+    }
+}
+
+impl AlbumRef {
+    /// An album with no page anywhere, told apart by its name and its
+    /// album artist's (`name:album:<artist>/<album>`), so that every
+    /// "Greatest Hits" isn't one album. No name: no album.
+    pub fn by_name(artist: &str, name: &str) -> Self {
+        let name = plain_name(name);
+        let uri = match name.is_empty() {
+            true => String::new(),
+            false => format!("name:album:{}/{name}", plain_name(artist)),
+        };
+        Self { uri, name }
+    }
+}
+
+/// A name changed as little as can be to tell it apart: Unicode NFC, its
+/// ends trimmed, runs of spaces made one. Its case and accents stay.
+fn plain_name(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    let name: String = name.nfc().collect();
+    name.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Where songs were added from: an album, a Spotify playlist, Liked
 /// Songs or an artist, by URI, with its name.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,6 +118,38 @@ pub struct TrackRef {
     /// Its place in its album. None for a song saved before Spotless kept it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub in_album: Option<AlbumPlace>,
+}
+
+/// What a song's file says of it, once it's opened: a MEGA song's tags
+/// and its real length.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileDetails {
+    pub artists: Vec<String>,
+    pub album: String,
+    pub duration_ms: u32,
+}
+
+impl TrackRef {
+    /// Fills in what the song lacked from its file: its artists and album
+    /// where it had none, its length where it was wrong. What it had
+    /// (as a MEGA folder's M3U gave it) stays. Whether anything changed.
+    pub fn fill_from(&mut self, file: &FileDetails) -> bool {
+        let before = self.clone();
+        if self.artists.is_empty() {
+            self.artists = (file.artists.iter())
+                .filter(|name| !name.trim().is_empty())
+                .map(|name| ArtistRef::by_name(name))
+                .collect();
+        }
+        if self.album.name.is_empty() {
+            let artist = self.artists.first().map_or("", |artist| artist.name.as_str());
+            self.album = AlbumRef::by_name(artist, &file.album);
+        }
+        if file.duration_ms > 0 {
+            self.duration_ms = file.duration_ms;
+        }
+        *self != before
+    }
 }
 
 /// A song's place in its album, which a sort goes by.
@@ -370,6 +437,16 @@ impl Playlist {
         }
     }
 
+    /// Fills in every entry of the song at `uri` from its file (see
+    /// `TrackRef::fill_from`). Whether any changed.
+    pub fn fill_song(&mut self, uri: &SongUri, file: &FileDetails) -> bool {
+        let mut changed = false;
+        for entry in self.entries.iter_mut().filter(|entry| entry.track.uri == *uri) {
+            changed |= entry.track.fill_from(file);
+        }
+        changed
+    }
+
     /// Takes the Spotify IDs off, as the playlist stops being synced.
     pub fn clear_items(&mut self) {
         for entry in &mut self.entries {
@@ -561,5 +638,34 @@ pub(crate) mod tests {
         list.move_to(&[EntryId(3)], 4);
         assert_eq!(ids(&list), [2, 5, 4, 3, 6, 1]);
         assert_eq!(list.cursor(), Some(EntryId(2)));
+    }
+
+    #[test]
+    fn names_tell_apart_with_their_case_and_accents_kept() {
+        let decomposed = "Metro\u{301}poli";
+        assert_eq!(ArtistRef::by_name(&format!("  {decomposed}  ")).uri, "name:artist:Metrópoli");
+        assert_eq!(ArtistRef::by_name("The   Band").name, "The Band");
+        assert_ne!(ArtistRef::by_name("the band"), ArtistRef::by_name("The Band"));
+        assert_eq!(AlbumRef::by_name("A", "Greatest Hits").uri, "name:album:A/Greatest Hits");
+        assert_ne!(AlbumRef::by_name("A", "Hits"), AlbumRef::by_name("B", "Hits"));
+        assert_eq!(AlbumRef::by_name("A", " ").uri, "");
+    }
+
+    #[test]
+    fn a_files_details_fill_in_only_what_the_song_lacked() {
+        let mut track = entry(1).track;
+        track.artists.clear();
+        track.album = AlbumRef::by_name("", "");
+        let file = FileDetails {
+            artists: vec!["Someone".into(), "Other".into()],
+            album: "Ciudad".into(),
+            duration_ms: 0,
+        };
+        assert!(track.fill_from(&file));
+        assert_eq!(track.artists, [ArtistRef::by_name("Someone"), ArtistRef::by_name("Other")]);
+        assert_eq!(track.album, AlbumRef::by_name("Someone", "Ciudad"));
+        let length = track.duration_ms;
+        assert!(!track.fill_from(&file), "filled once, nothing more changes");
+        assert_eq!(track.duration_ms, length, "no length from the file: kept");
     }
 }

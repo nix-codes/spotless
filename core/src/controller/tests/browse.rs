@@ -523,3 +523,115 @@ fn only_the_last_code_or_link_asked_for_opens() {
     rig.tell(Event::CodeRead(first, Err("too late".into())));
     assert_eq!(rig.controller.state().error, None);
 }
+
+#[test]
+fn a_mega_folders_link_opens_its_playlists_to_add_from() {
+    use crate::model::catalog::{FolderPlaylist, FolderSong, MegaFolder};
+    use crate::model::{SongUri, TrackRef};
+    let mut rig = Rig::new("mega-folder");
+    let link = "https://mega.nz/folder/AbCd1234#MDEyMzQ1Njc4OWFiY2RlZg";
+    let song = |file: &str, title: &str, found: bool| FolderSong {
+        track: TrackRef {
+            uri: match found {
+                true => SongUri::mega("AbCd1234", file, "MDEyMzQ1Njc4OWFiY2RlZg"),
+                false => SongUri::default(),
+            },
+            title: title.into(),
+            artists: vec![ArtistRef::by_name("Metrópoli")],
+            album: AlbumRef::by_name("", ""),
+            duration_ms: 200_000,
+            source: None,
+            in_album: None,
+        },
+        found,
+    };
+    let playlist = |name: &str, songs| FolderPlaylist {
+        uri: format!("mega:AbCd1234:{name}#MDEyMzQ1Njc4OWFiY2RlZg"),
+        name: name.into(),
+        songs,
+    };
+
+    // Pasted with spaces, it opens on its page at once, read once.
+    rig.controller
+        .apply(BrowseAction::OpenLink(format!(" {link} ")));
+    let mega_page = Page::Mega {
+        link: link.into(),
+        playlist: None,
+    };
+    assert_eq!(*rig.controller.state().browse.page(), mega_page);
+    assert!((rig.sent().iter()).any(|c| matches!(c, Command::ReadMegaFolder(l) if l == link)));
+    rig.controller.apply(BrowseAction::Search(link.into()));
+    assert!(rig.sent().is_empty(), "searched for, it isn't read again");
+
+    rig.tell(Event::MegaFolderRead {
+        link: link.into(),
+        result: Ok(MegaFolder {
+            name: "Shared".into(),
+            playlists: vec![
+                playlist("best", vec![song("a", "Song A", true), song("", "Gone", false)]),
+                playlist("demos", vec![song("b", "Song B", true)]),
+            ],
+        }),
+    });
+    // Two playlists: the list shows first.
+    assert_eq!(rig.controller.state().browse.folder_playlist(), None);
+    rig.controller
+        .apply(BrowseAction::OpenFolderPlaylist(link.into(), 0));
+    let best = rig.controller.state().browse.folder_playlist().cloned().unwrap();
+    assert_eq!(best.name, "best");
+
+    // Only the songs in the folder are added, from the playlist.
+    rig.controller.apply(PlaylistsAction::NewNamedPlaylist(
+        best.name.clone(),
+        best.addable(),
+    ));
+    let state = rig.controller.state();
+    let list = state.library.get(state.viewed).unwrap();
+    assert_eq!(list.name, "best");
+    assert_eq!(rig.songs(), ["Song A"]);
+    let added = &list.entries()[0].track;
+    assert_eq!(added.source.as_ref().map(|s| s.uri.as_str()), Some(best.uri.as_str()));
+
+    // Played, its file's tags fill in its album and its real length.
+    let uri = added.uri.clone();
+    rig.tell(Event::Player(PlayerSnapshot {
+        status: Status::Playing,
+        track: Some(TrackInfo {
+            uri: uri.clone(),
+            title: "Tagged title".into(),
+            artists: "Someone Else".into(),
+            main_artist: "Someone Else".into(),
+            album: "Ciudad".into(),
+            duration_ms: 201_500,
+            cover_url: None,
+        }),
+        ..PlayerSnapshot::default()
+    }));
+    let state = rig.controller.state();
+    let filled = &state.library.get(state.viewed).unwrap().entries()[0].track;
+    assert_eq!(filled.title, "Song A", "the M3U's title stays");
+    assert_eq!(filled.artists, [ArtistRef::by_name("Metrópoli")]);
+    assert_eq!(filled.album, AlbumRef::by_name("Metrópoli", "Ciudad"));
+    assert_eq!(filled.album.uri, "name:album:Metrópoli/Ciudad");
+    assert_eq!(filled.duration_ms, 201_500);
+    let shown = state.browse.folder_playlist().unwrap();
+    assert_eq!(shown.songs[0].track.album.name, "Ciudad");
+}
+
+#[test]
+fn a_mega_folder_not_read_says_why_and_is_read_again_when_opened() {
+    let mut rig = Rig::new("mega-failed");
+    let link = "https://mega.nz/folder/AbCd1234#MDEyMzQ1Njc4OWFiY2RlZg";
+    rig.controller.apply(BrowseAction::OpenLink(link.into()));
+    rig.sent();
+    rig.tell(Event::MegaFolderRead {
+        link: link.into(),
+        result: Err("MEGA couldn't be reached.".into()),
+    });
+    assert!(matches!(
+        rig.controller.state().browse.megas.get(link),
+        Some(Loadable::Failed(_))
+    ));
+    rig.controller.apply(BrowseAction::OpenLink(link.into()));
+    assert!((rig.sent().iter()).any(|c| matches!(c, Command::ReadMegaFolder(_))));
+}

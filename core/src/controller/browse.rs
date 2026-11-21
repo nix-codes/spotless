@@ -5,7 +5,7 @@ use super::Controller;
 use crate::action::BrowseAction;
 use crate::backend::{Command, SearchState};
 use crate::browse::{AddAll, BrowseTab, Loadable, OpenedCode, Page};
-use crate::model::catalog::{Discography, ReleaseTab, SearchResults, Songs};
+use crate::model::catalog::{Discography, MegaFolder, ReleaseTab, SearchResults, Songs};
 use crate::model::playlist::from_source;
 use crate::model::{ArtistRef, PlaylistId, Source, TrackRef};
 use crate::spotify::code::{CodeTarget, encode};
@@ -39,8 +39,8 @@ impl Controller {
                     return;
                 }
                 // A Spotify link searched for opens what it points to, as a
-                // Spotify Code does.
-                if crate::spotify::catalog::parse_uri(&query).is_ok() {
+                // Spotify Code does; a MEGA folder's link, the folder.
+                if crate::browse::is_link(&query) {
                     return self.apply(BrowseAction::OpenLink(query));
                 }
                 browse.go(Page::Search(query.clone()));
@@ -208,8 +208,18 @@ impl Controller {
                 self.send(Command::LookUpCode(id, reference));
             }
             BrowseAction::OpenLink(link) => {
+                let link = link.trim().to_string();
+                if crate::mega::is_folder_link(&link) {
+                    return self.open_mega_folder(link);
+                }
                 let id = self.opening("Opening the link…");
-                self.send(Command::ReadLink(id, link.trim().to_string()));
+                self.send(Command::ReadLink(id, link));
+            }
+            BrowseAction::OpenFolderPlaylist(link, at) => {
+                browse.go(Page::Mega {
+                    link,
+                    playlist: Some(at),
+                });
             }
             BrowseAction::Revealed => browse.reveal = None,
         }
@@ -239,6 +249,37 @@ impl Controller {
                 self.state.error = Some(error);
             }
         }
+    }
+
+    /// Shows a public MEGA folder in Browse's SEARCH tab, reading it unless
+    /// it's read. One that couldn't be read is read again.
+    fn open_mega_folder(&mut self, link: String) {
+        // Opening anything else drops what a link opening before asked.
+        self.last_open += 1;
+        self.state.notice = None;
+        self.apply(BrowseAction::ShowBrowseTab(BrowseTab::Search));
+        let browse = &mut self.state.browse;
+        browse.code = None;
+        browse.go(Page::Mega {
+            link: link.clone(),
+            playlist: None,
+        });
+        if !matches!(
+            browse.megas.get(&link),
+            Some(Loadable::Ready(_) | Loadable::Loading)
+        ) {
+            browse.megas.insert(link.clone(), Loadable::Loading);
+            self.send(Command::ReadMegaFolder(link));
+        }
+    }
+
+    /// A public MEGA folder read, by its link.
+    pub(super) fn mega_folder_read(&mut self, link: String, result: Result<MegaFolder, String>) {
+        let loaded = match result {
+            Ok(folder) => Loadable::Ready(folder),
+            Err(error) => Loadable::Failed(error),
+        };
+        self.state.browse.megas.insert(link, loaded);
     }
 
     /// Opens what a Spotify link points to, as a code does.

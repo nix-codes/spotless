@@ -85,6 +85,10 @@ impl Library {
         self.playlists.iter().find(|list| list.id == id)
     }
 
+    pub fn playlists_mut(&mut self) -> impl Iterator<Item = &mut Playlist> {
+        self.playlists.iter_mut()
+    }
+
     pub fn get_mut(&mut self, id: PlaylistId) -> Option<&mut Playlist> {
         self.playlists.iter_mut().find(|list| list.id == id)
     }

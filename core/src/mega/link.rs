@@ -11,8 +11,6 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
 /// A public folder, as its link names it.
-// Read by the probes now, by importing a folder next.
-#[cfg_attr(not(any(test, feature = "probes")), allow(dead_code))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FolderLink {
     pub handle: String,
@@ -20,7 +18,6 @@ pub struct FolderLink {
     pub key: String,
 }
 
-#[cfg_attr(not(any(test, feature = "probes")), allow(dead_code))]
 impl FolderLink {
     /// Reads `https://mega.nz/folder/<handle>#<key>`, a subfolder's link
     /// after it included, and the older `https://mega.nz/#F!<handle>!<key>`.
@@ -82,6 +79,21 @@ impl FileKey {
             out.copy_from_slice(&block);
         }
         Some(Self::from_raw(&key))
+    }
+
+    /// A folder's key as a listing gives it, encrypted with the public
+    /// folder's: 16 bytes, which open its attributes as they are.
+    pub fn open_folder(given: &str, folder_key: &[u8; 16]) -> Option<Self> {
+        let encrypted = decode(given.rsplit(':').next()?)?;
+        if encrypted.len() != 16 {
+            return None;
+        }
+        let mut block = aes::Block::clone_from_slice(&encrypted);
+        Aes128::new(folder_key.into()).decrypt_block(&mut block);
+        Some(Self {
+            aes: block.into(),
+            iv: [0; 16],
+        })
     }
 
     /// The 32 bytes a file's key is: its AES key folded with its nonce and

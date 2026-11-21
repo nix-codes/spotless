@@ -113,6 +113,8 @@ pub enum PlaylistsAction {
     NewPlaylist,
     /// Makes a playlist of these songs and shows it.
     NewPlaylistWith(Vec<TrackRef>),
+    /// The same, with this name.
+    NewNamedPlaylist(String, Vec<TrackRef>),
     /// Deletes a playlist and its songs (never Default).
     ClosePlaylist(PlaylistId),
     RenamePlaylist(PlaylistId, String),
@@ -239,8 +241,12 @@ pub enum BrowseAction {
     /// Opens in Browse what a Spotify Code already read points to, by its
     /// number (`spotify::code_in`): the camera reads its frames itself.
     LookUpCode(u64),
-    /// Opens in Browse what this Spotify link points to, as a code does.
+    /// Opens in Browse what this Spotify link points to, as a code does,
+    /// or the public MEGA folder this link is.
     OpenLink(String),
+    /// Opens a MEGA folder's playlist, by the folder's link and its place
+    /// among the folder's playlists.
+    OpenFolderPlaylist(String, usize),
     /// The album or song a code or link opened has been shown.
     Revealed,
 }

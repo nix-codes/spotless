@@ -323,6 +323,8 @@ pub(super) fn source_detail(track: &TrackRef, source: &Source) -> Option<String>
         Some("Artist".into())
     } else if uri.contains(":collection") {
         Some("Spotify".into())
+    } else if uri.starts_with("mega:") {
+        Some("MEGA".into())
     } else {
         None
     }

@@ -1158,6 +1158,16 @@ pub(crate) fn browse(state: &State) -> BrowseView {
                 },
             }
         }
+        // Not on Android yet: the desktop opens MEGA folders first.
+        Page::Mega { .. } => BrowsePage::Playlist {
+            uri: String::new(),
+            name: "MEGA folder".into(),
+            owner: None,
+            songs: 0,
+            list: AlbumSongs::Failed {
+                message: "MEGA folders open in Spotless on a computer for now.".into(),
+            },
+        },
     };
     BrowseView {
         open: browse.open,

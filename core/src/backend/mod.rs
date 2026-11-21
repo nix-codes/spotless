@@ -19,7 +19,9 @@ use crate::browse::{Removal, Unlisted};
 use crate::browser::Browser;
 use crate::images::CoverImage;
 use crate::lastfm::{LastFmState, Loved, LovedSong, api::Keys};
-use crate::model::catalog::{Discography, SearchResults, Songs, SpotifyPlaylist, SpotifyTarget};
+use crate::model::catalog::{
+    Discography, MegaFolder, SearchResults, Songs, SpotifyPlaylist, SpotifyTarget,
+};
 use crate::model::{ArtistRef, EntryId, PlaylistId, TrackRef};
 use crate::paths::Paths;
 use crate::playback::engine::PlayerSnapshot;
@@ -80,6 +82,9 @@ pub(crate) enum Command {
     /// What this Spotify link points to; answered with `Event::LinkRead`,
     /// with the ID it was asked for with.
     ReadLink(u64, String),
+    /// The playlists of the public MEGA folder this link opens; answered
+    /// with `Event::MegaFolderRead`.
+    ReadMegaFolder(String),
     /// The account's own Spotify playlists, Liked Songs first.
     SpotifyPlaylists,
     /// Adds songs, by track URI, to a Spotify playlist, or to a new one.
@@ -359,6 +364,12 @@ pub(crate) enum Event {
     CodeRead(u64, Result<(u64, CodeTarget), String>),
     /// What a Spotify link points to, or why it couldn't be opened.
     LinkRead(u64, Result<CodeTarget, String>),
+    /// A public MEGA folder's playlists, by its link, or why it couldn't
+    /// be read.
+    MegaFolderRead {
+        link: String,
+        result: Result<MegaFolder, String>,
+    },
     Error(String),
 }
 

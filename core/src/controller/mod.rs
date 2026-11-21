@@ -338,6 +338,7 @@ impl Controller {
                 Event::PlaylistsChanged => self.sync_on_connect(),
                 Event::CodeRead(id, result) => self.code_read(id, result),
                 Event::LinkRead(id, result) => self.link_read(id, result),
+                Event::MegaFolderRead { link, result } => self.mega_folder_read(link, result),
                 Event::Error(message) => self.state.error = Some(message),
                 Event::Cover { url, result } => theirs.push(Cover { url, image: result }),
             }

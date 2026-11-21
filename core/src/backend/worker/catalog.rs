@@ -195,6 +195,14 @@ impl Worker {
                     (self.emit)(Event::LinkRead(id, Err(error)));
                 }
             }
+            Command::ReadMegaFolder(link) => {
+                let api = Arc::clone(&self.mega);
+                let emit = Arc::clone(&self.emit);
+                tokio::spawn(async move {
+                    let result = crate::mega::read_folder(&api, &link).await;
+                    emit(Event::MegaFolderRead { link, result });
+                });
+            }
             Command::Album(album) => {
                 self.on_session(move |session| async move {
                     let result = catalog::songs(&session, &album)

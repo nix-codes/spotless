@@ -801,6 +801,8 @@ mod tests {
                 | PlaylistsAction::Reorder(..)
                 | PlaylistsAction::UndoReorder
                 | PlaylistsAction::SetHeaders(..) => true,
+                // Not in the app yet.
+                PlaylistsAction::NewNamedPlaylist(..) => false,
             },
             Core::Sync(action) => match action {
                 SyncAction::SetSync(..)
@@ -856,7 +858,8 @@ mod tests {
                 BrowseAction::MoreArtists(..)
                 | BrowseAction::AddAlbums(..)
                 | BrowseAction::DropTracks(..)
-                | BrowseAction::DropAlbum(..) => false,
+                | BrowseAction::DropAlbum(..)
+                | BrowseAction::OpenFolderPlaylist(..) => false,
             },
             Core::SpotifyLists(action) => match action {
                 SpotifyListsAction::OpenSpotifyPlaylist(..)
