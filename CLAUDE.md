@@ -13,7 +13,7 @@ android/README.md is building the Android app.
   playlists, Browse, Last.fm, settings, and the controller the apps drive
   with actions. Uses a librespot fork (nix-codes/librespot), pinned in
   `core/Cargo.toml`.
-- `src/`: the desktop app (Linux and Windows), egui. `build.rs` and
+- `src/`: the desktop app (Linux, Windows and macOS), egui. `build.rs` and
   `packaging/` (except `packaging/android` and `packaging/release.sh`)
   belong to it too.
 - `android/`: the Android app, Kotlin and Compose; `android/ffi`

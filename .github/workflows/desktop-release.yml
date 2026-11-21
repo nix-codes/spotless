@@ -1,17 +1,19 @@
-# Builds the desktop app for a tag like desktop-v0.1.0, for Linux and for
-# Windows, and puts both in a GitHub release: a draft to look over and
+# Builds the desktop app for a tag like desktop-v0.1.0, for Linux, Windows
+# and macOS, and puts them in a GitHub release: a draft to look over and
 # publish by hand, or published once its files are up if the tag says so.
 # packaging/release.sh makes the tag. The Android app is released on its
 # own.
 #
 # The tag gives the version: it replaces the placeholder in Cargo.toml
-# before building, for the About line, the Windows details and the names.
+# before building, for the About line, the Windows and macOS details and
+# the names.
 # The release notes are the ones in the tag's message, or else the commits
 # since the previous desktop-v tag that touch the desktop app or the core it
 # shares with Android (packaging/release.sh notes).
 #
 # SPOTLESS_RELEASE makes builds that update themselves (src/update.rs),
-# from the newest release's package once checked against its SHA256SUMS.
+# from the newest release's package once checked against its SHA256SUMS:
+# on Linux and Windows, not yet on macOS.
 
 name: Desktop Release
 
@@ -108,9 +110,38 @@ jobs:
           path: target/dist/*.zip
           if-no-files-found: error
 
+  macos:
+    name: macOS
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rust
+        run: rustup show active-toolchain && rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      # Reads main's cache and saves none: a tag's is seen by no other run.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
+
+      # macOS's sed has no 0,/re/: perl changes the first version line.
+      - name: Version
+        run: perl -0pi -e "s/^version = \".*\"\$/version = \"${GITHUB_REF_NAME#desktop-v}\"/m" Cargo.toml
+
+      - name: macOS app
+        env:
+          SPOTLESS_RELEASE: "1"
+        run: packaging/macos/build.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: target/dist/*.zip
+          if-no-files-found: error
+
   release:
     name: Release
-    needs: [linux, windows]
+    needs: [linux, windows, macos]
     runs-on: ubuntu-24.04
     steps:
       # The whole history, for the commits since the previous release.
@@ -134,7 +165,7 @@ jobs:
           # checks an update against it, and sha256sum -c checks a download.
           (cd dist && sha256sum -- *) > SHA256SUMS
           {
-            echo "Spotless $version for Linux and Windows, 64-bit."
+            echo "Spotless $version for Linux, Windows and macOS, 64-bit."
             echo
             packaging/release.sh notes "$GITHUB_REF_NAME"
           } > notes.md

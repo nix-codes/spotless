@@ -3,7 +3,7 @@
 # android-v<version> or desktop-v<version> and pushes the tag, after
 # checking that it is what GitHub has, that CI passed on it and that the
 # version goes up. The Android Release workflow then builds and signs the
-# APK, or the Desktop Release one builds for Linux and Windows
+# APK, or the Desktop Release one builds for Linux, Windows and macOS
 # (.github/workflows/), and puts it in a release: a draft to try and
 # publish by hand, or published at once with --publish. A published
 # desktop release is offered to every Spotless that looks for updates;

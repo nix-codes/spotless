@@ -6,7 +6,7 @@ description: Prepares and makes a Spotless release, of the desktop app, the Andr
 # Releasing Spotless
 
 The two apps are released on their own, each from `main` with its own tag:
-`desktop-v<x.y.z>` (Linux and Windows) and `android-v<x.y.z>`.
+`desktop-v<x.y.z>` (Linux, Windows and macOS) and `android-v<x.y.z>`.
 `packaging/release.sh` does the releasing; this skill decides what to
 release and writes the notes. Everything here works without you too: the
 script alone releases with the commit subjects as notes.

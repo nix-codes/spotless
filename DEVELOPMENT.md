@@ -8,7 +8,7 @@ Spotless is two apps on one Rust core:
   playlists, Browse, Last.fm and settings. It plays through a
   [librespot fork](https://github.com/nix-codes/librespot), pinned in
   `core/Cargo.toml`.
-- `src/`: the desktop app (Linux and Windows), drawn with egui.
+- `src/`: the desktop app (Linux, Windows and macOS), drawn with egui.
 - `android/`: the Android app, in Kotlin and Compose; building it is in
   [android/README.md](android/README.md).
 
@@ -29,6 +29,13 @@ On Windows, building also needs the Visual Studio Build Tools. The Windows
 zip can be built from Linux with `packaging/windows/build.sh`, using Rust's
 `x86_64-pc-windows-gnullvm` target and
 [llvm-mingw](https://github.com/mstorsjo/llvm-mingw).
+
+On macOS, building needs Xcode's command line tools
+(`xcode-select --install`). The macOS app, for Apple silicon and Intel
+Macs in one, is built on a Mac with `packaging/macos/build.sh`, after
+`rustup target add aarch64-apple-darwin x86_64-apple-darwin`; CI builds it
+on every push too. It's signed only ad hoc, as no Apple account is used,
+and doesn't update itself yet.
 
 ### Installing from source on Linux
 
@@ -73,7 +80,7 @@ are drawn, never taken by hand, from the core's made-up library
 ## Releasing
 
 Each app is released from `main` with a tag: `android-v<version>` for the
-Android app, `desktop-v<version>` for Linux and Windows together.
+Android app, `desktop-v<version>` for Linux, Windows and macOS together.
 
 ```sh
 packaging/release.sh changes      # each app's changes since its last release
@@ -85,7 +92,7 @@ packaging/release.sh desktop 0.1.0 --notes notes.md --dry-run  # tags nothing
 The script checks that `main` matches GitHub's, that CI passed on it and
 that the version goes up, then pushes the tag. GitHub Actions builds the app
 (the APK signed with the release key in the repository's secrets; the Linux
-tarball and the Windows zip) and makes the release, with the notes given in
+tarball, the Windows zip and the macOS app) and makes the release, with the notes given in
 `--notes` or else the commits since the last one. It stays a draft, to try
 its files and publish by hand, unless `--publish` is given. The tag is the
 only place the version is set.

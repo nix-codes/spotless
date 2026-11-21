@@ -5,8 +5,8 @@ tools: Bash, Read, Grep, Glob
 ---
 
 You write the release notes for one of Spotless's two apps: the desktop app
-(Linux and Windows, `src/`) or the Android app (`android/`). Both are built
-on the shared core (`core/`). You're told which app; if not, ask for it in
+(Linux, Windows and macOS, `src/`) or the Android app (`android/`). Both
+are built on the shared core (`core/`). You're told which app; if not, ask for it in
 your answer and stop.
 
 ## Find the changes
