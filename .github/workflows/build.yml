@@ -1,12 +1,14 @@
-# Builds and checks Spotless on every push, on Linux and on Windows, and
-# makes the Windows zip that packaging/windows/build.sh makes locally. The
-# core (core/, spotless-core) is also built for Android, which it is shared
-# with, as the library the Android app loads (android/ffi, spotless-ffi).
+# Builds and checks Spotless on every push, on Linux, Windows and macOS,
+# and makes the Windows zip that packaging/windows/build.sh makes locally.
+# The core (core/, spotless-core) is also built for Android, which it is
+# shared with, as the library the Android app loads (android/ffi,
+# spotless-ffi).
 #
 # Nothing here signs in to Spotify or plays audio: the runners have no
 # account and no sound device. The Windows job only checks that Spotless
 # builds with Microsoft's compiler, passes its tests, opens its window and
-# keeps to one copy at a time.
+# keeps to one copy at a time. The macOS job, not yet released for, checks
+# that it builds, passes its tests and keeps running once started.
 
 name: Build
 
@@ -214,3 +216,48 @@ jobs:
           Stop-Process $first
           "--- first"; Get-Content first.log
           "--- second"; Get-Content second.log
+
+  macos:
+    name: macOS
+    # Apple Silicon.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rust
+        run: rustup show active-toolchain
+
+      # Only main's runs save a cache: a branch's would push main's out of
+      # GitHub's 10 GB, and branches read main's anyway.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Clippy
+        run: cargo clippy --workspace --release --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --release
+
+      - name: Build
+        run: cargo build --release
+
+      # Its own config and cache folders, so a run starts as a first start.
+      - name: Start-up check
+        env:
+          RUST_LOG: info
+          HOME: ${{ runner.temp }}/home
+        run: |
+          mkdir -p "$HOME"
+          target/release/spotless 2> start.log &
+          pid=$!
+          sleep 15
+          if ! kill -0 "$pid" 2> /dev/null; then
+            cat start.log
+            code=0
+            wait "$pid" || code=$?
+            echo "::error::Spotless quit on its own at start (exit code $code)"
+            exit 1
+          fi
+          kill "$pid"
+          cat start.log
