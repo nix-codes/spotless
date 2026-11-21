@@ -15,7 +15,9 @@
 //! from where it's read, in one request, written as it comes, then what's
 //! left. That main stretch is never given up for a read elsewhere: a read
 //! it will reach in about a second waits for it, one it won't (a seek,
-//! the decoder looking for its place) gets a short stretch beside it.
+//! the decoder looking for its place) gets a short stretch beside it. A
+//! stretch coming slower than the song plays (MEGA at times trickles) is
+//! asked again from where it got to.
 
 use std::ops::Range;
 use std::time::Duration;
@@ -51,6 +53,12 @@ pub const SERVER_STALL_LIMIT: Duration = Duration::from_secs(3);
 /// for it, until the stretch's speed is known: what a second brings at a
 /// modest speed. Beyond, it's the second's worth at the speed measured.
 pub const STRETCH_REACH: usize = 512 * 1024;
+/// How long a stretch's speed is measured before it's judged too slow.
+pub const SLOW_WINDOW: Duration = Duration::from_secs(4);
+/// How many slow stretches in a row may be asked again having brought
+/// nothing, before that's left for a read to ask: more would spin while
+/// offline.
+pub const EMPTY_TRIES: usize = 3;
 /// How much a read the main stretch won't reach soon is given, beside it:
 /// enough for the decoder to look about, or for a few seconds' play until
 /// the main stretch gets there.
@@ -277,6 +285,13 @@ pub fn reaches(coming: &Range<usize>, wanted: usize, reach: usize) -> bool {
     coming.contains(&wanted) && wanted - coming.start <= reach
 }
 
+/// Whether a stretch that brought `came` bytes in the last `over` comes
+/// slower than the song plays, at `bytes_per_second`, once it's had
+/// [`SLOW_WINDOW`] to show its speed.
+pub fn too_slow(came: usize, over: Duration, bytes_per_second: usize) -> bool {
+    over >= SLOW_WINDOW && (came as f64) < bytes_per_second as f64 * over.as_secs_f64()
+}
+
 /// How far a stretch bringing `bytes_per_second` reaches in a second.
 pub fn stretch_reach(bytes_per_second: usize) -> usize {
     bytes_per_second.max(STRETCH_REACH)
@@ -457,5 +472,14 @@ mod tests {
         assert!(reaches(&coming, 3_000_000, stretch_reach(3_000_000)));
         assert_eq!(beside(1_000..5_000_000), 1_000..1_000 + BESIDE);
         assert_eq!(beside(1_000..2_000), 1_000..2_000);
+    }
+
+    #[test]
+    fn a_stretch_slower_than_the_song_plays_is_too_slow() {
+        let window = SLOW_WINDOW;
+        assert!(!too_slow(0, window / 2, RATE));
+        assert!(too_slow(0, window, RATE));
+        assert!(too_slow(RATE * 3, window, RATE));
+        assert!(!too_slow(RATE * 4, window, RATE));
     }
 }

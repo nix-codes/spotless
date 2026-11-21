@@ -407,6 +407,9 @@ struct Stretch {
     main: bool,
     started: Instant,
     came: usize,
+    /// Its speed as measured since `window_since`.
+    window_since: Instant,
+    window_came: usize,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -472,6 +475,8 @@ async fn fetch_stretches(
             main,
             started: Instant::now(),
             came: 0,
+            window_since: Instant::now(),
+            window_came: 0,
             task,
         };
         (number, stretch)
@@ -481,10 +486,47 @@ async fn fetch_stretches(
         stretches.insert(number, stretch);
     }
     mark_coming(&mut shared.plan(), &stretches);
+    // Slow stretches asked again in a row having brought nothing.
+    let mut empty = 0;
+    let mut check = tokio::time::interval(std::time::Duration::from_secs(1));
     loop {
         tokio::select! {
+            _ = check.tick() => {
+                let mut plan = shared.plan();
+                let rate = plan.bytes_per_second;
+                let slow: Vec<u64> = (stretches.iter())
+                    .filter(|(_, s)| plan::too_slow(s.window_came, s.window_since.elapsed(), rate))
+                    .map(|(n, _)| *n)
+                    .collect();
+                for stretch in stretches.values_mut() {
+                    if stretch.window_since.elapsed() >= plan::SLOW_WINDOW {
+                        stretch.window_since = Instant::now();
+                        stretch.window_came = 0;
+                    }
+                }
+                for n in slow {
+                    let Some(slow) = stretches.remove(&n) else { continue };
+                    empty = if slow.came == 0 { empty + 1 } else { 0 };
+                    if empty >= plan::EMPTY_TRIES {
+                        log::error!("{} gives nothing; waiting for a read to ask", remote.name(0));
+                        continue;
+                    }
+                    let Some(range) = plan.stretch_from(slow.coming.start) else { continue };
+                    log::warn!(
+                        "{} sends {}+{} too slowly; asking again",
+                        remote.name(0),
+                        slow.coming.start,
+                        slow.coming.len()
+                    );
+                    let range = if slow.main { range } else { plan::beside(range) };
+                    let (number, stretch) = start(range, slow.main);
+                    stretches.insert(number, stretch);
+                }
+                mark_coming(&mut plan, &stretches);
+            }
             command = commands.recv() => match command {
                 Some(Command::Ask(parts)) => {
+                    empty = 0;
                     let Some(wanted) = parts.first().map(|part| part.range.start) else {
                         continue;
                     };
@@ -518,6 +560,8 @@ async fn fetch_stretches(
                     }
                     stretch.coming.start += data.len();
                     stretch.came += data.len();
+                    stretch.window_came += data.len();
+                    empty = 0;
                     let whole = {
                         let mut plan = shared.plan();
                         plan.received(at..at + data.len());

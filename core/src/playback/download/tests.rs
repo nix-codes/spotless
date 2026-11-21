@@ -14,9 +14,15 @@ enum Server {
     Silent,
     /// Sends a chunk every few milliseconds.
     Slow,
+    /// Sends a chunk every 20 ms: 800 KB/s, faster than a song plays but
+    /// slow enough for a read far ahead to be out of reach for seconds.
+    Slower,
     /// Sends half of what's asked the first time, then drops the
     /// connection; all of it after.
     Dropping,
+    /// Trickles the first time, far slower than a song plays; sends all
+    /// of it after.
+    Trickling,
 }
 
 struct FakeRemote {
@@ -86,7 +92,25 @@ impl Remote for FakeRemote {
                         vec![Ok(half), Err(Fault("connection reset".into()))];
                     futures_util::stream::iter(chunks).boxed()
                 }
-                Server::Dropping | Server::Slow => {
+                Server::Trickling if first => {
+                    let chunks: Vec<_> = data.chunks(1024).map(Bytes::copy_from_slice).collect();
+                    futures_util::stream::iter(chunks)
+                        .then(|chunk| async move {
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                            Ok(chunk)
+                        })
+                        .boxed()
+                }
+                Server::Slower => {
+                    let chunks: Vec<_> = data.chunks(16 * 1024).map(Bytes::copy_from_slice).collect();
+                    futures_util::stream::iter(chunks)
+                        .then(|chunk| async move {
+                            tokio::time::sleep(Duration::from_millis(20)).await;
+                            Ok(chunk)
+                        })
+                        .boxed()
+                }
+                Server::Dropping | Server::Trickling | Server::Slow => {
                     let chunks: Vec<_> = data.chunks(16 * 1024).map(Bytes::copy_from_slice).collect();
                     futures_util::stream::iter(chunks)
                         .then(|chunk| async move {
@@ -254,8 +278,8 @@ async fn asked_for_stretches_a_file_comes_in_one_request() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_seek_out_of_reach_is_given_a_stretch_beside_the_main_one() {
-    let remote = FakeRemote::stretching(8_000_000);
-    let (mut file, progress, kept) = start(&remote, 40 * 1024);
+    let remote = FakeRemote::stretching_on(8_000_000, Server::Slower);
+    let (mut file, progress, _) = start(&remote, 40 * 1024);
     progress.stream();
     let read = tokio::task::spawn_blocking(move || {
         file.seek(SeekFrom::Start(6_000_000)).unwrap();
@@ -266,13 +290,12 @@ async fn a_seek_out_of_reach_is_given_a_stretch_beside_the_main_one() {
     .await
     .unwrap();
     assert_eq!(read, remote.data[6_000_000..6_001_000]);
-    // The rest comes after, so it's kept whole.
-    assert_eq!(kept_once_whole(&kept).await.as_deref(), Some(&remote.data[..]));
-    // The main stretch went on: one beside it for the seek, no more.
+    // The main stretch goes on, with one beside it for the seek.
     let asked = remote.asked.lock().unwrap();
-    assert_eq!(asked[0], (0, MINIMUM_PART..8_000_000));
-    assert_eq!(asked[1], (0, 6_000_000..6_000_000 + plan::BESIDE));
-    assert_eq!(asked.len(), 2, "{asked:?}");
+    assert_eq!(
+        asked.as_slice(),
+        [(0, MINIMUM_PART..8_000_000), (0, 6_000_000..6_000_000 + plan::BESIDE)]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -307,4 +330,24 @@ async fn a_stretch_dropped_midway_is_asked_again_from_where_it_got_to() {
     let half = MINIMUM_PART + (1_000_000 - MINIMUM_PART) / 2;
     let asked = remote.asked.lock().unwrap();
     assert_eq!(asked.as_slice(), [(0, MINIMUM_PART..1_000_000), (0, half..1_000_000)]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stretch_slower_than_the_song_plays_is_asked_again() {
+    let remote = FakeRemote::stretching_on(1_000_000, Server::Trickling);
+    let (mut file, progress, kept) = start(&remote, 40 * 1024);
+    progress.stream();
+    tokio::task::spawn_blocking(move || {
+        let mut all = Vec::new();
+        file.read_to_end(&mut all).unwrap();
+        assert_eq!(all.len(), 1_000_000);
+    })
+    .await
+    .unwrap();
+    assert_eq!(kept_once_whole(&kept).await.as_deref(), Some(&remote.data[..]));
+    let asked = remote.asked.lock().unwrap();
+    assert_eq!(asked.len(), 2, "{asked:?}");
+    assert_eq!(asked[0], (0, MINIMUM_PART..1_000_000));
+    // From where the trickle got to.
+    assert!(asked[1].1.start > MINIMUM_PART && asked[1].1.end == 1_000_000, "{asked:?}");
 }
