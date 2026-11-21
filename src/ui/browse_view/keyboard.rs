@@ -3,7 +3,7 @@
 
 use egui::{FocusDirection, Id, Key, Ui};
 
-use super::artist::{add_all_pressed, page_artist};
+use super::artist::{add_all_pressed, adds_all, page_artist};
 use super::search::{findable, searchable};
 use super::{Act, Area, FIND_ID, PAGE_ROWS, SEARCH_ID, areas, shown};
 use crate::action::{Action, Actions, BrowseAction};
@@ -155,9 +155,9 @@ pub(super) fn keyboard(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut 
             if i.modifiers.command && i.key_pressed(Key::E) {
                 nav.expand_all = true;
             }
-            if add_all_pressed(i) {
-                nav.add_all = true;
-            }
+        }
+        if adds_all(view) && add_all_pressed(i) {
+            nav.add_all = true;
         }
         if plain && i.key_pressed(Key::ArrowLeft) {
             panel = -1;

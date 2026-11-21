@@ -8,7 +8,7 @@ use super::album::song_from;
 use super::{Act, Nav, ROW_HEIGHT, TRACK_HEIGHT, body, chevron, mono, note, row, spans};
 use crate::action::{Actions, BrowseAction, PlaylistsAction};
 use crate::ui::View;
-use crate::ui::widgets::{SMALL_HEIGHT, small_action, tip};
+use crate::ui::widgets::{KeyTag, SMALL_HEIGHT, small_action, tip};
 use spotless_core::browse::Loadable;
 use spotless_core::model::Source;
 use spotless_core::model::catalog::{FolderPlaylist, FolderSong, MegaFolder};
@@ -150,7 +150,9 @@ fn songs(
             ui.add_space(3.0);
             let any = !addable.is_empty();
             let button = small_action(ui, &palette, "+ ADD ALL", any);
-            if tip(button, &format!("Adds {what}{to}")).clicked() {
+            let pressed = nav.add_all && any;
+            let button = tip(button, &format!("Adds {what}{to} (Shift+Insert)"));
+            if button.key_tag("Shift+Insert").clicked() || pressed {
                 actions.push(BrowseAction::AddTracks(addable.clone()));
             }
             let button = small_action(ui, &palette, "+ NEW PLAYLIST", any);

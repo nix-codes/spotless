@@ -94,7 +94,8 @@ pub struct Nav {
     /// Set by the keys for the highlighted row: scroll to it, act on it.
     reveal: bool,
     act: Option<Act>,
-    /// Ctrl+E and Shift+Insert, for the artist page.
+    /// Ctrl+E, for the artist page, and Shift+Insert, for a page with ADD
+    /// ALL.
     expand_all: bool,
     add_all: bool,
     /// What's typed in the page's find, and whether it should take the

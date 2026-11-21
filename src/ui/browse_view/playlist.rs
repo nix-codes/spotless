@@ -8,7 +8,7 @@ use super::code::opened_code;
 use super::{Nav, note};
 use crate::action::{Actions, BrowseAction};
 use crate::ui::View;
-use crate::ui::widgets::{SMALL_HEIGHT, small_action, tip};
+use crate::ui::widgets::{KeyTag, SMALL_HEIGHT, small_action, tip};
 use spotless_core::browse::Loadable;
 use spotless_core::model::Source;
 
@@ -77,7 +77,9 @@ pub(super) fn playlist_page(
                 n => format!("the {n} songs shown"),
             };
             let button = small_action(ui, &palette, "+ ADD ALL", !shown.is_empty());
-            if tip(button, &format!("Adds {what}{to}")).clicked() {
+            let pressed = nav.add_all && !shown.is_empty();
+            let button = tip(button, &format!("Adds {what}{to} (Shift+Insert)"));
+            if button.key_tag("Shift+Insert").clicked() || pressed {
                 actions.push(if find.is_some() {
                     let mut songs: Vec<_> = shown.iter().map(|(_, t)| (*t).clone()).collect();
                     for song in &mut songs {

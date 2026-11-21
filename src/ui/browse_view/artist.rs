@@ -305,7 +305,7 @@ pub(super) fn page_artist(view: &View) -> Option<ArtistRef> {
     }
 }
 
-/// Shift+Insert, ADD ALL's key on an artist page. On Windows it arrives as
+/// Shift+Insert, ADD ALL's key. On Windows it arrives as
 /// a paste, of whatever the clipboard holds, with Shift held (Ctrl+V's has
 /// Ctrl).
 pub(crate) fn add_all_pressed(i: &InputState) -> bool {
@@ -315,11 +315,17 @@ pub(crate) fn add_all_pressed(i: &InputState) -> bool {
             || i.events.iter().any(|e| matches!(e, egui::Event::Paste(_))))
 }
 
-/// An artist's page shows on the search tab: Shift+Insert is ADD ALL's.
+/// A page with ADD ALL shows on the search tab (an artist's, a playlist
+/// opened from a code, a MEGA folder's playlist): Shift+Insert is ADD
+/// ALL's.
 pub(crate) fn adds_all(view: &View) -> bool {
     view.browse.open
         && shown(view) == BrowseTab::Search
-        && matches!(view.browse.page(), Page::Artist(_))
+        && match view.browse.page() {
+            Page::Artist(_) | Page::Playlist(_) => true,
+            Page::Mega { .. } => view.browse.folder_playlist().is_some(),
+            Page::Home | Page::Search(_) => false,
+        }
 }
 
 /// The ADD ALL button, at the right end of an artist page's tabs: adds
