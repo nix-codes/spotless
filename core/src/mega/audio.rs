@@ -11,6 +11,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::ops::Range;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -24,7 +25,7 @@ use super::api::{Api, ApiError, Node};
 use super::link::{FileKey, folder_key};
 use crate::model::{SongSource, SongUri};
 use crate::playback::cache::SongCache;
-use crate::playback::decoder::Decoder;
+use crate::playback::decoder::{Decoder, Picture};
 use crate::playback::decrypt::Decrypt;
 use crate::playback::download::plan::MINIMUM_PART;
 use crate::playback::download::{Body, Downloading, Fault, Remote};
@@ -47,6 +48,9 @@ pub struct MegaAudio {
     api: Arc<Api>,
     runtime: tokio::runtime::Handle,
     cache: Arc<SongCache>,
+    /// Where the covers songs hold are put, for the system's media
+    /// controls to show.
+    covers: PathBuf,
     /// Each folder's files by handle, as listed once while the app runs.
     folders: Mutex<HashMap<String, Arc<HashMap<String, Node>>>>,
 }
@@ -66,11 +70,12 @@ impl<T: Read + Seek + Send + Sync> File for T {}
 
 impl MegaAudio {
     /// Must be called on the tokio runtime, which opening runs on.
-    pub fn new(cache: Arc<SongCache>) -> Self {
+    pub fn new(cache: Arc<SongCache>, covers: PathBuf) -> Self {
         Self {
             api: Arc::new(Api::new()),
             runtime: tokio::runtime::Handle::current(),
             cache,
+            covers,
             folders: Mutex::default(),
         }
     }
@@ -165,7 +170,8 @@ impl MegaAudio {
                     });
                 }
             };
-            let details = details(&mut decoder, song.uri, &record.name);
+            let mut details = details(&mut decoder, song.uri, &record.name);
+            details.cover_url = (decoder.cover()).and_then(|cover| self.keep_cover(song, &cover));
             let gains = decoder.tag_gains().unwrap_or_default();
             download.stream();
             log::info!(
@@ -181,6 +187,28 @@ impl MegaAudio {
                 download,
             });
         }
+    }
+
+    /// The song's cover as a file, written once: its `file://` URL.
+    fn keep_cover(&self, song: &Song<'_>, cover: &Picture) -> Option<String> {
+        let extension = match cover.media_type.as_str() {
+            "image/png" => "png",
+            "image/jpeg" | "image/jpg" => "jpg",
+            other => {
+                log::info!("a cover of type {other} left out");
+                return None;
+            }
+        };
+        let path = self.covers.join(format!("mega-{}.{extension}", song.file));
+        if !path.exists() {
+            let written = std::fs::create_dir_all(&self.covers)
+                .and_then(|_| std::fs::write(&path, &cover.data));
+            if let Err(e) = written {
+                log::warn!("unable to keep the cover of a MEGA song: {e}");
+                return None;
+            }
+        }
+        reqwest::Url::from_file_path(&path).ok().map(String::from)
     }
 
     /// The song's file in its folder's listing, the folder listed once.

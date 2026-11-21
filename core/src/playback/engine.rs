@@ -138,10 +138,12 @@ struct Shared {
 impl Engine {
     /// Must be called on the tokio runtime: songs open on it, and the
     /// player's events are followed there. Its output applies `link`'s
-    /// equaliser and feeds its analyser.
+    /// equaliser and feeds its analyser. Covers songs hold are put in
+    /// `covers`.
     pub fn new(
         session: Option<&Session>,
         songs: Arc<SongCache>,
+        covers: std::path::PathBuf,
         volume: u16,
         levelling: bool,
         link: Arc<AudioLink>,
@@ -149,7 +151,7 @@ impl Engine {
     ) -> Result<Self> {
         let sources = Arc::new(Sources {
             spotify: SpotifyAudio::new(session, Arc::clone(&songs)),
-            mega: MegaAudio::new(songs),
+            mega: MegaAudio::new(songs, covers),
         });
         let (told, events) = mpsc::unbounded_channel();
         let on_error = {

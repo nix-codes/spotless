@@ -10,7 +10,9 @@ use symphonia::core::codecs::{self, DecoderOptions};
 use symphonia::core::errors::Error;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
 use symphonia::core::io::{MediaSource, MediaSourceStream, MediaSourceStreamOptions};
-use symphonia::core::meta::{MetadataOptions, StandardTagKey, Tag, Value};
+use symphonia::core::meta::{
+    MetadataOptions, StandardTagKey, StandardVisualKey, Tag, Value, Visual,
+};
 use symphonia::core::probe::Hint;
 use symphonia::core::units::TimeBase;
 
@@ -55,6 +57,16 @@ pub struct Decoder {
     /// The tags found before the audio, as an MP3's ID3 tags are; the
     /// others are the format's.
     probed_tags: Vec<Tag>,
+    /// The pictures found before the audio, likewise.
+    probed_visuals: Vec<Visual>,
+}
+
+/// A picture the file holds: its bytes, and their media type
+/// (`image/jpeg`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Picture {
+    pub media_type: String,
+    pub data: Vec<u8>,
 }
 
 /// What a file's tags say it is.
@@ -90,6 +102,9 @@ impl Decoder {
         let probed_tags = (probed_metadata.get())
             .and_then(|metadata| Some(metadata.current()?.tags().to_vec()))
             .unwrap_or_default();
+        let probed_visuals = (probed_metadata.get())
+            .and_then(|metadata| Some(metadata.current()?.visuals().to_vec()))
+            .unwrap_or_default();
         let track = format
             .default_track()
             .ok_or_else(|| DecodeError::Failed("no audio track".into()))?;
@@ -117,6 +132,7 @@ impl Decoder {
             time_base,
             buffer: None,
             probed_tags,
+            probed_visuals,
         })
     }
 
@@ -164,6 +180,23 @@ impl Decoder {
         }
         found.artist = (!artists.is_empty()).then(|| artists.join(", "));
         found
+    }
+
+    /// The cover the file holds: its front cover, else its first picture.
+    pub fn cover(&mut self) -> Option<Picture> {
+        let mut visuals = self.probed_visuals.clone();
+        if let Some(current) = self.format.metadata().current() {
+            visuals.extend(current.visuals().iter().cloned());
+        }
+        let front = visuals
+            .iter()
+            .position(|visual| visual.usage == Some(StandardVisualKey::FrontCover))
+            .unwrap_or_default();
+        let visual = visuals.into_iter().nth(front)?;
+        (!visual.data.is_empty()).then(|| Picture {
+            media_type: visual.media_type,
+            data: visual.data.into_vec(),
+        })
     }
 
     /// ReplayGain tags, where the file has them.

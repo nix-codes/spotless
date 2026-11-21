@@ -337,6 +337,7 @@ impl Worker {
         match Engine::new(
             None,
             Arc::clone(&self.songs),
+            self.paths.covers(),
             self.volume,
             self.levelling,
             Arc::clone(&self.link),

@@ -202,7 +202,9 @@ fn show(
             music.SetTitle(&HSTRING::from(&now.title))?;
             music.SetArtist(&HSTRING::from(now.artists.join(", ")))?;
             music.SetAlbumTitle(&HSTRING::from(&now.album))?;
-            if let Some(url) = &now.cover_url {
+            // A cover on the web; a song's own, kept as a file, isn't
+            // taken from a URL here.
+            if let Some(url) = now.cover_url.as_ref().filter(|url| url.starts_with("http")) {
                 let uri = Uri::CreateUri(&HSTRING::from(url))?;
                 display.SetThumbnail(&RandomAccessStreamReference::CreateFromUri(&uri)?)?;
             }

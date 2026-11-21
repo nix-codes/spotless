@@ -46,6 +46,7 @@ async fn main() -> Result<()> {
     let mut engine = Engine::new(
         Some(&old),
         Arc::new(SongCache::off()),
+        std::env::temp_dir().join("spotless-probe-covers"),
         0,
         false,
         Arc::default(),

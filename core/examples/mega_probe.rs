@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
 
     let dir = std::env::temp_dir().join(format!("spotless-mega-probe-{}", std::process::id()));
     let cache = || Arc::new(SongCache::new(dir.clone(), 1024 * 1024 * 1024));
-    let first = MegaAudio::new(cache());
+    let first = MegaAudio::new(cache(), std::env::temp_dir().join("spotless-probe-covers"));
     let song = uri.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
         let began = Instant::now();
@@ -66,13 +66,14 @@ async fn main() -> Result<()> {
             .map_err(|e| anyhow!("didn't open: {e:?}"))?;
         let d = &opened.details;
         println!(
-            "1. opened in {} ms: {:?} by {:?}, album {:?}, {} ms long, gains {:?}",
+            "1. opened in {} ms: {:?} by {:?}, album {:?}, {} ms long, gains {:?}, cover {:?}",
             began.elapsed().as_millis(),
             d.title,
             d.artists,
             d.album,
             d.duration_ms,
-            opened.gains
+            opened.gains,
+            d.cover_url
         );
         let piece = opened.decoder.next_piece()?.context("no audio")?;
         println!(
@@ -112,7 +113,7 @@ async fn main() -> Result<()> {
     }
     println!("1. kept with its record: {}", kept(&dir));
 
-    let again = MegaAudio::new(cache());
+    let again = MegaAudio::new(cache(), std::env::temp_dir().join("spotless-probe-covers"));
     tokio::task::spawn_blocking(move || -> Result<()> {
         let began = Instant::now();
         match again.open(&uri) {
