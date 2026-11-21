@@ -16,6 +16,11 @@ internal! {
         not(feature = "probes"),
         allow(dead_code, reason = "until the engine plays through it, only a probe does")
     )]
+    mod flow;
+    #[cfg_attr(
+        not(feature = "probes"),
+        allow(dead_code, reason = "until the engine plays through it, only a probe does")
+    )]
     mod levelling;
     mod link;
     mod outputs;

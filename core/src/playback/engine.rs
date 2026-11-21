@@ -83,11 +83,16 @@ impl PlayerSnapshot {
     /// but not past the next report's due: a song whose audio stops coming
     /// is still playing to librespot, and reports no more.
     pub fn position_now(&self) -> u32 {
+        self.position_at(Instant::now())
+    }
+
+    /// The position at `now`, as [`position_now`](Self::position_now).
+    pub fn position_at(&self, now: Instant) -> u32 {
         let mut position = self.position_ms;
         if self.status == Status::Playing
             && let Some(at) = self.reported_at
         {
-            let since = at.elapsed().min(REPORTS_DUE);
+            let since = now.saturating_duration_since(at).min(REPORTS_DUE);
             position = position.saturating_add(since.as_millis() as u32);
         }
         match &self.track {
@@ -97,7 +102,7 @@ impl PlayerSnapshot {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum EngineEvent {
     Snapshot(PlayerSnapshot),
     /// The playing song ended and the followed one started.

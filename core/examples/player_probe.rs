@@ -70,7 +70,8 @@ async fn main() -> Result<()> {
         first.title,
         first.duration_ms / 1000
     );
-    let request = player.load(&first.uri, true, 0);
+    let request = 1;
+    player.load(request, &first.uri, true, 0);
     wait(&mut events, |e| matches!(e, Event::Playing { .. }), &at).await?;
     tokio::time::sleep(Duration::from_secs(4)).await;
 
@@ -79,7 +80,7 @@ async fn main() -> Result<()> {
     player.seek(near_end);
     wait(&mut events, |e| matches!(e, Event::PreloadDue { .. }), &at).await?;
     println!("{} preloading {}", at(), second.title);
-    player.preload(&second.uri);
+    player.preload(&second.uri, false);
     wait(
         &mut events,
         |e| matches!(e, Event::Ended { request: r, .. } if *r == request),
@@ -87,7 +88,8 @@ async fn main() -> Result<()> {
     )
     .await?;
     let followed = Instant::now();
-    let next = player.load(&second.uri, true, 0);
+    let next = 2;
+    player.load(next, &second.uri, true, 0);
     wait(
         &mut events,
         |e| matches!(e, Event::Playing { request: r, .. } if *r == next),

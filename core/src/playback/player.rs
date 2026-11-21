@@ -59,7 +59,6 @@ pub type MakeSink = Box<dyn FnOnce() -> Box<dyn AudioSink> + Send>;
 pub struct Player {
     inputs: Sender<Input>,
     volume: Arc<AtomicU64>,
-    requests: AtomicU64,
     thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -70,7 +69,7 @@ enum Input {
         play: bool,
         position_ms: u32,
     },
-    Preload(String),
+    Preload { uri: String, again: bool },
     Play,
     Pause,
     Stop,
@@ -121,27 +120,28 @@ impl Player {
         Self {
             inputs,
             volume,
-            requests: AtomicU64::new(0),
             thread: Some(thread),
         }
     }
 
-    /// Plays `uri` from `position_ms`, or holds it paused there. Returns
-    /// the request's number, which its events carry.
-    pub fn load(&self, uri: &str, play: bool, position_ms: u32) -> u64 {
-        let request = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
+    /// Plays `uri` from `position_ms`, or holds it paused there, as
+    /// request `request`, which its events carry.
+    pub fn load(&self, request: u64, uri: &str, play: bool, position_ms: u32) {
         self.send(Input::Load {
             request,
             uri: uri.into(),
             play,
             position_ms,
         });
-        request
     }
 
-    /// Opens `uri` ahead, for a load of it to start at once.
-    pub fn preload(&self, uri: &str) {
-        self.send(Input::Preload(uri.into()));
+    /// Opens `uri` ahead, for a load of it to start at once. `again`: even
+    /// if it's opened ahead already.
+    pub fn preload(&self, uri: &str, again: bool) {
+        self.send(Input::Preload {
+            uri: uri.into(),
+            again,
+        });
     }
 
     pub fn play(&self) {
@@ -278,7 +278,7 @@ impl Inner {
                 play,
                 position_ms,
             } => self.load(request, uri, play, position_ms),
-            Input::Preload(uri) => self.preload(uri),
+            Input::Preload { uri, again } => self.preload(uri, again),
             Input::Play => self.play(),
             Input::Pause => self.pause(),
             Input::Stop => self.stop(),
@@ -320,15 +320,21 @@ impl Inner {
         };
     }
 
-    fn preload(&mut self, uri: String) {
-        match &self.preload {
-            Preload::Opening { uri: other, .. } | Preload::Ready { uri: other, .. }
-                if *other == uri => {}
-            _ => {
-                let opening = self.open(&uri);
-                self.preload = Preload::Opening { uri, opening };
+    fn preload(&mut self, uri: String, again: bool) {
+        let opened_ahead = match &self.preload {
+            Preload::Opening { uri: other, .. } | Preload::Ready { uri: other, .. } => {
+                *other == uri
             }
+            Preload::None => false,
+        };
+        if opened_ahead && !again {
+            return;
         }
+        if let Preload::Ready { opened, .. } = std::mem::replace(&mut self.preload, Preload::None) {
+            opened.download.close();
+        }
+        let opening = self.open(&uri);
+        self.preload = Preload::Opening { uri, opening };
     }
 
     /// Opens `uri` on a thread of its own. Returns the opening's number.
@@ -654,6 +660,7 @@ mod tests {
 
     struct Test {
         player: Player,
+        requests: std::cell::Cell<u64>,
         events: Receiver<Event>,
         heard: Arc<Mutex<Heard>>,
         source: Arc<FakeSource>,
@@ -677,6 +684,7 @@ mod tests {
         );
         Test {
             player,
+            requests: std::cell::Cell::new(0),
             events,
             heard,
             source,
@@ -684,6 +692,14 @@ mod tests {
     }
 
     impl Test {
+        /// Loads `uri` as the next request. Returns its number.
+        fn load(&self, uri: &str, play: bool, position_ms: u32) -> u64 {
+            let request = self.requests.get() + 1;
+            self.requests.set(request);
+            self.player.load(request, uri, play, position_ms);
+            request
+        }
+
         /// The events up to the first that `until` takes, which is last.
         fn until(&self, until: impl Fn(&Event) -> bool) -> Vec<Event> {
             let mut seen = Vec::new();
@@ -708,7 +724,7 @@ mod tests {
     #[test]
     fn plays_a_song_to_its_end() {
         let test = player(FakeSource::default().with("a", 300, i16::MAX / 2), Duration::ZERO);
-        let request = test.player.load("a", true, 0);
+        let request = test.load("a", true, 0);
         let events = test.until(ended);
         assert!(matches!(events[0], Event::Loading { request: r, position_ms: 0 } if r == request));
         assert!(matches!(&events[1], Event::Details { details, .. } if details.duration_ms == 300));
@@ -731,11 +747,11 @@ mod tests {
             .with("a", 300, 1000)
             .with("b", 200, 2000);
         let test = player(source, Duration::from_secs(10));
-        test.player.load("a", true, 0);
+        test.load("a", true, 0);
         test.until(|e| matches!(e, Event::PreloadDue { .. }));
-        test.player.preload("b");
+        test.player.preload("b", false);
         test.until(ended);
-        let request = test.player.load("b", true, 0);
+        let request = test.load("b", true, 0);
         test.until(|e| matches!(e, Event::Ended { request: r, .. } if *r == request));
         assert_eq!(*test.source.opened.lock().unwrap(), ["a", "b"]);
         let heard = test.heard.lock().unwrap();
@@ -746,7 +762,7 @@ mod tests {
     #[test]
     fn the_preload_is_told_only_near_the_end() {
         let test = player(FakeSource::default().with("a", 2000, 0), Duration::from_millis(500));
-        test.player.load("a", true, 0);
+        test.load("a", true, 0);
         let events = test.until(ended);
         let at = events
             .iter()
@@ -764,7 +780,7 @@ mod tests {
     #[test]
     fn a_song_loaded_paused_starts_where_it_was_asked() {
         let test = player(FakeSource::default().with("a", 2000, 1000), Duration::ZERO);
-        let request = test.player.load("a", false, 1500);
+        let request = test.load("a", false, 1500);
         let events = test.until(|e| matches!(e, Event::Paused { .. }));
         let Some(Event::Paused { position_ms, .. }) = events.last() else {
             unreachable!()
@@ -782,7 +798,7 @@ mod tests {
     #[test]
     fn a_seek_goes_on_from_there() {
         let test = player(FakeSource::default().with("a", 3000, 1000), Duration::ZERO);
-        test.player.load("a", false, 0);
+        test.load("a", false, 0);
         test.until(|e| matches!(e, Event::Paused { .. }));
         test.player.seek(2500);
         let events = test.until(|e| matches!(e, Event::Seeked { .. }));
@@ -796,7 +812,7 @@ mod tests {
     #[test]
     fn a_song_that_doesnt_open_fails() {
         let test = player(FakeSource::default(), Duration::ZERO);
-        let request = test.player.load("missing", true, 0);
+        let request = test.load("missing", true, 0);
         let events = test.until(|e| matches!(e, Event::Failed { .. }));
         assert_eq!(
             events.last(),
@@ -811,7 +827,7 @@ mod tests {
     fn the_volume_turns_the_audio_down() {
         let test = player(FakeSource::default().with("a", 200, i16::MAX / 2), Duration::ZERO);
         test.player.set_volume(0);
-        test.player.load("a", true, 0);
+        test.load("a", true, 0);
         test.until(ended);
         assert!(test.heard.lock().unwrap().samples.iter().all(|s| *s == 0.0));
     }
@@ -819,7 +835,7 @@ mod tests {
     #[test]
     fn stop_stops_the_output_and_is_told() {
         let test = player(FakeSource::default().with("a", 5000, 0), Duration::ZERO);
-        let request = test.player.load("a", true, 0);
+        let request = test.load("a", true, 0);
         test.until(|e| matches!(e, Event::Playing { .. }));
         test.player.stop();
         test.until(|e| *e == Event::Stopped { request });
