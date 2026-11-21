@@ -42,6 +42,12 @@ How the parts fit, to keep to as features are added:
   to reconnect) are plain code that changes the model and returns what to
   do, like `Transport` and `Retry`, tested without a network or a clock.
   The worker (`backend/worker/`, a file per part) only carries them out.
+- The core plays, downloads and keeps songs itself (`core/src/playback/`:
+  the player, `download/`, `cache.rs`), with its rules as plain code
+  (`Flow` for loading and following songs, `download/plan.rs` for what
+  to fetch when). Spotify is a `Source` (`spotify/audio.rs`): librespot
+  gives it the session, a song's details, its key and the servers' URLs,
+  nothing more. Only the Spotify tab plays through librespot's `Player`.
 - No process-wide mutable state: what the controller and the audio share
   is handed to them (`AudioLink`), so each controller, test and
   screenshot has its own.

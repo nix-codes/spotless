@@ -164,7 +164,7 @@ Spotless started from [spotifast](https://github.com/crmne/spotifast) by
 Carmine Paolino: its sign-in, playback and catalogue code were the base this
 player was trimmed and reshaped from.
 
-It plays through [librespot](https://github.com/librespot-org/librespot)
+It reaches Spotify through [librespot](https://github.com/librespot-org/librespot)
 (a fork with a few fixes not yet released) and draws its window with
 [egui](https://github.com/emilk/egui).
 

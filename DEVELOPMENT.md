@@ -5,9 +5,9 @@
 Spotless is two apps on one Rust core:
 
 - `core/` (spotless-core): everything both apps share: sign-in, playback,
-  playlists, Browse, Last.fm and settings. It plays through a
+  playlists, Browse, Last.fm and settings. It reaches Spotify through a
   [librespot fork](https://github.com/nix-codes/librespot), pinned in
-  `core/Cargo.toml`.
+  `core/Cargo.toml`, and plays, downloads and caches songs itself.
 - `src/`: the desktop app (Linux, Windows and macOS), drawn with egui.
 - `android/`: the Android app, in Kotlin and Compose; building it is in
   [android/README.md](android/README.md).

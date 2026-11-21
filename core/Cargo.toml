@@ -40,26 +40,29 @@ unicode-normalization = "0.1"
 # spotless-buffering). It is the fork spotifast pins (crmne/librespot
 # spotifast-dev: librespot's dev branch plus fixes not yet released, among
 # them recovery after a session drop and a distinct error when Spotify
-# refuses an audio key), plus what the Android port needs: the
-# android-as-linux feature, OAuthClientBuilder::with_url_handler, and audio
-# keys asked for again when their answer is late; songs downloaded ahead
-# to their end, not just a few seconds ahead of playback, and saved to
-# the cache whole or not at all, never cut off by a crash; a sign-in that
-# waits for the browser without holding a thread, so it can be given up;
-# and, in Connect,
-# a song playing from the queue kept current when playback comes here
-# while shuffling, and play and pause shown as they happen, even in quick
+# refuses an audio key). Spotless takes from it the session, sign-in,
+# metadata, audio keys and the CDN's URLs; it downloads, keeps and plays
+# songs itself (src/playback). For that the fork adds the
+# android-as-linux feature, OAuthClientBuilder::with_url_handler, a
+# sign-in that waits for the browser without holding a thread, so it can
+# be given up, audio keys asked for again when their answer is late and
+# kept in memory while the program runs, and HTTP/2 connections pinged,
+# so one left dead by a network change is replaced. Its download fixes
+# (songs fetched ahead to their end, cached whole or not at all) serve
+# only the Spotify tab's player now, as do its Connect fixes: a song
+# playing from the queue kept current when playback comes here while
+# shuffling, and play and pause shown as they happen, even in quick
 # succession. rustls everywhere, so there is one TLS stack and no OpenSSL.
 #
-# Audio goes through our own rodio sink (src/playback/sink.rs; on Android,
-# src/playback/aaudio.rs), not librespot's, which panics when there is no
-# output device. Same rodio and
-# cpal versions as librespot's backend.
+# Audio goes out through Spotless's own outputs (src/playback/sink.rs,
+# rodio; on Android, src/playback/aaudio.rs), which don't panic when
+# there is no output device.
 librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "08c1273994c012c2ce188c946041f64ab7acc79e", default-features = false, features = ["rustls-tls-native-roots"] }
-librespot-playback = { git = "https://github.com/nix-codes/librespot", rev = "08c1273994c012c2ce188c946041f64ab7acc79e", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-metadata = { git = "https://github.com/nix-codes/librespot", rev = "08c1273994c012c2ce188c946041f64ab7acc79e", default-features = false, features = ["rustls-tls-native-roots"] }
-# Only for the Spotify tab (`spotify-tab`, below).
+# Only for the Spotify tab (`spotify-tab`, below): Connect, and the player
+# it plays through. Spotless's own player is in src/playback.
 librespot-connect = { git = "https://github.com/nix-codes/librespot", rev = "08c1273994c012c2ce188c946041f64ab7acc79e", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
+librespot-playback = { git = "https://github.com/nix-codes/librespot", rev = "08c1273994c012c2ce188c946041f64ab7acc79e", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
 librespot-oauth = { git = "https://github.com/nix-codes/librespot", rev = "08c1273994c012c2ce188c946041f64ab7acc79e", default-features = false, features = ["rustls-tls-native-roots"] }
 # The metadata service's own messages, to read many albums or songs in one
 # request (librespot's Metadata::get asks for one at a time).
@@ -70,9 +73,9 @@ futures-util = "0.3"
 [features]
 # The Spotify tab: Spotless as a Spotify Connect device, showing and
 # changing the account's queue. Off: the tab can't be shown, and the
-# device and its librespot-connect aren't built (src/spotify/remote.rs,
-# src/backend/worker/connect.rs).
-spotify-tab = ["dep:librespot-connect"]
+# device, librespot-connect and librespot-playback aren't built
+# (src/spotify/remote.rs, src/backend/worker/connect.rs).
+spotify-tab = ["dep:librespot-connect", "dep:librespot-playback"]
 # The internals made public, for the live probes in examples/ only: the
 # apps see just what lib.rs shows.
 probes = []
