@@ -26,6 +26,8 @@ bytes = "1"
 tempfile = "3"
 aes = "0.8"
 ctr = "0.9"
+# MEGA's keys, handles and attributes are in base 64 (URL-safe, unpadded).
+base64 = "0.22"
 # Spotify's servers are asked through the session's HTTP client, as hyper
 # answers.
 hyper = "1"
@@ -100,6 +102,10 @@ required-features = ["probes"]
 
 [[example]]
 name = "follow_probe"
+required-features = ["probes"]
+
+[[example]]
+name = "mega_probe"
 required-features = ["probes"]
 
 [[example]]

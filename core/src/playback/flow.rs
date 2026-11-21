@@ -27,6 +27,8 @@ const CUT_MARGIN_MS: u32 = 5_000;
 
 const UNAVAILABLE: &str = "This song can't be played.";
 const KEY_REFUSED: &str = "Spotify didn't give this song's key just now. Try again in a moment.";
+const OVER_QUOTA: &str =
+    "MEGA's download allowance for this connection is used up for now. Try again later.";
 
 /// What the engine does for the flow.
 #[derive(Debug, PartialEq)]
@@ -184,11 +186,14 @@ impl Flow {
             }
             Event::Failed { error, .. } => {
                 let unreachable = *error == OpenError::Unreachable;
-                if unreachable && online {
+                // Only Spotify's songs open on the session.
+                let spotify = self.uri.as_ref().is_some_and(SongUri::is_spotify);
+                if unreachable && online && spotify {
                     log::info!("Spotify couldn't be reached for the song; the session is let go");
                     done.push(Do::LetSessionGo);
                 }
-                if *error != OpenError::KeyRefused {
+                // Told as they are: no other song would play just now.
+                if !matches!(error, OpenError::KeyRefused | OpenError::OverQuota) {
                     let offline = unreachable || !online;
                     log::info!("song unavailable, {}", if offline { "offline" } else { "online" });
                     done.push(Do::Tell(EngineEvent::Unavailable { offline }));
@@ -268,6 +273,7 @@ impl Flow {
                 state.error = Some(
                     match error {
                         OpenError::KeyRefused => KEY_REFUSED,
+                        OpenError::OverQuota => OVER_QUOTA,
                         OpenError::Unavailable | OpenError::Unreachable => UNAVAILABLE,
                     }
                     .into(),
@@ -513,9 +519,16 @@ mod tests {
         assert_eq!(flow.snapshot().error.as_deref(), Some(UNAVAILABLE));
 
         let mut flow = Flow::default();
-        flow.load(&"a".into(), 0);
+        flow.load(&"spotify:track:a".into(), 0);
         let done = flow.event(failed(OpenError::Unreachable), true, now);
         assert_eq!(acts(&done), [&Do::LetSessionGo]);
+        assert_eq!(tells(&done), [&EngineEvent::Unavailable { offline: true }]);
+
+        // MEGA not reached says nothing of the session to Spotify.
+        let mut flow = Flow::default();
+        flow.load(&"mega:f:a#k".into(), 0);
+        let done = flow.event(failed(OpenError::Unreachable), true, now);
+        assert_eq!(acts(&done), Vec::<&Do>::new());
         assert_eq!(tells(&done), [&EngineEvent::Unavailable { offline: true }]);
 
         let mut flow = Flow::default();
@@ -540,6 +553,20 @@ mod tests {
         assert!(tells(&done).is_empty());
         assert_eq!(flow.snapshot().status, Status::Stopped);
         assert_eq!(flow.snapshot().error.as_deref(), Some(KEY_REFUSED));
+    }
+
+    #[test]
+    fn over_megas_allowance_it_stops_with_word_to_try_later() {
+        let mut flow = Flow::default();
+        flow.load(&"mega:f:a#k".into(), 0);
+        let failed = Event::Failed {
+            request: 1,
+            error: OpenError::OverQuota,
+        };
+        let done = flow.event(failed, true, Instant::now());
+        assert!(tells(&done).is_empty());
+        assert_eq!(flow.snapshot().status, Status::Stopped);
+        assert_eq!(flow.snapshot().error.as_deref(), Some(OVER_QUOTA));
     }
 
     #[test]

@@ -25,7 +25,7 @@ use futures_util::stream::BoxStream;
 use symphonia::core::io::MediaSource;
 use tokio::sync::mpsc;
 
-use self::plan::{Part, Plan, READ_AHEAD, READ_TIMEOUT, part_time, server_limit};
+use self::plan::{Part, Plan, READ_AHEAD, READ_TIMEOUT, part_time, reaches, server_limit};
 use super::source::Download;
 
 /// Why a server didn't give a part.
@@ -46,6 +46,12 @@ pub trait Remote: Send + Sync + 'static {
     fn get(&self, server: usize, range: Range<usize>) -> BoxFuture<'static, Result<Body, Fault>>;
     /// The server stopped sending, or sent too slowly.
     fn gave_out(&self, server: usize);
+    /// Whether it's asked for whole stretches (`plan`), not parts: its
+    /// server takes long to answer each request, then sends fast. Its
+    /// first server alone is asked.
+    fn stretches(&self) -> bool {
+        false
+    }
 }
 
 /// Handed the file once it's whole.
@@ -151,7 +157,11 @@ impl Downloading {
             servers: remote.servers(),
             commands,
         });
-        tokio::spawn(fetch(Arc::clone(&shared), remote, write, received, on_whole));
+        if remote.stretches() {
+            tokio::spawn(fetch_stretches(Arc::clone(&shared), remote, write, received, on_whole));
+        } else {
+            tokio::spawn(fetch(Arc::clone(&shared), remote, write, received, on_whole));
+        }
         Ok((
             Self {
                 file: read,
@@ -379,6 +389,207 @@ async fn fetch(
             });
         }
     }
+}
+
+/// What a stretch's request brings, by the stretch's number.
+enum Streamed {
+    Chunk { stretch: u64, data: Bytes },
+    /// All of it came.
+    Ended { stretch: u64 },
+    Failed { stretch: u64, fault: Fault },
+}
+
+/// A stretch being fetched: what's still coming of it.
+struct Stretch {
+    coming: Range<usize>,
+    /// The main one, which goes on to what's left once it ends; the others
+    /// are reads' that it wouldn't reach soon.
+    main: bool,
+    started: Instant,
+    came: usize,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for Stretch {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+/// Fetches the file in stretches until it's whole or closed: the main one
+/// from where it's read, then what's left, never given up for a read
+/// elsewhere; a read it won't reach soon gets a short one of its own.
+async fn fetch_stretches(
+    shared: Arc<Shared>,
+    remote: Arc<dyn Remote>,
+    mut file: tempfile::NamedTempFile,
+    mut commands: mpsc::UnboundedReceiver<Command>,
+    on_whole: OnWhole,
+) {
+    if shared.plan().whole() {
+        on_whole(file.as_file_mut());
+        return;
+    }
+    let (sent, mut streamed) = mpsc::unbounded_channel();
+    let mut numbered = 0;
+    let mut stretches: std::collections::HashMap<u64, Stretch> = Default::default();
+    let mut start = |range: Range<usize>, main: bool| {
+        numbered += 1;
+        let number = numbered;
+        log::debug!(
+            "asking for {}+{}{}",
+            range.start,
+            range.len(),
+            if main { "" } else { " beside" }
+        );
+        let (remote, sent) = (Arc::clone(&remote), sent.clone());
+        let asked = range.clone();
+        let task = tokio::spawn(async move {
+            let streamed = match remote.get(0, asked.clone()).await {
+                Ok(mut body) => {
+                    let mut came = 0;
+                    loop {
+                        match body.next().await {
+                            Some(Ok(data)) => {
+                                came += data.len();
+                                let _ = sent.send(Streamed::Chunk { stretch: number, data });
+                            }
+                            Some(Err(fault)) => break Streamed::Failed { stretch: number, fault },
+                            None if came < asked.len() => {
+                                let fault = Fault(format!("{came} bytes came of {}", asked.len()));
+                                break Streamed::Failed { stretch: number, fault };
+                            }
+                            None => break Streamed::Ended { stretch: number },
+                        }
+                    }
+                }
+                Err(fault) => Streamed::Failed { stretch: number, fault },
+            };
+            let _ = sent.send(streamed);
+        });
+        let stretch = Stretch {
+            coming: range,
+            main,
+            started: Instant::now(),
+            came: 0,
+            task,
+        };
+        (number, stretch)
+    };
+    if let Some(range) = shared.plan().next_stretch() {
+        let (number, stretch) = start(range, true);
+        stretches.insert(number, stretch);
+    }
+    mark_coming(&mut shared.plan(), &stretches);
+    loop {
+        tokio::select! {
+            command = commands.recv() => match command {
+                Some(Command::Ask(parts)) => {
+                    let Some(wanted) = parts.first().map(|part| part.range.start) else {
+                        continue;
+                    };
+                    let mut plan = shared.plan();
+                    let waits = stretches
+                        .values()
+                        .any(|s| reaches(&s.coming, wanted, reach(s)));
+                    if !waits && let Some(range) = plan.stretch_from(wanted) {
+                        // With no main stretch (it failed), this one is.
+                        let main = !stretches.values().any(|s| s.main);
+                        let range = if main { range } else { plan::beside(range) };
+                        let (number, stretch) = start(range, main);
+                        stretches.insert(number, stretch);
+                    }
+                    mark_coming(&mut plan, &stretches);
+                }
+                Some(Command::Close) | None => break,
+            },
+            Some(news) = streamed.recv() => match news {
+                Streamed::Chunk { stretch: n, data } => {
+                    let Some(stretch) = stretches.get_mut(&n) else { continue };
+                    let at = stretch.coming.start;
+                    let data = data.slice(..data.len().min(stretch.coming.len()));
+                    let written = file
+                        .as_file_mut()
+                        .seek(SeekFrom::Start(at as u64))
+                        .and_then(|_| file.as_file_mut().write_all(&data));
+                    if let Err(e) = written {
+                        log::error!("unable to write the download: {e}");
+                        break;
+                    }
+                    stretch.coming.start += data.len();
+                    stretch.came += data.len();
+                    let whole = {
+                        let mut plan = shared.plan();
+                        plan.received(at..at + data.len());
+                        mark_coming(&mut plan, &stretches);
+                        plan.whole()
+                    };
+                    shared.changed.notify_all();
+                    if whole {
+                        log::debug!("download whole");
+                        on_whole(file.as_file_mut());
+                        break;
+                    }
+                }
+                Streamed::Ended { stretch: n } => {
+                    let Some(ended) = stretches.remove(&n) else { continue };
+                    let mut plan = shared.plan();
+                    if ended.main
+                        && let Some(range) = plan.next_stretch()
+                    {
+                        let (number, stretch) = start(range, true);
+                        stretches.insert(number, stretch);
+                    }
+                    mark_coming(&mut plan, &stretches);
+                }
+                Streamed::Failed { stretch: n, fault } => {
+                    let Some(failed) = stretches.remove(&n) else { continue };
+                    let mut plan = shared.plan();
+                    // A connection dropped midway is asked again at once,
+                    // from where it got to. One that brought nothing waits
+                    // for the next read to ask: asking here would spin
+                    // while offline.
+                    let again = (failed.came > 0)
+                        .then(|| plan.stretch_from(failed.coming.start))
+                        .flatten();
+                    match again {
+                        Some(range) => {
+                            log::warn!("{} stopped giving the file ({fault}); asking again", remote.name(0));
+                            let range = if failed.main { range } else { plan::beside(range) };
+                            let (number, stretch) = start(range, failed.main);
+                            stretches.insert(number, stretch);
+                        }
+                        None => log::error!("{} stopped giving the file: {fault}", remote.name(0)),
+                    }
+                    mark_coming(&mut plan, &stretches);
+                    drop(plan);
+                    shared.changed.notify_all();
+                }
+            }
+        }
+    }
+}
+
+/// How far ahead of where `stretch` has come a read waits for it: what it
+/// brings in about a second, as measured.
+fn reach(stretch: &Stretch) -> usize {
+    let elapsed = stretch.started.elapsed().as_secs_f64();
+    let rate = if elapsed > 0.5 { stretch.came as f64 / elapsed } else { 0.0 };
+    plan::stretch_reach(rate as usize)
+}
+
+/// Only what's soon to come of the stretches counts as asked for: a read
+/// further on asks, and gets a stretch of its own if none reaches it.
+fn mark_coming(plan: &mut Plan, stretches: &std::collections::HashMap<u64, Stretch>) {
+    let mut requested = ranges::Ranges::new();
+    for stretch in stretches.values() {
+        let coming = &stretch.coming;
+        let end = coming.end.min(coming.start + reach(stretch));
+        if coming.start < end {
+            requested.add(coming.start..end);
+        }
+    }
+    plan.requested = requested;
 }
 
 /// Fetches a part from the servers in turn, starting with the one asked

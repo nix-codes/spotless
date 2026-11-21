@@ -10,7 +10,7 @@
 //! the end of one.
 //!
 //! Each song opens through the source its URI names ([`Sources`]): Spotify's
-//! on the session. A new session, for one that dropped, opens them from
+//! on the session, MEGA's with no account. A new session, for one that dropped, opens them from
 //! then on, and the playing song plays on with the audio it has.
 
 use std::sync::{Arc, Mutex, Weak};
@@ -31,6 +31,7 @@ use super::source::{OpenError, Opened, Source};
 #[cfg(not(target_os = "android"))]
 use super::sink::RodioSink;
 use crate::model::{EntryId, SongSource, SongUri, TrackRef};
+use crate::mega::audio::MegaAudio;
 use crate::spotify::audio::SpotifyAudio;
 
 /// How long before the playing song's end the next one is preloaded, once
@@ -145,7 +146,8 @@ impl Engine {
         notify: Notify,
     ) -> Result<Self> {
         let sources = Arc::new(Sources {
-            spotify: SpotifyAudio::new(session, songs),
+            spotify: SpotifyAudio::new(session, Arc::clone(&songs)),
+            mega: MegaAudio::new(songs),
         });
         let (told, events) = mpsc::unbounded_channel();
         let on_error = {
@@ -240,12 +242,14 @@ impl Engine {
 /// names.
 struct Sources {
     spotify: SpotifyAudio,
+    mega: MegaAudio,
 }
 
 impl Source for Sources {
     fn open(&self, uri: &SongUri) -> Result<Opened, OpenError> {
         match uri.source() {
             SongSource::Spotify { .. } => self.spotify.open(uri),
+            SongSource::Mega { .. } => self.mega.open(uri),
             SongSource::Unknown => Err(OpenError::Unavailable),
         }
     }

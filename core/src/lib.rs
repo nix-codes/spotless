@@ -36,6 +36,7 @@ internal! {
     mod browser;
     mod controller;
     mod images;
+    mod mega;
     mod paths;
     mod phosphor;
     mod store;

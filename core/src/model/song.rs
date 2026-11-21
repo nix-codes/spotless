@@ -12,6 +12,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 const SPOTIFY_TRACK: &str = "spotify:track:";
+const MEGA: &str = "mega:";
 
 /// A song's URI, its scheme naming its source.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -23,6 +24,13 @@ pub struct SongUri(String);
 pub enum SongSource<'a> {
     /// `spotify:track:<id>`, the ID in base 62.
     Spotify { id: &'a str },
+    /// `mega:<folder>:<file>#<key>`: a file of a public MEGA folder, by
+    /// their handles, with the folder's key (base 64, as in its link).
+    Mega {
+        folder: &'a str,
+        file: &'a str,
+        key: &'a str,
+    },
     /// A source this Spotless doesn't know, or no URI at all: it doesn't
     /// play here.
     Unknown,
@@ -34,18 +42,33 @@ impl SongUri {
         Self(format!("{SPOTIFY_TRACK}{id}"))
     }
 
+    /// A file of a public MEGA folder.
+    pub fn mega(folder: &str, file: &str, key: &str) -> Self {
+        Self(format!("{MEGA}{folder}:{file}#{key}"))
+    }
+
     pub fn source(&self) -> SongSource<'_> {
-        match self.0.strip_prefix(SPOTIFY_TRACK) {
-            Some(id) if !id.is_empty() => SongSource::Spotify { id },
-            _ => SongSource::Unknown,
+        if let Some(id) = self.0.strip_prefix(SPOTIFY_TRACK) {
+            return match id.is_empty() {
+                false => SongSource::Spotify { id },
+                true => SongSource::Unknown,
+            };
         }
+        if let Some(rest) = self.0.strip_prefix(MEGA)
+            && let Some((place, key)) = rest.split_once('#')
+            && let Some((folder, file)) = place.split_once(':')
+            && [folder, file, key].iter().all(|part| !part.is_empty())
+        {
+            return SongSource::Mega { folder, file, key };
+        }
+        SongSource::Unknown
     }
 
     /// Spotify's ID for the song, if it's a Spotify song.
     pub fn spotify_id(&self) -> Option<&str> {
         match self.source() {
             SongSource::Spotify { id } => Some(id),
-            SongSource::Unknown => None,
+            SongSource::Mega { .. } | SongSource::Unknown => None,
         }
     }
 
@@ -95,14 +118,24 @@ mod tests {
         let song = SongUri::from("spotify:track:4uLU6hMCjMI75M1A2tKUQC");
         assert_eq!(song.source(), SongSource::Spotify { id: "4uLU6hMCjMI75M1A2tKUQC" });
         assert_eq!(song, SongUri::spotify("4uLU6hMCjMI75M1A2tKUQC"));
-        for other in ["mega:abc:def#key", "spotify:episode:x", "spotify:track:", ""] {
+        let song = SongUri::mega("abc", "def", "key");
+        assert_eq!(song.as_str(), "mega:abc:def#key");
+        assert_eq!(
+            song.source(),
+            SongSource::Mega {
+                folder: "abc",
+                file: "def",
+                key: "key"
+            }
+        );
+        for other in ["mega:abc:def", "mega::def#key", "spotify:episode:x", "spotify:track:", ""] {
             assert_eq!(SongUri::from(other).source(), SongSource::Unknown, "{other}");
         }
     }
 
     #[test]
     fn a_song_of_a_source_not_known_saves_as_it_was_read() {
-        let text = "\"mega:abc:def#key\"";
+        let text = "\"local:/music/song.ogg\"";
         let song: SongUri = serde_json::from_str(text).unwrap();
         assert_eq!(serde_json::to_string(&song).unwrap(), text);
     }

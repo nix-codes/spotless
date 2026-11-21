@@ -27,7 +27,6 @@ use librespot_core::session::Session;
 use librespot_core::{Error, FileId, SpotifyId, SpotifyUri};
 use librespot_metadata::audio::{AudioFileFormat, AudioFiles, AudioItem, UniqueFields};
 use serde::{Deserialize, Serialize};
-use symphonia::core::io::MediaSource;
 use symphonia::core::probe::Hint;
 
 use crate::model::SongUri;
@@ -38,7 +37,7 @@ use crate::playback::download::plan::MINIMUM_PART;
 use crate::playback::download::{Body, Downloading, Fault, Progress, Remote};
 use crate::playback::engine::TrackInfo;
 use crate::playback::levelling::Gains;
-use crate::playback::source::{Download, Kept, OpenError, Opened, Source};
+use crate::playback::source::{Download, Kept, Media, OpenError, Opened, Source};
 
 /// The formats played, best first: 320 kbps Ogg Vorbis, then what's
 /// nearest.
@@ -247,7 +246,7 @@ impl SpotifyAudio {
             } else {
                 (0, None)
             };
-            let audio = match Audio::new(decrypted, offset, length) {
+            let audio = match Media::new(decrypted, offset, length) {
                 Ok(audio) => audio,
                 Err(e) => {
                     log::error!("unable to read the file of {}: {e}", name);
@@ -554,57 +553,6 @@ fn spotify_gains(file: &mut impl ReadSeek) -> io::Result<Gains> {
 trait ReadSeek: Read + Seek {}
 impl<T: Read + Seek> ReadSeek for T {}
 
-/// The decrypted file from where its audio starts, as the decoder reads it.
-struct Audio<R> {
-    file: R,
-    offset: u64,
-    /// The whole file's length, as librespot gives it.
-    length: u64,
-}
-
-impl<R: Read + Seek> Audio<R> {
-    fn new(mut file: R, offset: u64, length: u64) -> io::Result<Self> {
-        file.seek(SeekFrom::Start(offset))?;
-        Ok(Self {
-            file,
-            offset,
-            length,
-        })
-    }
-}
-
-impl<R: Read> Read for Audio<R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.file.read(buf)
-    }
-}
-
-impl<R: Seek> Seek for Audio<R> {
-    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
-        let position = match position {
-            SeekFrom::Start(at) => SeekFrom::Start(at + self.offset),
-            SeekFrom::End(back) if (self.length as i64 - back) < self.offset as i64 => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "before the start of the audio",
-                ));
-            }
-            other => other,
-        };
-        Ok(self.file.seek(position)? - self.offset)
-    }
-}
-
-impl<R: Read + Seek + Send + Sync> MediaSource for Audio<R> {
-    fn is_seekable(&self) -> bool {
-        true
-    }
-
-    fn byte_len(&self) -> Option<u64> {
-        Some(self.length)
-    }
-}
-
 /// Unreachable when the failure came of a missing connection.
 fn after_failure(unreachable: bool) -> OpenError {
     if unreachable {
@@ -677,7 +625,7 @@ mod tests {
     #[test]
     fn the_audio_starts_past_spotifys_header() {
         let file: Vec<u8> = (0..=255).collect();
-        let mut audio = Audio::new(Cursor::new(file), OGG_HEADER_END, 256).unwrap();
+        let mut audio = Media::new(Cursor::new(file), OGG_HEADER_END, 256).unwrap();
         let mut first = [0];
         audio.read_exact(&mut first).unwrap();
         assert_eq!(first[0], OGG_HEADER_END as u8);

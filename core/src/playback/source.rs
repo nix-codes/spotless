@@ -2,6 +2,10 @@
 //! song by its URI and hands over its decoder, its details and gains, and
 //! its download, whatever it comes from.
 
+use std::io::{self, Read, Seek, SeekFrom};
+
+use symphonia::core::io::MediaSource;
+
 use super::decoder::Decoder;
 use super::engine::TrackInfo;
 use super::levelling::Gains;
@@ -17,6 +21,9 @@ pub enum OpenError {
     Unreachable,
     /// Spotify refused its key: it can't be decrypted just now.
     KeyRefused,
+    /// This connection used up its allowance of MEGA's traffic: MEGA's
+    /// songs play again once it's given more.
+    OverQuota,
 }
 
 /// A song opened to play.
@@ -58,6 +65,57 @@ impl Download for Kept {
     fn read_ahead(&self) {}
 
     fn close(&self) {}
+}
+
+/// A song's file from where its audio starts, as the decoder reads it.
+pub struct Media<R> {
+    file: R,
+    offset: u64,
+    /// The whole file's length.
+    length: u64,
+}
+
+impl<R: Read + Seek> Media<R> {
+    pub fn new(mut file: R, offset: u64, length: u64) -> io::Result<Self> {
+        file.seek(SeekFrom::Start(offset))?;
+        Ok(Self {
+            file,
+            offset,
+            length,
+        })
+    }
+}
+
+impl<R: Read> Read for Media<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.file.read(buf)
+    }
+}
+
+impl<R: Seek> Seek for Media<R> {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        let position = match position {
+            SeekFrom::Start(at) => SeekFrom::Start(at + self.offset),
+            SeekFrom::End(back) if (self.length as i64 - back) < self.offset as i64 => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "before the start of the audio",
+                ));
+            }
+            other => other,
+        };
+        Ok(self.file.seek(position)? - self.offset)
+    }
+}
+
+impl<R: Read + Seek + Send + Sync> MediaSource for Media<R> {
+    fn is_seekable(&self) -> bool {
+        true
+    }
+
+    fn byte_len(&self) -> Option<u64> {
+        Some(self.length)
+    }
 }
 
 /// Opens songs. Blocks while it reads their start: called on a thread of

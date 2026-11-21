@@ -9,6 +9,13 @@
 //! asked for before it that haven't started, unless they hold the place
 //! read: many seeks would otherwise queue parts left behind ahead of the
 //! one playing.
+//!
+//! A source whose server takes long to answer each request, then sends
+//! fast (MEGA), is asked instead for whole stretches: all that's missing
+//! from where it's read, in one request, written as it comes, then what's
+//! left. That main stretch is never given up for a read elsewhere: a read
+//! it will reach in about a second waits for it, one it won't (a seek,
+//! the decoder looking for its place) gets a short stretch beside it.
 
 use std::ops::Range;
 use std::time::Duration;
@@ -40,6 +47,14 @@ pub const READ_TIMEOUT: Duration =
 /// slack given to a server beyond the time the part takes to play: one
 /// sending too slowly to keep up is no better.
 pub const SERVER_STALL_LIMIT: Duration = Duration::from_secs(3);
+/// How far ahead of where a stretch has come a read may be and still wait
+/// for it, until the stretch's speed is known: what a second brings at a
+/// modest speed. Beyond, it's the second's worth at the speed measured.
+pub const STRETCH_REACH: usize = 512 * 1024;
+/// How much a read the main stretch won't reach soon is given, beside it:
+/// enough for the decoder to look about, or for a few seconds' play until
+/// the main stretch gets there.
+pub const BESIDE: usize = 256 * 1024;
 
 /// A part asked for, with the seeks there had been then.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -200,6 +215,23 @@ impl Plan {
         std::mem::replace(&mut self.streaming, false)
     }
 
+    /// The stretch to ask for to read at `at`: from there to the next
+    /// byte downloaded, or the end. None if `at` is downloaded.
+    pub fn stretch_from(&self, at: usize) -> Option<Range<usize>> {
+        let missing = self.downloaded.missing_in(at.min(self.size)..self.size).first()?;
+        (missing.start == at).then_some(missing)
+    }
+
+    /// The stretch to ask for once one ends: the first missing after the
+    /// place read, then from the start.
+    pub fn next_stretch(&self) -> Option<Range<usize>> {
+        let read = self.read_position.min(self.size);
+        let missing = self.downloaded.missing_in(read..self.size);
+        missing
+            .first()
+            .or_else(|| self.downloaded.missing_in(0..self.size).first())
+    }
+
     /// The time a server takes to answer: the median of the last three.
     pub fn ping(&self) -> Duration {
         let mut times = self.response_times.clone();
@@ -237,6 +269,22 @@ impl Plan {
 /// server left has no limit, and is waited for until the read gives up.
 pub fn server_limit(servers_left: usize) -> Option<Duration> {
     (servers_left > 0).then_some(SERVER_STALL_LIMIT)
+}
+
+/// Whether a read at `wanted` waits for the stretch still `coming`, which
+/// brings `reach` bytes in about a second, rather than asking for one.
+pub fn reaches(coming: &Range<usize>, wanted: usize, reach: usize) -> bool {
+    coming.contains(&wanted) && wanted - coming.start <= reach
+}
+
+/// How far a stretch bringing `bytes_per_second` reaches in a second.
+pub fn stretch_reach(bytes_per_second: usize) -> usize {
+    bytes_per_second.max(STRETCH_REACH)
+}
+
+/// The stretch a read beside the main one is given, of what's missing.
+pub fn beside(missing: Range<usize>) -> Range<usize> {
+    missing.start..missing.end.min(missing.start + BESIDE)
 }
 
 /// How long a server has to send the rest of a part: the time it takes to
@@ -368,5 +416,46 @@ mod tests {
         assert_eq!(server_limit(2), Some(SERVER_STALL_LIMIT));
         let time = part_time(RATE * 2, RATE, SERVER_STALL_LIMIT);
         assert_eq!(time, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_stretch_runs_from_the_read_to_whats_in_or_the_end() {
+        let mut plan = plan(1_000_000);
+        plan.received(0..100_000);
+        plan.received(600_000..700_000);
+        assert_eq!(plan.stretch_from(200_000), Some(200_000..600_000));
+        assert_eq!(plan.stretch_from(700_000), Some(700_000..1_000_000));
+        assert_eq!(plan.stretch_from(50_000), None);
+        assert_eq!(plan.stretch_from(1_000_000), None);
+    }
+
+    #[test]
+    fn once_a_stretch_ends_the_next_is_after_the_read_then_from_the_start() {
+        let mut plan = plan(1_000_000);
+        plan.received(0..100_000);
+        plan.received(500_000..1_000_000);
+        plan.read_position = 600_000;
+        assert_eq!(plan.next_stretch(), Some(100_000..500_000));
+        plan.received(100_000..200_000);
+        plan.read_position = 50_000;
+        assert_eq!(plan.next_stretch(), Some(200_000..500_000));
+        plan.received(200_000..500_000);
+        assert_eq!(plan.next_stretch(), None);
+    }
+
+    #[test]
+    fn a_read_near_ahead_in_the_stretch_waits_for_it() {
+        let coming = 100_000..5_000_000;
+        let reach = stretch_reach(0);
+        assert_eq!(reach, STRETCH_REACH);
+        assert!(reaches(&coming, 100_000, reach));
+        assert!(reaches(&coming, 100_000 + reach, reach));
+        assert!(!reaches(&coming, 101_000 + reach, reach));
+        assert!(!reaches(&coming, 50_000, reach));
+        assert!(!reaches(&coming, 5_000_000, reach));
+        // A fast stretch reaches further.
+        assert!(reaches(&coming, 3_000_000, stretch_reach(3_000_000)));
+        assert_eq!(beside(1_000..5_000_000), 1_000..1_000 + BESIDE);
+        assert_eq!(beside(1_000..2_000), 1_000..2_000);
     }
 }

@@ -138,10 +138,11 @@ impl Listen {
     }
 }
 
-/// Songs only: podcast episodes aren't scrobbled.
+/// Songs only: podcast episodes aren't scrobbled. Last.fm goes by the
+/// artist and title, so a song of any source known counts.
 fn is_song(uri: &SongUri) -> bool {
     match uri.source() {
-        SongSource::Spotify { .. } => true,
+        SongSource::Spotify { .. } | SongSource::Mega { .. } => true,
         SongSource::Unknown => false,
     }
 }

@@ -10,7 +10,7 @@ use symphonia::core::codecs::{self, DecoderOptions};
 use symphonia::core::errors::Error;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
 use symphonia::core::io::{MediaSource, MediaSourceStream, MediaSourceStreamOptions};
-use symphonia::core::meta::{MetadataOptions, StandardTagKey, Value};
+use symphonia::core::meta::{MetadataOptions, StandardTagKey, Tag, Value};
 use symphonia::core::probe::Hint;
 use symphonia::core::units::TimeBase;
 
@@ -52,6 +52,18 @@ pub struct Decoder {
     time_base: Option<TimeBase>,
     /// Made with the first piece, whose length suits the rest.
     buffer: Option<SampleBuffer<f64>>,
+    /// The tags found before the audio, as an MP3's ID3 tags are; the
+    /// others are the format's.
+    probed_tags: Vec<Tag>,
+}
+
+/// What a file's tags say it is.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Tags {
+    pub title: Option<String>,
+    /// Its artists as the tags give them; several tags are joined with ", ".
+    pub artist: Option<String>,
+    pub album: Option<String>,
 }
 
 impl Decoder {
@@ -74,6 +86,10 @@ impl Decoder {
             &MetadataOptions::default(),
         )?;
         let format = probed.format;
+        let mut probed_metadata = probed.metadata;
+        let probed_tags = (probed_metadata.get())
+            .and_then(|metadata| Some(metadata.current()?.tags().to_vec()))
+            .unwrap_or_default();
         let track = format
             .default_track()
             .ok_or_else(|| DecodeError::Failed("no audio track".into()))?;
@@ -100,13 +116,59 @@ impl Decoder {
             decoder,
             time_base,
             buffer: None,
+            probed_tags,
         })
+    }
+
+    /// The song's length, where the file tells it.
+    pub fn duration_ms(&self) -> Option<u32> {
+        let params = self.decoder.codec_params();
+        let time = params.time_base?.calc_time(params.n_frames?);
+        let ms = time.seconds * 1000 + (time.frac * 1000.0) as u64;
+        u32::try_from(ms).ok()
+    }
+
+    /// The file's tags: the format's, and those before the audio.
+    fn all_tags(&mut self) -> Vec<Tag> {
+        let mut tags = self.probed_tags.clone();
+        if let Some(current) = self.format.metadata().current() {
+            tags.extend(current.tags().iter().cloned());
+        }
+        tags
+    }
+
+    /// The title, artists and album the tags give, the first of each.
+    pub fn tags(&mut self) -> Tags {
+        let mut found = Tags::default();
+        let mut artists: Vec<String> = Vec::new();
+        for tag in self.all_tags() {
+            let Value::String(value) = &tag.value else {
+                continue;
+            };
+            let value = value.trim();
+            if value.is_empty() {
+                continue;
+            }
+            match tag.std_key {
+                Some(StandardTagKey::TrackTitle) if found.title.is_none() => {
+                    found.title = Some(value.to_string());
+                }
+                Some(StandardTagKey::Album) if found.album.is_none() => {
+                    found.album = Some(value.to_string());
+                }
+                Some(StandardTagKey::Artist) if !artists.iter().any(|a| a == value) => {
+                    artists.push(value.to_string());
+                }
+                _ => {}
+            }
+        }
+        found.artist = (!artists.is_empty()).then(|| artists.join(", "));
+        found
     }
 
     /// ReplayGain tags, where the file has them.
     pub fn tag_gains(&mut self) -> Option<Gains> {
-        let metadata = self.format.metadata();
-        let tags = metadata.current()?.tags();
+        let tags = self.all_tags();
         let mut gains = Gains::default();
         let mut found = false;
         for tag in tags {

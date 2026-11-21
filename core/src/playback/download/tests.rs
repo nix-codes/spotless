@@ -12,6 +12,11 @@ enum Server {
     Good,
     /// Answers, then never sends a byte.
     Silent,
+    /// Sends a chunk every few milliseconds.
+    Slow,
+    /// Sends half of what's asked the first time, then drops the
+    /// connection; all of it after.
+    Dropping,
 }
 
 struct FakeRemote {
@@ -19,6 +24,8 @@ struct FakeRemote {
     servers: Vec<Server>,
     asked: StdMutex<Vec<(usize, Range<usize>)>>,
     gave_out: StdMutex<Vec<usize>>,
+    /// Asked for stretches, not parts.
+    stretches: bool,
 }
 
 impl FakeRemote {
@@ -28,6 +35,23 @@ impl FakeRemote {
             servers,
             asked: StdMutex::default(),
             gave_out: StdMutex::default(),
+            stretches: false,
+        })
+    }
+
+    /// One asked for stretches, whose server sends slowly enough that a
+    /// read can get ahead of it.
+    fn stretching(size: usize) -> Arc<Self> {
+        Self::stretching_on(size, Server::Slow)
+    }
+
+    fn stretching_on(size: usize, server: Server) -> Arc<Self> {
+        Arc::new(Self {
+            data: (0..size).map(|i| (i % 251) as u8).collect(),
+            servers: vec![server],
+            asked: StdMutex::default(),
+            gave_out: StdMutex::default(),
+            stretches: true,
         })
     }
 }
@@ -42,7 +66,11 @@ impl Remote for FakeRemote {
     }
 
     fn get(&self, server: usize, range: Range<usize>) -> BoxFuture<'static, Result<Body, Fault>> {
-        self.asked.lock().unwrap().push((server, range.clone()));
+        let first = {
+            let mut asked = self.asked.lock().unwrap();
+            asked.push((server, range.clone()));
+            asked.len() == 1
+        };
         let data = self.data.slice(range);
         let kind = self.servers[server];
         async move {
@@ -52,6 +80,21 @@ impl Remote for FakeRemote {
                     futures_util::stream::iter(chunks.into_iter().map(Ok)).boxed()
                 }
                 Server::Silent => futures_util::stream::pending().boxed(),
+                Server::Dropping if first => {
+                    let half = data.slice(..data.len() / 2);
+                    let chunks: Vec<Result<Bytes, Fault>> =
+                        vec![Ok(half), Err(Fault("connection reset".into()))];
+                    futures_util::stream::iter(chunks).boxed()
+                }
+                Server::Dropping | Server::Slow => {
+                    let chunks: Vec<_> = data.chunks(16 * 1024).map(Bytes::copy_from_slice).collect();
+                    futures_util::stream::iter(chunks)
+                        .then(|chunk| async move {
+                            tokio::time::sleep(Duration::from_millis(2)).await;
+                            Ok(chunk)
+                        })
+                        .boxed()
+                }
             };
             Ok(body)
         }
@@ -60,6 +103,10 @@ impl Remote for FakeRemote {
 
     fn gave_out(&self, server: usize) {
         self.gave_out.lock().unwrap().push(server);
+    }
+
+    fn stretches(&self) -> bool {
+        self.stretches
     }
 }
 
@@ -175,4 +222,89 @@ async fn a_file_whose_head_is_all_of_it_is_handed_over_at_once() {
     assert_eq!(kept.lock().unwrap().as_deref(), Some(&remote.data[..]));
     assert!(progress.whole());
     assert!(remote.asked.lock().unwrap().is_empty());
+}
+
+async fn kept_once_whole(kept: &Kept) -> Option<Vec<u8>> {
+    for _ in 0..500 {
+        if let Some(data) = kept.lock().unwrap().clone() {
+            return Some(data);
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    None
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn asked_for_stretches_a_file_comes_in_one_request() {
+    let remote = FakeRemote::stretching(1_000_000);
+    let (mut file, progress, kept) = start(&remote, 40 * 1024);
+    progress.stream();
+    let read = tokio::task::spawn_blocking(move || {
+        let mut all = Vec::new();
+        file.read_to_end(&mut all).unwrap();
+        all
+    })
+    .await
+    .unwrap();
+    assert_eq!(read, remote.data);
+    assert_eq!(kept_once_whole(&kept).await.as_deref(), Some(&remote.data[..]));
+    let asked = remote.asked.lock().unwrap();
+    assert_eq!(asked.as_slice(), [(0, MINIMUM_PART..1_000_000)]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_seek_out_of_reach_is_given_a_stretch_beside_the_main_one() {
+    let remote = FakeRemote::stretching(8_000_000);
+    let (mut file, progress, kept) = start(&remote, 40 * 1024);
+    progress.stream();
+    let read = tokio::task::spawn_blocking(move || {
+        file.seek(SeekFrom::Start(6_000_000)).unwrap();
+        let mut some = vec![0; 1000];
+        file.read_exact(&mut some).unwrap();
+        some
+    })
+    .await
+    .unwrap();
+    assert_eq!(read, remote.data[6_000_000..6_001_000]);
+    // The rest comes after, so it's kept whole.
+    assert_eq!(kept_once_whole(&kept).await.as_deref(), Some(&remote.data[..]));
+    // The main stretch went on: one beside it for the seek, no more.
+    let asked = remote.asked.lock().unwrap();
+    assert_eq!(asked[0], (0, MINIMUM_PART..8_000_000));
+    assert_eq!(asked[1], (0, 6_000_000..6_000_000 + plan::BESIDE));
+    assert_eq!(asked.len(), 2, "{asked:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_near_ahead_waits_for_the_stretch_coming() {
+    let remote = FakeRemote::stretching(4_000_000);
+    let (mut file, progress, _) = start(&remote, 40 * 1024);
+    progress.stream();
+    tokio::task::spawn_blocking(move || {
+        file.seek(SeekFrom::Start(MINIMUM_PART as u64 + 200_000)).unwrap();
+        let mut some = vec![0; 1000];
+        file.read_exact(&mut some).unwrap();
+    })
+    .await
+    .unwrap();
+    assert_eq!(remote.asked.lock().unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stretch_dropped_midway_is_asked_again_from_where_it_got_to() {
+    let remote = FakeRemote::stretching_on(1_000_000, Server::Dropping);
+    let (mut file, progress, kept) = start(&remote, 40 * 1024);
+    progress.stream();
+    let read = tokio::task::spawn_blocking(move || {
+        let mut all = Vec::new();
+        file.read_to_end(&mut all).unwrap();
+        all
+    })
+    .await
+    .unwrap();
+    assert_eq!(read, remote.data);
+    assert_eq!(kept_once_whole(&kept).await.as_deref(), Some(&remote.data[..]));
+    let half = MINIMUM_PART + (1_000_000 - MINIMUM_PART) / 2;
+    let asked = remote.asked.lock().unwrap();
+    assert_eq!(asked.as_slice(), [(0, MINIMUM_PART..1_000_000), (0, half..1_000_000)]);
 }
