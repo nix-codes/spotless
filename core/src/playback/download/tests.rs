@@ -281,6 +281,12 @@ async fn a_seek_out_of_reach_is_given_a_stretch_beside_the_main_one() {
     let remote = FakeRemote::stretching_on(8_000_000, Server::Slower);
     let (mut file, progress, _) = start(&remote, 40 * 1024);
     progress.stream();
+    // The seek comes once the main stretch is asked for: before it, the
+    // main stretch would start at the seek, needing none beside it.
+    let until = std::time::Instant::now() + Duration::from_secs(5);
+    while remote.asked.lock().unwrap().is_empty() && std::time::Instant::now() < until {
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
     let read = tokio::task::spawn_blocking(move || {
         file.seek(SeekFrom::Start(6_000_000)).unwrap();
         let mut some = vec![0; 1000];
