@@ -14,11 +14,10 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use spotless_core::paths::Paths;
 use spotless_core::playback::AudioLink;
+use spotless_core::playback::cache::SongCache;
 use spotless_core::playback::player::{Event, Player};
 use spotless_core::playback::sink::RodioSink;
-use spotless_core::settings::Settings;
 use spotless_core::spotify::audio::SpotifyAudio;
-use spotless_core::spotify::session::AudioCache;
 use spotless_core::spotify::{catalog, session};
 use tokio::sync::mpsc;
 
@@ -34,8 +33,7 @@ async fn main() -> Result<()> {
     let volume = (u32::from(u16::MAX) * percent.min(100) / 100) as u16;
 
     let paths = Paths::new()?;
-    let cache = AudioCache::from(&Settings::load(&paths));
-    let Some(session) = session::restore(&paths, cache).await? else {
+    let Some(session) = session::restore(&paths).await? else {
         bail!("not signed in: start Spotless and sign in first");
     };
     let tracks = catalog::songs(&session, &album).await?.tracks;
@@ -46,7 +44,7 @@ async fn main() -> Result<()> {
     let (told, mut events) = mpsc::unbounded_channel();
     let link = Arc::<AudioLink>::default();
     let player = Player::new(
-        Arc::new(SpotifyAudio::new(&session)),
+        Arc::new(SpotifyAudio::new(&session, Arc::new(SongCache::off()))),
         Box::new(move || {
             Box::new(RodioSink::new(
                 None,

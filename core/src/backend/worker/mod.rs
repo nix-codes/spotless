@@ -33,7 +33,7 @@ use crate::paths::Paths;
 use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
 use crate::playback::link::AudioLink;
 use crate::spotify::devices::{Playing, Watch};
-use crate::spotify::session::AudioCache;
+use crate::playback::cache::SongCache;
 use crate::spotify::webapi::WebApi;
 use crate::spotify::{session, synced};
 use connect::Connect;
@@ -54,7 +54,8 @@ pub(super) struct Worker {
     /// it up.
     search_app: Option<String>,
     /// Every session's audio cache, as at the start.
-    audio_cache: AudioCache,
+    /// Songs kept once played, as the settings had it at the start.
+    songs: Arc<SongCache>,
     browser: Browser,
     emit: Emit,
     session: Option<Session>,
@@ -110,12 +111,13 @@ impl Worker {
         let (devices, device_reports) = unbounded_channel();
         let (signed_in, sign_in_reports) = unbounded_channel();
         let found = Arc::new(tokio::sync::Mutex::new(lastfm::found::Found::load(&paths)));
+        let songs = Arc::new(start.audio_cache.open(&paths));
         Self {
             paths,
             volume: start.volume,
             levelling: start.levelling,
             search_app: start.search_app,
-            audio_cache: start.audio_cache,
+            songs,
             connect: Connect::new(start.spotify_tab),
             browser,
             emit,
@@ -206,7 +208,7 @@ impl Worker {
         if dropped {
             log::info!("the session dropped; reconnecting");
         }
-        let restored = tokio::time::timeout(RECONNECT_TIMEOUT, session::restore(&self.paths, self.audio_cache))
+        let restored = tokio::time::timeout(RECONNECT_TIMEOUT, session::restore(&self.paths))
             .await
             .unwrap_or_else(|_| Err(anyhow::anyhow!("Spotify took too long to answer")));
         match restored {
@@ -328,6 +330,7 @@ impl Worker {
         let scrobbler = self.scrobbler.clone();
         match Engine::new(
             &session,
+            Arc::clone(&self.songs),
             self.volume,
             self.levelling,
             Arc::clone(&self.link),
@@ -371,11 +374,10 @@ impl Worker {
         self.sign_ins += 1;
         let number = self.sign_ins;
         let paths = self.paths.clone();
-        let audio_cache = self.audio_cache;
         let browser = Arc::clone(&self.browser);
         let report = self.signed_in.clone();
         let task = tokio::spawn(async move {
-            let _ = report.send((number, session::sign_in(&paths, audio_cache, &browser).await));
+            let _ = report.send((number, session::sign_in(&paths, &browser).await));
         });
         self.signing_in = Some((number, task));
     }

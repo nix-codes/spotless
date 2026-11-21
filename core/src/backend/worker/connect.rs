@@ -227,7 +227,6 @@ impl Worker {
         }
         self.connect.remote_starting = true;
         let paths = self.paths.clone();
-        let audio_cache = self.audio_cache;
         let (volume, levelling) = (self.volume, self.levelling);
         let link = Arc::clone(&self.link);
         let remotes = self.connect.remotes.clone();
@@ -236,7 +235,7 @@ impl Worker {
             let report = move |queue| {
                 let _ = queues.send(RemoteReport::Queue(Box::new(queue)));
             };
-            let started = Remote::start(&paths, audio_cache, volume, levelling, link, report).await;
+            let started = Remote::start(&paths, volume, levelling, link, report).await;
             let _ = remotes.send(RemoteReport::Started(started));
         });
     }

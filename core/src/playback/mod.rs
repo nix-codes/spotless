@@ -5,7 +5,10 @@ internal! {
     mod aaudio;
     mod analyser;
     mod audio_sink;
+    mod cache;
     mod decoder;
+    mod decrypt;
+    mod download;
     mod engine;
     mod equaliser;
     mod flow;

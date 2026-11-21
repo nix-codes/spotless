@@ -13,8 +13,6 @@ use anyhow::{Result, bail};
 use librespot_core::SpotifyUri;
 use librespot_metadata::{Artist, Metadata, Track};
 use spotless_core::paths::Paths;
-use spotless_core::settings::Settings;
-use spotless_core::spotify::session::AudioCache;
 use spotless_core::spotify::{catalog, session};
 
 /// Boards of Canada.
@@ -27,7 +25,7 @@ async fn main() -> Result<()> {
         .nth(1)
         .unwrap_or_else(|| DEFAULT_ARTIST.into());
     let paths = Paths::new()?;
-    let Some(session) = session::restore(&paths, audio_cache(&paths)).await? else {
+    let Some(session) = session::restore(&paths).await? else {
         bail!("not signed in: start Spotless and sign in first");
     };
     let at_once = session.country();
@@ -76,9 +74,4 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// The audio cache as the app's settings have it.
-fn audio_cache(paths: &Paths) -> AudioCache {
-    AudioCache::from(&Settings::load(paths))
 }

@@ -28,6 +28,9 @@ pub struct Opened {
 
 /// How a song's file is coming in.
 pub trait Download: Send {
+    /// The decoder found its place: the song plays on from there, so the
+    /// file is fetched ahead.
+    fn stream(&self) {}
     /// Whether the rest of the file, from where it's being read, is in.
     fn whole(&self) -> bool;
     /// Whether a read gave up waiting for it, as when the network went.
@@ -37,6 +40,23 @@ pub trait Download: Send {
     fn read_ahead(&self);
     /// Stops fetching it.
     fn close(&self);
+}
+
+/// A file all there: kept in the cache, or local.
+pub struct Kept;
+
+impl Download for Kept {
+    fn whole(&self) -> bool {
+        true
+    }
+
+    fn stalled(&self) -> bool {
+        false
+    }
+
+    fn read_ahead(&self) {}
+
+    fn close(&self) {}
 }
 
 /// Opens songs. Blocks while it reads their start: called on a thread of
@@ -58,23 +78,6 @@ pub(crate) mod fake {
     use super::*;
     use crate::playback::audio_sink::{AudioSink, SinkError};
     use crate::playback::{CHANNELS, SAMPLE_RATE};
-
-    /// A file that's all there already: a test's.
-    pub struct Whole;
-
-    impl Download for Whole {
-        fn whole(&self) -> bool {
-            true
-        }
-
-        fn stalled(&self) -> bool {
-            false
-        }
-
-        fn read_ahead(&self) {}
-
-        fn close(&self) {}
-    }
 
     /// A WAV file of `frames` stereo frames at the player's rate, each
     /// sample `value` as 16 bits.
@@ -135,7 +138,7 @@ pub(crate) mod fake {
                 },
                 decoder,
                 gains: Gains::default(),
-                download: Box::new(Whole),
+                download: Box::new(Kept),
             })
         }
     }

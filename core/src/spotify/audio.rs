@@ -1,23 +1,37 @@
-//! Spotify as a source of audio for the player: a song's details, its file
-//! in the format played, its key, and the file decrypted and read past
-//! Spotify's own header, through librespot.
+//! Spotify as a source of audio for the player: a song's details and its
+//! file in the format played, through librespot, and the file downloaded
+//! from Spotify's servers (or kept in the cache), decrypted with its key
+//! and read past Spotify's own header.
 
 use std::io::{self, Read, Seek, SeekFrom};
-use std::sync::Mutex;
+use std::ops::Range;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use librespot_audio::{AudioDecrypt, AudioFetchParams, AudioFile, StreamLoaderController};
+use bytes::{Bytes, BytesMut};
+use futures_util::future::BoxFuture;
+use futures_util::{FutureExt, StreamExt, TryStreamExt};
+use http_body_util::BodyExt;
+use hyper::StatusCode;
+use hyper::header::CONTENT_RANGE;
 use librespot_core::audio_key::AudioKeyError;
+use librespot_core::cdn_url::CdnUrl;
 use librespot_core::error::ErrorKind;
+use librespot_core::http_client::HttpClient;
 use librespot_core::session::Session;
 use librespot_core::{Error, FileId, SpotifyId, SpotifyUri};
 use librespot_metadata::audio::{AudioFileFormat, AudioFiles, AudioItem, UniqueFields};
 use symphonia::core::io::MediaSource;
 use symphonia::core::probe::Hint;
 
+use crate::playback::cache::SongCache;
 use crate::playback::decoder::Decoder;
+use crate::playback::decrypt::Decrypt;
+use crate::playback::download::plan::MINIMUM_PART;
+use crate::playback::download::{Body, Downloading, Fault, Progress, Remote};
 use crate::playback::engine::TrackInfo;
 use crate::playback::levelling::Gains;
-use crate::playback::source::{Download, OpenError, Opened, Source};
+use crate::playback::source::{Download, Kept, OpenError, Opened, Source};
 
 /// The formats played, best first: 320 kbps Ogg Vorbis, then what's
 /// nearest.
@@ -35,36 +49,47 @@ const FORMATS: [AudioFileFormat; 7] = [
 /// packet, which holds the gains and which decoders balk at.
 const OGG_HEADER_END: u64 = 0xa7;
 
+/// The counter's start for every Spotify file.
+const AUDIO_IV: [u8; 16] = [
+    0x72, 0xe0, 0x67, 0xfb, 0xdd, 0xcb, 0xcf, 0x77, 0xeb, 0xe8, 0xbc, 0x64, 0x3f, 0x63, 0x0d, 0x93,
+];
+
+/// How long a server has to give a file's first part.
+const FIRST_PART_TIME: Duration = Duration::from_secs(10);
+
 /// Opens songs on the session, which a reconnect replaces.
 pub struct SpotifyAudio {
     session: Mutex<Session>,
     runtime: tokio::runtime::Handle,
+    cache: Arc<SongCache>,
+    /// The servers' hosts that stopped sending, or sent too slowly, on this
+    /// session: asked only after the others.
+    given_out: Arc<Mutex<Vec<String>>>,
 }
 
 impl SpotifyAudio {
     /// Must be called on the tokio runtime, which opening runs on.
-    pub fn new(session: &Session) -> Self {
+    pub fn new(session: &Session, cache: Arc<SongCache>) -> Self {
         Self {
             session: Mutex::new(session.clone()),
             runtime: tokio::runtime::Handle::current(),
+            cache,
+            given_out: Arc::default(),
         }
     }
 
     /// Songs open on `session` from now on.
     pub fn set_session(&self, session: &Session) {
-        *self.session.lock().unwrap_or_else(|p| p.into_inner()) = session.clone();
+        *lock(&self.session) = session.clone();
+        lock(&self.given_out).clear();
     }
 }
 
 impl Source for SpotifyAudio {
     fn open(&self, uri: &str) -> Result<Opened, OpenError> {
-        let session = self
-            .session
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone();
+        let session = lock(&self.session).clone();
         let uri = SpotifyUri::from_uri(uri).map_err(|_| OpenError::Unavailable)?;
-        self.runtime.block_on(open(&session, uri))
+        self.runtime.block_on(self.open_on(&session, uri))
     }
 }
 
@@ -76,102 +101,287 @@ struct Resolved {
     bytes_per_second: usize,
 }
 
-async fn open(session: &Session, uri: SpotifyUri) -> Result<Opened, OpenError> {
-    let id = SpotifyId::try_from(&uri).map_err(|_| OpenError::Unavailable)?;
-    let Resolved {
-        item,
-        format,
-        file_id,
-        bytes_per_second,
-    } = resolve(session, uri).await?;
-    // A loop only to download a cached file again that didn't decode.
-    loop {
-        let file = AudioFile::open(session, file_id, bytes_per_second)
-            .await
-            .map_err(|e| {
-                log::error!("unable to open the file of {}: {e:?}", item.name);
-                from_error(&e)
-            })?;
-        let cached = file.is_cached();
-        let controller = file
-            .get_stream_loader_controller()
-            .map_err(|e| from_error(&e))?;
-        // Some files aren't encrypted: without a key, the file is read as
-        // it is, and the decoder fails if it was encrypted after all. A key
-        // that didn't come for want of a connection makes that failure the
-        // connection's; one Spotify refused ends the opening here.
-        let (key, mut unreachable) = match session.audio_key().request(id, file_id).await {
-            Ok(key) => (Some(key), false),
-            Err(e) if matches!(e.error.downcast_ref(), Some(AudioKeyError::AesKey)) => {
-                log::warn!("Spotify refused the audio key of {}", item.name);
-                controller.close();
-                return Err(OpenError::KeyRefused);
-            }
-            Err(e) => {
-                log::warn!("no audio key, reading the file as it is: {e}");
-                (None, is_unreachable(&e))
-            }
-        };
-        let mut decrypted = AudioDecrypt::new(key, file);
-        let ogg = AudioFiles::is_ogg_vorbis(format);
-        let (offset, mut gains) = if ogg {
-            (OGG_HEADER_END, spotify_gains(&mut decrypted).ok())
-        } else {
-            (0, None)
-        };
-        let stalled = |controller: &StreamLoaderController| {
-            if controller.stalled() {
-                OpenError::Unreachable
+/// A file to read, from wherever it comes.
+trait File: Read + Seek + Send + Sync {}
+impl<T: Read + Seek + Send + Sync> File for T {}
+
+impl SpotifyAudio {
+    async fn open_on(&self, session: &Session, uri: SpotifyUri) -> Result<Opened, OpenError> {
+        let id = SpotifyId::try_from(&uri).map_err(|_| OpenError::Unavailable)?;
+        let Resolved {
+            item,
+            format,
+            file_id,
+            bytes_per_second,
+        } = resolve(session, uri).await?;
+        let key = format!("spotify/{}", file_id.to_base16());
+        // A loop only to download a cached file again that didn't decode.
+        loop {
+            let (file, download, cached, length): (Box<dyn File>, Box<dyn Download>, _, _) =
+                match self.cache.get(&key) {
+                    Some(file) => {
+                        let length = file.metadata().map_err(|_| OpenError::Unavailable)?.len();
+                        (Box::new(file), Box::new(Kept), true, length)
+                    }
+                    None => {
+                        let (file, progress) =
+                            self.download(session, &item, file_id, bytes_per_second, &key).await?;
+                        let length = file.size() as u64;
+                        (Box::new(file), Box::new(progress), false, length)
+                    }
+                };
+            // Some files aren't encrypted: without a key, the file is read
+            // as it is, and the decoder fails if it was encrypted after all.
+            // A key that didn't come for want of a connection makes that
+            // failure the connection's; one Spotify refused ends the opening
+            // here.
+            let (audio_key, mut unreachable) = match session.audio_key().request(id, file_id).await {
+                Ok(key) => (Some(key.0), false),
+                Err(e) if matches!(e.error.downcast_ref(), Some(AudioKeyError::AesKey)) => {
+                    log::warn!("Spotify refused the audio key of {}", item.name);
+                    download.close();
+                    return Err(OpenError::KeyRefused);
+                }
+                Err(e) => {
+                    log::warn!("no audio key, reading the file as it is: {e}");
+                    (None, is_unreachable(&e))
+                }
+            };
+            let mut decrypted = Decrypt::new(audio_key, AUDIO_IV, file);
+            let ogg = AudioFiles::is_ogg_vorbis(format);
+            let (offset, mut gains) = if ogg {
+                (OGG_HEADER_END, spotify_gains(&mut decrypted).ok())
             } else {
-                OpenError::Unavailable
+                (0, None)
+            };
+            let audio = match Audio::new(decrypted, offset, length) {
+                Ok(audio) => audio,
+                Err(e) => {
+                    log::error!("unable to read the file of {}: {e}", item.name);
+                    return Err(if download.stalled() {
+                        OpenError::Unreachable
+                    } else {
+                        OpenError::Unavailable
+                    });
+                }
+            };
+            let mut hint = Hint::new();
+            if let Some(mime) = AudioFiles::mime_type(format) {
+                hint.mime_type(mime);
             }
-        };
-        let audio = match Audio::new(decrypted, offset, controller.len() as u64) {
-            Ok(audio) => audio,
-            Err(e) => {
-                log::error!("unable to read the file of {}: {e}", item.name);
-                return Err(stalled(&controller));
-            }
-        };
-        let mut hint = Hint::new();
-        if let Some(mime) = AudioFiles::mime_type(format) {
-            hint.mime_type(mime);
-        }
-        let buffer_len = AudioFetchParams::get().minimum_download_size;
-        let mut decoder = match Decoder::new(Box::new(audio), &hint, buffer_len) {
-            Ok(decoder) => decoder,
-            Err(e) if cached => {
-                log::warn!("the cached file of {} doesn't decode ({e}); downloading it", item.name);
-                if session
-                    .cache()
-                    .is_none_or(|cache| cache.remove_file(file_id).is_err())
-                {
+            let mut decoder = match Decoder::new(Box::new(audio), &hint, MINIMUM_PART) {
+                Ok(decoder) => decoder,
+                Err(e) if cached => {
+                    log::warn!("the cached file of {} doesn't decode ({e}); downloading it", item.name);
+                    self.cache.remove(&key);
+                    continue;
+                }
+                Err(e) => {
+                    log::error!("unable to decode {}: {e}", item.name);
+                    unreachable |= download.stalled();
+                    download.close();
                     return Err(after_failure(unreachable));
                 }
-                continue;
+            };
+            // Files other than Ogg have their gains as tags, if at all.
+            if gains.is_none() {
+                gains = decoder.tag_gains();
             }
-            Err(e) => {
-                log::error!("unable to decode {}: {e}", item.name);
-                unreachable |= controller.stalled();
-                return Err(after_failure(unreachable));
-            }
-        };
-        // Files other than Ogg have their gains as tags, if at all.
-        if gains.is_none() {
-            gains = decoder.tag_gains();
+            // Found its place: parts are asked for ahead from now on.
+            download.stream();
+            log::info!(
+                "{} ({} ms) opened{}",
+                item.name,
+                item.duration_ms,
+                if cached { " from the cache" } else { "" }
+            );
+            return Ok(Opened {
+                details: track_info(&item),
+                decoder,
+                gains: gains.unwrap_or_default(),
+                download,
+            });
         }
-        controller.set_stream_mode();
-        log::info!("{} ({} ms) opened", item.name, item.duration_ms);
-        return Ok(Opened {
-            details: track_info(&item),
-            decoder,
-            gains: gains.unwrap_or_default(),
-            download: Box::new(SpotifyDownload {
-                controller,
-                bytes_per_second,
-            }),
-        });
     }
+
+    /// Starts downloading the file from Spotify's servers: its first part
+    /// tells its size. Once whole, it's kept under `key`.
+    async fn download(
+        &self,
+        session: &Session,
+        item: &AudioItem,
+        file_id: FileId,
+        bytes_per_second: usize,
+        key: &str,
+    ) -> Result<(Downloading, Progress), OpenError> {
+        let cdn = CdnUrl::new(file_id).resolve_audio(session).await.map_err(|e| {
+            log::error!("unable to find the servers of {}: {e:?}", item.name);
+            from_error(&e)
+        })?;
+        let mut urls: Vec<String> = cdn
+            .try_get_urls()
+            .map_err(|e| from_error(&e))?
+            .into_iter()
+            .map(String::from)
+            .collect();
+        {
+            let given_out = lock(&self.given_out);
+            urls.sort_by_key(|url| given_out.iter().any(|h| h == host(url)));
+        }
+        let remote = Arc::new(Servers {
+            session: session.clone(),
+            urls,
+            given_out: Arc::clone(&self.given_out),
+        });
+        let (server, size, head) = remote.first_part().await.inspect_err(|_| {
+            log::error!("no server gave the start of {}", item.name);
+        })?;
+        let cache = Arc::clone(&self.cache);
+        let kept = key.to_string();
+        let (file, progress) = Downloading::start(
+            remote,
+            server,
+            size,
+            bytes_per_second,
+            head,
+            &self.cache.temporary_dir(),
+            Box::new(move |file| {
+                let kept_file = file.seek(SeekFrom::Start(0)).and_then(|_| cache.put(&kept, file));
+                match kept_file {
+                    Ok(()) => log::debug!("{kept} kept"),
+                    Err(e) => log::error!("unable to keep {kept}: {e}"),
+                }
+            }),
+        )
+        .map_err(|e| {
+            log::error!("unable to start downloading {}: {e}", item.name);
+            OpenError::Unavailable
+        })?;
+        Ok((file, progress))
+    }
+}
+
+/// The servers a Spotify file can be downloaded from, through the session's
+/// HTTP client.
+struct Servers {
+    session: Session,
+    urls: Vec<String>,
+    given_out: Arc<Mutex<Vec<String>>>,
+}
+
+impl Servers {
+    /// The file's first part and size, from the first server to give them.
+    /// Returns which server that was.
+    async fn first_part(&self) -> Result<(usize, usize, Bytes), OpenError> {
+        for server in 0..self.urls.len() {
+            let first = async {
+                let response = self.request(server, 0..MINIMUM_PART).await?;
+                let size = content_size(&response)?;
+                let mut body = response.into_body().into_data_stream();
+                let mut data = BytesMut::new();
+                while let Some(chunk) = body.next().await {
+                    data.extend_from_slice(&chunk.map_err(|e| Fault(e.to_string()))?);
+                }
+                if data.is_empty() || data.len() > size {
+                    return Err(Fault("no data".into()));
+                }
+                Ok::<_, Fault>((size, data.freeze()))
+            };
+            match tokio::time::timeout(FIRST_PART_TIME, first).await {
+                Ok(Ok((size, head))) => return Ok((server, size, head)),
+                Ok(Err(e)) => log::warn!("{} didn't give the start: {e}; trying the next", self.name(server)),
+                Err(_) => log::warn!("{} didn't give the start in time; trying the next", self.name(server)),
+            }
+            self.gave_out(server);
+        }
+        Err(OpenError::Unreachable)
+    }
+
+    /// Asks `server` for `range`; answered with the part, or an error.
+    fn request(
+        &self,
+        server: usize,
+        range: Range<usize>,
+    ) -> BoxFuture<'static, Result<hyper::Response<hyper::body::Incoming>, Fault>> {
+        let stream = self
+            .session
+            .spclient()
+            .stream_from_cdn(self.urls[server].as_str(), range.start, range.len());
+        async move {
+            let mut stream = stream.map_err(|e| Fault(e.to_string()))?;
+            let response = stream
+                .next()
+                .await
+                .ok_or_else(|| Fault("no answer".into()))?
+                .map_err(|e| Fault(e.to_string()))?;
+            match response.status() {
+                StatusCode::PARTIAL_CONTENT => Ok(response),
+                StatusCode::TOO_MANY_REQUESTS => {
+                    if let Some(wait) = HttpClient::get_retry_after(response.headers()) {
+                        log::warn!("asked to wait {} s before asking again", wait.as_secs());
+                        tokio::time::sleep(wait).await;
+                    }
+                    Err(Fault("too many requests".into()))
+                }
+                status => Err(Fault(format!("answered {status}"))),
+            }
+        }
+        .boxed()
+    }
+}
+
+impl Remote for Servers {
+    fn servers(&self) -> usize {
+        self.urls.len()
+    }
+
+    fn name(&self, server: usize) -> String {
+        host(&self.urls[server]).to_string()
+    }
+
+    fn get(&self, server: usize, range: Range<usize>) -> BoxFuture<'static, Result<Body, Fault>> {
+        let response = self.request(server, range);
+        async move {
+            let body: Body = response
+                .await?
+                .into_body()
+                .into_data_stream()
+                .map_err(|e| Fault(e.to_string()))
+                .boxed();
+            Ok(body)
+        }
+        .boxed()
+    }
+
+    fn gave_out(&self, server: usize) {
+        let host = host(&self.urls[server]).to_string();
+        let mut given_out = lock(&self.given_out);
+        if !given_out.contains(&host) {
+            given_out.push(host);
+        }
+    }
+}
+
+/// The whole file's size, from a part's `Content-Range` header.
+fn content_size(response: &hyper::Response<hyper::body::Incoming>) -> Result<usize, Fault> {
+    let range = response
+        .headers()
+        .get(CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| Fault("no Content-Range".into()))?;
+    range
+        .rsplit_once('/')
+        .and_then(|(_, size)| size.parse().ok())
+        .ok_or_else(|| Fault(format!("a Content-Range of {range:?}")))
+}
+
+/// The host of a server's URL; the rest holds a token, so it isn't logged.
+fn host(url: &str) -> &str {
+    url.split('/').nth(2).unwrap_or_default()
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 /// The song's details and its file in the best format played: its own,
@@ -289,34 +499,6 @@ impl<R: Read + Seek + Send + Sync> MediaSource for Audio<R> {
 
     fn byte_len(&self) -> Option<u64> {
         Some(self.length)
-    }
-}
-
-/// A Spotify file's download, as librespot fetches it.
-struct SpotifyDownload {
-    controller: StreamLoaderController,
-    bytes_per_second: usize,
-}
-
-impl Download for SpotifyDownload {
-    fn whole(&self) -> bool {
-        self.controller.range_to_end_available()
-    }
-
-    fn stalled(&self) -> bool {
-        self.controller.stalled()
-    }
-
-    fn read_ahead(&self) {
-        let ahead = AudioFetchParams::get().read_ahead_during_playback;
-        let length = (ahead.as_secs_f32() * self.bytes_per_second as f32) as usize;
-        if let Err(e) = self.controller.fetch_next_and_wait(length, length) {
-            log::warn!("reading ahead after a seek: {e}");
-        }
-    }
-
-    fn close(&self) {
-        self.controller.close();
     }
 }
 

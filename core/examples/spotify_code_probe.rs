@@ -22,9 +22,8 @@
 use anyhow::{Context, Result, bail};
 use librespot_core::session::Session;
 use spotless_core::paths::Paths;
-use spotless_core::settings::Settings;
 use spotless_core::spotify::CodeImage;
-use spotless_core::spotify::session::{self, AudioCache};
+use spotless_core::spotify::session;
 use spotless_core::spotify::{catalog, code};
 
 #[tokio::main]
@@ -74,7 +73,7 @@ async fn main() -> Result<()> {
 /// The session the app saved.
 async fn signed_in() -> Result<Session> {
     let paths = Paths::new()?;
-    match session::restore(&paths, AudioCache::from(&Settings::load(&paths))).await? {
+    match session::restore(&paths).await? {
         Some(session) => Ok(session),
         None => bail!("not signed in: start Spotless and sign in first"),
     }

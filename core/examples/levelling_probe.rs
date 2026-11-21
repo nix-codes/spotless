@@ -16,9 +16,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use librespot_core::SpotifyUri;
 use spotless_core::paths::Paths;
+use spotless_core::playback::cache::SongCache;
 use spotless_core::playback::engine::{Engine, EngineEvent, PlayerSnapshot, Status};
-use spotless_core::settings::Settings;
-use spotless_core::spotify::session::AudioCache;
 use spotless_core::spotify::{catalog, session};
 use tokio::sync::mpsc;
 
@@ -32,7 +31,7 @@ async fn main() -> Result<()> {
         .nth(1)
         .unwrap_or_else(|| DEFAULT_ALBUM.into());
     let paths = Paths::new()?;
-    let Some(session) = session::restore(&paths, audio_cache(&paths)).await? else {
+    let Some(session) = session::restore(&paths).await? else {
         bail!("not signed in: start Spotless and sign in first");
     };
     let tracks = catalog::songs(&session, &album).await?.tracks;
@@ -44,6 +43,7 @@ async fn main() -> Result<()> {
     let (sender, mut events) = mpsc::unbounded_channel();
     let mut engine = Engine::new(
         &session,
+        Arc::new(SongCache::off()),
         0,
         false,
         Arc::default(),
@@ -124,9 +124,4 @@ async fn steady(events: &mut mpsc::UnboundedReceiver<EngineEvent>, status: Statu
         }
     }
     println!("  {}: stayed {status:?}", if kept { "OK" } else { "WRONG" });
-}
-
-/// The audio cache as the app's settings have it.
-fn audio_cache(paths: &Paths) -> AudioCache {
-    AudioCache::from(&Settings::load(paths))
 }

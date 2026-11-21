@@ -24,6 +24,7 @@ use tokio::sync::mpsc;
 #[cfg(target_os = "android")]
 use super::aaudio::AAudioSink;
 use super::audio_sink::AudioSink;
+use super::cache::SongCache;
 use super::flow::{Do, Flow, REPORTS_DUE};
 use super::link::AudioLink;
 use super::player::{Event, Player};
@@ -137,12 +138,13 @@ impl Engine {
     /// equaliser and feeds its analyser.
     pub fn new(
         session: &Session,
+        songs: Arc<SongCache>,
         volume: u16,
         levelling: bool,
         link: Arc<AudioLink>,
         notify: Notify,
     ) -> Result<Self> {
-        let audio = Arc::new(SpotifyAudio::new(session));
+        let audio = Arc::new(SpotifyAudio::new(session, songs));
         let (told, events) = mpsc::unbounded_channel();
         let on_error = {
             let notify = Arc::clone(&notify);

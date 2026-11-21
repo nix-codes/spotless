@@ -34,7 +34,13 @@ impl Paths {
         Ok(Self { config, cache })
     }
 
+    /// Songs kept once played (`playback::cache`).
     pub fn audio_cache(&self) -> PathBuf {
+        self.cache.join("songs")
+    }
+
+    /// Where librespot kept songs, before Spotless kept them itself.
+    pub fn old_audio_cache(&self) -> PathBuf {
         self.cache.join("audio")
     }
 
@@ -101,7 +107,7 @@ mod tests {
         let paths = Paths::from_dirs(root.join("files"), root.join("cache")).unwrap();
         assert!(root.join("files").is_dir() && root.join("cache").is_dir());
         assert_eq!(paths.settings(), root.join("files/settings.json"));
-        assert_eq!(paths.audio_cache(), root.join("cache/audio"));
+        assert_eq!(paths.audio_cache(), root.join("cache/songs"));
         let _ = std::fs::remove_dir_all(&root);
     }
 }

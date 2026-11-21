@@ -52,23 +52,15 @@ impl Default for AudioCache {
     }
 }
 
-/// The credential's cache, with the audio cache off or up to its size.
-fn open_cache(paths: &Paths, audio_cache: AudioCache) -> Result<Cache> {
-    let audio = paths.audio_cache();
-    Cache::new(
-        Some(paths.config.as_path()),
-        None,
-        audio_cache.on.then_some(audio.as_path()),
-        Some(audio_cache.mb * 1024 * 1024),
-    )
-    .context("unable to open the playback cache")
+/// The credential's cache. Songs are kept by the player, not librespot
+/// (`crate::playback::cache`).
+fn open_cache(paths: &Paths) -> Result<Cache> {
+    Cache::new(Some(paths.config.as_path()), None, None, None)
+        .context("unable to open the credential's cache")
 }
 
-fn new_session(paths: &Paths, audio_cache: AudioCache) -> Result<Session> {
-    Ok(Session::new(
-        SessionConfig::default(),
-        Some(open_cache(paths, audio_cache)?),
-    ))
+fn new_session(paths: &Paths) -> Result<Session> {
+    Ok(Session::new(SessionConfig::default(), Some(open_cache(paths)?)))
 }
 
 /// A session that isn't connected yet, with `config` and the saved
@@ -78,12 +70,8 @@ fn new_session(paths: &Paths, audio_cache: AudioCache) -> Result<Session> {
     not(feature = "probes"),
     allow(dead_code, reason = "only a probe uses it")
 )]
-pub fn unconnected(
-    paths: &Paths,
-    audio_cache: AudioCache,
-    config: SessionConfig,
-) -> Result<Option<(Session, Credentials)>> {
-    let cache = open_cache(paths, audio_cache)?;
+pub fn unconnected(paths: &Paths, config: SessionConfig) -> Result<Option<(Session, Credentials)>> {
+    let cache = open_cache(paths)?;
     let Some(credentials) = cache.credentials() else {
         return Ok(None);
     };
@@ -91,11 +79,11 @@ pub fn unconnected(
 }
 
 /// Reconnects with the saved credential, if there is one.
-pub async fn restore(paths: &Paths, audio_cache: AudioCache) -> Result<Option<Session>> {
-    let Some(credentials) = open_cache(paths, audio_cache)?.credentials() else {
+pub async fn restore(paths: &Paths) -> Result<Option<Session>> {
+    let Some(credentials) = open_cache(paths)?.credentials() else {
         return Ok(None);
     };
-    let session = new_session(paths, audio_cache)?;
+    let session = new_session(paths)?;
     session
         .connect(credentials, true)
         .await
@@ -113,7 +101,7 @@ pub fn refused(error: &anyhow::Error) -> bool {
 
 /// Opens Spotify's approval page, then connects and saves the reusable
 /// credential.
-pub async fn sign_in(paths: &Paths, audio_cache: AudioCache, browser: &Browser) -> Result<Session> {
+pub async fn sign_in(paths: &Paths, browser: &Browser) -> Result<Session> {
     let browser = Arc::clone(browser);
     let client = OAuthClientBuilder::new(CLIENT_ID, REDIRECT_URI, SCOPES.to_vec())
         .with_custom_message(&browser::oauth_message("Spotless is signed in."))
@@ -124,7 +112,7 @@ pub async fn sign_in(paths: &Paths, audio_cache: AudioCache, browser: &Browser) 
         .get_access_token_async()
         .await
         .map_err(|e| anyhow!("sign-in failed: {e}"))?;
-    let session = new_session(paths, audio_cache)?;
+    let session = new_session(paths)?;
     session
         .connect(Credentials::with_access_token(token.access_token), true)
         .await
