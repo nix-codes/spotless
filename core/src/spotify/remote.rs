@@ -30,6 +30,7 @@ use crate::paths::Paths;
 use crate::spotify::session::AudioCache;
 #[cfg(target_os = "android")]
 use crate::playback::aaudio::AAudioSink;
+use crate::playback::audio_sink::Librespot;
 use crate::playback::engine::Status;
 use crate::playback::link::AudioLink;
 use crate::playback::ErrorHook;
@@ -89,7 +90,6 @@ impl Remote {
         mixer.set_volume(volume);
         #[cfg(not(target_os = "android"))]
         let device = std::env::var("SPOTLESS_AUDIO_DEVICE").ok();
-        #[cfg(not(target_os = "android"))]
         let soft_volume = mixer.get_soft_volume();
         let on_error: ErrorHook = Box::new(|message| log::warn!("Spotify tab output: {message}"));
         let player = Player::new(
@@ -103,10 +103,13 @@ impl Remote {
             },
             session.clone(),
             mixer.get_soft_volume(),
-            #[cfg(not(target_os = "android"))]
-            move || Box::new(RodioSink::new(device, on_error, soft_volume, link)),
-            #[cfg(target_os = "android")]
-            move || Box::new(AAudioSink::new(on_error, link)),
+            move || {
+                #[cfg(not(target_os = "android"))]
+                let sink = RodioSink::new(device, on_error, link);
+                #[cfg(target_os = "android")]
+                let sink = AAudioSink::new(on_error, link);
+                Box::new(Librespot::new(sink, soft_volume))
+            },
         );
         let connect = ConnectConfig {
             name: "Spotless".into(),

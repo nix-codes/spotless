@@ -28,6 +28,7 @@ use librespot_playback::mixer::{self, MixerConfig};
 use librespot_playback::player::Player;
 use librespot_protocol::player::{PlayerState, ProvidedTrack};
 use spotless_core::paths::Paths;
+use spotless_core::playback::audio_sink::Librespot;
 use spotless_core::playback::sink::RodioSink;
 use spotless_core::spotify::catalog;
 
@@ -65,11 +66,13 @@ async fn main() -> Result<()> {
         session.clone(),
         mixer.get_soft_volume(),
         || {
-            Box::new(RodioSink::new(
-                None,
-                Box::new(|e| eprintln!("output: {e}")),
+            Box::new(Librespot::new(
+                RodioSink::new(
+                    None,
+                    Box::new(|e| eprintln!("output: {e}")),
+                    std::sync::Arc::default(),
+                ),
                 Box::new(librespot_playback::mixer::NoOpVolume),
-                std::sync::Arc::default(),
             ))
         },
     );

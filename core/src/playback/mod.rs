@@ -1,17 +1,43 @@
-//! Audio playback through librespot, outside Spotify Connect.
+//! Audio playback, outside Spotify Connect.
 
 internal! {
     #[cfg(target_os = "android")]
     mod aaudio;
     mod analyser;
+    mod audio_sink;
+    #[cfg_attr(
+        not(feature = "probes"),
+        allow(dead_code, reason = "until the engine plays through it, only a probe does")
+    )]
+    mod decoder;
     mod engine;
     mod equaliser;
+    #[cfg_attr(
+        not(feature = "probes"),
+        allow(dead_code, reason = "until the engine plays through it, only a probe does")
+    )]
+    mod levelling;
     mod link;
     mod outputs;
+    #[cfg_attr(
+        not(feature = "probes"),
+        allow(dead_code, reason = "until the engine plays through it, only a probe does")
+    )]
+    mod player;
     #[cfg(not(target_os = "android"))]
     mod sink;
+    #[cfg_attr(
+        not(feature = "probes"),
+        allow(dead_code, reason = "until the engine plays through it, only a probe does")
+    )]
+    mod source;
     mod transport;
 }
+
+/// The rate the player plays at, and outputs open at.
+pub(crate) const SAMPLE_RATE: u32 = 44_100;
+/// Stereo, interleaved.
+pub(crate) const CHANNELS: u16 = 2;
 
 /// Told why the output failed, in words for the status bar.
 pub(crate) type ErrorHook = Box<dyn Fn(String) + Send>;

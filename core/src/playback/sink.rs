@@ -1,13 +1,8 @@
-//! Audio output through rodio, without librespot's crashes. Android has
-//! its own (`super::aaudio`).
+//! Audio output through rodio. Android has its own (`super::aaudio`).
 //!
-//! librespot's own rodio sink opens the device when the player is made and
-//! panics if there is none, which kills the player thread. This one opens
-//! the device when playback starts. If there is no device, or the device
-//! stops taking audio, it reports why and returns an error, on which
-//! librespot pauses. Play tries the device again.
-//!
-//! librespot exits the process if `stop` fails, so `stop` never does.
+//! The device is opened when playback starts, not before. If there is no
+//! device, or the device stops taking audio, it reports why and returns an
+//! error, on which the player pauses. Play tries the device again.
 //!
 //! Where outputs are chosen by device (Windows, see `outputs.rs`), a new
 //! choice reopens the output on the next write, dropping the half second
@@ -25,15 +20,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait};
-use librespot_playback::audio_backend::{Sink, SinkError, SinkResult};
-use librespot_playback::convert::Converter;
-use librespot_playback::decoder::AudioPacket;
-use librespot_playback::mixer::VolumeGetter;
-use librespot_playback::{NUM_CHANNELS, SAMPLE_RATE};
-
 use super::equaliser::Processor;
 use super::link::AudioLink;
-use super::{ErrorHook, NO_DEVICE, STALLED};
+use super::audio_sink::{AudioSink, SinkError};
+use super::{CHANNELS, ErrorHook, NO_DEVICE, SAMPLE_RATE, STALLED};
 
 /// Queued chunks before `write` waits, about half a second of audio.
 const QUEUE_LIMIT: usize = 26;
@@ -51,8 +41,6 @@ pub struct RodioSink {
     on_error: ErrorHook,
     equaliser: Arc<Mutex<Processor>>,
     link: Arc<AudioLink>,
-    /// The volume the player turned the audio down by.
-    volume: Box<dyn VolumeGetter + Send>,
 }
 
 struct Output {
@@ -62,20 +50,14 @@ struct Output {
 
 impl RodioSink {
     /// Opens nothing yet: the device is opened by `start`.
-    pub fn new(
-        device: Option<String>,
-        on_error: ErrorHook,
-        volume: Box<dyn VolumeGetter + Send>,
-        link: Arc<AudioLink>,
-    ) -> Self {
+    pub fn new(device: Option<String>, on_error: ErrorHook, link: Arc<AudioLink>) -> Self {
         Self {
             device,
             output: None,
             opened: None,
             on_error,
-            equaliser: Arc::new(Mutex::new(Processor::new(SAMPLE_RATE, NUM_CHANNELS.into()))),
+            equaliser: Arc::new(Mutex::new(Processor::new(SAMPLE_RATE, CHANNELS.into()))),
             link,
-            volume,
         }
     }
 
@@ -83,7 +65,7 @@ impl RodioSink {
         log::error!("audio output: {detail}");
         self.output = None;
         (self.on_error)(message.to_string());
-        SinkError::ConnectionRefused(detail.to_string())
+        SinkError(detail.to_string())
     }
 
     /// Opens the testing device, else the chosen output, else (or if that
@@ -110,8 +92,8 @@ impl RodioSink {
     }
 }
 
-impl Sink for RodioSink {
-    fn start(&mut self) -> SinkResult<()> {
+impl AudioSink for RodioSink {
+    fn start(&mut self) -> Result<(), SinkError> {
         if (self.output.is_none() || self.rechosen())
             && let Err(error) = self.open()
         {
@@ -123,7 +105,7 @@ impl Sink for RodioSink {
         Ok(())
     }
 
-    fn stop(&mut self) -> SinkResult<()> {
+    fn stop(&mut self) {
         if let Some(output) = &self.output {
             let began = Instant::now();
             while !output.sink.empty() && began.elapsed() < DRAIN_LIMIT {
@@ -131,10 +113,9 @@ impl Sink for RodioSink {
             }
             output.sink.pause();
         }
-        Ok(())
     }
 
-    fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
+    fn write(&mut self, samples: Vec<f32>, volume: f32) -> Result<(), SinkError> {
         if self.rechosen() {
             log::info!("audio output: chosen anew, reopening");
             self.output = None;
@@ -143,21 +124,13 @@ impl Sink for RodioSink {
             }
         }
         let Some(output) = &self.output else {
-            return Err(SinkError::NotConnected("no audio output".into()));
+            return Err(SinkError("no audio output".into()));
         };
-        let samples = packet
-            .samples()
-            .map_err(|e| SinkError::OnWrite(e.to_string()))?;
-        let attenuation = self.volume.attenuation_factor() as f32;
         output.sink.append(Equalised {
-            samples: converter.f64_to_f32(samples),
+            samples,
             at: 0,
             equaliser: Some((Arc::clone(&self.equaliser), Arc::clone(&self.link))),
-            unattenuate: if attenuation > 0.001 {
-                attenuation.recip()
-            } else {
-                0.0
-            },
+            unattenuate: if volume > 0.001 { volume.recip() } else { 0.0 },
         });
         // Wait for room; a device that never drains has gone.
         let began = Instant::now();
@@ -210,7 +183,7 @@ impl rodio::Source for Equalised {
     }
 
     fn channels(&self) -> rodio::ChannelCount {
-        NUM_CHANNELS as rodio::ChannelCount
+        CHANNELS as rodio::ChannelCount
     }
 
     fn sample_rate(&self) -> rodio::SampleRate {
@@ -236,7 +209,7 @@ enum OpenError {
     Stream(#[from] rodio::StreamError),
 }
 
-/// As librespot opens it: stereo at 44.1 kHz if the device can, else its
+/// Stereo at 44.1 kHz if the device can, else its
 /// own rate (rodio resamples), else whatever it defaults to.
 fn open(device: Option<&str>) -> Result<Output, OpenError> {
     let host = cpal::default_host();
@@ -255,7 +228,7 @@ fn open(device: Option<&str>) -> Result<Output, OpenError> {
     let config = device
         .supported_output_configs()
         .ok()
-        .and_then(|mut configs| configs.find(|c| c.channels() == NUM_CHANNELS as u16))
+        .and_then(|mut configs| configs.find(|c| c.channels() == CHANNELS))
         .and_then(|c| {
             c.try_with_sample_rate(cpal::SampleRate(SAMPLE_RATE))
                 .or_else(|| c.try_with_sample_rate(default.sample_rate()))

@@ -23,17 +23,18 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow};
 use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
-use librespot_metadata::audio::{AudioItem, UniqueFields};
 use librespot_playback::config::{Bitrate, NormalisationType, PlayerConfig, VolumeCtrl};
 use librespot_playback::mixer::{self, Mixer, MixerConfig};
 use librespot_playback::player::{Player, PlayerEvent};
 
 #[cfg(target_os = "android")]
 use super::aaudio::AAudioSink;
+use super::audio_sink::Librespot;
 use super::link::AudioLink;
 #[cfg(not(target_os = "android"))]
 use super::sink::RodioSink;
 use crate::model::{EntryId, TrackRef};
+use crate::spotify::audio::track_info;
 
 /// Position reports come every second while a song plays (see
 /// `position_update_interval`); this one's beyond that.
@@ -441,7 +442,6 @@ fn start_player(
     // exist acts as a missing output.
     #[cfg(not(target_os = "android"))]
     let device = std::env::var("SPOTLESS_AUDIO_DEVICE").ok();
-    #[cfg(not(target_os = "android"))]
     let soft_volume = mixer.get_soft_volume();
     let on_error = {
         let notify = Arc::clone(notify);
@@ -467,10 +467,13 @@ fn start_player(
         config,
         session.clone(),
         mixer.get_soft_volume(),
-        #[cfg(not(target_os = "android"))]
-        move || Box::new(RodioSink::new(device, on_error, soft_volume, link)),
-        #[cfg(target_os = "android")]
-        move || Box::new(AAudioSink::new(on_error, link)),
+        move || {
+            #[cfg(not(target_os = "android"))]
+            let sink = RodioSink::new(device, on_error, link);
+            #[cfg(target_os = "android")]
+            let sink = AAudioSink::new(on_error, link);
+            Box::new(Librespot::new(sink, soft_volume))
+        },
     );
     // Subscribed before the first load, so its events are seen.
     let events = player.get_player_event_channel();
@@ -719,41 +722,6 @@ impl From<&TrackRef> for TrackInfo {
             duration_ms: track.duration_ms,
             cover_url: None,
         }
-    }
-}
-
-fn track_info(item: &AudioItem) -> TrackInfo {
-    let (artists, main_artist, album) = match &item.unique_fields {
-        UniqueFields::Track { artists, album, .. } => (
-            artists
-                .iter()
-                .map(|a| a.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", "),
-            artists.first().map(|a| a.name.clone()).unwrap_or_default(),
-            album.clone(),
-        ),
-        UniqueFields::Local { artists, album, .. } => {
-            let artists = artists.clone().unwrap_or_default();
-            (artists.clone(), artists, album.clone().unwrap_or_default())
-        }
-        UniqueFields::Episode { show_name, .. } => {
-            (show_name.clone(), show_name.clone(), String::new())
-        }
-    };
-    TrackInfo {
-        uri: item.uri.clone(),
-        title: item.name.clone(),
-        artists,
-        main_artist,
-        album,
-        duration_ms: item.duration_ms,
-        cover_url: item
-            .covers
-            .iter()
-            .find(|cover| cover.size == librespot_metadata::image::ImageSize::DEFAULT)
-            .or_else(|| item.covers.first())
-            .map(|cover| cover.url.clone()),
     }
 }
 

@@ -3,6 +3,11 @@
 //! tab's queue.
 
 internal! {
+    #[cfg_attr(
+        not(feature = "probes"),
+        allow(dead_code, reason = "until the engine plays through it, only a probe does")
+    )]
+    mod audio;
     mod catalog;
     mod code;
     mod devices;

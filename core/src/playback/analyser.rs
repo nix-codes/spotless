@@ -116,7 +116,7 @@ impl Analyser {
             right.extend_from_slice(&recent.right[..next]);
             (left, right)
         };
-        measure(&left, &right, librespot_playback::SAMPLE_RATE as f32)
+        measure(&left, &right, super::SAMPLE_RATE as f32)
     }
 }
 

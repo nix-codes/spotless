@@ -10,9 +10,7 @@
 
 use std::time::{Duration, Instant};
 
-use librespot_playback::audio_backend::Sink;
-use librespot_playback::convert::Converter;
-use librespot_playback::decoder::AudioPacket;
+use spotless_core::playback::audio_sink::AudioSink;
 use spotless_core::playback::sink::RodioSink;
 use spotless_core::playback::{AudioLink, outputs};
 
@@ -34,30 +32,27 @@ fn main() {
     let mut sink = RodioSink::new(
         None,
         Box::new(|message| println!("error: {message}")),
-        Box::new(librespot_playback::mixer::NoOpVolume),
         std::sync::Arc::clone(&link),
     );
-    let mut converter = Converter::new(None);
     sink.start().expect("the default output opens");
-    play_silence(&mut sink, &mut converter, Duration::from_secs(2));
+    play_silence(&mut sink, Duration::from_secs(2));
 
     println!("choosing {target}");
     outputs::choose(&link, Some(target));
-    play_silence(&mut sink, &mut converter, Duration::from_secs(2));
+    play_silence(&mut sink, Duration::from_secs(2));
 
     println!("back to the default");
     outputs::choose(&link, None);
-    play_silence(&mut sink, &mut converter, Duration::from_secs(2));
-    sink.stop().expect("stop never fails");
+    play_silence(&mut sink, Duration::from_secs(2));
+    sink.stop();
     println!("done");
 }
 
-/// About 20 ms of stereo silence at a time, as librespot writes it.
-fn play_silence(sink: &mut RodioSink, converter: &mut Converter, length: Duration) {
+/// About 20 ms of stereo silence at a time, as the player writes it.
+fn play_silence(sink: &mut RodioSink, length: Duration) {
     let began = Instant::now();
     while began.elapsed() < length {
-        let packet = AudioPacket::Samples(vec![0.0; 2 * 882]);
-        if let Err(error) = sink.write(packet, converter) {
+        if let Err(error) = sink.write(vec![0.0; 2 * 882], 1.0) {
             println!("write failed: {error}");
             return;
         }

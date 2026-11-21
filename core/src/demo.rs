@@ -197,7 +197,7 @@ pub fn sound() -> Vec<f32> {
         (5280.0, 0.008),
         (10_560.0, 0.004),
     ];
-    let rate = librespot_playback::SAMPLE_RATE as f32;
+    let rate = crate::playback::SAMPLE_RATE as f32;
     // The noise from a fixed seed, so the same moment always sounds the same.
     let mut seed: u32 = 0x5107_1e55;
     let mut noise = || {
