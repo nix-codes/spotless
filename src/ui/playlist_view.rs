@@ -17,6 +17,7 @@
 //! typed. ↑/↓ and Enter work from it; Esc closes it. Narrowed, songs aren't
 //! moved or sorted: where one would land among those hidden can't be seen.
 
+use crate::ui::keys;
 use egui::{
     Align, Id, Key, Layout, Modifiers, Rect, RichText, TextEdit, Ui, UiBuilder, pos2, vec2,
 };
@@ -348,7 +349,7 @@ fn sort_menu(ui: &mut Ui, view: &View, actions: &mut Actions) {
         ui.set_min_width(320.0);
         let mut item = |ui: &mut Ui, order: Order, name: &str, key: &str| {
             let name = RichText::new(name).monospace().size(11.0);
-            let key = RichText::new(key)
+            let key = RichText::new(keys::shown(key))
                 .monospace()
                 .size(10.0)
                 .color(view.palette.dim);

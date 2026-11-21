@@ -3,7 +3,8 @@
 //! [`global`] runs before the views draw and consumes the keys it handles,
 //! so a view never acts on them too. The views' own keys (moving through a
 //! playlist, the catalog's Back and Esc) stay in the views; [`HELP`] lists
-//! them all, so keep it in step with both.
+//! them all, so keep it in step with both. A key named anywhere (here, a
+//! tooltip, a key tag) is shown through [`shown`], for a Mac's names.
 
 use egui::{
     Align, Event, Id, InputState, Key, Layout, Modifiers, RichText, Sense, Stroke, Ui, vec2,
@@ -25,6 +26,10 @@ use spotless_core::session::SessionState;
 const SEEK_MS: i64 = 5_000;
 const FAR_SEEK_MS: i64 = 30_000;
 const VOLUME_STEP: u8 = 5;
+
+/// Tab and PgDn / PgUp step through the playlists and Browse's tabs with
+/// Ctrl, on a Mac too, where ⌘Tab switches apps.
+const TABS: Modifiers = Modifiers::CTRL;
 
 /// The F1 screen: sections of (keys, what they do). One binding a row,
 /// and a few words for each: the screen is read at a glance.
@@ -68,7 +73,14 @@ pub const HELP: &[(&str, &[(&str, &str)])] = &[
             ("F10", "Settings"),
             ("F1 or ?", "This list"),
             ("F1, held", "Each button's key, on it"),
-            ("Ctrl+Q", "Quit (closing only hides)"),
+            (
+                "Ctrl+Q",
+                if crate::tray::EXISTS {
+                    "Quit (closing only hides)"
+                } else {
+                    "Quit"
+                },
+            ),
         ],
     ),
     (
@@ -160,8 +172,8 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
                 show(BrowseTab::LastFm);
             }
             if view.browse.open {
-                let step = held(i, Modifiers::COMMAND, Key::PageDown) as isize
-                    - held(i, Modifiers::COMMAND, Key::PageUp) as isize;
+                let step =
+                    held(i, TABS, Key::PageDown) as isize - held(i, TABS, Key::PageUp) as isize;
                 if step != 0 {
                     show(browse_view::step_tab(view, step));
                 }
@@ -328,9 +340,8 @@ fn screens(i: &mut InputState, view: &View, inputs: &mut Inputs, actions: &mut A
         }
     };
     let at = lists.iter().position(|&id| id == current).unwrap_or(0);
-    let next = held(i, Modifiers::COMMAND, Key::Tab) + held(i, Modifiers::COMMAND, Key::PageDown);
-    let previous = held(i, Modifiers::COMMAND | Modifiers::SHIFT, Key::Tab)
-        + held(i, Modifiers::COMMAND, Key::PageUp);
+    let next = held(i, TABS, Key::Tab) + held(i, TABS, Key::PageDown);
+    let previous = held(i, TABS | Modifiers::SHIFT, Key::Tab) + held(i, TABS, Key::PageUp);
     let step = next as isize - previous as isize;
     if step != 0 {
         let to = (at as isize + step).rem_euclid(lists.len() as isize) as usize;
@@ -464,6 +475,33 @@ fn consume(i: &mut InputState, modifiers: Modifiers, key: Key, repeats: bool) ->
     count
 }
 
+/// The keys named in `text` as this computer's keyboard names them. The
+/// texts say Ctrl and Alt; on a Mac they are Cmd (⌘) and Option, except
+/// Ctrl with Tab and PgDn / PgUp ([`TABS`]), which is Ctrl there too.
+pub fn shown(text: &str) -> String {
+    if cfg!(target_os = "macos") {
+        for_mac(text)
+    } else {
+        text.to_owned()
+    }
+}
+
+fn for_mac(text: &str) -> String {
+    let text = text.replace("Alt+", "Option+");
+    let mut mac = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find("Ctrl") {
+        mac.push_str(&rest[..at]);
+        rest = &rest[at + "Ctrl".len()..];
+        let tabs = ["+Tab", "+Shift+Tab", "+PgDn", "+PgUp"]
+            .iter()
+            .any(|keys| rest.starts_with(keys));
+        mac.push_str(if tabs { "Ctrl" } else { "Cmd" });
+    }
+    mac.push_str(rest);
+    mac
+}
+
 const KEYS_WIDTH: f32 = 160.0;
 const WHAT_WIDTH: f32 = 215.0;
 /// Between a section's keys and what they do.
@@ -592,7 +630,11 @@ fn section(
                     .max_col_width(WHAT_WIDTH)
                     .show(ui, |ui| {
                         for (keys, what) in *keys {
-                            ui.label(RichText::new(*keys).monospace().color(palette.list_fg));
+                            ui.label(
+                                RichText::new(shown(keys))
+                                    .monospace()
+                                    .color(palette.list_fg),
+                            );
                             ui.label(RichText::new(*what).color(palette.chrome));
                             ui.end_row();
                         }
@@ -605,4 +647,28 @@ fn section(
         });
     theme::bevel(ui.painter(), frame.response.rect, false, palette);
     content
+}
+
+#[cfg(test)]
+mod tests {
+    use super::for_mac;
+
+    #[test]
+    fn a_mac_names_ctrl_cmd_and_alt_option() {
+        assert_eq!(for_mac("Ctrl+Shift+← / →"), "Cmd+Shift+← / →");
+        assert_eq!(
+            for_mac("Show the time left (Alt+T)"),
+            "Show the time left (Option+T)"
+        );
+        assert_eq!(for_mac("Ctrl-click: stop after"), "Cmd-click: stop after");
+        assert_eq!(for_mac("Also Ctrl + / − / 0"), "Also Cmd + / − / 0");
+        assert_eq!(for_mac("F1 or ?"), "F1 or ?");
+    }
+
+    #[test]
+    fn a_mac_keeps_ctrl_for_the_tabs() {
+        assert_eq!(for_mac("Ctrl+Shift+Tab"), "Ctrl+Shift+Tab");
+        assert_eq!(for_mac("Ctrl+PgDn / PgUp"), "Ctrl+PgDn / PgUp");
+        assert_eq!(for_mac("Ctrl+Tab, Ctrl+1 … 9"), "Ctrl+Tab, Cmd+1 … 9");
+    }
 }

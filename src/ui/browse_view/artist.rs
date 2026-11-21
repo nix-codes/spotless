@@ -1,6 +1,7 @@
 //! An artist's page: the releases, popular songs and similar artists,
 //! and ADD ALL.
 
+use crate::ui::keys;
 use egui::{InputState, Key, Modifiers, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
 
 use super::album::{album, cover, share, song};
@@ -79,7 +80,7 @@ pub(super) fn artist_page(
             let on = !similar && !popular && tab == browse.tab;
             let key = format!("Alt+{}", n + 1);
             if small_button(ui, &palette, &label, on)
-                .on_hover_text(&key)
+                .on_hover_text(keys::shown(&key))
                 .key_tag(&key)
                 .clicked()
             {
@@ -88,7 +89,9 @@ pub(super) fn artist_page(
         }
         if similar_tab
             && small_button(ui, &palette, "SIMILAR", similar)
-                .on_hover_text("Artists Last.fm's listeners play alongside this one (Alt+5)")
+                .on_hover_text(keys::shown(
+                    "Artists Last.fm's listeners play alongside this one (Alt+5)",
+                ))
                 .key_tag("Alt+5")
                 .clicked()
         {
@@ -96,7 +99,9 @@ pub(super) fn artist_page(
         }
         if !discography.popular.is_empty()
             && small_button(ui, &palette, "POPULAR", popular)
-                .on_hover_text("Its most played songs, as Spotify ranks them (Alt+6)")
+                .on_hover_text(keys::shown(
+                    "Its most played songs, as Spotify ranks them (Alt+6)",
+                ))
                 .key_tag("Alt+6")
                 .clicked()
         {
@@ -112,7 +117,7 @@ pub(super) fn artist_page(
             "OLDEST FIRST"
         };
         if small_button(ui, &palette, sort, false)
-            .on_hover_text("Oldest / newest first (Ctrl+S)")
+            .on_hover_text(keys::shown("Oldest / newest first (Ctrl+S)"))
             .key_tag("Ctrl+S")
             .clicked()
         {
@@ -126,7 +131,7 @@ pub(super) fn artist_page(
             "SHOW ALL SONGS"
         };
         if small_button(ui, &palette, label, false)
-            .on_hover_text("Show / hide every album's songs (Ctrl+E)")
+            .on_hover_text(keys::shown("Show / hide every album's songs (Ctrl+E)"))
             .key_tag("Ctrl+E")
             .clicked()
             || nav.expand_all

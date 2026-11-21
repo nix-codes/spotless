@@ -6,6 +6,7 @@
 //! Enter or Tab went into them; Tab and Shift+Tab go on through the options
 //! and back to the categories. Enter uses the framed option, Esc goes back.
 
+use crate::ui::keys;
 use egui::{
     Align, Align2, FontId, Id, Key, Layout, Rect, Response, RichText, Sense, Stroke, TextEdit, Ui,
     UiBuilder, pos2, vec2,
@@ -20,6 +21,7 @@ use crate::action::{
     Actions, BrowseAction, Desktop, LastFmAction, SettingsAction, SpotifyTabAction,
 };
 use crate::skin;
+use crate::tray;
 use crate::update::{self, Status};
 use spotless_core::browse::Loadable;
 use spotless_core::lastfm::LastFmStatus;
@@ -59,15 +61,28 @@ pub enum Category {
     About,
 }
 
-const CATEGORIES: [(Category, &str); 7] = [
-    (Category::Account, "Account"),
-    (Category::LastFm, "Last.fm"),
-    (Category::Playback, "Playback"),
-    (Category::Display, "Display"),
-    (Category::Window, "Window"),
-    (Category::Storage, "Storage"),
-    (Category::About, "About"),
-];
+/// Window holds only the tray's switch, so it's left out where Spotless
+/// has no tray (macOS).
+const CATEGORIES: &[(Category, &str)] = if tray::EXISTS {
+    &[
+        (Category::Account, "Account"),
+        (Category::LastFm, "Last.fm"),
+        (Category::Playback, "Playback"),
+        (Category::Display, "Display"),
+        (Category::Window, "Window"),
+        (Category::Storage, "Storage"),
+        (Category::About, "About"),
+    ]
+} else {
+    &[
+        (Category::Account, "Account"),
+        (Category::LastFm, "Last.fm"),
+        (Category::Playback, "Playback"),
+        (Category::Display, "Display"),
+        (Category::Storage, "Storage"),
+        (Category::About, "About"),
+    ]
+};
 
 /// The screen's state while it is open.
 pub struct Form {
@@ -300,7 +315,7 @@ pub fn draw(
 fn categories(ui: &mut Ui, rect: Rect, palette: &Palette, form: &mut Form) {
     theme::panel(ui.painter(), rect, palette);
     let mut top = rect.top() + 6.0;
-    for (category, name) in CATEGORIES {
+    for &(category, name) in CATEGORIES {
         let row = Rect::from_min_size(
             pos2(rect.left() + 3.0, top),
             vec2(rect.width() - 6.0, LIST_ROW),
@@ -778,7 +793,7 @@ impl Controls<'_, '_> {
                     ui.ctx().set_zoom_factor(z);
                 }
             });
-            note(ui, palette, "Also Ctrl + / − / 0, anywhere.");
+            note(ui, palette, &keys::shown("Also Ctrl + / − / 0, anywhere."));
         });
         row(ui, palette, "Pics", |ui| {
             let switch = toggle(ui, palette, self.view.browse.show_covers);
@@ -850,7 +865,7 @@ impl Controls<'_, '_> {
             } else {
                 "No panel shows tray icons here, so closing the window quits."
             };
-            note(ui, palette, text);
+            note(ui, palette, &keys::shown(text));
         });
     }
 

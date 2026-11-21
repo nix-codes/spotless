@@ -6,9 +6,13 @@
 //! hides Spotless here instead of quitting. Its clicks arrive as
 //! [`MediaEvent`](crate::media::MediaEvent)s, like the media keys.
 //!
-//! Elsewhere there is no tray yet, and closing the window quits.
+//! Elsewhere (macOS) there is no tray yet ([`EXISTS`]), and closing the
+//! window quits.
 
 use crate::media::EventHook;
+
+/// Spotless has a tray here: settings show its switch only then.
+pub const EXISTS: bool = cfg!(any(target_os = "linux", windows));
 
 /// What the tray shows.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

@@ -1,6 +1,7 @@
 //! The slim column: the playlist + ADD adds to, its ADD TO box and its
 //! keys.
 
+use crate::ui::keys;
 use egui::{
     Align2, FontId, Id, Key, Rect, RichText, ScrollArea, Sense, Stroke, StrokeKind, Ui, UiBuilder,
     pos2, vec2,
@@ -59,10 +60,10 @@ pub(super) fn slim_column(ui: &mut Ui, view: &View, nav: &mut Nav, actions: &mut
                     }
                 }
             });
-        let response = shown.response.on_hover_text(
+        let response = shown.response.on_hover_text(keys::shown(
             "The playlist + ADD adds to (Alt+↓ to choose; Ctrl+Tab / Ctrl+Shift+Tab, \
              Ctrl+1 … 9)",
-        );
+        ));
         if nav.on_box && nav.area == Area::Slim && nav.keyboard {
             theme::focus_ring(ui.painter(), response.rect.expand(3.0), &palette);
         }

@@ -74,7 +74,8 @@ pub fn sized_toggle(ui: &mut Ui, palette: &Palette, label: &str, on: bool) -> Re
 /// A button's tooltip, shown whether it's enabled or not (egui shows a
 /// disabled one's only through `on_disabled_hover_text`).
 pub fn tip(response: Response, text: &str) -> Response {
-    response.on_hover_text(text).on_disabled_hover_text(text)
+    let text = super::keys::shown(text);
+    response.on_hover_text(&text).on_disabled_hover_text(&text)
 }
 
 /// A right-click menu's Share, as the Spotify app's: true when its one
@@ -307,7 +308,8 @@ impl KeyTag for Response {
 
 fn paint_key_tag(ctx: &Context, palette: &Palette, button: Rect, key: &str) {
     let painter = ctx.layer_painter(LayerId::new(Order::Foreground, Id::new(KEY_TAGS)));
-    let galley = painter.layout_no_wrap(key.to_string(), FontId::monospace(9.0), palette.lcd);
+    let galley =
+        painter.layout_no_wrap(super::keys::shown(key), FontId::monospace(9.0), palette.lcd);
     let size = galley.size() + vec2(6.0, 2.0);
     let screen = ctx.content_rect();
     // Hanging from the button's lower edge, its label still readable.

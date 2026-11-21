@@ -607,7 +607,7 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
         if tip.is_empty() {
             response.clicked()
         } else {
-            response.on_hover_text(tip).clicked()
+            response.on_hover_text(keys::shown(tip)).clicked()
         }
     };
     if button(ui, "F10 · SETTINGS", "", "F10") {

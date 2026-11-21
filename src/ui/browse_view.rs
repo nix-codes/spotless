@@ -14,6 +14,7 @@
 //! field: what's typed in it narrows the results or the discography
 //! shown, and Esc closes it.
 
+use crate::ui::keys;
 use std::collections::BTreeSet;
 
 use egui::{
@@ -404,7 +405,12 @@ fn tabs(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
                 BrowseTab::Spotify => "F4",
                 BrowseTab::LastFm => "F5",
             };
-            if response.on_hover_text(key).key_tag(tag).clicked() && shown != tab {
+            if response
+                .on_hover_text(keys::shown(key))
+                .key_tag(tag)
+                .clicked()
+                && shown != tab
+            {
                 actions.push(BrowseAction::ShowBrowseTab(tab));
                 inputs.nav.area = match tab {
                     BrowseTab::Search | BrowseTab::LastFm => Area::Results,

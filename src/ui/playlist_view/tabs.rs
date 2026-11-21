@@ -1,6 +1,7 @@
 //! The tabs: one per open playlist, scrolled when they don't all fit,
 //! dragged to reorder and renamed in place; and the dialogs they open.
 
+use crate::ui::keys;
 use egui::{
     Align2, Color32, DragAndDrop, FontId, Id, Key, Modifiers, Rect, RichText, Sense, Stroke,
     TextEdit, Ui, UiBuilder, pos2, vec2,
@@ -216,7 +217,7 @@ pub(super) fn tab_bar(
             let plus = small_button(ui, &palette, "+", false);
             if !spotify_closed {
                 if plus
-                    .on_hover_text("New playlist (Ctrl+T)")
+                    .on_hover_text(keys::shown("New playlist (Ctrl+T)"))
                     .key_tag("Ctrl+T")
                     .clicked()
                 {
@@ -225,7 +226,7 @@ pub(super) fn tab_bar(
             } else {
                 egui::Popup::menu(&plus).show(|ui| {
                     if text_button(ui, &palette, "NEW PLAYLIST", false, true)
-                        .on_hover_text("Ctrl+T")
+                        .on_hover_text(keys::shown("Ctrl+T"))
                         .clicked()
                     {
                         actions.push(PlaylistsAction::NewPlaylist);

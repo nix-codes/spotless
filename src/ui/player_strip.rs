@@ -3,6 +3,7 @@
 //! across the strip and the buttons below. With a skin
 //! that has them, it is drawn from the skin's bitmaps (`skinned_strip`).
 
+use crate::ui::keys;
 use std::time::Duration;
 
 use egui::{
@@ -195,7 +196,7 @@ pub(super) fn time_clicked(ui: &Ui, rect: Rect, view: &View, actions: &mut Actio
     let response = ui.interact(rect, Id::new("time-display"), Sense::click());
     if response
         .on_hover_cursor(CursorIcon::PointingHand)
-        .on_hover_text(tip)
+        .on_hover_text(keys::shown(tip))
         .key_tag("Alt+T")
         .clicked()
     {
@@ -306,7 +307,9 @@ pub(super) fn held(ui: &Ui, view: &View, inputs: &mut Inputs) -> [bool; 2] {
 /// (Winamp's Stop after current).
 pub(super) fn stop_clicked(ui: &Ui, response: Response, actions: &mut Actions) {
     let stop = response
-        .on_hover_text("Stop (V). Ctrl-click: stop after this song (Shift+V)")
+        .on_hover_text(keys::shown(
+            "Stop (V). Ctrl-click: stop after this song (Shift+V)",
+        ))
         .key_tag("V")
         .clicked();
     if stop {
@@ -432,7 +435,11 @@ pub fn eject_clicked(
     } else {
         "Browse (Ctrl+B)"
     };
-    if response.on_hover_text(tip).key_tag("Ctrl+B").clicked() {
+    if response
+        .on_hover_text(keys::shown(tip))
+        .key_tag("Ctrl+B")
+        .clicked()
+    {
         super::browse_view::opening(view, inputs);
         actions.push(BrowseAction::ToggleBrowse);
     }
@@ -501,7 +508,11 @@ pub(super) fn eq_clicked(response: egui::Response, view: &View, actions: &mut Ac
     } else {
         "Show the equaliser (Alt+G)"
     };
-    if response.on_hover_text(tip).key_tag("Alt+G").clicked() {
+    if response
+        .on_hover_text(keys::shown(tip))
+        .key_tag("Alt+G")
+        .clicked()
+    {
         actions.push(ViewAction::ToggleEqualiser);
     }
 }
@@ -513,7 +524,11 @@ pub(super) fn vis_clicked(response: egui::Response, view: &View, actions: &mut A
     } else {
         "Show the deck: the music on a cassette, reels, a CD or a record, its spectrum and levels (Alt+V)"
     };
-    if response.on_hover_text(tip).key_tag("Alt+V").clicked() {
+    if response
+        .on_hover_text(keys::shown(tip))
+        .key_tag("Alt+V")
+        .clicked()
+    {
         actions.push(ViewAction::ToggleDeck);
     }
 }
