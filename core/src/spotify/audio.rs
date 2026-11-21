@@ -349,6 +349,7 @@ impl SpotifyAudio {
             size,
             bytes_per_second(song.format),
             head,
+            None,
             &self.cache.temporary_dir(),
             Box::new(move |file| {
                 let kept_file = file.seek(SeekFrom::Start(0)).and_then(|_| cache.put(&kept, &names, &record, file));

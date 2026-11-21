@@ -130,14 +130,17 @@ pub struct Progress {
 
 impl Downloading {
     /// Starts downloading a file of `size` bytes from `remote`, whose
-    /// `server` gave its first `head` bytes, into a file in `dir`. Must be
-    /// called on the tokio runtime, which the download runs on.
+    /// `server` gave its first `head` bytes, and its last `tail` ones if
+    /// asked for beside them, into a file in `dir`. Must be called on the
+    /// tokio runtime, which the download runs on.
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         remote: Arc<dyn Remote>,
         server: usize,
         size: usize,
         bytes_per_second: usize,
         head: Bytes,
+        tail: Option<Bytes>,
         dir: &std::path::Path,
         on_whole: OnWhole,
     ) -> io::Result<(Self, Progress)> {
@@ -145,9 +148,15 @@ impl Downloading {
         let mut write = tempfile::NamedTempFile::new_in(dir)?;
         write.as_file().set_len(size as u64)?;
         write.write_all(&head)?;
-        let read = write.reopen()?;
         let mut plan = Plan::new(size, bytes_per_second);
         plan.received(0..head.len().min(size));
+        if let Some(tail) = tail.filter(|tail| tail.len() <= size) {
+            let at = size - tail.len();
+            write.seek(SeekFrom::Start(at as u64))?;
+            write.write_all(&tail)?;
+            plan.received(at..size);
+        }
+        let read = write.reopen()?;
         let (commands, received) = mpsc::unbounded_channel();
         let shared = Arc::new(Shared {
             plan: Mutex::new(plan),

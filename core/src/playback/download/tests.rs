@@ -139,6 +139,15 @@ type Kept = Arc<StdMutex<Option<Vec<u8>>>>;
 /// Starts downloading the remote's file with its first part in, as a source
 /// opens it. Returns what's kept once it's whole.
 fn start(remote: &Arc<FakeRemote>, rate: usize) -> (Downloading, Progress, Kept) {
+    start_with(remote, rate, None)
+}
+
+/// The same, with the file's last `tail` bytes in too.
+fn start_with(
+    remote: &Arc<FakeRemote>,
+    rate: usize,
+    tail: Option<usize>,
+) -> (Downloading, Progress, Kept) {
     let kept: Kept = Arc::default();
     let on_whole = {
         let kept = Arc::clone(&kept);
@@ -156,6 +165,7 @@ fn start(remote: &Arc<FakeRemote>, rate: usize) -> (Downloading, Progress, Kept)
         remote.data.len(),
         rate,
         head,
+        tail.map(|tail| remote.data.slice(remote.data.len() - tail..)),
         &std::env::temp_dir(),
         on_whole,
     )
@@ -356,4 +366,39 @@ async fn a_stretch_slower_than_the_song_plays_is_asked_again() {
     assert_eq!(asked[0], (0, MINIMUM_PART..1_000_000));
     // From where the trickle got to.
     assert!(asked[1].1.start > MINIMUM_PART && asked[1].1.end == 1_000_000, "{asked:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_started_with_its_end_never_asks_for_it() {
+    let size = 1_000_000;
+    let remote = FakeRemote::stretching_on(size, Server::Good);
+    let (mut file, progress, kept) = start_with(&remote, 40 * 1024, Some(128 * 1024));
+    let end = tokio::task::spawn_blocking(move || {
+        // As the decoder probes a file's length from its last page.
+        file.seek(SeekFrom::Start((size - 65_307) as u64)).unwrap();
+        let mut end = Vec::new();
+        file.read_to_end(&mut end).unwrap();
+        (file, end)
+    })
+    .await
+    .unwrap();
+    let (mut file, end) = end;
+    assert_eq!(end, remote.data[size - 65_307..]);
+    let asked = remote.asked.lock().unwrap().clone();
+    assert!(asked.iter().all(|(_, r)| r.end <= size - 128 * 1024), "{asked:?}");
+
+    // Streamed, the rest comes in one stretch up to the end it has.
+    progress.stream();
+    let read = tokio::task::spawn_blocking(move || {
+        file.seek(SeekFrom::Start(0)).unwrap();
+        let mut all = Vec::new();
+        file.read_to_end(&mut all).unwrap();
+        all
+    })
+    .await
+    .unwrap();
+    assert_eq!(read, remote.data);
+    assert_eq!(kept_once_whole(&kept).await.as_deref(), Some(&remote.data[..]));
+    let asked = remote.asked.lock().unwrap();
+    assert_eq!(asked.as_slice(), [(0, MINIMUM_PART..size - 128 * 1024)]);
 }

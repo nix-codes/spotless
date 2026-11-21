@@ -33,6 +33,12 @@ use crate::playback::source::{Download, Kept, Media, OpenError, Opened, Source};
 
 /// How long the server has to give a file's first part.
 const FIRST_PART_TIME: Duration = Duration::from_secs(15);
+/// How much of an Ogg file's end is asked for beside its start: more than
+/// the largest page, the last of which gives its length.
+const TAIL: usize = 128 * 1024;
+/// How long the start waits for the end: past that, the end is fetched
+/// as the decoder reads it.
+const TAIL_TIME: Duration = Duration::from_secs(4);
 /// What a file is taken to stream at before it's decoded: 320 kbps.
 const BYTES_PER_SECOND: usize = 40 * 1024;
 
@@ -214,9 +220,24 @@ impl MegaAudio {
             client: self.api.downloads().clone(),
             url,
         });
-        let head = match tokio::time::timeout(FIRST_PART_TIME, server.first_part(size)).await {
-            Ok(Ok(head)) => head,
-            Ok(Err(fault)) => {
+        // An Ogg file's length is read from its last page: its end is asked
+        // for beside its start, as MEGA takes a second to answer each.
+        let tail = is_ogg(&record.name).then(|| size.saturating_sub(TAIL)..size);
+        let tail = tail.filter(|tail| tail.start > MINIMUM_PART);
+        let parts = async {
+            let tail = async {
+                // One slow to come is left for the download to fetch.
+                let range = tail?;
+                match tokio::time::timeout(TAIL_TIME, server.part(range)).await {
+                    Ok(Ok(tail)) => Some(tail),
+                    _ => None,
+                }
+            };
+            tokio::join!(server.part(0..MINIMUM_PART.min(size)), tail)
+        };
+        let (head, tail) = match tokio::time::timeout(FIRST_PART_TIME, parts).await {
+            Ok((Ok(head), tail)) => (head, tail),
+            Ok((Err(fault), _)) => {
                 log::error!("MEGA didn't give the start of {}: {fault}", record.name);
                 return Err(match fault {
                     Refusal::OverQuota => OpenError::OverQuota,
@@ -237,6 +258,7 @@ impl MegaAudio {
             size,
             BYTES_PER_SECOND,
             head,
+            tail,
             &self.cache.temporary_dir(),
             Box::new(move |file| {
                 let kept_file = file
@@ -253,6 +275,11 @@ impl MegaAudio {
             OpenError::Unavailable
         })
     }
+}
+
+fn is_ogg(name: &str) -> bool {
+    let name = name.to_lowercase();
+    name.ends_with(".ogg") || name.ends_with(".oga")
 }
 
 /// The file's name, which says its format, from its attributes.
@@ -306,11 +333,11 @@ struct Server {
 }
 
 impl Server {
-    /// The file's first part.
-    async fn first_part(&self, size: usize) -> Result<Bytes, Refusal> {
-        let response = self.request(0..MINIMUM_PART.min(size)).await?;
+    /// A part of the file, whole.
+    async fn part(&self, range: Range<usize>) -> Result<Bytes, Refusal> {
+        let wanted = range.len();
+        let mut response = self.request(range).await?;
         let mut data = BytesMut::new();
-        let mut response = response;
         while let Some(chunk) = response
             .chunk()
             .await
@@ -318,8 +345,8 @@ impl Server {
         {
             data.extend_from_slice(&chunk);
         }
-        if data.is_empty() || data.len() > size {
-            return Err(Refusal::Other("no data".into()));
+        if data.len() != wanted {
+            return Err(Refusal::Other(format!("{} bytes of {wanted}", data.len())));
         }
         Ok(data.freeze())
     }
