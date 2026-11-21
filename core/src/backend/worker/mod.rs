@@ -30,7 +30,7 @@ use super::{Command, Emit, Event, SessionState, Start};
 use crate::browser::Browser;
 use crate::lastfm::{self, Scrobbler};
 use crate::paths::Paths;
-use crate::playback::engine::{Engine, EngineEvent, PlayerSnapshot};
+use crate::playback::engine::{Engine, EngineEvent};
 use crate::playback::link::AudioLink;
 use crate::spotify::devices::{Playing, Watch};
 use crate::playback::cache::SongCache;
@@ -162,6 +162,7 @@ impl Worker {
                 })
             }),
         ));
+        self.start_engine();
         (self.emit)(Event::Session(SessionState::Connecting));
         self.retry.start();
         self.reconnect_if_needed().await;
@@ -223,7 +224,7 @@ impl Worker {
                 log::info!("reconnected");
                 self.retry.reset();
                 if let Some(engine) = &mut self.engine {
-                    engine.set_session(&session);
+                    engine.set_session(Some(&session));
                 }
                 self.watch(&session);
                 self.session = Some(session);
@@ -261,10 +262,11 @@ impl Worker {
         true
     }
 
-    /// Stops playing and lets the session go, then tells the interface why.
+    /// Lets the session go, stopping a Spotify song (one from elsewhere
+    /// plays on), then tells the interface why.
     fn drop_session(&mut self, why: SessionState) {
-        if let Some(engine) = self.engine.take() {
-            engine.stop();
+        if let Some(engine) = &mut self.engine {
+            engine.set_session(None);
         }
         self.unwatch();
         self.stop_remote();
@@ -272,7 +274,6 @@ impl Worker {
             session.shutdown();
         }
         self.retry.stop();
-        (self.emit)(Event::Player(PlayerSnapshot::default()));
         (self.emit)(Event::Session(why));
     }
 
@@ -328,11 +329,13 @@ impl Worker {
         self.elsewhere = None;
     }
 
-    fn ready(&mut self, session: Session) {
+    /// Builds the engine, with no session yet: songs from elsewhere than
+    /// Spotify play signed out too.
+    fn start_engine(&mut self) {
         let emit = Arc::clone(&self.emit);
         let scrobbler = self.scrobbler.clone();
         match Engine::new(
-            &session,
+            None,
             Arc::clone(&self.songs),
             self.volume,
             self.levelling,
@@ -353,18 +356,23 @@ impl Worker {
                 })
             }),
         ) {
-            Ok(engine) => {
-                (self.emit)(Event::Session(SessionState::Ready {
-                    user: session.username(),
-                }));
-                self.engine = Some(engine);
-                self.watch(&session);
-                self.start_remote();
-                self.session = Some(session);
-                self.retry.reset();
-            }
-            Err(error) => (self.emit)(Event::Session(SessionState::Failed(format!("{error:#}")))),
+            Ok(engine) => self.engine = Some(engine),
+            Err(error) => (self.emit)(Event::Error(format!("The player didn't start: {error:#}"))),
         }
+    }
+
+    /// Signed in to Spotify on `session`: the engine opens its songs on it.
+    fn ready(&mut self, session: Session) {
+        if let Some(engine) = &mut self.engine {
+            engine.set_session(Some(&session));
+        }
+        (self.emit)(Event::Session(SessionState::Ready {
+            user: session.username(),
+        }));
+        self.watch(&session);
+        self.start_remote();
+        self.session = Some(session);
+        self.retry.reset();
     }
 
     /// Opens the approval page and waits for it beside the commands. A

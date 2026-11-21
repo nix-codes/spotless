@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
 
     let (sender, mut events) = mpsc::unbounded_channel();
     let mut engine = Engine::new(
-        &old,
+        Some(&old),
         Arc::new(SongCache::off()),
         0,
         false,
@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
     let Some(new) = session::restore(&paths).await? else {
         bail!("signed out meanwhile");
     };
-    engine.set_session(&new);
+    engine.set_session(Some(&new));
     engine.follow(Some((EntryId(2), second.uri.clone())));
     let restarted = watch(&mut events, Duration::from_secs(6)).await;
     println!(

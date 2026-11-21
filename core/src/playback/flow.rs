@@ -26,6 +26,7 @@ pub const REPORTS_DUE: Duration = Duration::from_millis(1_500);
 const CUT_MARGIN_MS: u32 = 5_000;
 
 const UNAVAILABLE: &str = "This song can't be played.";
+const SIGNED_OUT: &str = "Sign in to Spotify to play its songs.";
 const KEY_REFUSED: &str = "Spotify didn't give this song's key just now. Try again in a moment.";
 const OVER_QUOTA: &str =
     "MEGA's download allowance for this connection is used up for now. Try again later.";
@@ -132,6 +133,17 @@ impl Flow {
         done
     }
 
+    /// No one is signed in to Spotify any more: a Spotify song stops, and
+    /// a song from elsewhere plays on.
+    pub fn signed_out(&mut self) -> Vec<Do> {
+        let spotify = self.uri.as_ref().is_some_and(SongUri::is_spotify);
+        if !spotify || self.snapshot.status == Status::Stopped {
+            return Vec::new();
+        }
+        log::info!("signed out: the Spotify song stops");
+        self.stop()
+    }
+
     /// Handles what the player told. `online`: whether the session is up.
     pub fn event(&mut self, event: Event, online: bool, now: Instant) -> Vec<Do> {
         // A late event of a song already replaced.
@@ -193,7 +205,10 @@ impl Flow {
                     done.push(Do::LetSessionGo);
                 }
                 // Told as they are: no other song would play just now.
-                if !matches!(error, OpenError::KeyRefused | OpenError::OverQuota) {
+                if !matches!(
+                    error,
+                    OpenError::KeyRefused | OpenError::OverQuota | OpenError::SignedOut
+                ) {
                     let offline = unreachable || !online;
                     log::info!("song unavailable, {}", if offline { "offline" } else { "online" });
                     done.push(Do::Tell(EngineEvent::Unavailable { offline }));
@@ -274,6 +289,7 @@ impl Flow {
                     match error {
                         OpenError::KeyRefused => KEY_REFUSED,
                         OpenError::OverQuota => OVER_QUOTA,
+                        OpenError::SignedOut => SIGNED_OUT,
                         OpenError::Unavailable | OpenError::Unreachable => UNAVAILABLE,
                     }
                     .into(),
@@ -567,6 +583,45 @@ mod tests {
         assert!(tells(&done).is_empty());
         assert_eq!(flow.snapshot().status, Status::Stopped);
         assert_eq!(flow.snapshot().error.as_deref(), Some(OVER_QUOTA));
+    }
+
+    #[test]
+    fn signed_out_a_spotify_song_stops_with_word_to_sign_in() {
+        let mut flow = Flow::default();
+        flow.load(&"spotify:track:a".into(), 0);
+        let failed = Event::Failed {
+            request: 1,
+            error: OpenError::SignedOut,
+        };
+        let done = flow.event(failed, false, Instant::now());
+        assert!(tells(&done).is_empty(), "not waited on offline");
+        assert_eq!(flow.snapshot().status, Status::Stopped);
+        assert_eq!(flow.snapshot().error.as_deref(), Some(SIGNED_OUT));
+    }
+
+    #[test]
+    fn signing_out_stops_a_spotify_song_and_lets_others_play_on() {
+        let now = Instant::now();
+        for (uri, stops) in [("spotify:track:a", true), ("mega:f:a#k", false)] {
+            let mut flow = Flow::default();
+            flow.load(&uri.into(), 0);
+            flow.follow(Some((entry(2), "spotify:track:b".into())));
+            flow.event(
+                Event::Playing {
+                    request: 1,
+                    position_ms: 0,
+                },
+                true,
+                now,
+            );
+            let done = flow.signed_out();
+            assert_eq!(done == [Do::Stop], stops, "{uri}");
+            assert_eq!(done.is_empty(), !stops, "{uri}");
+        }
+        // Stopped already, there's nothing to stop.
+        let mut flow = Flow::default();
+        flow.load(&"spotify:track:a".into(), 0);
+        assert!(flow.signed_out().is_empty());
     }
 
     #[test]

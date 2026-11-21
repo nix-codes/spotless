@@ -44,7 +44,10 @@ async fn main() -> Result<()> {
     let (told, mut events) = mpsc::unbounded_channel();
     let link = Arc::<AudioLink>::default();
     let player = Player::new(
-        Arc::new(SpotifyAudio::new(&session, Arc::new(SongCache::off()))),
+        Arc::new(SpotifyAudio::new(
+            Some(&session),
+            Arc::new(SongCache::off()),
+        )),
         Box::new(move || {
             Box::new(RodioSink::new(
                 None,

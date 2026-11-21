@@ -8,11 +8,11 @@ use super::{
     Act, Area, FIND_ID, Nav, ROW_HEIGHT, SEARCH_ID, TRACK_HEIGHT, body, mono, note, row, section,
     spans,
 };
-use crate::action::{Actions, BrowseAction};
+use crate::action::{Actions, BrowseAction, SettingsAction};
 use crate::ui::widgets::{BUTTON_HEIGHT, KeyTag, field, text_button, text_button_width};
 use crate::ui::{Inputs, View};
 use spotless_core::browse::{Loadable, Page};
-use spotless_core::session::SearchState;
+use spotless_core::session::{SearchState, SessionState};
 
 pub(super) fn search_bar(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
@@ -174,6 +174,9 @@ pub(super) fn home(
     set_up: &mut bool,
     actions: &mut Actions,
 ) {
+    if !signed_in(view) {
+        return sign_in_prompt(ui, view, "to search it", actions);
+    }
     if !search_prompt(ui, view, set_up) {
         note(ui, view, "Type an artist, album or song and press Enter.");
     }
@@ -202,6 +205,28 @@ pub(super) fn home(
         for artist in &view.browse.recent {
             artist_row(ui, view, nav, artist, None, actions);
         }
+    }
+}
+
+/// Signed in to Spotify: what Browse reads from it can be.
+pub(super) fn signed_in(view: &View) -> bool {
+    matches!(view.session, SessionState::Ready { .. })
+}
+
+/// What Spotify's part of Browse says signed out: sign in `for_what`, and
+/// that a MEGA folder's link opens all the same.
+pub(super) fn sign_in_prompt(ui: &mut Ui, view: &View, for_what: &str, actions: &mut Actions) {
+    note(
+        ui,
+        view,
+        &format!(
+            "Sign in to Spotify {for_what}. A MEGA folder's link pasted (Ctrl+V) opens \
+             signed out too."
+        ),
+    );
+    ui.add_space(6.0);
+    if text_button(ui, &view.palette, "SIGN IN WITH SPOTIFY", false, true).clicked() {
+        actions.push(SettingsAction::SignIn);
     }
 }
 
@@ -245,6 +270,9 @@ pub(super) fn search_page(
     set_up: &mut bool,
     actions: &mut Actions,
 ) {
+    if !signed_in(view) {
+        return sign_in_prompt(ui, view, "to search it", actions);
+    }
     if search_prompt(ui, view, set_up) {
         return;
     }

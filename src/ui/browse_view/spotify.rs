@@ -41,6 +41,9 @@ const LIST_ROW: f32 = 20.0;
 pub(super) fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
     let full = ui.available_rect_before_wrap();
+    if !super::search::signed_in(view) {
+        return super::search::sign_in_prompt(ui, view, "to see your playlists", actions);
+    }
     let playlists = match &view.browse.spotify_playlists {
         Some(Loadable::Ready(playlists)) => playlists.as_slice(),
         Some(Loadable::Failed(error)) => return note(ui, view, error),

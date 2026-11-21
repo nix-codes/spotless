@@ -24,6 +24,8 @@ pub enum OpenError {
     /// This connection used up its allowance of MEGA's traffic: MEGA's
     /// songs play again once it's given more.
     OverQuota,
+    /// A Spotify song, with no one signed in to Spotify.
+    SignedOut,
 }
 
 /// A song opened to play.

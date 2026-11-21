@@ -313,9 +313,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
 
     // With PL off the window is the player alone, unless Browse, the
     // settings, the keys or a question needs the room.
-    let ready = matches!(view.session, SessionState::Ready { .. });
-    let collapsed = ready
-        && !view.settings.playlists
+    let collapsed = !view.settings.playlists
         && !view.browse.open
         && inputs.settings.is_none()
         && !inputs.help
@@ -344,7 +342,7 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
     }
     let screen = if settings_open {
         "S E T T I N G S"
-    } else if ready && view.browse.open {
+    } else if view.browse.open {
         "B R O W S E"
     } else {
         "P L A Y L I S T S"
@@ -382,18 +380,14 @@ pub fn draw(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
         inputs.tab = 0;
         return;
     }
-    if ready && view.browse.open {
+    if view.browse.open {
         browse_view::draw(ui, body, view, inputs, actions);
         status_bar(ui, status, view, inputs, actions);
         inputs.tab = 0;
         return;
     }
     theme::panel(ui.painter(), body, &palette);
-    let padding = if matches!(view.session, SessionState::Ready { .. }) {
-        8.0
-    } else {
-        16.0
-    };
+    let padding = if sign_in_shown(view) { 16.0 } else { 8.0 };
     ui.scope_builder(UiBuilder::new().max_rect(body.shrink(padding)), |ui| {
         body_contents(ui, view, inputs, actions);
     });
@@ -529,23 +523,30 @@ fn title_bar(ui: &Ui, rect: Rect, palette: &Palette, label: &str) {
     );
 }
 
+/// No one is signed in to Spotify (connecting is still signed in): its
+/// songs don't play.
+pub(super) fn signed_out(view: &View) -> bool {
+    matches!(
+        view.session,
+        SessionState::SignedOut | SessionState::SigningIn | SessionState::Failed(_)
+    )
+}
+
+/// Signed out with no songs anywhere, as at the first start, the playlists
+/// show how to sign in, or to play from a MEGA folder.
+fn sign_in_shown(view: &View) -> bool {
+    signed_out(view) && view.library.playlists().iter().all(|list| list.is_empty())
+}
+
 fn body_contents(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
+    if !sign_in_shown(view) {
+        return playlist_view::draw(ui, view, inputs, actions);
+    }
     let palette = view.palette;
     let heading = |text: &str| RichText::new(text).size(15.0).color(palette.current);
     let dim = |text: &str| RichText::new(text).color(palette.dim);
     ui.spacing_mut().item_spacing = vec2(8.0, 10.0);
     match view.session {
-        SessionState::Connecting => {
-            ui.label(dim("Connecting to Spotify…"));
-        }
-        SessionState::SignedOut => {
-            ui.label(heading("Sign in to play"));
-            ui.label(dim("Spotless plays through your Spotify Premium account. \
-                 Your browser opens for Spotify's approval."));
-            if text_button(ui, &palette, "SIGN IN WITH SPOTIFY", false, true).clicked() {
-                actions.push(SettingsAction::SignIn);
-            }
-        }
         SessionState::SigningIn => {
             ui.label(heading("Waiting for your browser"));
             ui.label(dim(
@@ -563,8 +564,18 @@ fn body_contents(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Ac
                 actions.push(SettingsAction::SignIn);
             }
         }
-        SessionState::Ready { .. } => playlist_view::draw(ui, view, inputs, actions),
+        _ => {
+            ui.label(heading("Sign in to play"));
+            ui.label(dim("Spotless plays through your Spotify Premium account. \
+                 Your browser opens for Spotify's approval."));
+            if text_button(ui, &palette, "SIGN IN WITH SPOTIFY", false, true).clicked() {
+                actions.push(SettingsAction::SignIn);
+            }
+        }
     }
+    ui.label(dim(
+        "Or paste a MEGA folder's link (Ctrl+V) to play from it, with no account.",
+    ));
 }
 
 fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
@@ -586,7 +597,9 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
             match view.session {
                 SessionState::Ready { user } => format!("Signed in as {user}"),
                 SessionState::Connecting => "Connecting…".into(),
-                _ => "Not signed in".into(),
+                SessionState::SigningIn => "Waiting for Spotify's approval in your browser".into(),
+                SessionState::Failed(message) => format!("Couldn't connect: {message}"),
+                SessionState::SignedOut => "Not signed in to Spotify".into(),
             },
             palette.dim,
         ),
@@ -618,6 +631,23 @@ fn status_bar(ui: &mut Ui, rect: Rect, view: &View, inputs: &mut Inputs, actions
     }
     if undo_shown(view) && button(ui, "UNDO", "Puts it back as it was (Ctrl+Z)", "Ctrl+Z") {
         undo(view, actions);
+    }
+    // Signed out with the playlists showing, signing in is here.
+    let sign_in = match view.session {
+        SessionState::SignedOut => Some("SIGN IN"),
+        SessionState::SigningIn => Some("OPEN THE PAGE AGAIN"),
+        SessionState::Failed(_) => Some("SIGN IN AGAIN"),
+        SessionState::Ready { .. } | SessionState::Connecting => None,
+    };
+    if let Some(label) = sign_in.filter(|_| !sign_in_shown(view))
+        && button(
+            ui,
+            label,
+            "Signs in to Spotify: your browser opens for its approval",
+            "",
+        )
+    {
+        actions.push(SettingsAction::SignIn);
     }
     if let Some(label) = update_view::status_label(view)
         && button(ui, &label, "", "")

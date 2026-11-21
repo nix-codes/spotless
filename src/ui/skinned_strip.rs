@@ -23,7 +23,6 @@ use super::{Inputs, View, theme};
 use crate::action::{Action, Actions, PlaybackAction};
 use crate::skin::format::{Role, State};
 use spotless_core::playback::Status;
-use spotless_core::session::SessionState;
 
 /// Gaps, in image pixels: between groups of controls, between the
 /// display's two lines, and between the rows.
@@ -527,7 +526,6 @@ fn seek_bar(
     actions: &mut Actions,
 ) {
     let painter = ui.painter().clone();
-    let ready = matches!(view.session, SessionState::Ready { .. });
     let player = view.player;
     let duration = player.track.as_ref().map_or(0, |t| t.duration_ms) as f32 / 1000.0;
     let length = length(view);
@@ -553,7 +551,7 @@ fn seek_bar(
     .round_to_pixels(ui.pixels_per_point());
     paint.paint(&painter, "seek.track", State::Normal, track, unit);
 
-    let enabled = ready && duration > 0.0 && player.status != Status::Stopped;
+    let enabled = duration > 0.0 && player.status != Status::Stopped;
     let sense = if enabled {
         Sense::click_and_drag()
     } else {
@@ -604,7 +602,6 @@ pub fn buttons_row(
     actions: &mut Actions,
 ) {
     let painter = ui.painter().clone();
-    let ready = matches!(view.session, SessionState::Ready { .. });
     let mut x = rect.left();
     let mut place = |name: &str, gap_before: f32| {
         let size = paint.size(name, unit).unwrap_or_default();
@@ -622,7 +619,7 @@ pub fn buttons_row(
             "stop" => view.stop_after,
             _ => false,
         });
-        let mut response = button(ui, &painter, paint, at, unit, name, state, label, ready);
+        let mut response = button(ui, &painter, paint, at, unit, name, state, label, true);
         if !tip.is_empty() {
             response = response.on_hover_text(tip);
         }
@@ -646,7 +643,7 @@ pub fn buttons_row(
     let at = place("eject", GAP);
     let state = toggle_state(view.browse.open);
     let response = button(
-        ui, &painter, paint, at, unit, "eject", state, "Browse", ready,
+        ui, &painter, paint, at, unit, "eject", state, "Browse", true,
     );
     eject_clicked(response, view, inputs, actions);
     let at = place("shuffle", GAP);

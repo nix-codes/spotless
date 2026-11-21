@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
 
     let (sender, mut events) = mpsc::unbounded_channel();
     let mut engine = Engine::new(
-        &session,
+        Some(&session),
         Arc::new(SongCache::off()),
         0,
         false,
@@ -87,7 +87,7 @@ async fn main() -> Result<()> {
     println!("\nnetwork back: a new session, and the song again");
     proxy.restore();
     session = connect(&paths, &proxy).await?;
-    engine.set_session(&session);
+    engine.set_session(Some(&session));
     engine.load(&second.uri, 0);
     watch(&mut events, Duration::from_secs(5)).await;
 
@@ -107,7 +107,7 @@ async fn main() -> Result<()> {
     proxy.unstall();
     session.shutdown();
     session = connect(&paths, &proxy).await?;
-    engine.set_session(&session);
+    engine.set_session(Some(&session));
     let seen = watch(&mut events, Duration::from_secs(8)).await;
     println!(
         "  {}",
@@ -143,7 +143,7 @@ async fn main() -> Result<()> {
     proxy.restore();
     proxy.slow.store(false, Ordering::SeqCst);
     session = connect(&paths, &proxy).await?;
-    engine.set_session(&session);
+    engine.set_session(Some(&session));
     engine.load(&third.uri, seen.cut.unwrap_or_default());
     watch(&mut events, Duration::from_secs(5)).await;
 

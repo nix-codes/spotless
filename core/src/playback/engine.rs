@@ -10,7 +10,8 @@
 //! the end of one.
 //!
 //! Each song opens through the source its URI names ([`Sources`]): Spotify's
-//! on the session, MEGA's with no account. A new session, for one that dropped, opens them from
+//! on the session, MEGA's with no account. The engine is there from the start, signed in
+//! or not: a new session, on signing in or for one that dropped, opens Spotify's songs from
 //! then on, and the playing song plays on with the audio it has.
 
 use std::sync::{Arc, Mutex, Weak};
@@ -128,7 +129,8 @@ struct Shared {
     /// Taken only when the engine is let go.
     player: Option<Player>,
     sources: Arc<Sources>,
-    session: Mutex<Session>,
+    /// None while no one is signed in to Spotify.
+    session: Mutex<Option<Session>>,
     flow: Mutex<Flow>,
     notify: Notify,
 }
@@ -138,7 +140,7 @@ impl Engine {
     /// player's events are followed there. Its output applies `link`'s
     /// equaliser and feeds its analyser.
     pub fn new(
-        session: &Session,
+        session: Option<&Session>,
         songs: Arc<SongCache>,
         volume: u16,
         levelling: bool,
@@ -176,7 +178,7 @@ impl Engine {
         let shared = Arc::new(Shared {
             player: Some(player),
             sources,
-            session: Mutex::new(session.clone()),
+            session: Mutex::new(session.cloned()),
             flow: Mutex::default(),
             notify,
         });
@@ -189,12 +191,17 @@ impl Engine {
         self.shared.player().set_levelling(on);
     }
 
-    /// Opens songs on a new session, for one that dropped. A playing song
-    /// plays on with the audio it has, until it ends.
-    pub fn set_session(&mut self, session: &Session) {
+    /// Opens Spotify's songs on a new session: on signing in, or for one
+    /// that dropped. A playing song plays on with the audio it has, until
+    /// it ends. With None, signed out, a Spotify song stops and the rest
+    /// play on.
+    pub fn set_session(&mut self, session: Option<&Session>) {
         self.shared.sources.spotify.set_session(session);
-        *lock(&self.shared.session) = session.clone();
-        let done = lock(&self.shared.flow).session_changed(Instant::now());
+        *lock(&self.shared.session) = session.cloned();
+        let done = match session {
+            Some(_) => lock(&self.shared.flow).session_changed(Instant::now()),
+            None => lock(&self.shared.flow).signed_out(),
+        };
         self.shared.carry_out(done);
     }
 
@@ -275,8 +282,9 @@ impl Shared {
                 Do::Preload { uri, again } => self.player().preload(&uri, again),
                 Do::Stop => self.player().stop(),
                 Do::LetSessionGo => {
-                    let session = lock(&self.session);
-                    if !session.is_invalid() {
+                    if let Some(session) = lock(&self.session).as_ref()
+                        && !session.is_invalid()
+                    {
                         session.shutdown();
                     }
                 }
@@ -303,7 +311,7 @@ async fn follow(shared: Weak<Shared>, mut events: mpsc::UnboundedReceiver<Event>
         let Some(shared) = shared.upgrade() else {
             break;
         };
-        let online = !lock(&shared.session).is_invalid();
+        let online = (lock(&shared.session).as_ref()).is_some_and(|session| !session.is_invalid());
         let done = lock(&shared.flow).event(event, online, Instant::now());
         shared.carry_out(done);
     }

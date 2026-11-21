@@ -346,13 +346,24 @@ impl Controller {
         theirs
     }
 
+    /// The transport's song is a Spotify song.
+    fn spotify_song_current(&self) -> bool {
+        let state = &self.state;
+        (state.transport.current(&state.library)).is_some_and(|entry| entry.track.uri.is_spotify())
+    }
+
     fn session_changed(&mut self, session: SessionState) {
         self.state.error = None;
-        // The engine is gone with the session. Before a song is loaded (as
-        // at the start) there is nothing to stop, and where Play goes on
-        // from is kept.
-        if !matches!(session, SessionState::Ready { .. }) && self.state.transport.active() {
+        // Signed out, a Spotify song stops (the engine stops it), or one
+        // waiting offline; a song from elsewhere plays on. Before a song is
+        // loaded (as at the start) there is nothing to stop, and where Play
+        // goes on from is kept.
+        if !matches!(session, SessionState::Ready { .. })
+            && self.state.transport.active()
+            && (self.state.offline || self.spotify_song_current())
+        {
             self.state.transport.stop(&mut self.state.library);
+            self.state.offline = false;
             self.state.player = PlayerSnapshot::default();
         }
         let ready = matches!(session, SessionState::Ready { .. });

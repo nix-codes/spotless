@@ -21,7 +21,6 @@ use crate::action::{
 use spotless_core::lastfm::LastFmStatus;
 use spotless_core::model::{EntryId, PlaylistId};
 use spotless_core::playback::{Status, TrackInfo};
-use spotless_core::session::SessionState;
 
 pub const HEIGHT: f32 = 122.0;
 /// The LCD and the song's display beside it, with the volume row below.
@@ -388,16 +387,12 @@ pub(super) fn time_shown(ui: &Ui, view: &View) -> bool {
 }
 
 /// The song's display: the artist and the song while one plays, or the
-/// one Play would start while stopped, else blank, unless not being
-/// signed in is why nothing can.
+/// one Play would start while stopped, else blank.
 pub(super) fn now_lines(view: &View) -> (String, String) {
     match (&view.player.track, view.player.status) {
         (_, Status::Loading) => ("Loading…".to_string(), String::new()),
         (Some(track), _) => (track.artists.clone(), track.title.clone()),
-        _ => match view.session {
-            SessionState::Ready { .. } => (String::new(), String::new()),
-            _ => ("Not signed in".into(), String::new()),
-        },
+        _ => (String::new(), String::new()),
     }
 }
 
@@ -569,14 +564,13 @@ fn info_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions
 /// Seek, across the strip, with the song's length at its end.
 fn seek_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
-    let ready = matches!(view.session, SessionState::Ready { .. });
     let player = view.player;
     let duration = player.track.as_ref().map_or(0, |t| t.duration_ms) as f32 / 1000.0;
     ui.spacing_mut().slider_width = (ui.available_width() - 50.0).max(60.0);
     let mut position = inputs
         .seeking
         .unwrap_or(player.position_now() as f32 / 1000.0);
-    let enabled = ready && duration > 0.0 && player.status != Status::Stopped;
+    let enabled = duration > 0.0 && player.status != Status::Stopped;
     let response = ui.add_enabled(
         enabled,
         Slider::new(&mut position, 0.0..=duration.max(1.0)).show_value(false),
@@ -610,9 +604,8 @@ pub(super) const REPEAT_TIP: &str = "Repeat on / off (R)";
 
 fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) {
     let palette = view.palette;
-    let ready = matches!(view.session, SessionState::Ready { .. });
     ui.spacing_mut().item_spacing.x = 4.0;
-    if glyph_button(ui, &palette, Glyph::Previous, ready)
+    if glyph_button(ui, &palette, Glyph::Previous, true)
         .on_hover_text(PREVIOUS_TIP)
         .key_tag("Z")
         .clicked()
@@ -620,7 +613,7 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
         actions.push(PlaybackAction::Previous);
     }
     let [playing, paused] = held(ui, view, inputs);
-    let play = glyph_toggle(ui, &palette, Glyph::Play, playing, ready)
+    let play = glyph_toggle(ui, &palette, Glyph::Play, playing, true)
         .on_hover_text(PLAY_TIP)
         .key_tag("Space");
     follow_press(
@@ -631,7 +624,7 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
         inputs,
         actions,
     );
-    let pause = glyph_toggle(ui, &palette, Glyph::Pause, paused, ready)
+    let pause = glyph_toggle(ui, &palette, Glyph::Pause, paused, true)
         .on_hover_text(PAUSE_TIP)
         .key_tag("Space");
     follow_press(
@@ -642,9 +635,9 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
         inputs,
         actions,
     );
-    let stop = glyph_toggle(ui, &palette, Glyph::Stop, view.stop_after, ready);
+    let stop = glyph_toggle(ui, &palette, Glyph::Stop, view.stop_after, true);
     stop_clicked(ui, stop, actions);
-    if glyph_button(ui, &palette, Glyph::Next, ready)
+    if glyph_button(ui, &palette, Glyph::Next, true)
         .on_hover_text(NEXT_TIP)
         .key_tag("B")
         .clicked()
@@ -652,7 +645,7 @@ fn buttons_row(ui: &mut Ui, view: &View, inputs: &mut Inputs, actions: &mut Acti
         actions.push(PlaybackAction::Next);
     }
     ui.add_space(6.0);
-    let eject = glyph_toggle(ui, &palette, Glyph::Eject, view.browse.open, ready);
+    let eject = glyph_toggle(ui, &palette, Glyph::Eject, view.browse.open, true);
     eject_clicked(eject, view, inputs, actions);
     ui.add_space(6.0);
     if glyph_toggle(ui, &palette, Glyph::Shuffle, view.shuffle, true)

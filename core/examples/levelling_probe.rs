@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
 
     let (sender, mut events) = mpsc::unbounded_channel();
     let mut engine = Engine::new(
-        &session,
+        Some(&session),
         Arc::new(SongCache::off()),
         0,
         false,

@@ -20,7 +20,6 @@ use crate::action::{
 use spotless_core::browse::BrowseTab;
 use spotless_core::model::{Order, PlaylistId};
 use spotless_core::playback::Status;
-use spotless_core::session::SessionState;
 
 /// Ctrl+← and →; with Shift too, the far step.
 const SEEK_MS: i64 = 5_000;
@@ -151,48 +150,45 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
     // finds in it); F4: YOUR SPOTIFY, in the field
     // that finds a playlist; F5: LAST.FM, while it's there. In Browse,
     // Ctrl+PgDn and PgUp: the next and previous tab.
-    if matches!(view.session, SessionState::Ready { .. }) {
-        let mut find_here = false;
-        ui.input_mut(|i| {
-            let mut show = |tab: BrowseTab| {
-                actions.push(BrowseAction::ShowBrowseTab(tab));
-                browse_view::focus_tab(tab, inputs);
-            };
-            if take(i, Modifiers::COMMAND, Key::F) {
-                if view.browse.open || view.playlist.id == PlaylistId::SPOTIFY {
-                    show(BrowseTab::Search);
-                } else {
-                    find_here = true;
-                }
-            }
-            if take(i, Modifiers::NONE, Key::F3) {
+    let mut find_here = false;
+    ui.input_mut(|i| {
+        let mut show = |tab: BrowseTab| {
+            actions.push(BrowseAction::ShowBrowseTab(tab));
+            browse_view::focus_tab(tab, inputs);
+        };
+        if take(i, Modifiers::COMMAND, Key::F) {
+            if view.browse.open || view.playlist.id == PlaylistId::SPOTIFY {
                 show(BrowseTab::Search);
+            } else {
+                find_here = true;
             }
-            if take(i, Modifiers::NONE, Key::F4) {
-                show(BrowseTab::Spotify);
+        }
+        if take(i, Modifiers::NONE, Key::F3) {
+            show(BrowseTab::Search);
+        }
+        if take(i, Modifiers::NONE, Key::F4) {
+            show(BrowseTab::Spotify);
+        }
+        if browse_view::lastfm_shown(view) && take(i, Modifiers::NONE, Key::F5) {
+            show(BrowseTab::LastFm);
+        }
+        if view.browse.open {
+            let step = held(i, TABS, Key::PageDown) as isize - held(i, TABS, Key::PageUp) as isize;
+            if step != 0 {
+                show(browse_view::step_tab(view, step));
             }
-            if browse_view::lastfm_shown(view) && take(i, Modifiers::NONE, Key::F5) {
-                show(BrowseTab::LastFm);
-            }
-            if view.browse.open {
-                let step =
-                    held(i, TABS, Key::PageDown) as isize - held(i, TABS, Key::PageUp) as isize;
-                if step != 0 {
-                    show(browse_view::step_tab(view, step));
-                }
-            }
+        }
+    });
+    if find_here {
+        inputs.selection.open_find();
+    }
+    // Alt+↓ or ↑: Browse's ADD TO list, from a field too.
+    let add_to = view.browse.open
+        && ui.input_mut(|i| {
+            take(i, Modifiers::ALT, Key::ArrowDown) | take(i, Modifiers::ALT, Key::ArrowUp)
         });
-        if find_here {
-            inputs.selection.open_find();
-        }
-        // Alt+↓ or ↑: Browse's ADD TO list, from a field too.
-        let add_to = view.browse.open
-            && ui.input_mut(|i| {
-                take(i, Modifiers::ALT, Key::ArrowDown) | take(i, Modifiers::ALT, Key::ArrowUp)
-            });
-        if add_to {
-            browse_view::toggle_box(ui, inputs);
-        }
+    if add_to {
+        browse_view::toggle_box(ui, inputs);
     }
     // Typing in a field: the other keys belong to it.
     if ctx.text_edit_focused() {
@@ -218,10 +214,8 @@ pub fn global(ui: &Ui, view: &View, inputs: &mut Inputs, actions: &mut Actions) 
             }
             return;
         }
-        if matches!(view.session, SessionState::Ready { .. }) {
-            playback(i, view, inputs, actions);
-            screens(i, view, inputs, actions);
-        }
+        playback(i, view, inputs, actions);
+        screens(i, view, inputs, actions);
     });
 }
 

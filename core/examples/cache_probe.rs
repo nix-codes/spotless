@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
     let dir = std::env::temp_dir().join(format!("spotless-cache-probe-{}", std::process::id()));
     let cache = || Arc::new(SongCache::new(dir.clone(), 1024 * 1024 * 1024));
 
-    let first = SpotifyAudio::new(&session, cache());
+    let first = SpotifyAudio::new(Some(&session), cache());
     let uri = SongUri::from(song.clone());
     let check = dir.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
         if shut {
             session.shutdown();
         }
-        let source = SpotifyAudio::new(&session, cache());
+        let source = SpotifyAudio::new(Some(&session), cache());
         let uri = SongUri::from(song.clone());
         tokio::task::spawn_blocking(move || -> Result<()> {
             log::info!(

@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
         .context("the album has no songs")?;
     println!("{} ({} s)", song.title, song.duration_ms / 1000);
 
-    let source = SpotifyAudio::new(&session, Arc::new(SongCache::off()));
+    let source = SpotifyAudio::new(Some(&session), Arc::new(SongCache::off()));
     let uri = song.uri.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
         let began = Instant::now();

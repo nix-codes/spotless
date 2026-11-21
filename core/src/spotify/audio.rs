@@ -63,9 +63,10 @@ const AUDIO_IV: [u8; 16] = [
 /// How long a server has to give a file's first part.
 const FIRST_PART_TIME: Duration = Duration::from_secs(10);
 
-/// Opens songs on the session, which a reconnect replaces.
+/// Opens songs on the session, which a reconnect replaces. With none,
+/// signed out, they don't open.
 pub struct SpotifyAudio {
-    session: Mutex<Session>,
+    session: Mutex<Option<Session>>,
     runtime: tokio::runtime::Handle,
     cache: Arc<SongCache>,
     /// The servers' hosts that stopped sending, or sent too slowly, on this
@@ -75,25 +76,26 @@ pub struct SpotifyAudio {
 
 impl SpotifyAudio {
     /// Must be called on the tokio runtime, which opening runs on.
-    pub fn new(session: &Session, cache: Arc<SongCache>) -> Self {
+    pub fn new(session: Option<&Session>, cache: Arc<SongCache>) -> Self {
         Self {
-            session: Mutex::new(session.clone()),
+            session: Mutex::new(session.cloned()),
             runtime: tokio::runtime::Handle::current(),
             cache,
             given_out: Arc::default(),
         }
     }
 
-    /// Songs open on `session` from now on.
-    pub fn set_session(&self, session: &Session) {
-        *lock(&self.session) = session.clone();
+    /// Songs open on `session` from now on; on none, signed out, they
+    /// don't.
+    pub fn set_session(&self, session: Option<&Session>) {
+        *lock(&self.session) = session.cloned();
         lock(&self.given_out).clear();
     }
 }
 
 impl Source for SpotifyAudio {
     fn open(&self, uri: &SongUri) -> Result<Opened, OpenError> {
-        let session = lock(&self.session).clone();
+        let session = lock(&self.session).clone().ok_or(OpenError::SignedOut)?;
         self.runtime.block_on(self.open_on(&session, uri.as_str()))
     }
 }

@@ -82,3 +82,40 @@ fn a_read_answered_after_signing_out_is_not_kept() {
     rig.tell(Event::Session(SessionState::Ready { user: "bob".into() }));
     assert_eq!(spotify_playlists(&rig), None, "signed in as Bob");
 }
+
+#[test]
+fn signing_out_stops_a_spotify_song_but_a_mega_song_plays_on() {
+    for (uri, stops) in [("spotify:track:1", true), ("mega:F:a#K", false)] {
+        let mut rig = Rig::new("sign-out-playing");
+        rig.tell(Event::Session(SessionState::Ready {
+            user: "alice".into(),
+        }));
+        let mut track = entry(1).track;
+        track.uri = uri.into();
+        rig.controller.apply(BrowseAction::AddTracks(vec![track]));
+        let state = rig.controller.state();
+        let (list, song) = (state.viewed, state.library.get(state.viewed).unwrap().entries()[0].id);
+        rig.controller.apply(PlaybackAction::PlayEntry(list, song));
+        assert!(rig.controller.state().transport.active());
+        rig.sent();
+
+        rig.tell(Event::Session(SessionState::SignedOut));
+        assert_eq!(!rig.controller.state().transport.active(), stops, "{uri}");
+    }
+}
+
+#[test]
+fn signed_out_songs_still_play() {
+    let mut rig = Rig::new("signed-out-plays");
+    rig.tell(Event::Session(SessionState::SignedOut));
+    let mut track = entry(1).track;
+    track.uri = "mega:F:a#K".into();
+    rig.controller.apply(BrowseAction::AddTracks(vec![track]));
+    let state = rig.controller.state();
+    let (list, song) = (state.viewed, state.library.get(state.viewed).unwrap().entries()[0].id);
+    rig.controller.apply(PlaybackAction::PlayEntry(list, song));
+    assert!(
+        (rig.sent().iter()).any(|c| matches!(c, Command::Player(Request::Load { .. }))),
+        "the song is asked for"
+    );
+}

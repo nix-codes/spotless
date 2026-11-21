@@ -462,8 +462,11 @@ fn paint_row(
     let palette = view.palette;
     let indent = if under { UNDER_INDENT } else { 0.0 };
     let entry = &list.entries()[index];
+    // Signed out, Spotify's songs don't play: dim.
     let color = if Some(entry.id) == current {
         palette.current
+    } else if entry.track.uri.is_spotify() && crate::ui::signed_out(view) {
+        palette.dim
     } else {
         palette.list_fg
     };
