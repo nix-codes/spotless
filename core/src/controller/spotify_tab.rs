@@ -167,7 +167,7 @@ impl Controller {
             PlaybackAction::PlayEntry(PlaylistId::SPOTIFY, row) => {
                 match state.spotify.as_ref()?.row(row)? {
                     Row::Now(_) => SpotifyRequest::PlayHere(None),
-                    Row::Next(song) => SpotifyRequest::PlayHere(Some(song.track.uri.clone())),
+                    Row::Next(song) => SpotifyRequest::PlayHere(Some(song.track.uri.to_string())),
                     Row::Before(_) => return None,
                 }
             }
@@ -229,7 +229,7 @@ impl Controller {
                 let songs = rows
                     .iter()
                     .filter_map(|&id| match queue.row(id) {
-                        Some(Row::Next(song)) => Some((song.index, song.track.uri.clone())),
+                        Some(Row::Next(song)) => Some((song.index, song.track.uri.to_string())),
                         _ => None,
                     })
                     .collect();
@@ -274,11 +274,18 @@ impl Controller {
             ));
             return false;
         }
-        self.state.notice = Some(match tracks.len() {
+        // Spotify takes only its own songs.
+        let uris: Vec<String> = (tracks.into_iter())
+            .filter(|track| track.uri.is_spotify())
+            .map(|track| track.uri.into())
+            .collect();
+        if uris.is_empty() {
+            return false;
+        }
+        self.state.notice = Some(match uris.len() {
             1 => "Added 1 song to Spotify's queue".to_string(),
             n => format!("Added {n} songs to Spotify's queue"),
         });
-        let uris = tracks.into_iter().map(|track| track.uri).collect();
         self.send(Command::Spotify(SpotifyRequest::Add(uris)));
         true
     }

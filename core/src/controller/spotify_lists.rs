@@ -65,7 +65,7 @@ impl Controller {
         }
         let songs: Vec<(Place, String)> = rows
             .iter()
-            .map(|&row| (places[row], tracks[row].uri.clone()))
+            .map(|&row| (places[row], tracks[row].uri.to_string()))
             .collect();
         for &row in rows.iter().rev() {
             tracks.remove(row);
@@ -203,8 +203,8 @@ impl Controller {
         }
         let songs: Vec<String> = tracks
             .into_iter()
-            .map(|track| track.uri)
-            .filter(|uri| uri.starts_with("spotify:track:"))
+            .filter(|track| track.uri.is_spotify())
+            .map(|track| track.uri.into())
             .collect();
         if songs.is_empty() {
             return;

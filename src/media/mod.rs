@@ -65,7 +65,7 @@ impl NowPlaying {
         let track = player.track.as_ref();
         Self {
             status: player.status,
-            uri: track.map(|t| t.uri.clone()).unwrap_or_default(),
+            uri: track.map(|t| t.uri.to_string()).unwrap_or_default(),
             title: track.map(|t| t.title.clone()).unwrap_or_default(),
             artists: track
                 .map(|t| t.artists.split(", ").map(String::from).collect())

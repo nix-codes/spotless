@@ -145,8 +145,8 @@ impl SpotifyQueue {
             let at = now
                 .iter()
                 .filter(free)
-                .find(|song| song.index == *index && song.track.uri == *uri)
-                .or_else(|| now.iter().filter(free).find(|song| song.track.uri == *uri))
+                .find(|song| song.index == *index && song.track.uri.as_str() == uri)
+                .or_else(|| now.iter().filter(free).find(|song| song.track.uri.as_str() == uri))
                 .map(|song| song.index);
             if let Some(at) = at {
                 found.push((at, uri.clone()));
@@ -246,7 +246,7 @@ mod tests {
 
     fn track(name: &str) -> TrackRef {
         TrackRef {
-            uri: format!("spotify:track:{name}"),
+            uri: format!("spotify:track:{name}").into(),
             title: name.into(),
             artists: Vec::new(),
             album: AlbumRef {

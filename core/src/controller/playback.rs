@@ -188,6 +188,9 @@ impl Controller {
 
     /// Inserts `track` after the target playlist's current song and plays it.
     fn play_now(&mut self, track: TrackRef, position: u32) -> Vec<Request> {
+        if !self.takes_songs(self.state.browse.target, std::slice::from_ref(&track)) {
+            return Vec::new();
+        }
         let state = &mut self.state;
         let target = state.browse.target;
         let entry = state.library.entry(track);

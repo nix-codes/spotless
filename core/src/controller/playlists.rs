@@ -150,6 +150,9 @@ impl Controller {
         if playlist == PlaylistId::SPOTIFY {
             return self.queue_tracks(tracks);
         }
+        if !self.takes_songs(playlist, &tracks) {
+            return false;
+        }
         let state = &mut self.state;
         let entries: Vec<_> = tracks
             .into_iter()

@@ -123,7 +123,7 @@ impl Controller {
             local: list
                 .entries()
                 .iter()
-                .map(|entry| (entry.id, entry.item.clone(), entry.track.uri.clone()))
+                .map(|entry| (entry.id, entry.item.clone(), entry.track.uri.to_string()))
                 .collect(),
             rename: renamed.then(|| list.name.clone()),
             position,
@@ -453,6 +453,22 @@ impl Controller {
     /// Starts syncing playlist `id`, or stops. Started, it makes no
     /// playlist when the Spotless folder has one by its name, unless told
     /// to `replace` it.
+    /// Whether `tracks` can go into playlist `id`: a synced playlist takes
+    /// only Spotify's songs, as Spotify does. Says why not.
+    pub(super) fn takes_songs(&mut self, id: PlaylistId, tracks: &[TrackRef]) -> bool {
+        let Some(list) = self.state.library.get(id) else {
+            return true;
+        };
+        if list.sync.is_none() || tracks.iter().all(|track| track.uri.is_spotify()) {
+            return true;
+        }
+        self.state.error = Some(format!(
+            "{} is synced with Spotify, which takes only its own songs.",
+            list.name
+        ));
+        false
+    }
+
     pub(super) fn set_sync(&mut self, id: PlaylistId, on: bool, replace: bool) {
         self.state.sync_name_taken = None;
         let Some(list) = self.state.library.get(id) else {
@@ -491,6 +507,20 @@ impl Controller {
         }
         if !signed_in {
             self.state.error = Some("Sign in to sync a playlist.".into());
+            return;
+        }
+        let others = (list.entries().iter())
+            .filter(|entry| !entry.track.uri.is_spotify())
+            .count();
+        if others > 0 {
+            let songs = match others {
+                1 => "a song".to_string(),
+                n => format!("{n} songs"),
+            };
+            self.state.error = Some(format!(
+                "{} has {songs} not from Spotify, so it can't be synced: Spotify takes only its own songs.",
+                list.name
+            ));
             return;
         }
         let name = list.name.clone();
@@ -590,7 +620,7 @@ fn saved_now() -> u64 {
 /// of the other devices' lists.
 fn unavailable(uri: &str) -> TrackRef {
     TrackRef {
-        uri: uri.to_string(),
+        uri: uri.into(),
         title: "Unavailable song".into(),
         artists: Vec::new(),
         album: AlbumRef {

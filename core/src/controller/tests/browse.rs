@@ -92,7 +92,7 @@ fn albums_added_together_arrive_together_in_their_order_whenever_read() {
     let viewed = rig.controller.state().viewed;
     let uris = |rig: &Rig| -> Vec<String> {
         let list = rig.controller.state().library.get(viewed).unwrap();
-        list.entries().iter().map(|e| e.track.uri.clone()).collect()
+        list.entries().iter().map(|e| e.track.uri.to_string()).collect()
     };
     let before = uris(&rig);
     let albums = ["spotify:album:a", "spotify:album:b", "spotify:album:c"];
@@ -112,7 +112,7 @@ fn albums_added_together_arrive_together_in_their_order_whenever_read() {
         album: albums[0].into(),
         result: Ok(songs(tracks([1, 2]))),
     });
-    let added: Vec<String> = tracks([1, 2, 5, 6]).into_iter().map(|t| t.uri).collect();
+    let added: Vec<String> = tracks([1, 2, 5, 6]).into_iter().map(|t| t.uri.into()).collect();
     assert_eq!(uris(&rig)[before.len()..], added);
     assert_eq!(
         rig.controller.state().error.as_deref(),

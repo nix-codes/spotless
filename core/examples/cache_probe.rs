@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow, bail};
+use spotless_core::model::SongUri;
 use spotless_core::paths::Paths;
 use spotless_core::playback::cache::SongCache;
 use spotless_core::playback::source::Source;
@@ -39,7 +40,7 @@ async fn main() -> Result<()> {
     let cache = || Arc::new(SongCache::new(dir.clone(), 1024 * 1024 * 1024));
 
     let first = SpotifyAudio::new(&session, cache());
-    let uri = song.clone();
+    let uri = SongUri::from(song.clone());
     let check = dir.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
         log::info!("1. not kept: opening");
@@ -74,7 +75,7 @@ async fn main() -> Result<()> {
             session.shutdown();
         }
         let source = SpotifyAudio::new(&session, cache());
-        let uri = song.clone();
+        let uri = SongUri::from(song.clone());
         tokio::task::spawn_blocking(move || -> Result<()> {
             log::info!(
                 "{step}. kept{}: opening",

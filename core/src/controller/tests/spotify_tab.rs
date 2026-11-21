@@ -38,7 +38,7 @@ fn enter_on_a_song_to_come_plays_the_queue_here_from_it() {
     };
     assert_eq!(play(&mut rig, 0), []);
     assert_eq!(play(&mut rig, 1), [None]);
-    assert_eq!(play(&mut rig, 2), [Some(entry(8).track.uri)]);
+    assert_eq!(play(&mut rig, 2), [Some(entry(8).track.uri.to_string())]);
 }
 
 #[test]
@@ -360,7 +360,7 @@ fn a_local_song_keeps_the_player_paused_until_the_queue_plays_again() {
     rig.tell(Event::Player(local(Status::Paused)));
     let state = rig.controller.state();
     assert!(!state.spotify_playing());
-    assert_eq!(state.now_playing().track.unwrap().uri, "spotify:track:1");
+    assert_eq!(state.now_playing().track.unwrap().uri.as_str(), "spotify:track:1");
     // Play on the player goes on with it, rather than the queue.
     rig.controller.apply(PlaybackAction::Play);
     assert!(
@@ -440,7 +440,7 @@ fn songs_to_come_move_out_of_the_queue_only_while_spotless_has_it() {
     })));
     assert_eq!(
         move_rows(&mut rig, vec![1]),
-        [vec![(0, entry(8).track.uri)]]
+        [vec![(0, entry(8).track.uri.to_string())]]
     );
     rig.tell(Event::Spotify(Some(SpotifyQueue {
         device: Some("Spotless".into()),
@@ -452,7 +452,7 @@ fn songs_to_come_move_out_of_the_queue_only_while_spotless_has_it() {
     assert_eq!(move_rows(&mut rig, vec![0, 1]), Vec::<Vec<_>>::new());
     assert_eq!(
         move_rows(&mut rig, vec![1]),
-        [vec![(0, entry(8).track.uri)]]
+        [vec![(0, entry(8).track.uri.to_string())]]
     );
     assert_eq!(titles(&rig, PlaylistId::DEFAULT), ["Song 8", "Song 8"]);
     assert_eq!(

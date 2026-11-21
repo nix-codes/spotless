@@ -540,3 +540,49 @@ fn a_change_from_another_device_ends_the_undo() {
     });
     assert!(!rig.controller.state().can_undo_reorder());
 }
+
+/// Song `n`, as from a source other than Spotify.
+fn not_spotify(n: u64) -> TrackRef {
+    TrackRef {
+        uri: format!("mega:folder:{n}#key").into(),
+        ..entry(n).track
+    }
+}
+
+#[test]
+fn a_playlist_with_songs_not_from_spotify_isnt_synced() {
+    let mut rig = Rig::new("sync-not-spotify");
+    ready(&mut rig);
+    let mut songs = tracks([1]);
+    songs.push(not_spotify(2));
+    rig.controller.apply(PlaylistsAction::NewPlaylistWith(songs));
+    let list = rig.controller.state().viewed;
+    rig.sent();
+    rig.controller.apply(SyncAction::SetSync(list, true));
+    let state = rig.controller.state();
+    assert!(state.library.get(list).unwrap().sync.is_none());
+    assert!(state.error.as_deref().unwrap().contains("a song not from Spotify"));
+    assert!(!rig.sent().iter().any(|c| matches!(c, Command::CreateSynced { .. })));
+}
+
+#[test]
+fn a_synced_playlist_takes_no_songs_not_from_spotify() {
+    let mut rig = Rig::new("sync-takes-spotify");
+    let list = synced_gym(&mut rig);
+    let mut songs = tracks([3]);
+    songs.push(not_spotify(4));
+    rig.controller.apply(PlaylistsAction::CopyTo(list, songs));
+    rig.controller.apply(BrowseAction::SetTarget(list));
+    rig.controller
+        .apply(PlaybackAction::PlayNow(not_spotify(5)));
+    assert_eq!(titles(&rig, list), titles_of([1, 2]));
+    let error = rig.controller.state().error.clone().unwrap();
+    assert!(error.contains("synced with Spotify"), "{error}");
+    // Spotify's own songs still go in.
+    rig.controller.apply(PlaylistsAction::CopyTo(list, tracks([3])));
+    assert_eq!(titles(&rig, list), titles_of([1, 2, 3]));
+}
+
+fn titles_of(ids: impl IntoIterator<Item = u64>) -> Vec<String> {
+    tracks(ids).into_iter().map(|track| track.title).collect()
+}

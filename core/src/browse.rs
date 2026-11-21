@@ -430,7 +430,7 @@ impl Browse {
         }
         (self.albums.values())
             .find_map(|songs| match songs {
-                Loadable::Ready(songs) => songs.iter().find(|song| song.uri == code.uri),
+                Loadable::Ready(songs) => songs.iter().find(|song| song.uri.as_str() == code.uri),
                 _ => None,
             })
             .map(|song| song.title.as_str())

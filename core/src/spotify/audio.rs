@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use symphonia::core::io::MediaSource;
 use symphonia::core::probe::Hint;
 
+use crate::model::SongUri;
 use crate::playback::cache::SongCache;
 use crate::playback::decoder::Decoder;
 use crate::playback::decrypt::Decrypt;
@@ -92,9 +93,9 @@ impl SpotifyAudio {
 }
 
 impl Source for SpotifyAudio {
-    fn open(&self, uri: &str) -> Result<Opened, OpenError> {
+    fn open(&self, uri: &SongUri) -> Result<Opened, OpenError> {
         let session = lock(&self.session).clone();
-        self.runtime.block_on(self.open_on(&session, uri))
+        self.runtime.block_on(self.open_on(&session, uri.as_str()))
     }
 }
 
@@ -131,7 +132,7 @@ impl Resolved {
         let d = &self.details;
         let record = Record {
             format: format!("{:?}", self.format),
-            uri: d.uri.clone(),
+            uri: d.uri.to_string(),
             title: d.title.clone(),
             artists: d.artists.clone(),
             main_artist: d.main_artist.clone(),
@@ -149,7 +150,7 @@ impl Resolved {
         let file_id = FileId::from_raw(&from_base16(key.strip_prefix("spotify/")?)?);
         Some(Self {
             details: TrackInfo {
-                uri: record.uri,
+                uri: record.uri.into(),
                 title: record.title,
                 artists: record.artists,
                 main_artist: record.main_artist,
@@ -338,8 +339,8 @@ impl SpotifyAudio {
         let kept = song.key();
         let record = song.record();
         let mut names = vec![asked.to_string()];
-        if song.details.uri != asked {
-            names.push(song.details.uri.clone());
+        if song.details.uri.as_str() != asked {
+            names.push(song.details.uri.to_string());
         }
         let (file, progress) = Downloading::start(
             remote,
@@ -652,7 +653,7 @@ pub(crate) fn track_info(item: &AudioItem) -> TrackInfo {
         }
     };
     TrackInfo {
-        uri: item.uri.clone(),
+        uri: item.uri.as_str().into(),
         title: item.name.clone(),
         artists,
         main_artist,

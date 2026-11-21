@@ -13,6 +13,7 @@ mod order;
 pub(crate) use order::Snapshot;
 pub use order::{Order, SortHeaders};
 
+use super::song::SongUri;
 use super::sync::{ItemId, Link, Position};
 
 /// Unique for the app's lifetime and persisted, so the same song added twice
@@ -69,7 +70,7 @@ impl Source {
 /// Enough to draw a row without asking Spotify.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrackRef {
-    pub uri: String,
+    pub uri: SongUri,
     pub title: String,
     pub artists: Vec<ArtistRef>,
     pub album: AlbumRef,
@@ -433,7 +434,7 @@ pub(crate) mod tests {
         Entry {
             id: EntryId(id),
             track: TrackRef {
-                uri: format!("spotify:track:{id}"),
+                uri: format!("spotify:track:{id}").into(),
                 title: format!("Song {id}"),
                 artists: vec![],
                 album: AlbumRef {

@@ -303,7 +303,7 @@ impl Worker {
             {
                 let mut to_come = self.connect.queue.parts.iter().flat_map(|part| &part.songs);
                 match to_come.next() {
-                    Some(first) => SpotifyRequest::PlayHere(Some(first.track.uri.clone())),
+                    Some(first) => SpotifyRequest::PlayHere(Some(first.track.uri.to_string())),
                     None => return,
                 }
             }
@@ -429,10 +429,10 @@ impl Worker {
                 .queue
                 .now
                 .as_ref()
-                .is_none_or(|now| now.uri != *song)
+                .is_none_or(|now| now.uri.as_str() != song)
         {
             let to_come = self.connect.queue.parts.iter().flat_map(|part| &part.songs);
-            if !asked.skipped && to_come.clone().any(|queued| queued.track.uri == *song) {
+            if !asked.skipped && to_come.clone().any(|queued| queued.track.uri.as_str() == song) {
                 asked.skipped = true;
                 let (session, device, song) = (
                     remote.session(),

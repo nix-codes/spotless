@@ -14,6 +14,7 @@ use zbus::zvariant::{ObjectPath, OwnedValue, Value};
 
 use super::{EventHook, MediaEvent, NowPlaying};
 use spotless_core::playback::Status;
+use spotless_core::spotify;
 
 const BUS_NAME: &str = "org.mpris.MediaPlayer2.spotless";
 const PATH: &str = "/org/mpris/MediaPlayer2";
@@ -280,7 +281,10 @@ impl Player {
         if let Some(url) = &self.now.cover_url {
             put("mpris:artUrl", Value::from(url.as_str()));
         }
-        put("xesam:url", Value::from(spotify_link(&self.now.uri)));
+        put(
+            "xesam:url",
+            Value::from(spotify::link(&self.now.uri).unwrap_or_default()),
+        );
         map
     }
 
@@ -362,15 +366,6 @@ fn track_path(uri: &str) -> ObjectPath<'static> {
     ObjectPath::try_from(path).unwrap_or_else(|_| ObjectPath::from_static_str_unchecked("/"))
 }
 
-/// `spotify:track:ID` as an open.spotify.com link.
-fn spotify_link(uri: &str) -> String {
-    let mut parts = uri.split(':').skip(1);
-    match (parts.next(), parts.next()) {
-        (Some(kind), Some(id)) => format!("https://open.spotify.com/{kind}/{id}"),
-        _ => String::new(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,10 +379,6 @@ mod tests {
         assert_eq!(
             track_path("").as_str(),
             "/org/mpris/MediaPlayer2/TrackList/NoTrack"
-        );
-        assert_eq!(
-            spotify_link("spotify:track:abc"),
-            "https://open.spotify.com/track/abc"
         );
     }
 }

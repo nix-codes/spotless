@@ -52,7 +52,7 @@ fn offline_waits_on_the_song_and_plays_it_once_reconnected() {
     rig.tell(Event::Reconnected);
     assert!(rig.sent().iter().any(|c| matches!(
         c,
-        Command::Player(Request::Load { uri, position_ms: 0, .. }) if uri.ends_with(":1")
+        Command::Player(Request::Load { uri, position_ms: 0, .. }) if uri.as_str().ends_with(":1")
     )));
     // Only once.
     rig.tell(Event::Reconnected);
@@ -78,7 +78,7 @@ fn a_song_cut_offline_goes_on_where_it_stopped_once_reconnected() {
     rig.tell(Event::Reconnected);
     assert!(rig.sent().iter().any(|c| matches!(
         c,
-        Command::Player(Request::Load { uri, position_ms: 95_000, .. }) if uri.ends_with(":1")
+        Command::Player(Request::Load { uri, position_ms: 95_000, .. }) if uri.as_str().ends_with(":1")
     )));
 }
 
@@ -109,7 +109,7 @@ fn a_song_waiting_offline_shows_paused_and_play_goes_on_from_there() {
     assert!(!rig.controller.state().offline);
     assert!(rig.sent().iter().any(|c| matches!(
         c,
-        Command::Player(Request::Load { uri, position_ms: 95_000, .. }) if uri.ends_with(":1")
+        Command::Player(Request::Load { uri, position_ms: 95_000, .. }) if uri.as_str().ends_with(":1")
     )));
     rig.tell(Event::Reconnected);
     assert!(rig.sent().is_empty());
@@ -171,7 +171,7 @@ fn a_song_left_playing_shows_paused_there_after_a_restart() {
     let sent: Vec<_> = std::iter::from_fn(|| commands.try_recv().ok()).collect();
     assert!(sent.iter().any(|c| matches!(
         c,
-        Command::Player(Request::Load { uri, position_ms: 60_000, .. }) if uri.ends_with(":1")
+        Command::Player(Request::Load { uri, position_ms: 60_000, .. }) if uri.as_str().ends_with(":1")
     )));
 }
 

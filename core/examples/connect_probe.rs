@@ -105,7 +105,7 @@ async fn main() -> Result<()> {
             let tracks = catalog::songs(&session, ALBUM).await?.tracks;
             let song = &tracks[2];
             println!("{t:6.1}s  adding {} to the queue", song.title);
-            spirc.add_to_queue(SpotifyUri::from_uri(&song.uri)?)?;
+            spirc.add_to_queue(SpotifyUri::from_uri(song.uri.as_str())?)?;
         }
         if !matches!(changed, Ok(Ok(()))) {
             continue;
@@ -151,7 +151,7 @@ async fn name_tracks(session: &Session, state: &PlayerState, names: &mut HashMap
             for track in tracks {
                 let artists: Vec<&str> = track.artists.iter().map(|a| a.name.as_str()).collect();
                 names.insert(
-                    track.uri,
+                    track.uri.into(),
                     format!("{} — {}", track.title, artists.join(", ")),
                 );
             }

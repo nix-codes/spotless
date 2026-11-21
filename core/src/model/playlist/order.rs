@@ -370,7 +370,7 @@ mod tests {
         Entry {
             id: EntryId(id),
             track: TrackRef {
-                uri: format!("spotify:track:{id}"),
+                uri: format!("spotify:track:{id}").into(),
                 title: format!("song {id}"),
                 artists: vec![ArtistRef {
                     uri: format!("spotify:artist:{}", artist.to_lowercase()),

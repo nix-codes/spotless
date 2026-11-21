@@ -8,7 +8,7 @@
 //! The transport never talks to the engine. Every method edits the model
 //! and returns the [`Request`]s that make playback match, in order.
 
-use crate::model::{Entry, EntryId, Library, Playback, Playlist, PlaylistId, Step};
+use crate::model::{Entry, EntryId, Library, Playback, Playlist, PlaylistId, SongUri, Step};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
@@ -16,11 +16,11 @@ pub enum Request {
     /// until told otherwise.
     Load {
         entry: EntryId,
-        uri: String,
+        uri: SongUri,
         position_ms: u32,
     },
     /// The song to start when the playing one ends. None: playback stops.
-    Follow(Option<(EntryId, String)>),
+    Follow(Option<(EntryId, SongUri)>),
     Resume,
     Pause,
     /// The playing song from its start.
@@ -384,7 +384,7 @@ impl Transport {
         library.get_mut(self.playback.playing()?)
     }
 
-    fn uri(&self, library: &Library, entry: EntryId) -> Option<String> {
+    fn uri(&self, library: &Library, entry: EntryId) -> Option<SongUri> {
         let list = library.get(self.playback.playing()?)?;
         Some(list.get(entry)?.track.uri.clone())
     }
@@ -409,13 +409,13 @@ mod tests {
     fn load(n: u64, position_ms: u32) -> Request {
         Request::Load {
             entry: EntryId(n),
-            uri: format!("spotify:track:{n}"),
+            uri: format!("spotify:track:{n}").into(),
             position_ms,
         }
     }
 
     fn follow(n: u64) -> Request {
-        Request::Follow(Some((EntryId(n), format!("spotify:track:{n}"))))
+        Request::Follow(Some((EntryId(n), format!("spotify:track:{n}").into())))
     }
 
     #[test]

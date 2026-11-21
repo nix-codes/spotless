@@ -514,7 +514,7 @@ mod tests {
             song("spotify:track:cover", "Creep", &["Someone Else", "Radiohead"]),
             song("spotify:track:yes", "CREEP", &["Radiohead", "Someone Else"]),
         ]}});
-        let found = |artist, title| named_song(&body, artist, title).map(|t| t.uri);
+        let found = |artist, title| named_song(&body, artist, title).map(|t| t.uri.to_string());
         assert_eq!(
             found("Radiohead", "Creep").as_deref(),
             Some("spotify:track:yes")

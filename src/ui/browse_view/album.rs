@@ -265,7 +265,7 @@ pub(super) fn song_from(
     } else if row.response.double_clicked() || matches!(row.act, Some(Act::Open)) {
         actions.push(PlaybackAction::PlayNow(track.clone()));
     }
-    share(&row.response, "Copy song link", &track.uri, actions);
+    share(&row.response, "Copy song link", track.uri.as_str(), actions);
 }
 
 /// A right-click menu of only Share, for what has a Spotify link.

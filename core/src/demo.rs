@@ -125,7 +125,7 @@ fn songs_of(release: &Release, songs: &[(&str, u32)]) -> Vec<TrackRef> {
     };
     (songs.iter().enumerate())
         .map(|(n, (title, secs))| TrackRef {
-            uri: format!("{}-{n}", release.uri.replace("album", "track")),
+            uri: format!("{}-{n}", release.uri.replace("album", "track")).into(),
             title: (*title).into(),
             artists: vec![artist()],
             album: album.clone(),
@@ -274,7 +274,7 @@ fn fill(library: &mut Library, id: PlaylistId, songs: &[Song]) {
                 name: (*album).into(),
             };
             library.entry(TrackRef {
-                uri: format!("spotify:track:demo-{}-{n}", id.0),
+                uri: format!("spotify:track:demo-{}-{n}", id.0).into(),
                 title: (*title).into(),
                 artists: vec![ArtistRef {
                     uri: format!("spotify:artist:{}", slug(artist)),

@@ -14,8 +14,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
-use librespot_core::SpotifyUri;
+use anyhow::{Result, bail};
 use spotless_core::paths::Paths;
 use spotless_core::playback::cache::SongCache;
 use spotless_core::playback::engine::{Engine, EngineEvent};
@@ -62,7 +61,7 @@ async fn main() -> Result<()> {
             let _ = sender.send((Instant::now(), event));
         }),
     )?;
-    engine.load(SpotifyUri::from_uri(&song.uri).context("bad URI")?, 0);
+    engine.load(&song.uri, 0);
     println!(
         "now start playing on another device; listening for {} s\n",
         LISTEN.as_secs()

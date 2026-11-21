@@ -5,6 +5,7 @@
 use super::decoder::Decoder;
 use super::engine::TrackInfo;
 use super::levelling::Gains;
+use crate::model::SongUri;
 
 /// Why a song didn't open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,7 +63,7 @@ impl Download for Kept {
 /// Opens songs. Blocks while it reads their start: called on a thread of
 /// its own.
 pub trait Source: Send + Sync {
-    fn open(&self, uri: &str) -> Result<Opened, OpenError>;
+    fn open(&self, uri: &SongUri) -> Result<Opened, OpenError>;
 }
 
 /// A source and an output for tests: songs made up as WAV files, and an
@@ -118,9 +119,9 @@ pub(crate) mod fake {
     }
 
     impl Source for FakeSource {
-        fn open(&self, uri: &str) -> Result<Opened, OpenError> {
-            self.opened.lock().unwrap().push(uri.into());
-            let &(duration_ms, value) = self.songs.get(uri).ok_or(OpenError::Unavailable)?;
+        fn open(&self, uri: &SongUri) -> Result<Opened, OpenError> {
+            self.opened.lock().unwrap().push(uri.to_string());
+            let &(duration_ms, value) = self.songs.get(uri.as_str()).ok_or(OpenError::Unavailable)?;
             let frames = (u64::from(SAMPLE_RATE) * u64::from(duration_ms) / 1000) as u32;
             let mut hint = Hint::new();
             hint.with_extension("wav");
@@ -128,8 +129,8 @@ pub(crate) mod fake {
                 .map_err(|_| OpenError::Unavailable)?;
             Ok(Opened {
                 details: TrackInfo {
-                    uri: uri.into(),
-                    title: uri.into(),
+                    uri: uri.clone(),
+                    title: uri.to_string(),
                     artists: String::new(),
                     main_artist: String::new(),
                     album: String::new(),

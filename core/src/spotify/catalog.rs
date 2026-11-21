@@ -336,7 +336,7 @@ async fn request_batch(
 
 fn track_ref(track: &Track) -> TrackRef {
     TrackRef {
-        uri: track.id.to_uri(),
+        uri: track.id.to_uri().into(),
         title: track.name.clone(),
         artists: track
             .artists

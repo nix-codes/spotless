@@ -23,6 +23,7 @@ use super::decoder::DecodeError;
 use super::engine::TrackInfo;
 use super::levelling::{Levelling, attenuation};
 use super::source::{OpenError, Opened, Source};
+use crate::model::SongUri;
 
 /// How often the position is told while a song plays.
 const POSITION_EVERY: Duration = Duration::from_secs(1);
@@ -65,11 +66,11 @@ pub struct Player {
 enum Input {
     Load {
         request: u64,
-        uri: String,
+        uri: SongUri,
         play: bool,
         position_ms: u32,
     },
-    Preload { uri: String, again: bool },
+    Preload { uri: SongUri, again: bool },
     Play,
     Pause,
     Stop,
@@ -126,10 +127,10 @@ impl Player {
 
     /// Plays `uri` from `position_ms`, or holds it paused there, as
     /// request `request`, which its events carry.
-    pub fn load(&self, request: u64, uri: &str, play: bool, position_ms: u32) {
+    pub fn load(&self, request: u64, uri: &SongUri, play: bool, position_ms: u32) {
         self.send(Input::Load {
             request,
-            uri: uri.into(),
+            uri: uri.clone(),
             play,
             position_ms,
         });
@@ -137,9 +138,9 @@ impl Player {
 
     /// Opens `uri` ahead, for a load of it to start at once. `again`: even
     /// if it's opened ahead already.
-    pub fn preload(&self, uri: &str, again: bool) {
+    pub fn preload(&self, uri: &SongUri, again: bool) {
         self.send(Input::Preload {
-            uri: uri.into(),
+            uri: uri.clone(),
             again,
         });
     }
@@ -200,7 +201,7 @@ enum State {
     /// Opening a song: the opening's number, and whether it plays once open.
     Loading {
         request: u64,
-        uri: String,
+        uri: SongUri,
         opening: u64,
         play: bool,
         position_ms: u32,
@@ -214,8 +215,8 @@ enum State {
 /// The next song, opened ahead.
 enum Preload {
     None,
-    Opening { uri: String, opening: u64 },
-    Ready { uri: String, opened: Box<Opened> },
+    Opening { uri: SongUri, opening: u64 },
+    Ready { uri: SongUri, opened: Box<Opened> },
 }
 
 struct Inner {
@@ -289,7 +290,7 @@ impl Inner {
         }
     }
 
-    fn load(&mut self, request: u64, uri: String, play: bool, position_ms: u32) {
+    fn load(&mut self, request: u64, uri: SongUri, play: bool, position_ms: u32) {
         self.tell(Event::Loading {
             request,
             position_ms,
@@ -320,7 +321,7 @@ impl Inner {
         };
     }
 
-    fn preload(&mut self, uri: String, again: bool) {
+    fn preload(&mut self, uri: SongUri, again: bool) {
         let opened_ahead = match &self.preload {
             Preload::Opening { uri: other, .. } | Preload::Ready { uri: other, .. } => {
                 *other == uri
@@ -338,12 +339,12 @@ impl Inner {
     }
 
     /// Opens `uri` on a thread of its own. Returns the opening's number.
-    fn open(&mut self, uri: &str) -> u64 {
+    fn open(&mut self, uri: &SongUri) -> u64 {
         self.openings += 1;
         let opening = self.openings;
         let source = Arc::clone(&self.source);
         let inputs = self.inputs.clone();
-        let uri = uri.to_string();
+        let uri = uri.clone();
         let spawned = thread::Builder::new()
             .name("opening".into())
             .spawn(move || {
@@ -416,7 +417,7 @@ impl Inner {
     }
 
     /// Starts an opened song, playing or paused, at `position_ms`.
-    fn start(&mut self, request: u64, uri: String, mut opened: Opened, play: bool, position_ms: u32) {
+    fn start(&mut self, request: u64, uri: SongUri, mut opened: Opened, play: bool, position_ms: u32) {
         let mut at = 0;
         if position_ms > 0 {
             let position_ms = if position_ms > opened.details.duration_ms {
@@ -697,7 +698,7 @@ mod tests {
         fn load(&self, uri: &str, play: bool, position_ms: u32) -> u64 {
             let request = self.requests.get() + 1;
             self.requests.set(request);
-            self.player.load(request, uri, play, position_ms);
+            self.player.load(request, &uri.into(), play, position_ms);
             request
         }
 
@@ -750,7 +751,7 @@ mod tests {
         let test = player(source, Duration::from_secs(10));
         test.load("a", true, 0);
         test.until(|e| matches!(e, Event::PreloadDue { .. }));
-        test.player.preload("b", false);
+        test.player.preload(&"b".into(), false);
         test.until(ended);
         let request = test.load("b", true, 0);
         test.until(|e| matches!(e, Event::Ended { request: r, .. } if *r == request));

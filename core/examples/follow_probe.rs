@@ -12,8 +12,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
-use librespot_core::SpotifyUri;
+use anyhow::{Result, bail};
 use spotless_core::model::EntryId;
 use spotless_core::paths::Paths;
 use spotless_core::playback::cache::SongCache;
@@ -52,11 +51,10 @@ async fn main() -> Result<()> {
             let _ = sender.send((Instant::now(), event));
         }),
     )?;
-    let uri = |text: &str| SpotifyUri::from_uri(text).context("bad URI");
 
     let start = first.duration_ms.saturating_sub(8_000);
-    engine.load(uri(&first.uri)?, start);
-    engine.follow(Some((EntryId(2), uri(&second.uri)?)));
+    engine.load(&first.uri, start);
+    engine.follow(Some((EntryId(2), second.uri.clone())));
     println!("\nplaying 1 from {} s, 2 handed over", start / 1000);
 
     let began = Instant::now();

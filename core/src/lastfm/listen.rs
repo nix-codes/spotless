@@ -7,6 +7,7 @@
 
 use std::time::Instant;
 
+use crate::model::{SongSource, SongUri};
 use crate::playback::engine::{PlayerSnapshot, Status};
 
 /// Songs this short are never scrobbled.
@@ -38,7 +39,7 @@ pub enum Heard {
 
 /// The listen in progress.
 struct Listen {
-    uri: String,
+    uri: SongUri,
     song: Song,
     duration_ms: u32,
     /// When it first played, Unix seconds; None until it has.
@@ -138,8 +139,11 @@ impl Listen {
 }
 
 /// Songs only: podcast episodes aren't scrobbled.
-fn is_song(uri: &str) -> bool {
-    uri.starts_with("spotify:track:")
+fn is_song(uri: &SongUri) -> bool {
+    match uri.source() {
+        SongSource::Spotify { .. } => true,
+        SongSource::Unknown => false,
+    }
 }
 
 #[cfg(test)]

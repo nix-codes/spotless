@@ -9,15 +9,14 @@
 //! all downloaded, so the next song is there when the connection goes near
 //! the end of one.
 //!
-//! Songs open through the Spotify source on the session; a new session,
-//! for one that dropped, opens them from then on, and the playing song
-//! plays on with the audio it has.
+//! Each song opens through the source its URI names ([`Sources`]): Spotify's
+//! on the session. A new session, for one that dropped, opens them from
+//! then on, and the playing song plays on with the audio it has.
 
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use librespot_core::SpotifyUri;
 use librespot_core::session::Session;
 use tokio::sync::mpsc;
 
@@ -28,9 +27,10 @@ use super::cache::SongCache;
 use super::flow::{Do, Flow, REPORTS_DUE};
 use super::link::AudioLink;
 use super::player::{Event, Player};
+use super::source::{OpenError, Opened, Source};
 #[cfg(not(target_os = "android"))]
 use super::sink::RodioSink;
-use crate::model::{EntryId, TrackRef};
+use crate::model::{EntryId, SongSource, SongUri, TrackRef};
 use crate::spotify::audio::SpotifyAudio;
 
 /// How long before the playing song's end the next one is preloaded, once
@@ -49,7 +49,7 @@ pub enum Status {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TrackInfo {
-    pub uri: String,
+    pub uri: SongUri,
     pub title: String,
     pub artists: String,
     /// The first of them, as Last.fm takes it.
@@ -126,7 +126,7 @@ pub struct Engine {
 struct Shared {
     /// Taken only when the engine is let go.
     player: Option<Player>,
-    audio: Arc<SpotifyAudio>,
+    sources: Arc<Sources>,
     session: Mutex<Session>,
     flow: Mutex<Flow>,
     notify: Notify,
@@ -144,7 +144,9 @@ impl Engine {
         link: Arc<AudioLink>,
         notify: Notify,
     ) -> Result<Self> {
-        let audio = Arc::new(SpotifyAudio::new(session, songs));
+        let sources = Arc::new(Sources {
+            spotify: SpotifyAudio::new(session, songs),
+        });
         let (told, events) = mpsc::unbounded_channel();
         let on_error = {
             let notify = Arc::clone(&notify);
@@ -155,7 +157,7 @@ impl Engine {
         #[cfg(not(target_os = "android"))]
         let device = std::env::var("SPOTLESS_AUDIO_DEVICE").ok();
         let player = Player::new(
-            Arc::clone(&audio) as Arc<_>,
+            Arc::clone(&sources) as Arc<_>,
             Box::new(move || -> Box<dyn AudioSink> {
                 #[cfg(not(target_os = "android"))]
                 return Box::new(RodioSink::new(device, on_error, link));
@@ -171,7 +173,7 @@ impl Engine {
         );
         let shared = Arc::new(Shared {
             player: Some(player),
-            audio,
+            sources,
             session: Mutex::new(session.clone()),
             flow: Mutex::default(),
             notify,
@@ -188,22 +190,21 @@ impl Engine {
     /// Opens songs on a new session, for one that dropped. A playing song
     /// plays on with the audio it has, until it ends.
     pub fn set_session(&mut self, session: &Session) {
-        self.shared.audio.set_session(session);
+        self.shared.sources.spotify.set_session(session);
         *lock(&self.shared.session) = session.clone();
         let done = lock(&self.shared.flow).session_changed(Instant::now());
         self.shared.carry_out(done);
     }
 
     /// Plays `track` now, following it with nothing until told otherwise.
-    pub fn load(&self, track: SpotifyUri, position_ms: u32) {
-        let done = lock(&self.shared.flow).load(&track.to_uri(), position_ms);
+    pub fn load(&self, track: &SongUri, position_ms: u32) {
+        let done = lock(&self.shared.flow).load(track, position_ms);
         self.shared.carry_out(done);
     }
 
     /// The song to start when the playing one ends. None: playback stops.
     /// Preloaded at once if the playing song is near its end.
-    pub fn follow(&self, next: Option<(EntryId, SpotifyUri)>) {
-        let next = next.map(|(entry, uri)| (entry, uri.to_uri()));
+    pub fn follow(&self, next: Option<(EntryId, SongUri)>) {
         let done = lock(&self.shared.flow).follow(next);
         self.shared.carry_out(done);
     }
@@ -232,6 +233,21 @@ impl Engine {
 
     pub fn set_volume(&self, volume: u16) {
         self.shared.player().set_volume(volume);
+    }
+}
+
+/// The sources songs open through, each song through the one its URI
+/// names.
+struct Sources {
+    spotify: SpotifyAudio,
+}
+
+impl Source for Sources {
+    fn open(&self, uri: &SongUri) -> Result<Opened, OpenError> {
+        match uri.source() {
+            SongSource::Spotify { .. } => self.spotify.open(uri),
+            SongSource::Unknown => Err(OpenError::Unavailable),
+        }
     }
 }
 

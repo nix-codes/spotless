@@ -6,6 +6,7 @@ internal! {
     mod library;
     mod playback;
     mod playlist;
+    mod song;
     mod sync;
 }
 
@@ -16,3 +17,4 @@ pub use playlist::{
     AlbumPlace, AlbumRef, ArtistRef, Entry, EntryId, Order, Playlist, PlaylistId, Run, SortHeaders,
     Source, TrackRef, from_source,
 };
+pub use song::{SongSource, SongUri};

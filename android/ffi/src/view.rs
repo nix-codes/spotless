@@ -71,7 +71,7 @@ impl From<Artist> for ArtistRef {
 impl From<&TrackRef> for Track {
     fn from(track: &TrackRef) -> Self {
         Self {
-            uri: track.uri.clone(),
+            uri: track.uri.to_string(),
             title: track.title.clone(),
             artists: track.artists.iter().map(Into::into).collect(),
             album: Album {
@@ -90,7 +90,7 @@ impl From<&TrackRef> for Track {
 impl From<Track> for TrackRef {
     fn from(track: Track) -> Self {
         Self {
-            uri: track.uri,
+            uri: track.uri.into(),
             title: track.title,
             artists: track.artists.into_iter().map(Into::into).collect(),
             album: AlbumRef {
@@ -192,7 +192,7 @@ pub(crate) fn player(state: &State) -> Player {
             playback::Status::Paused => Status::Paused,
         },
         track: snapshot.track.as_ref().map(|track| NowPlaying {
-            uri: track.uri.clone(),
+            uri: track.uri.to_string(),
             title: track.title.clone(),
             artists: track.artists.clone(),
             main_artist: track.main_artist.clone(),

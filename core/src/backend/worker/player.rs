@@ -7,7 +7,6 @@ use crate::playback::engine::Engine;
 use crate::playback::outputs;
 use crate::playback::transport::Request;
 use crate::spotify::devices::{self, Playing};
-use librespot_core::SpotifyUri;
 use std::sync::Arc;
 
 impl Worker {
@@ -38,26 +37,14 @@ impl Worker {
 
     fn player(&self, request: Request) {
         let Some(engine) = &self.engine else { return };
-        let uri = |text: &str| {
-            SpotifyUri::from_uri(text)
-                .map_err(|error| log::error!("not a Spotify URI {text:?}: {error}"))
-                .ok()
-        };
         match request {
             Request::Load {
-                uri: text,
-                position_ms,
-                ..
-            } => match uri(&text) {
-                Some(track) => {
-                    self.pause_elsewhere();
-                    engine.load(track, position_ms);
-                }
-                None => (self.emit)(Event::Unavailable { offline: false }),
-            },
-            Request::Follow(next) => {
-                engine.follow(next.and_then(|(entry, text)| Some((entry, uri(&text)?))));
+                uri, position_ms, ..
+            } => {
+                self.pause_elsewhere();
+                engine.load(&uri, position_ms);
             }
+            Request::Follow(next) => engine.follow(next),
             Request::Resume => {
                 self.pause_elsewhere();
                 engine.play();

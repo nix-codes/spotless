@@ -344,7 +344,7 @@ async fn name(session: &Session, state: &PlayerState, names: &mut HashMap<String
         return;
     }
     match catalog::tracks(session, unknown).await {
-        Ok(tracks) => names.extend(tracks.into_iter().map(|t| (t.uri.clone(), t))),
+        Ok(tracks) => names.extend(tracks.into_iter().map(|t| (t.uri.to_string(), t))),
         Err(error) => log::warn!("unable to name the queue's songs: {error:#}"),
     }
 }

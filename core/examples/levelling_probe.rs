@@ -13,8 +13,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
-use librespot_core::SpotifyUri;
+use anyhow::{Result, bail};
 use spotless_core::paths::Paths;
 use spotless_core::playback::cache::SongCache;
 use spotless_core::playback::engine::{Engine, EngineEvent, PlayerSnapshot, Status};
@@ -51,8 +50,7 @@ async fn main() -> Result<()> {
             let _ = sender.send(event);
         }),
     )?;
-    let uri = SpotifyUri::from_uri(&track.uri).context("bad URI")?;
-    engine.load(uri, 30_000);
+    engine.load(&track.uri, 30_000);
 
     let state = settle(&mut events, Status::Playing).await?;
     tokio::time::sleep(Duration::from_secs(3)).await;

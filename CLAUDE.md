@@ -48,6 +48,10 @@ How the parts fit, to keep to as features are added:
   to fetch when). Spotify is a `Source` (`spotify/audio.rs`): librespot
   gives it the session, a song's details, its key and the servers' URLs,
   nothing more. Only the Spotify tab plays through librespot's `Player`.
+- A song's `uri` is a `SongUri` (`core/src/model/song.rs`): where it is,
+  its scheme naming its source. The engine opens each song through the
+  source its URI names (`Sources`); a place that only works for Spotify
+  songs asks `uri.source()` or `spotify_id()`, never the string.
 - No process-wide mutable state: what the controller and the audio share
   is handed to them (`AudioLink`), so each controller, test and
   screenshot has its own.

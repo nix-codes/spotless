@@ -162,7 +162,7 @@ pub fn draw(
                     .iter()
                     .rev()
                     .filter_map(|&id| queue.row(id))
-                    .map(|row| row.track().uri.clone())
+                    .map(|row| row.track().uri.to_string())
                     .collect(),
             )),
             Choice::ToggleMarks => {}

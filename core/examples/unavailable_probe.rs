@@ -24,7 +24,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use librespot_core::SpotifyUri;
 use librespot_core::config::SessionConfig;
 use librespot_core::session::Session;
 use spotless_core::model::EntryId;
@@ -68,17 +67,17 @@ async fn main() -> Result<()> {
         }),
     )?;
     println!("a song that doesn't exist, network up");
-    engine.load(uri(MISSING)?, 0);
+    engine.load(&MISSING.into(), 0);
     let seen = watch(&mut events, Duration::from_secs(4)).await;
     println!("  {}", verdict(seen.unavailable == Some(false), "skipped"));
 
     println!("\na song playing");
-    engine.load(uri(&first.uri)?, 30_000);
+    engine.load(&first.uri, 30_000);
     watch(&mut events, Duration::from_secs(5)).await;
 
     println!("\nnetwork lost, the session's socket left open; the next song");
     proxy.cut();
-    engine.load(uri(&second.uri)?, 0);
+    engine.load(&second.uri, 0);
     let seen = watch(&mut events, Duration::from_secs(5)).await;
     println!(
         "  {}",
@@ -89,13 +88,13 @@ async fn main() -> Result<()> {
     proxy.restore();
     session = connect(&paths, &proxy).await?;
     engine.set_session(&session);
-    engine.load(uri(&second.uri)?, 0);
+    engine.load(&second.uri, 0);
     watch(&mut events, Duration::from_secs(5)).await;
 
     // Before the next song is loaded ahead, 30 s from the end.
     println!("\nthe end of a downloaded song, no signal for the next one");
-    engine.load(uri(&fifth.uri)?, fifth.duration_ms.saturating_sub(45_000));
-    engine.follow(Some((EntryId(6), uri(&sixth.uri)?)));
+    engine.load(&fifth.uri, fifth.duration_ms.saturating_sub(45_000));
+    engine.follow(Some((EntryId(6), sixth.uri.clone())));
     watch(&mut events, Duration::from_secs(5)).await;
     proxy.stall();
     watch_until(&mut events, Duration::from_secs(60), |event| {
@@ -120,7 +119,7 @@ async fn main() -> Result<()> {
 
     println!("\ndownloads slowed, a song from its start");
     proxy.slow.store(true, Ordering::SeqCst);
-    engine.load(uri(&third.uri)?, 0);
+    engine.load(&third.uri, 0);
     watch_until(
         &mut events,
         Duration::from_secs(30),
@@ -145,12 +144,12 @@ async fn main() -> Result<()> {
     proxy.slow.store(false, Ordering::SeqCst);
     session = connect(&paths, &proxy).await?;
     engine.set_session(&session);
-    engine.load(uri(&third.uri)?, seen.cut.unwrap_or_default());
+    engine.load(&third.uri, seen.cut.unwrap_or_default());
     watch(&mut events, Duration::from_secs(5)).await;
 
     println!("\ndownloads slowed, network lost while the next song loads");
     proxy.slow.store(true, Ordering::SeqCst);
-    engine.load(uri(&fourth.uri)?, 0);
+    engine.load(&fourth.uri, 0);
     watch(&mut events, Duration::from_secs(2)).await;
     proxy.cut();
     let began = Instant::now();
@@ -178,10 +177,6 @@ async fn connect(paths: &Paths, proxy: &Proxy) -> Result<Session> {
     };
     session.connect(credentials, true).await?;
     Ok(session)
-}
-
-fn uri(text: &str) -> Result<SpotifyUri> {
-    SpotifyUri::from_uri(text).context("bad URI")
 }
 
 fn verdict(ok: bool, expected: &str) -> String {

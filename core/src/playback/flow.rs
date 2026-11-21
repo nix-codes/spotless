@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use super::engine::{EngineEvent, PlayerSnapshot, Status};
 use super::player::Event;
 use super::source::OpenError;
-use crate::model::EntryId;
+use crate::model::{EntryId, SongUri};
 
 /// Position reports come every second while a song plays; this one's
 /// beyond that.
@@ -34,13 +34,13 @@ pub enum Do {
     /// Loads `uri` on the player as request `request`.
     Load {
         request: u64,
-        uri: String,
+        uri: SongUri,
         play: bool,
         position_ms: u32,
     },
     /// Opens `uri` ahead on the player. `again`: even if it's opened ahead
     /// already, as that was on a session gone.
-    Preload { uri: String, again: bool },
+    Preload { uri: SongUri, again: bool },
     Stop,
     /// Lets the session go: Spotify couldn't be reached on it, though it
     /// has yet to notice (its socket can take a minute and a half). A new
@@ -57,9 +57,9 @@ pub struct Flow {
     snapshot: PlayerSnapshot,
     /// The song loading or loaded, as the snapshot only has its details
     /// once open.
-    uri: Option<String>,
+    uri: Option<SongUri>,
     /// The song to start when the playing one ends.
-    follow: Option<(EntryId, String)>,
+    follow: Option<(EntryId, SongUri)>,
     /// The player said it's time to preload the song to follow, and the
     /// playing song hasn't ended since.
     preload_due: bool,
@@ -78,7 +78,7 @@ impl Flow {
     }
 
     /// Plays `uri` now, following it with nothing until told otherwise.
-    pub fn load(&mut self, uri: &str, position_ms: u32) -> Vec<Do> {
+    pub fn load(&mut self, uri: &SongUri, position_ms: u32) -> Vec<Do> {
         self.follow = None;
         self.preload_due = false;
         vec![self.start(uri, true, position_ms)]
@@ -86,7 +86,7 @@ impl Flow {
 
     /// The song to start when the playing one ends; None: playback stops.
     /// Preloaded at once if the playing song is near its end.
-    pub fn follow(&mut self, next: Option<(EntryId, String)>) -> Vec<Do> {
+    pub fn follow(&mut self, next: Option<(EntryId, SongUri)>) -> Vec<Do> {
         let changed = self.follow.as_ref().map(|(_, uri)| uri) != next.as_ref().map(|(_, uri)| uri);
         self.follow = next;
         if changed {
@@ -204,12 +204,12 @@ impl Flow {
 
     /// Loads `uri` as a new request, which the player's events then count
     /// for.
-    fn start(&mut self, uri: &str, play: bool, position_ms: u32) -> Do {
+    fn start(&mut self, uri: &SongUri, play: bool, position_ms: u32) -> Do {
         self.request += 1;
-        self.uri = Some(uri.into());
+        self.uri = Some(uri.clone());
         Do::Load {
             request: self.request,
-            uri: uri.into(),
+            uri: uri.clone(),
             play,
             position_ms,
         }
@@ -330,7 +330,7 @@ mod tests {
     /// A flow playing "a" (`duration_ms` long) at `position_ms`, as request 1.
     fn playing(duration_ms: u32, position_ms: u32, now: Instant) -> Flow {
         let mut flow = Flow::default();
-        flow.load("a", 0);
+        flow.load(&"a".into(), 0);
         for event in [
             Event::Loading {
                 request: 1,
@@ -371,15 +371,15 @@ mod tests {
     #[test]
     fn each_load_is_a_new_request() {
         let mut flow = Flow::default();
-        assert_eq!(flow.load("a", 0), [load(1, "a", 0)]);
-        assert_eq!(flow.load("b", 5000), [load(2, "b", 5000)]);
+        assert_eq!(flow.load(&"a".into(), 0), [load(1, "a", 0)]);
+        assert_eq!(flow.load(&"b".into(), 5000), [load(2, "b", 5000)]);
     }
 
     #[test]
     fn a_late_event_of_a_song_replaced_counts_for_nothing() {
         let now = Instant::now();
         let mut flow = playing(200_000, 10_000, now);
-        flow.load("b", 0);
+        flow.load(&"b".into(), 0);
         let done = flow.event(
             Event::Ended {
                 request: 1,
@@ -446,7 +446,7 @@ mod tests {
         let now = Instant::now();
         let mut flow = playing(200_000, 199_000, now);
         flow.follow(Some((entry(2), "b".into())));
-        flow.load("c", 0);
+        flow.load(&"c".into(), 0);
         let done = flow.event(
             Event::Ended {
                 request: 2,
@@ -506,20 +506,20 @@ mod tests {
         let now = Instant::now();
         let failed = |error| Event::Failed { request: 1, error };
         let mut flow = Flow::default();
-        flow.load("a", 0);
+        flow.load(&"a".into(), 0);
         let done = flow.event(failed(OpenError::Unavailable), true, now);
         assert_eq!(acts(&done), Vec::<&Do>::new());
         assert_eq!(tells(&done), [&EngineEvent::Unavailable { offline: false }]);
         assert_eq!(flow.snapshot().error.as_deref(), Some(UNAVAILABLE));
 
         let mut flow = Flow::default();
-        flow.load("a", 0);
+        flow.load(&"a".into(), 0);
         let done = flow.event(failed(OpenError::Unreachable), true, now);
         assert_eq!(acts(&done), [&Do::LetSessionGo]);
         assert_eq!(tells(&done), [&EngineEvent::Unavailable { offline: true }]);
 
         let mut flow = Flow::default();
-        flow.load("a", 0);
+        flow.load(&"a".into(), 0);
         let done = flow.event(failed(OpenError::Unavailable), false, now);
         assert_eq!(tells(&done), [&EngineEvent::Unavailable { offline: true }]);
     }
@@ -528,7 +528,7 @@ mod tests {
     fn a_refused_key_stops_with_word_to_try_again() {
         let now = Instant::now();
         let mut flow = Flow::default();
-        flow.load("a", 0);
+        flow.load(&"a".into(), 0);
         let done = flow.event(
             Event::Failed {
                 request: 1,

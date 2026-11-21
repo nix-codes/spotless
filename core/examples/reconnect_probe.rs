@@ -15,8 +15,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
-use librespot_core::SpotifyUri;
+use anyhow::{Result, bail};
 use spotless_core::model::EntryId;
 use spotless_core::paths::Paths;
 use spotless_core::playback::cache::SongCache;
@@ -54,7 +53,7 @@ async fn main() -> Result<()> {
             let _ = sender.send(event);
         }),
     )?;
-    engine.load(uri(&first.uri)?, 30_000);
+    engine.load(&first.uri, 30_000);
     watch(&mut events, Duration::from_secs(15)).await;
 
     println!("\nsession dropped, new one in");
@@ -63,7 +62,7 @@ async fn main() -> Result<()> {
         bail!("signed out meanwhile");
     };
     engine.set_session(&new);
-    engine.follow(Some((EntryId(2), uri(&second.uri)?)));
+    engine.follow(Some((EntryId(2), second.uri.clone())));
     let restarted = watch(&mut events, Duration::from_secs(6)).await;
     println!(
         "  {}",
@@ -83,10 +82,6 @@ async fn main() -> Result<()> {
     watch(&mut events, Duration::from_secs(20)).await;
     engine.stop();
     Ok(())
-}
-
-fn uri(text: &str) -> Result<SpotifyUri> {
-    SpotifyUri::from_uri(text).context("bad URI")
 }
 
 /// Prints what the engine reports for `long`. Returns whether a song loaded.

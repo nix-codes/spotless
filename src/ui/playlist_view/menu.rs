@@ -175,7 +175,7 @@ pub(super) fn send(
         Choice::Share => actions.push(Desktop::CopyLinks(
             rows.iter()
                 .filter_map(|&id| list.get(id))
-                .map(|entry| entry.track.uri.clone())
+                .map(|entry| entry.track.uri.to_string())
                 .collect(),
         )),
         Choice::Remove => remove(list, selection, rows, actions),

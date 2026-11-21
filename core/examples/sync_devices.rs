@@ -74,7 +74,7 @@ const URIS: [&str; 3] = [
 /// One of [`URIS`], with a made-up title.
 fn track(n: usize) -> TrackRef {
     TrackRef {
-        uri: URIS[n].to_string(),
+        uri: URIS[n].into(),
         title: format!("A's song {n}"),
         artists: vec![],
         album: AlbumRef {

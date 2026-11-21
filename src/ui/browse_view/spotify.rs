@@ -749,7 +749,10 @@ fn playlist_song(
             "Copy song link"
         };
         if share_menu(ui, copy) {
-            let uris = these(nav).into_iter().map(|track| track.uri).collect();
+            let uris = these(nav)
+                .into_iter()
+                .map(|track| track.uri.into())
+                .collect();
             actions.push(Desktop::CopyLinks(uris));
         }
         let remove = item(ui, "Remove from this playlist", editable)
