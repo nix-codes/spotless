@@ -84,6 +84,10 @@ name = "connect_probe"
 required-features = ["spotify-tab", "probes"]
 
 [[example]]
+name = "cache_probe"
+required-features = ["probes"]
+
+[[example]]
 name = "catalog_probe"
 required-features = ["probes"]
 
