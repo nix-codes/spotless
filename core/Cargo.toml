@@ -59,16 +59,16 @@ unicode-normalization = "0.1"
 # Audio goes out through Spotless's own outputs (src/playback/sink.rs,
 # rodio; on Android, src/playback/aaudio.rs), which don't panic when
 # there is no output device.
-librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "08c1273994c012c2ce188c946041f64ab7acc79e", default-features = false, features = ["rustls-tls-native-roots"] }
-librespot-metadata = { git = "https://github.com/nix-codes/librespot", rev = "08c1273994c012c2ce188c946041f64ab7acc79e", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "2d2b7aa146c6afc07927e23ec407fc75fc253591", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-metadata = { git = "https://github.com/nix-codes/librespot", rev = "2d2b7aa146c6afc07927e23ec407fc75fc253591", default-features = false, features = ["rustls-tls-native-roots"] }
 # Only for the Spotify tab (`spotify-tab`, below): Connect, and the player
 # it plays through. Spotless's own player is in src/playback.
-librespot-connect = { git = "https://github.com/nix-codes/librespot", rev = "08c1273994c012c2ce188c946041f64ab7acc79e", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
-librespot-playback = { git = "https://github.com/nix-codes/librespot", rev = "08c1273994c012c2ce188c946041f64ab7acc79e", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
-librespot-oauth = { git = "https://github.com/nix-codes/librespot", rev = "08c1273994c012c2ce188c946041f64ab7acc79e", default-features = false, features = ["rustls-tls-native-roots"] }
+librespot-connect = { git = "https://github.com/nix-codes/librespot", rev = "2d2b7aa146c6afc07927e23ec407fc75fc253591", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
+librespot-playback = { git = "https://github.com/nix-codes/librespot", rev = "2d2b7aa146c6afc07927e23ec407fc75fc253591", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
+librespot-oauth = { git = "https://github.com/nix-codes/librespot", rev = "2d2b7aa146c6afc07927e23ec407fc75fc253591", default-features = false, features = ["rustls-tls-native-roots"] }
 # The metadata service's own messages, to read many albums or songs in one
 # request (librespot's Metadata::get asks for one at a time).
-librespot-protocol = { git = "https://github.com/nix-codes/librespot", rev = "08c1273994c012c2ce188c946041f64ab7acc79e", default-features = false }
+librespot-protocol = { git = "https://github.com/nix-codes/librespot", rev = "2d2b7aa146c6afc07927e23ec407fc75fc253591", default-features = false }
 protobuf = "3.7"
 futures-util = "0.3"
 
@@ -182,7 +182,7 @@ env_logger.workspace = true
 # credential Spotless signs in with: as the Android client, Spotify takes the
 # sign-in and then refuses every request.
 [target.'cfg(target_os = "android")'.dependencies]
-librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "08c1273994c012c2ce188c946041f64ab7acc79e", default-features = false, features = ["rustls-tls-native-roots", "android-as-linux"] }
+librespot-core = { git = "https://github.com/nix-codes/librespot", rev = "2d2b7aa146c6afc07927e23ec407fc75fc253591", default-features = false, features = ["rustls-tls-native-roots", "android-as-linux"] }
 # Audio goes straight to AAudio (src/playback/aaudio.rs), through the same
 # ndk crate cpal uses (API 28 for the usage and content type; the app needs
 # 29).
