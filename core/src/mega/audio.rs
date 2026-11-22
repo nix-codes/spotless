@@ -9,7 +9,7 @@
 //! record tells nothing that the URI doesn't already open.
 
 use std::collections::HashMap;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -288,15 +288,7 @@ impl MegaAudio {
             head,
             tail,
             &self.cache.temporary_dir(),
-            Box::new(move |file| {
-                let kept_file = file
-                    .seek(SeekFrom::Start(0))
-                    .and_then(|_| cache.put(&kept, &names, &details, file));
-                match kept_file {
-                    Ok(()) => log::debug!("{kept} kept"),
-                    Err(e) => log::error!("unable to keep {kept}: {e}"),
-                }
-            }),
+            Box::new(move |file| cache.keep_download(&kept, &names, &details, file)),
         )
         .map_err(|e| {
             log::error!("unable to start downloading {}: {e}", record.name);

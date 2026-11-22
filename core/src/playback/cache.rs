@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
@@ -169,6 +169,15 @@ impl SongCache {
         drop(index);
         self.prune();
         Ok(())
+    }
+
+    /// Keeps a song downloaded whole, `file`, as `put` does, from its
+    /// start: what each source does with a download once it's whole.
+    pub fn keep_download(&self, key: &str, names: &[String], details: &serde_json::Value, file: &mut File) {
+        match file.seek(SeekFrom::Start(0)).and_then(|_| self.put(key, names, details, file)) {
+            Ok(()) => log::debug!("{key} kept"),
+            Err(e) => log::error!("unable to keep {key}: {e}"),
+        }
     }
 
     /// Finds the song kept under `key` by `name` too from now on, with

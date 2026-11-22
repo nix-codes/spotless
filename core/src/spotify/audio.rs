@@ -351,13 +351,7 @@ impl SpotifyAudio {
             head,
             None,
             &self.cache.temporary_dir(),
-            Box::new(move |file| {
-                let kept_file = file.seek(SeekFrom::Start(0)).and_then(|_| cache.put(&kept, &names, &record, file));
-                match kept_file {
-                    Ok(()) => log::debug!("{kept} kept"),
-                    Err(e) => log::error!("unable to keep {kept}: {e}"),
-                }
-            }),
+            Box::new(move |file| cache.keep_download(&kept, &names, &record, file)),
         )
         .map_err(|e| {
             log::error!("unable to start downloading {}: {e}", name);
